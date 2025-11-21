@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Ministry Portal</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="icon" type="image/x-icon" href="assets/LOGO.png">
+    <link rel="shortcut icon" type="image/x-icon" href="assets/LOGO.png">
+    <link rel="apple-touch-icon" href="assets/LOGO.png">
+
+    <style>
+        :root {
+            --primary: #926C15;
+            --secondary: #C9980B;
+            --accent: #FFC300;
+            --light-yellow: #FFD235;
+            --bright-yellow: #FFE169;
+            --light: #f8f9fa;
+            --dark: #343a40;
+            --success: #28a745;
+            --danger: #dc3545;
+            --border-radius: 12px;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .signup-container {
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            width: 100%;
+            max-width: 450px;
+            animation: slideIn 0.5s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .signup-header {
+            background: linear-gradient(135deg, var(--accent), var(--primary));
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .logo {
+            width: 150px;
+            height: 150px;
+            background-image: url('assets/LOGO.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            margin: 0 auto;
+            filter: drop-shadow(0px 4px 10px rgba(0,0,0,0.6));
+        }
+
+        .signup-header h1 {
+            font-size: 1.5rem;
+            margin-bottom: 5px;
+            margin-top: 5px;
+            font-family: 'Montserrat', sans-serif;
+            text-align: center;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.25);
+        }
+
+        .signup-header p {
+            opacity: 0.9;
+            font-size: 0.9rem;
+            font-family: 'Montserrat', sans-serif;
+            letter-spacing: 10px;
+            text-align: center;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.25);
+        }
+
+        .signup-body {
+            padding: 30px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--dark);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .required {
+            color: var(--danger);
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--primary);
+            font-size: 1.1rem;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--primary);
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .password-toggle:hover {
+            color: var(--secondary);
+        }
+
+        .form-control, .form-select {
+            width: 100%;
+            padding: 12px 45px 12px 45px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: .8rem;
+            transition: var(--transition);
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .form-control:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(146, 108, 21, 0.1);
+        }
+
+        .password-strength {
+            margin-top: 8px;
+            height: 4px;
+            background: #e0e0e0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .password-strength-bar {
+            height: 100%;
+            width: 0;
+            transition: var(--transition);
+        }
+
+        .strength-weak {
+            background: var(--danger);
+            width: 33%;
+        }
+
+        .strength-medium {
+            background: #ffc107;
+            width: 66%;
+        }
+
+        .strength-strong {
+            background: var(--success);
+            width: 100%;
+        }
+
+        .password-strength-text {
+            margin-top: 5px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            margin-top: 3px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            font-weight: 400;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .checkbox-group a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .checkbox-group a:hover {
+            text-decoration: underline;
+        }
+
+        .btn-signup {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            margin-top: 10px;
+        }
+
+        .btn-signup:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+        }
+
+        .btn-signup:active {
+            transform: translateY(0);
+        }
+
+        .btn-signup:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .alert {
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+            animation: shake 0.5s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        .alert-danger {
+            background: #e4c363;
+            color: var(--light);
+            border-left: 4px solid var(--danger);
+        }
+
+        .alert-success {
+            background: #e6ffe6;
+            color: var(--success);
+            border-left: 4px solid var(--primary);
+        }
+
+        .signup-footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .signup-footer p {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .signup-footer a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+            transition: var(--transition);
+        }
+
+        .signup-footer a:hover {
+            color: var(--secondary);
+        }
+
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-text {
+            color: var(--danger);
+            font-size: 0.85rem;
+            margin-top: 5px;
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .signup-body {
+                padding: 20px;
+            }
+
+            .signup-header h1 {
+                font-size: 1.3rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .signup-container {
+                max-width: 100%;
+            }
+
+            .signup-body {
+                padding: 20px;
+            }
+
+            .signup-header h1 {
+                font-size: 1.3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="signup-container">
+        <div class="signup-header">
+            <div class="logo"></div>
+            <h1>JOYFUL SOUND CHURCH</h1>
+            <p>INTERNATIONAL</p>
+        </div>
+
+        <div class="signup-body">
+            <div id="alert" class="alert"></div>
+
+            <form id="signupForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="firstname">First Name <span class="required">*</span></label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-user"></i></span>
+                            <input type="text" id="firstname" class="form-control" placeholder="John" required>
+                        </div>
+                        <div class="error-text" id="firstname-error"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="lastname">Last Name <span class="required">*</span></label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-user"></i></span>
+                            <input type="text" id="lastname" class="form-control" placeholder="Doe" required>
+                        </div>
+                        <div class="error-text" id="lastname-error"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="birthdate">Birthdate <span class="required">*</span></label>
+                    <div class="input-wrapper">
+                        <span class="input-icon"><i class="fa-solid fa-calendar"></i></span>
+                        <input type="date" id="birthdate" class="form-control" required>
+                    </div>
+                    <div class="error-text" id="birthdate-error"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="ministry">Ministry <span class="required">*</span></label>
+                    <div class="input-wrapper">
+                        <span class="input-icon"><i class="fa-solid fa-hands-praying"></i></span>
+                        <select id="ministry" class="form-select" required>
+                            <option value="">Select your ministry</option>
+                            <option value="Media">Media</option>
+                            <option value="Praise And Worship">Praise And Worship</option>
+                            <option value="Dancers">Dancers</option>
+                            <option value="Ashers">Ashers</option>
+                        </select>
+                    </div>
+                    <div class="error-text" id="ministry-error"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="username">Username <span class="required">*</span></label>
+                    <div class="input-wrapper">
+                        <span class="input-icon"><i class="fa-solid fa-user"></i></span>
+                        <input type="text" id="username" class="form-control" placeholder="johndoe123" required>
+                    </div>
+                    <div class="error-text" id="username-error"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password <span class="required">*</span></label>
+                    <div class="input-wrapper">
+                        <span class="input-icon"><i class="fa-solid fa-lock"></i></span>
+                        <input type="password" id="password" class="form-control" placeholder="Enter password" required>
+                        <span class="password-toggle" id="passwordToggle">
+                            <i class="fa-solid fa-eye"></i>
+                        </span>
+                    </div>
+                    <div class="password-strength">
+                        <div class="password-strength-bar" id="strength-bar"></div>
+                    </div>
+                    <div class="password-strength-text" id="strength-text"></div>
+                    <div class="error-text" id="password-error"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm Password <span class="required">*</span></label>
+                    <div class="input-wrapper">
+                        <span class="input-icon"><i class="fa-solid fa-lock"></i></span>
+                        <input type="password" id="confirmPassword" class="form-control" placeholder="Confirm password" required>
+                        <span class="password-toggle" id="confirmPasswordToggle">
+                            <i class="fa-solid fa-eye"></i>
+                        </span>
+                    </div>
+                    <div class="error-text" id="confirmPassword-error"></div>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="terms" required>
+                        <label for="terms">
+                            I agree to the <a href="#" onclick="showTerms(); return false;">Terms and Conditions</a> <span class="required">*</span>
+                        </label>
+                    </div>
+                    <div class="error-text" id="terms-error"></div>
+                </div>
+
+                <button type="submit" id="signupBtn" class="btn-signup">
+                    <span id="btnText">Create Account</span>
+                    <div id="spinner" class="spinner"></div>
+                </button>
+            </form>
+
+            <div class="signup-footer">
+                <p>Already have an account? <a href="login.html">Login</a></p>
+                <p style="margin-top: 10px; font-size: 0.8rem; color: #999;">
+                    &copy; <span id="currentYear"></span> Joyful Sound Church International. All rights reserved.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwBl_ULPjKGPgAJAP8t99kP3i5vuW8syIVhoDopRJX-_TU9xrQnRe-dN8VYYaHfKb6W/exec';
+
+        // Set current year in footer
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+
+        // Password visibility toggle
+        document.getElementById('passwordToggle').addEventListener('click', function() {
+            const passwordInput = document.getElementById('password');
+            const icon = this.querySelector('i');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        });
+
+        // Confirm password visibility toggle
+        document.getElementById('confirmPasswordToggle').addEventListener('click', function() {
+            const confirmPasswordInput = document.getElementById('confirmPassword');
+            const icon = this.querySelector('i');
+            
+            if (confirmPasswordInput.type === 'password') {
+                confirmPasswordInput.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                confirmPasswordInput.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        });
+
+        // Password strength checker
+        document.getElementById('password').addEventListener('input', function() {
+            const password = this.value;
+            const strengthBar = document.getElementById('strength-bar');
+            const strengthText = document.getElementById('strength-text');
+
+            let strength = 0;
+            if (password.length >= 8) strength++;
+            if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
+            if (/\d/.test(password)) strength++;
+            if (/[^a-zA-Z\d]/.test(password)) strength++;
+
+            strengthBar.className = 'password-strength-bar';
+            if (strength <= 1) {
+                strengthBar.classList.add('strength-weak');
+                strengthText.textContent = 'Weak password';
+                strengthText.style.color = 'var(--danger)';
+            } else if (strength <= 3) {
+                strengthBar.classList.add('strength-medium');
+                strengthText.textContent = 'Medium password';
+                strengthText.style.color = '#ffc107';
+            } else {
+                strengthBar.classList.add('strength-strong');
+                strengthText.textContent = 'Strong password';
+                strengthText.style.color = 'var(--success)';
+            }
+        });
+
+        // Confirm password validation
+        document.getElementById('confirmPassword').addEventListener('input', function() {
+            const password = document.getElementById('password').value;
+            const confirmPassword = this.value;
+            const errorDiv = document.getElementById('confirmPassword-error');
+
+            if (confirmPassword && password !== confirmPassword) {
+                errorDiv.textContent = 'Passwords do not match';
+                errorDiv.style.display = 'block';
+            } else {
+                errorDiv.style.display = 'none';
+            }
+        });
+
+        // Form submission
+        document.getElementById('signupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Get form values
+            const formData = {
+                firstname: document.getElementById('firstname').value.trim(),
+                lastname: document.getElementById('lastname').value.trim(),
+                birthdate: document.getElementById('birthdate').value,
+                ministry: document.getElementById('ministry').value,
+                username: document.getElementById('username').value.trim(),
+                password: document.getElementById('password').value,
+                confirmPassword: document.getElementById('confirmPassword').value,
+                terms: document.getElementById('terms').checked
+            };
+
+            // Validate
+            if (!validateForm(formData)) {
+                return;
+            }
+
+            const signupBtn = document.getElementById('signupBtn');
+            const btnText = document.getElementById('btnText');
+            const spinner = document.getElementById('spinner');
+            const alert = document.getElementById('alert');
+
+            // Show loading state
+            signupBtn.disabled = true;
+            btnText.style.display = 'none';
+            spinner.style.display = 'block';
+            alert.style.display = 'none';
+
+            try {
+                const response = await fetch(`${SCRIPT_URL}?action=signup`, {
+                    method: 'POST',
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showAlert('Account created successfully! Redirecting to login...', 'success');
+                    
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 2000);
+                } else {
+                    showAlert(result.message || 'Error creating account', 'danger');
+                    signupBtn.disabled = false;
+                    btnText.style.display = 'block';
+                    spinner.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Signup error:', error);
+                showAlert('An error occurred. Please try again.', 'danger');
+                signupBtn.disabled = false;
+                btnText.style.display = 'block';
+                spinner.style.display = 'none';
+            }
+        });
+
+        function validateForm(data) {
+            let isValid = true;
+
+            // Reset errors
+            document.querySelectorAll('.error-text').forEach(el => el.style.display = 'none');
+
+            // Validate password match
+            if (data.password !== data.confirmPassword) {
+                document.getElementById('confirmPassword-error').textContent = 'Passwords do not match';
+                document.getElementById('confirmPassword-error').style.display = 'block';
+                isValid = false;
+            }
+
+            // Validate password strength
+            if (data.password.length < 8) {
+                document.getElementById('password-error').textContent = 'Password must be at least 8 characters';
+                document.getElementById('password-error').style.display = 'block';
+                isValid = false;
+            }
+
+            // Validate terms
+            if (!data.terms) {
+                document.getElementById('terms-error').textContent = 'You must agree to the terms and conditions';
+                document.getElementById('terms-error').style.display = 'block';
+                isValid = false;
+            }
+
+            // Validate birthdate (must be at least 13 years old)
+            const birthdate = new Date(data.birthdate);
+            const today = new Date();
+            const age = today.getFullYear() - birthdate.getFullYear();
+            if (age < 13) {
+                document.getElementById('birthdate-error').textContent = 'You must be at least 13 years old';
+                document.getElementById('birthdate-error').style.display = 'block';
+                isValid = false;
+            }
+
+            if (!isValid) {
+                showAlert('Please fix the errors above', 'danger');
+            }
+
+            return isValid;
+        }
+
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.textContent = message;
+            alert.className = `alert alert-${type}`;
+            alert.style.display = 'block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function showTerms() {
+            alert('Terms and Conditions:\n\n1. You agree to use this portal responsibly\n2. Your information will be kept confidential\n3. You will participate actively in your assigned ministry\n4. You will respect all members of the community');
+        }
+    </script>
+</body>
+</html>
