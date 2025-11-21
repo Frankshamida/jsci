@@ -478,67 +478,39 @@
             z-index: 999;
         }
 
-        /* Form Styles */
-        .form-group {
-            margin-bottom: 20px;
-        }
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
 
-        .form-label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: var(--dark);
-            font-family: 'Montserrat', sans-serif;
-        }
+            .sidebar.active {
+                transform: translateX(0);
+            }
 
-        .input-wrapper {
-            position: relative;
-            margin-bottom: 20px;
-        }
+            .main-content {
+                margin-left: 0;
+                padding: 80px 20px 20px;
+            }
 
-        .input-icon {
-            position: absolute;
-            left: 15px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--primary);
-            font-size: 1.1rem;
-        }
+            .mobile-menu-toggle {
+                display: block;
+            }
 
-        .form-control {
-            width: 100%;
-            padding: 12px 15px 12px 45px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: .8rem;
-            transition: var(--transition);
-            font-family: 'Montserrat', sans-serif;
-        }
+            .overlay.active {
+                display: block;
+            }
 
-        .form-control:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(146, 108, 21, 0.1);
-        }
+            .stats-container {
+                grid-template-columns: 1fr;
+            }
 
-        .btn {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            font-family: 'Montserrat', sans-serif;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+            .logout-btn {
+                position: relative;
+                bottom: auto;
+                left: auto;
+                right: auto;
+                margin: 20px;
+            }
         }
 
         .table-container {
@@ -592,105 +564,42 @@
             color: var(--danger);
         }
 
+        .input-wrapper {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--primary);
+            font-size: 1.1rem;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 15px 12px 45px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: .8rem;
+            transition: var(--transition);
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(146, 108, 21, 0.1);
+        }
+
         .unverified-content {
             display: none;
         }
 
         .unverified-content.hidden {
             display: none !important;
-        }
-
-        .content-card {
-            background: white;
-            padding: 25px;
-            border-radius: var(--border-radius);
-            box-shadow: var(--shadow);
-            margin-bottom: 20px;
-        }
-
-        .content-card h3 {
-            color: var(--primary);
-            margin-bottom: 15px;
-            font-family: 'Montserrat', sans-serif;
-        }
-
-        .content-card p {
-            line-height: 1.6;
-            color: #555;
-            margin-bottom: 15px;
-        }
-
-        .content-card ul {
-            padding-left: 20px;
-            margin-bottom: 15px;
-        }
-
-        .content-card li {
-            margin-bottom: 8px;
-            line-height: 1.5;
-        }
-
-        @media (max-width: 768px) {
-            .sidebar {
-                transform: translateX(-100%);
-            }
-
-            .sidebar.active {
-                transform: translateX(0);
-            }
-
-            .main-content {
-                margin-left: 0;
-                padding: 80px 20px 20px;
-            }
-
-            .mobile-menu-toggle {
-                display: block;
-            }
-
-            .overlay.active {
-                display: block;
-            }
-
-            .stats-container {
-                grid-template-columns: 1fr;
-            }
-
-            .logout-btn {
-                position: relative;
-                bottom: auto;
-                left: auto;
-                right: auto;
-                margin: 20px;
-            }
-
-            .content-header {
-                padding: 20px;
-            }
-
-            .content-section {
-                padding: 20px;
-            }
-
-            .first-time-welcome {
-                padding: 30px 20px;
-            }
-
-            .first-time-welcome h2 {
-                font-size: 1.6rem;
-            }
-
-            .bible-verse-container {
-                padding: 20px;
-            }
-
-            .verse-of-the-day {
-                font-size: 1rem;
-            }
-
-            .form-control {
-                padding: 10px 12px 10px 40px;
-            }
         }
     </style>
 </head>
@@ -845,412 +754,7 @@
                 </div>
             </section>
 
-            <!-- Weekly Schedule Section -->
-            <section id="weekly-schedule" class="content-section">
-                <h2 class="section-title">Weekly Schedule</h2>
-                <div class="content-card">
-                    <h3>Your Ministry Schedule</h3>
-                    <p>Here's your schedule for the upcoming week. Please confirm your availability for each event.</p>
-                    
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Day</th>
-                                    <th>Event</th>
-                                    <th>Time</th>
-                                    <th>Your Role</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>Nov 20, 2025</td>
-                                    <td>Sunday</td>
-                                    <td>Sunday Service</td>
-                                    <td>9:00 AM - 12:00 PM</td>
-                                    <td>Sound Technician</td>
-                                    <td><span class="badge badge-success">Confirmed</span></td>
-                                </tr>
-                                <tr>
-                                    <td>Nov 22, 2025</td>
-                                    <td>Tuesday</td>
-                                    <td>Prayer Meeting</td>
-                                    <td>6:00 PM - 7:30 PM</td>
-                                    <td>Video Operator</td>
-                                    <td><span class="badge badge-warning">Pending</span></td>
-                                </tr>
-                                <tr>
-                                    <td>Nov 24, 2025</td>
-                                    <td>Thursday</td>
-                                    <td>Youth Service</td>
-                                    <td>7:00 PM - 9:00 PM</td>
-                                    <td>Live Stream Manager</td>
-                                    <td><span class="badge badge-success">Confirmed</span></td>
-                                </tr>
-                                <tr>
-                                    <td>Nov 26, 2025</td>
-                                    <td>Saturday</td>
-                                    <td>Men's Breakfast</td>
-                                    <td>8:00 AM - 10:00 AM</td>
-                                    <td>Photographer</td>
-                                    <td><span class="badge badge-warning">Pending</span></td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div style="margin-top: 20px;">
-                        <button class="btn btn-primary">Update Availability</button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Attendance Section -->
-            <section id="attendance" class="content-section">
-                <h2 class="section-title">Attendance Record</h2>
-                <div class="content-card">
-                    <h3>Your Ministry Attendance</h3>
-                    <p>Track your attendance and participation in ministry activities.</p>
-                    
-                    <div class="stats-container" style="margin-bottom: 30px;">
-                        <div class="stat-card">
-                            <div class="stat-icon">✅</div>
-                            <div class="stat-value">95%</div>
-                            <div class="stat-label">Overall Attendance</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon">📅</div>
-                            <div class="stat-value">19/20</div>
-                            <div class="stat-label">Events Attended</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon">⏱️</div>
-                            <div class="stat-value">45h</div>
-                            <div class="stat-label">Total Service Hours</div>
-                        </div>
-                    </div>
-                    
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Event</th>
-                                    <th>Check-in Time</th>
-                                    <th>Check-out Time</th>
-                                    <th>Hours</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>Nov 13, 2025</td>
-                                    <td>Sunday Service</td>
-                                    <td>8:45 AM</td>
-                                    <td>12:15 PM</td>
-                                    <td>3.5 hours</td>
-                                </tr>
-                                <tr>
-                                    <td>Nov 11, 2025</td>
-                                    <td>Prayer Meeting</td>
-                                    <td>5:50 PM</td>
-                                    <td>7:45 PM</td>
-                                    <td>1.9 hours</td>
-                                </tr>
-                                <tr>
-                                    <td>Nov 9, 2025</td>
-                                    <td>Youth Service</td>
-                                    <td>6:30 PM</td>
-                                    <td>9:15 PM</td>
-                                    <td>2.8 hours</td>
-                                </tr>
-                                <tr>
-                                    <td>Nov 6, 2025</td>
-                                    <td>Ministry Training</td>
-                                    <td>6:00 PM</td>
-                                    <td>8:30 PM</td>
-                                    <td>2.5 hours</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Announcements Section -->
-            <section id="announcements" class="content-section">
-                <h2 class="section-title">Announcements</h2>
-                <div class="content-card">
-                    <h3>📢 Ministry Announcements</h3>
-                    <p>Stay updated with the latest news and information from your ministry.</p>
-                    
-                    <div style="margin-top: 25px;">
-                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                            <h4 style="color: var(--primary); margin-bottom: 10px;">New Equipment Training</h4>
-                            <p style="margin-bottom: 10px;">We have new audio equipment arriving next week. All media team members are required to attend the training session on Thursday at 6 PM.</p>
-                            <p style="font-size: 0.85rem; color: #6c757d;">Posted: Nov 15, 2025</p>
-                        </div>
-                        
-                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                            <h4 style="color: var(--primary); margin-bottom: 10px;">Christmas Service Schedule</h4>
-                            <p style="margin-bottom: 10px;">Please review the special Christmas service schedule. We'll have additional rehearsals starting December 1st.</p>
-                            <p style="font-size: 0.85rem; color: #6c757d;">Posted: Nov 10, 2025</p>
-                        </div>
-                        
-                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                            <h4 style="color: var(--primary); margin-bottom: 10px;">Ministry Appreciation Dinner</h4>
-                            <p style="margin-bottom: 10px;">Save the date! Our annual ministry appreciation dinner will be held on December 5th. RSVP by November 25th.</p>
-                            <p style="font-size: 0.85rem; color: #6c757d;">Posted: Nov 5, 2025</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Media Ministry Section -->
-            <section id="media" class="content-section">
-                <h2 class="section-title">Media Ministry</h2>
-                <div class="content-card">
-                    <h3>Media Team Resources</h3>
-                    <p>Access media ministry resources, equipment schedules, and team communications.</p>
-                    
-                    <div style="margin-top: 25px;">
-                        <h4 style="color: var(--primary); margin-bottom: 15px;">Equipment Checkout</h4>
-                        <div class="table-container">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Equipment</th>
-                                        <th>Status</th>
-                                        <th>Checked Out By</th>
-                                        <th>Due Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>Camera A (Sony A7III)</td>
-                                        <td><span class="badge badge-success">Available</span></td>
-                                        <td>-</td>
-                                        <td>-</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Wireless Mic Set #2</td>
-                                        <td><span class="badge badge-warning">Checked Out</span></td>
-                                        <td>Maria Rodriguez</td>
-                                        <td>Nov 22, 2025</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Audio Mixer (Yamaha)</td>
-                                        <td><span class="badge badge-success">Available</span></td>
-                                        <td>-</td>
-                                        <td>-</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Streaming Laptop</td>
-                                        <td><span class="badge badge-danger">Maintenance</span></td>
-                                        <td>-</td>
-                                        <td>Nov 25, 2025</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                        
-                        <div style="margin-top: 30px;">
-                            <h4 style="color: var(--primary); margin-bottom: 15px;">Team Tasks</h4>
-                            <ul>
-                                <li>Update slides for Sunday service (Due: Friday)</li>
-                                <li>Test new audio equipment (Due: Tomorrow)</li>
-                                <li>Backup last week's service recordings (Due: Today)</li>
-                                <li>Prepare graphics for Christmas series (Due: Nov 30)</li>
-                            </ul>
-                        </div>
-                        
-                        <div style="margin-top: 30px;">
-                            <button class="btn btn-primary">Request Equipment</button>
-                            <button class="btn btn-primary" style="margin-left: 10px;">Report Issue</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Praise And Worship Section -->
-            <section id="praise-worship" class="content-section">
-                <h2 class="section-title">Praise And Worship</h2>
-                <div class="content-card">
-                    <h3>Worship Team Resources</h3>
-                    <p>Access worship schedules, song lists, and team resources.</p>
-                    
-                    <div style="margin-top: 25px;">
-                        <h4 style="color: var(--primary); margin-bottom: 15px;">Upcoming Worship Sets</h4>
-                        <div class="table-container">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Service</th>
-                                        <th>Team Leader</th>
-                                        <th>Songs</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>Nov 20, 2025</td>
-                                        <td>Sunday Service</td>
-                                        <td>Sarah Johnson</td>
-                                        <td>5 songs</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Nov 22, 2025</td>
-                                        <td>Prayer Meeting</td>
-                                        <td>Michael Brown</td>
-                                        <td>3 songs</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Nov 24, 2025</td>
-                                        <td>Youth Service</td>
-                                        <td>David Wilson</td>
-                                        <td>4 songs</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                        
-                        <div style="margin-top: 30px;">
-                            <h4 style="color: var(--primary); margin-bottom: 15px;">Rehearsal Schedule</h4>
-                            <ul>
-                                <li>Sunday Service Rehearsal: Saturdays, 2:00 PM</li>
-                                <li>Prayer Meeting Rehearsal: Tuesdays, 5:00 PM</li>
-                                <li>Youth Service Rehearsal: Thursdays, 6:00 PM</li>
-                                <li>Special Event Rehearsals: As announced</li>
-                            </ul>
-                        </div>
-                        
-                        <div style="margin-top: 30px;">
-                            <button class="btn btn-primary">View Song Library</button>
-                            <button class="btn btn-primary" style="margin-left: 10px;">Download Chord Charts</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Dancers Section -->
-            <section id="dancers" class="content-section">
-                <h2 class="section-title">Dancers Ministry</h2>
-                <div class="content-card">
-                    <h3>Dance Team Resources</h3>
-                    <p>Access dance schedules, choreography notes, and team communications.</p>
-                    
-                    <div style="margin-top: 25px;">
-                        <h4 style="color: var(--primary); margin-bottom: 15px;">Upcoming Performances</h4>
-                        <div class="table-container">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Event</th>
-                                        <th>Choreographer</th>
-                                        <th>Dancers</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>Nov 20, 2025</td>
-                                        <td>Sunday Service</td>
-                                        <td>Jessica Martinez</td>
-                                        <td>8 dancers</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Nov 27, 2025</td>
-                                        <td>Thanksgiving Service</td>
-                                        <td>Robert Chen</td>
-                                        <td>12 dancers</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Dec 18, 2025</td>
-                                        <td>Christmas Celebration</td>
-                                        <td>Jessica Martinez</td>
-                                        <td>15 dancers</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                        
-                        <div style="margin-top: 30px;">
-                            <h4 style="color: var(--primary); margin-bottom: 15px;">Rehearsal Schedule</h4>
-                            <ul>
-                                <li>Regular Rehearsals: Wednesdays, 7:00 PM</li>
-                                <li>Special Event Rehearsals: Saturdays, 10:00 AM</li>
-                                <li>Costume Fittings: As announced</li>
-                            </ul>
-                        </div>
-                        
-                        <div style="margin-top: 30px;">
-                            <button class="btn btn-primary">View Choreography Videos</button>
-                            <button class="btn btn-primary" style="margin-left: 10px;">Costume Request</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Ashers Section -->
-            <section id="ashers" class="content-section">
-                <h2 class="section-title">Ashers Ministry</h2>
-                <div class="content-card">
-                    <h3>Usher Team Resources</h3>
-                    <p>Access usher schedules, training materials, and team communications.</p>
-                    
-                    <div style="margin-top: 25px;">
-                        <h4 style="color: var(--primary); margin-bottom: 15px;">Service Assignments</h4>
-                        <div class="table-container">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Service</th>
-                                        <th>Team Captain</th>
-                                        <th>Your Assignment</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>Nov 20, 2025</td>
-                                        <td>Sunday Service</td>
-                                        <td>James Wilson</td>
-                                        <td>Main Entrance</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Nov 22, 2025</td>
-                                        <td>Prayer Meeting</td>
-                                        <td>Lisa Thompson</td>
-                                        <td>Offering Collection</td>
-                                    </tr>
-                                    <tr>
-                                        <td>Nov 24, 2025</td>
-                                        <td>Youth Service</td>
-                                        <td>James Wilson</td>
-                                        <td>Information Desk</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                        
-                        <div style="margin-top: 30px;">
-                            <h4 style="color: var(--primary); margin-bottom: 15px;">Training Resources</h4>
-                            <ul>
-                                <li><a href="#" style="color: var(--primary);">Usher Training Manual</a></li>
-                                <li><a href="#" style="color: var(--primary);">Emergency Procedures</a></li>
-                                <li><a href="#" style="color: var(--primary);">Guest Services Protocol</a></li>
-                                <li><a href="#" style="color: var(--primary);">Offering Collection Guidelines</a></li>
-                            </ul>
-                        </div>
-                        
-                        <div style="margin-top: 30px;">
-                            <button class="btn btn-primary">Request Shift Change</button>
-                            <button class="btn btn-primary" style="margin-left: 10px;">Report Incident</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
+            <!-- Other sections will be dynamically loaded based on user status -->
         </main>
     </div>
 
@@ -1559,11 +1063,8 @@
             menuItems.common.forEach(item => {
                 const menuItem = document.createElement('a');
                 menuItem.className = 'menu-item' + (item.id === 'home' ? ' active' : '');
-                // For unverified users, only show Home button
                 if (!isVerified && item.id !== 'home') {
-                    menuItem.style.display = 'none';
-                } else if (!isVerified && item.id === 'home') {
-                    menuItem.className = 'menu-item active';
+                    menuItem.className += ' disabled';
                 }
                 menuItem.onclick = () => {
                     if (isVerified || item.id === 'home') {
@@ -1578,17 +1079,20 @@
                 sidebarMenu.appendChild(menuItem);
             });
             
-            // Add ministry-specific menu item (only for verified users)
-            if (isVerified && menuItems[ministry]) {
+            // Add ministry-specific menu item
+            if (menuItems[ministry]) {
                 menuItems[ministry].forEach(item => {
                     const menuItem = document.createElement('a');
-                    menuItem.className = 'menu-item';
+                    menuItem.className = 'menu-item' + (isVerified ? '' : ' disabled');
                     menuItem.onclick = () => {
-                        showSection(item.id);
+                        if (isVerified) {
+                            showSection(item.id);
+                        }
                     };
                     menuItem.innerHTML = `
                         <span class="menu-icon">${item.icon}</span>
                         <span>${item.label}</span>
+                        ${!isVerified ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;">🔒</span>' : ''}
                     `;
                     sidebarMenu.appendChild(menuItem);
                 });

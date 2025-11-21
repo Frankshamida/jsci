@@ -1,10 +1,114 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta http-equiv="refresh" content="0; url=login.html">
-    <title>Redirecting...</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joyful Sound Church International</title>
+    <style>
+        /* Add your main page styles here */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .logo {
+            width: 150px;
+            height: 150px;
+            margin: 0 auto 20px;
+            background-image: url('assets/LOGO.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+        
+        h1 {
+            color: #926C15;
+            margin-bottom: 10px;
+        }
+        
+        p {
+            color: #6c757d;
+            margin-bottom: 30px;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #926C15, #C9980B);
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+        }
+        
+        .loading {
+            display: none;
+            margin-top: 20px;
+        }
+    </style>
 </head>
 <body>
-    <p>Redirecting to login page...</p>
+    <div class="container">
+        <div class="logo"></div>
+        <h1>Joyful Sound Church International</h1>
+        <p>Welcome to our church community</p>
+        
+        <a href="login.html" class="btn">Login to Ministry Portal</a>
+        
+        <div class="loading" id="loading">
+            <p>Checking login status...</p>
+        </div>
+    </div>
+
+    <script>
+        // Check if user is already logged in
+        function checkLoginStatus() {
+            const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
+            
+            // Show loading indicator
+            document.getElementById('loading').style.display = 'block';
+            
+            // If user data exists and has required fields, redirect to dashboard
+            if (userData && userData.firstname && userData.username) {
+                console.log('User already logged in, redirecting to dashboard...');
+                setTimeout(() => {
+                    window.location.href = 'dashboard.html';
+                }, 1000);
+            } else {
+                // Hide loading indicator if no user is logged in
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        // Check login status when page loads
+        document.addEventListener('DOMContentLoaded', checkLoginStatus);
+        
+        // Also check when page becomes visible (in case of returning from another tab)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                checkLoginStatus();
+            }
+        });
+    </script>
 </body>
 </html>
