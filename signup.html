@@ -65,13 +65,13 @@
         .signup-header {
             background: linear-gradient(135deg, var(--accent), var(--primary));
             color: white;
-            padding: 30px;
+            padding: 25px 20px;
             text-align: center;
         }
 
         .logo {
-            width: 150px;
-            height: 150px;
+            width: 120px;
+            height: 120px;
             background-image: url('assets/LOGO.png');
             background-size: contain;
             background-repeat: no-repeat;
@@ -81,9 +81,9 @@
         }
 
         .signup-header h1 {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             margin-bottom: 5px;
-            margin-top: 5px;
+            margin-top: 10px;
             font-family: 'Montserrat', sans-serif;
             text-align: center;
             text-shadow: 2px 2px 5px rgba(0,0,0,0.25);
@@ -91,15 +91,15 @@
 
         .signup-header p {
             opacity: 0.9;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-family: 'Montserrat', sans-serif;
-            letter-spacing: 10px;
+            letter-spacing: 8px;
             text-align: center;
             text-shadow: 2px 2px 5px rgba(0,0,0,0.25);
         }
 
         .signup-body {
-            padding: 30px;
+            padding: 25px;
         }
 
         .form-row {
@@ -109,7 +109,7 @@
         }
 
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 18px;
         }
 
         .form-group.full-width {
@@ -161,7 +161,7 @@
             padding: 12px 45px 12px 45px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
-            font-size: .8rem;
+            font-size: 0.9rem;
             transition: var(--transition);
             font-family: 'Montserrat', sans-serif;
         }
@@ -224,6 +224,7 @@
             font-weight: 400;
             font-size: 0.9rem;
             cursor: pointer;
+            line-height: 1.4;
         }
 
         .checkbox-group a {
@@ -247,6 +248,8 @@
             cursor: pointer;
             transition: var(--transition);
             margin-top: 10px;
+            position: relative;
+            min-height: 48px;
         }
 
         .btn-signup:hover {
@@ -261,6 +264,8 @@
         .btn-signup:disabled {
             opacity: 0.6;
             cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .alert {
@@ -334,6 +339,7 @@
             display: none;
         }
 
+        /* Responsive Design */
         @media (max-width: 768px) {
             .form-row {
                 grid-template-columns: 1fr;
@@ -343,8 +349,22 @@
                 padding: 20px;
             }
 
+            .signup-header {
+                padding: 20px 15px;
+            }
+            
+            .logo {
+                width: 100px;
+                height: 100px;
+            }
+            
             .signup-header h1 {
                 font-size: 1.3rem;
+            }
+            
+            .signup-header p {
+                font-size: 0.8rem;
+                letter-spacing: 6px;
             }
         }
 
@@ -358,7 +378,104 @@
             }
 
             .signup-header h1 {
-                font-size: 1.3rem;
+                font-size: 1.2rem;
+            }
+            
+            .form-control, .form-select {
+                padding: 10px 40px 10px 40px;
+                font-size: 0.85rem;
+            }
+            
+            .input-icon, .password-toggle {
+                font-size: 1rem;
+            }
+            
+            .btn-signup {
+                padding: 12px;
+                font-size: 0.95rem;
+                min-height: 44px;
+            }
+            
+            .checkbox-group label {
+                font-size: 0.85rem;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .signup-body {
+                padding: 15px;
+            }
+            
+            .signup-header {
+                padding: 15px 10px;
+            }
+            
+            .logo {
+                width: 80px;
+                height: 80px;
+            }
+            
+            .signup-header h1 {
+                font-size: 1.1rem;
+            }
+            
+            .signup-header p {
+                font-size: 0.75rem;
+                letter-spacing: 4px;
+            }
+            
+            .form-control, .form-select {
+                padding: 8px 35px 8px 35px;
+            }
+            
+            .checkbox-group label {
+                font-size: 0.8rem;
+            }
+            
+            .signup-footer p {
+                font-size: 0.85rem;
+            }
+        }
+
+        @media (max-height: 700px) {
+            body {
+                align-items: flex-start;
+                padding-top: 20px;
+                padding-bottom: 20px;
+            }
+            
+            .signup-container {
+                max-width: 420px;
+            }
+        }
+
+        /* Landscape orientation for mobile */
+        @media (max-width: 768px) and (orientation: landscape) {
+            body {
+                align-items: flex-start;
+                padding-top: 10px;
+                padding-bottom: 10px;
+            }
+            
+            .signup-container {
+                max-width: 500px;
+            }
+            
+            .signup-header {
+                padding: 15px 20px;
+            }
+            
+            .logo {
+                width: 80px;
+                height: 80px;
+            }
+            
+            .signup-body {
+                padding: 15px 20px;
+            }
+            
+            .form-group {
+                margin-bottom: 15px;
             }
         }
     </style>
