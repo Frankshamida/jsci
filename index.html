@@ -73,7 +73,7 @@
         <h1>Joyful Sound Church International</h1>
         <p>Welcome to our church community</p>
         
-        <a href="login.html" class="btn">Login to Ministry Portal</a>
+        <a href="login.html" class="btn" id="loginBtn">Login to Ministry Portal</a>
         
         <div class="loading" id="loading">
             <p>Checking login status...</p>
@@ -87,16 +87,18 @@
             
             // Show loading indicator
             document.getElementById('loading').style.display = 'block';
+            document.getElementById('loginBtn').style.display = 'none';
             
             // If user data exists and has required fields, redirect to dashboard
             if (userData && userData.firstname && userData.username) {
                 console.log('User already logged in, redirecting to dashboard...');
                 setTimeout(() => {
                     window.location.href = 'dashboard.html';
-                }, 1000);
+                }, 500);
             } else {
                 // Hide loading indicator if no user is logged in
                 document.getElementById('loading').style.display = 'none';
+                document.getElementById('loginBtn').style.display = 'inline-block';
             }
         }
         
@@ -106,6 +108,13 @@
         // Also check when page becomes visible (in case of returning from another tab)
         document.addEventListener('visibilitychange', function() {
             if (!document.hidden) {
+                checkLoginStatus();
+            }
+        });
+        
+        // Check if user navigates back to this page
+        window.addEventListener('pageshow', function(event) {
+            if (event.persisted) {
                 checkLoginStatus();
             }
         });
