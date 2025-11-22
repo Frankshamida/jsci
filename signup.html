@@ -573,6 +573,33 @@
                     <div class="error-text" id="confirmPassword-error"></div>
                 </div>
 
+                <!-- Security Questions for Password Recovery -->
+                <div class="form-group">
+                    <label for="securityQuestion">Security Question <span class="required">*</span></label>
+                    <div class="input-wrapper">
+                        <span class="input-icon"><i class="fa-solid fa-shield"></i></span>
+                        <select id="securityQuestion" class="form-select" required>
+                            <option value="">Select a security question</option>
+                            <option value="What was your childhood nickname?">What was your childhood nickname?</option>
+                            <option value="What city were you born in?">What city were you born in?</option>
+                            <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
+                            <option value="What was the name of your first pet?">What was the name of your first pet?</option>
+                            <option value="What elementary school did you attend?">What elementary school did you attend?</option>
+                            <option value="What is your favorite Bible verse?">What is your favorite Bible verse?</option>
+                        </select>
+                    </div>
+                    <div class="error-text" id="securityQuestion-error"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="securityAnswer">Security Answer <span class="required">*</span></label>
+                    <div class="input-wrapper">
+                        <span class="input-icon"><i class="fa-solid fa-key"></i></span>
+                        <input type="text" id="securityAnswer" class="form-control" placeholder="Your answer" required>
+                    </div>
+                    <div class="error-text" id="securityAnswer-error"></div>
+                </div>
+
                 <div class="form-group">
                     <div class="checkbox-group">
                         <input type="checkbox" id="terms" required>
@@ -599,7 +626,10 @@
     </div>
 
     <script>
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec';
+        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //OLD VERSION
+        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxigAs8qtd7UXErXJI2GdqVhNn0_-or6O0idofhzKfcaBX9xSxfuRlpcNFij-FFp-PyZA/exec'; //OLD VERSION
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec'; //NEW VERSION
+
 
         // Set current year in footer
         document.getElementById('currentYear').textContent = new Date().getFullYear();
@@ -682,7 +712,7 @@
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            // Get form values
+            // Get form values INCLUDING SECURITY QUESTIONS
             const formData = {
                 firstname: document.getElementById('firstname').value.trim(),
                 lastname: document.getElementById('lastname').value.trim(),
@@ -691,6 +721,8 @@
                 username: document.getElementById('username').value.trim(),
                 password: document.getElementById('password').value,
                 confirmPassword: document.getElementById('confirmPassword').value,
+                securityQuestion: document.getElementById('securityQuestion').value,
+                securityAnswer: document.getElementById('securityAnswer').value.trim(),
                 terms: document.getElementById('terms').checked
             };
 
@@ -740,48 +772,99 @@
         });
 
         function validateForm(data) {
-            let isValid = true;
+        let isValid = true;
 
-            // Reset errors
-            document.querySelectorAll('.error-text').forEach(el => el.style.display = 'none');
+        // Reset errors
+        document.querySelectorAll('.error-text').forEach(el => el.style.display = 'none');
 
-            // Validate password match
-            if (data.password !== data.confirmPassword) {
-                document.getElementById('confirmPassword-error').textContent = 'Passwords do not match';
-                document.getElementById('confirmPassword-error').style.display = 'block';
-                isValid = false;
-            }
+        // Validate required fields
+        if (!data.firstname) {
+            document.getElementById('firstname-error').textContent = 'First name is required';
+            document.getElementById('firstname-error').style.display = 'block';
+            isValid = false;
+        }
 
-            // Validate password strength
-            if (data.password.length < 8) {
-                document.getElementById('password-error').textContent = 'Password must be at least 8 characters';
-                document.getElementById('password-error').style.display = 'block';
-                isValid = false;
-            }
+        if (!data.lastname) {
+            document.getElementById('lastname-error').textContent = 'Last name is required';
+            document.getElementById('lastname-error').style.display = 'block';
+            isValid = false;
+        }
 
-            // Validate terms
-            if (!data.terms) {
-                document.getElementById('terms-error').textContent = 'You must agree to the terms and conditions';
-                document.getElementById('terms-error').style.display = 'block';
-                isValid = false;
-            }
+        if (!data.birthdate) {
+            document.getElementById('birthdate-error').textContent = 'Birthdate is required';
+            document.getElementById('birthdate-error').style.display = 'block';
+            isValid = false;
+        }
 
-            // Validate birthdate (must be at least 13 years old)
+        if (!data.ministry) {
+            document.getElementById('ministry-error').textContent = 'Ministry is required';
+            document.getElementById('ministry-error').style.display = 'block';
+            isValid = false;
+        }
+
+        if (!data.username) {
+            document.getElementById('username-error').textContent = 'Username is required';
+            document.getElementById('username-error').style.display = 'block';
+            isValid = false;
+        }
+
+        if (!data.securityQuestion) {
+            document.getElementById('securityQuestion-error').textContent = 'Security question is required';
+            document.getElementById('securityQuestion-error').style.display = 'block';
+            isValid = false;
+        }
+
+        if (!data.securityAnswer) {
+            document.getElementById('securityAnswer-error').textContent = 'Security answer is required';
+            document.getElementById('securityAnswer-error').style.display = 'block';
+            isValid = false;
+        }
+
+        // Validate password match
+        if (data.password !== data.confirmPassword) {
+            document.getElementById('confirmPassword-error').textContent = 'Passwords do not match';
+            document.getElementById('confirmPassword-error').style.display = 'block';
+            isValid = false;
+        }
+
+        // Validate password strength
+        if (data.password.length < 8) {
+            document.getElementById('password-error').textContent = 'Password must be at least 8 characters';
+            document.getElementById('password-error').style.display = 'block';
+            isValid = false;
+        }
+
+        // Validate terms
+        if (!data.terms) {
+            document.getElementById('terms-error').textContent = 'You must agree to the terms and conditions';
+            document.getElementById('terms-error').style.display = 'block';
+            isValid = false;
+        }
+
+        // Validate birthdate (must be at least 13 years old) - FIXED VERSION
+        if (data.birthdate) {
             const birthdate = new Date(data.birthdate);
             const today = new Date();
-            const age = today.getFullYear() - birthdate.getFullYear();
+            let age = today.getFullYear() - birthdate.getFullYear();
+            const monthDiff = today.getMonth() - birthdate.getMonth();
+            
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthdate.getDate())) {
+                age--;  // Now this works because age is declared with 'let'
+            }
+            
             if (age < 13) {
                 document.getElementById('birthdate-error').textContent = 'You must be at least 13 years old';
                 document.getElementById('birthdate-error').style.display = 'block';
                 isValid = false;
             }
-
-            if (!isValid) {
-                showAlert('Please fix the errors above', 'danger');
-            }
-
-            return isValid;
         }
+
+        if (!isValid) {
+            showAlert('Please fix the errors above', 'danger');
+        }
+
+        return isValid;
+    }
 
         function showAlert(message, type) {
             const alert = document.getElementById('alert');
@@ -792,7 +875,7 @@
         }
 
         function showTerms() {
-            alert('Terms and Conditions:\n\n1. You agree to use this portal responsibly\n2. Your information will be kept confidential\n3. You will participate actively in your assigned ministry\n4. You will respect all members of the community');
+            alert('Terms and Conditions:\n\n1. You agree to use this portal responsibly\n2. Your information will be kept confidential\n3. You will participate actively in your assigned ministry\n4. You will respect all members of the community\n5. Your security question and answer will be used for password recovery\n6. Keep your security answer confidential and memorable');
         }
     </script>
 </body>

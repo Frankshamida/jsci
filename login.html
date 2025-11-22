@@ -442,6 +442,9 @@
 
             <div class="login-footer">
                 <p>Don't have an account? <a href="signup.html">Sign Up</a></p>
+                <p style="margin-top: 8px;">
+                    <a href="forgot-password.html" style="font-size: 0.9rem;">Forgot Password?</a>
+                </p>
                 <p style="margin-top: 10px; font-size: 0.8rem; color: #999;">
                     &copy; <span id="currentYear"></span> Joyful Sound Church International. All rights reserved.
                 </p>
@@ -450,9 +453,19 @@
     </div>
 
     <script>
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //NEW VERSION
+        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //OLD VERSION
+        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxigAs8qtd7UXErXJI2GdqVhNn0_-or6O0idofhzKfcaBX9xSxfuRlpcNFij-FFp-PyZA/exec'; //OLD VERSION
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec'; //NEW VERSION
 
-
+        // Redirect if already logged in
+        document.addEventListener('DOMContentLoaded', function() {
+            const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
+            
+            if (userData.firstname) {
+                // User is already logged in, redirect to dashboard immediately
+                window.location.replace('dashboard.html');
+            }
+        });
         // Password visibility toggle
         document.getElementById('passwordToggle').addEventListener('click', function() {
             const passwordInput = document.getElementById('password');
