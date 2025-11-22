@@ -136,7 +136,7 @@
 
         .status-verified {
             background: rgba(40, 167, 69, 0.2);
-            color: #f8f9fa;
+            color: #28a745;
         }
 
         .status-unverified {
@@ -306,13 +306,6 @@
         .content-section.active {
             display: block;
             animation: fadeIn 0.3s ease;
-        }
-
-        .content-section.unverified-restricted {
-            display: block !important;
-            background: transparent;
-            box-shadow: none;
-            padding: 0;
         }
 
         @keyframes fadeIn {
@@ -544,42 +537,12 @@
             color: var(--danger);
         }
 
-        .input-wrapper {
-            position: relative;
-            margin-bottom: 15px;
-        }
-
-        .input-icon {
-            position: absolute;
-            left: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--primary);
-            font-size: 1rem;
-        }
-
-        .form-control {
-            width: 100%;
-            padding: 10px 12px 10px 40px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            transition: var(--transition);
-            font-family: 'Montserrat', sans-serif;
-        }
-
-        .form-control:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(146, 108, 21, 0.1);
-        }
-
         .unverified-content {
             display: none;
         }
 
-        .unverified-content.hidden {
-            display: none !important;
+        .verified-content {
+            display: block;
         }
 
         /* Responsive Design */
@@ -690,43 +653,6 @@
                 font-size: 1.2rem;
             }
         }
-
-        @media (max-width: 360px) {
-            .sidebar {
-                width: 100%;
-            }
-            
-            .sidebar-header {
-                padding: 15px 10px;
-            }
-            
-            .logo {
-                width: 70px;
-                height: 70px;
-            }
-            
-            .church-name {
-                font-size: 0.9rem;
-            }
-            
-            .church-subtitle {
-                font-size: 0.65rem;
-                letter-spacing: 3px;
-            }
-            
-            .user-info {
-                padding: 10px;
-            }
-            
-            .menu-item {
-                padding: 10px 15px;
-                font-size: 0.85rem;
-            }
-            
-            .main-content {
-                padding: 50px 8px 8px;
-            }
-        }
     </style>
 </head>
 <body>
@@ -779,7 +705,7 @@
 
             <!-- Home Section -->
             <section id="home" class="content-section active">
-                <!-- First Time Welcome (shown only on first login) -->
+                <!-- First Time Welcome (shown only on first login for verified users) -->
                 <div id="firstTimeWelcomeContainer" style="display: none;">
                     <div class="first-time-welcome">
                         <h2>🎉 Welcome to the Team, <span id="firstTimeName">Frank</span>!</h2>
@@ -798,7 +724,7 @@
                     </div>
                 </div>
 
-                <!-- Regular Welcome (shown for returning users) -->
+                <!-- Regular Welcome (shown for returning verified users) -->
                 <div id="regularWelcomeContainer" style="display: none;">
                     <div class="welcome-message">
                         <h2>Welcome back, <span id="welcomeName">Frank</span>! 👋</h2>
@@ -816,7 +742,7 @@
                         </div>
                     </div>
 
-                    <div class="stats-container unverified-content" id="statsContainer">
+                    <div class="stats-container" id="statsContainer">
                         <div class="stat-card">
                             <div class="stat-icon">📊</div>
                             <div class="stat-value">12</div>
@@ -842,7 +768,7 @@
                         </div>
                     </div>
 
-                    <div style="background: white; padding: 20px; border-radius: var(--border-radius); box-shadow: var(--shadow); display: none;" id="eventsTableContainer" class="unverified-content">
+                    <div style="background: white; padding: 20px; border-radius: var(--border-radius); box-shadow: var(--shadow);" id="eventsTableContainer">
                         <h3 class="section-title">Upcoming Events</h3>
                         <div class="table-container">
                             <table>
@@ -878,6 +804,72 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Unverified User Content -->
+                <div id="unverifiedContent" style="display: none;">
+                    <div class="welcome-message">
+                        <h2>Welcome, <span id="unverifiedName">Frank</span>! 👋</h2>
+                        <p>Your account is currently pending verification. While you wait, here's an inspirational message for you.</p>
+                    </div>
+
+                    <div class="bible-verse-container">
+                        <div class="verse-of-the-day">
+                            "For I know the plans I have for you," declares the Lord, "plans to prosper you and not to harm you, plans to give you hope and a future."
+                        </div>
+                        <div class="verse-reference">Jeremiah 29:11</div>
+                        <div class="verse-explanation">
+                            God has wonderful plans for your ministry journey. While you wait for verification, trust in His timing and purpose for your life.
+                        </div>
+                    </div>
+
+                    <div class="stats-container">
+                        <div class="stat-card">
+                            <div class="stat-icon">⏳</div>
+                            <div class="stat-value">Pending</div>
+                            <div class="stat-label">Account Status</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">📋</div>
+                            <div class="stat-value">1</div>
+                            <div class="stat-label">Step Remaining</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">⏰</div>
+                            <div class="stat-value">24-48h</div>
+                            <div class="stat-label">Verification Time</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">📞</div>
+                            <div class="stat-value">Contact</div>
+                            <div class="stat-label">Administrator</div>
+                        </div>
+                    </div>
+
+                    <div style="background: white; padding: 20px; border-radius: var(--border-radius); box-shadow: var(--shadow); margin-top: 20px;">
+                        <h3 class="section-title">What to Expect After Verification</h3>
+                        <ul style="list-style-type: none; padding: 0;">
+                            <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: var(--primary); margin-right: 10px;">✓</span>
+                                Full access to your ministry dashboard
+                            </li>
+                            <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: var(--primary); margin-right: 10px;">✓</span>
+                                Ability to view and manage schedules
+                            </li>
+                            <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: var(--primary); margin-right: 10px;">✓</span>
+                                Access to ministry resources and materials
+                            </li>
+                            <li style="padding: 8px 0;">
+                                <span style="color: var(--primary); margin-right: 10px;">✓</span>
+                                Communication with your ministry team
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </section>
 
             <!-- Other sections will be dynamically loaded based on user status -->
@@ -885,10 +877,8 @@
     </div>
 
     <script>
-        // The JavaScript code remains the same as in your original file
-        // I've only made changes to the CSS for responsiveness
-        // The JavaScript functionality is unchanged
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzMi0R6rHfTQKRMXwDVZy1ihtyZ1DknPMBXeEyYtuDyeJDLITlHIj2iQ3EMdKyF5ELK/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //NEW VERSION
+
 
         // Check if user is logged in
         let userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
@@ -907,6 +897,7 @@
             document.getElementById('userMinistry').textContent = userData.ministry;
             document.getElementById('welcomeName').textContent = userData.firstname;
             document.getElementById('firstTimeName').textContent = userData.firstname;
+            document.getElementById('unverifiedName').textContent = userData.firstname;
             
             // Check if this is first login
             const loginCount = parseInt(localStorage.getItem(`loginCount_${userData.username}`) || '0');
@@ -917,9 +908,6 @@
             
             // Fetch the actual status from the server BEFORE setting up the UI
             await fetchAndSetUserStatus(isFirstLogin);
-            
-            // Load daily Bible verse based on ministry
-            loadDailyVerse(userData.ministry);
         }
 
         async function fetchAndSetUserStatus(isFirstLogin) {
@@ -932,8 +920,8 @@
                 console.log('Status check result:', result);
                 
                 if (result.success) {
-                    // Set the status from the server
-                    const serverStatus = result.user.status;
+                    // Set the status from the server - FIXED: Access result.data.status
+                    const serverStatus = result.data.status;
                     userData.status = serverStatus;
                     
                     // Save updated user data
@@ -960,56 +948,40 @@
             const status = userData.status || 'unverified';
             const statusElement = document.getElementById('userStatus');
             
+            console.log('Updating UI with status:', status);
+            
             // Update status text and styling
             if (status === 'verified') {
                 statusElement.textContent = 'Verified Member';
                 statusElement.className = 'user-status status-verified';
+                document.getElementById('verificationBanner').style.display = 'none';
+                
+                // Show verified content
+                document.getElementById('unverifiedContent').style.display = 'none';
+                
+                if (isFirstLogin) {
+                    document.getElementById('firstTimeWelcomeContainer').style.display = 'block';
+                    document.getElementById('regularWelcomeContainer').style.display = 'none';
+                    loadWelcomeVerse(userData.ministry);
+                } else {
+                    document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+                    document.getElementById('regularWelcomeContainer').style.display = 'block';
+                    loadDailyVerse(userData.ministry);
+                }
+                
             } else {
                 statusElement.textContent = 'Unverified Member';
                 statusElement.className = 'user-status status-unverified';
-            }
-            
-            // Show/hide content based on verification status
-            updateHomeContent(status, isFirstLogin);
-            
-            // Show/hide verification banner
-            const verificationBanner = document.getElementById('verificationBanner');
-            if (status === 'unverified') {
-                verificationBanner.style.display = 'block';
-            } else {
-                verificationBanner.style.display = 'none';
+                document.getElementById('verificationBanner').style.display = 'block';
+                
+                // Show unverified content
+                document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+                document.getElementById('regularWelcomeContainer').style.display = 'none';
+                document.getElementById('unverifiedContent').style.display = 'block';
             }
             
             // Generate sidebar menu with current status
             generateSidebarMenu(userData.ministry, status);
-        }
-
-        function updateHomeContent(status, isFirstLogin) {
-            const firstTimeContainer = document.getElementById('firstTimeWelcomeContainer');
-            const regularWelcomeContainer = document.getElementById('regularWelcomeContainer');
-            const statsContainer = document.getElementById('statsContainer');
-            const eventsTableContainer = document.getElementById('eventsTableContainer');
-            
-            if (status === 'unverified') {
-                // Unverified users: hide stats and events table
-                firstTimeContainer.style.display = 'none';
-                regularWelcomeContainer.style.display = 'block';
-                statsContainer.classList.add('hidden');
-                eventsTableContainer.style.display = 'none';
-            } else if (status === 'verified') {
-                // Verified users: show appropriate welcome message
-                if (isFirstLogin) {
-                    // First login: show welcome verse
-                    firstTimeContainer.style.display = 'block';
-                    regularWelcomeContainer.style.display = 'none';
-                } else {
-                    // Returning users: show regular content with stats
-                    firstTimeContainer.style.display = 'none';
-                    regularWelcomeContainer.style.display = 'block';
-                    statsContainer.classList.remove('hidden');
-                    eventsTableContainer.style.display = 'block';
-                }
-            }
         }
 
         async function checkVerificationStatus() {
@@ -1023,7 +995,7 @@
                 
                 if (result.success) {
                     const previousStatus = userData.status;
-                    const newStatus = result.user.status;
+                    const newStatus = result.data.status; // FIXED: Access result.data.status
                     
                     // Update user data with current status
                     userData.status = newStatus;
@@ -1047,6 +1019,7 @@
                     }
                 } else {
                     console.error('Status check failed:', result.message);
+                    showAlert('Error checking verification status. Please try again.', 'danger');
                 }
             } catch (error) {
                 console.error('Error checking verification status:', error);
@@ -1066,11 +1039,6 @@
                     verse: "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
                     reference: "Proverbs 3:5-6",
                     explanation: "As you begin this journey with us, trust that God will guide your path and use you mightily in this ministry."
-                },
-                {
-                    verse: "The Lord will fulfill his purpose for me; your love, Lord, endures forever—do not abandon the works of your hands.",
-                    reference: "Psalm 138:8",
-                    explanation: "God has a specific purpose for you in this church. Trust Him to complete the good work He has started in you."
                 }
             ],
             general: [
@@ -1083,79 +1051,6 @@
                     verse: "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters.",
                     reference: "Colossians 3:23",
                     explanation: "Serve with excellence and passion, remembering that your ultimate audience is God Himself."
-                },
-                {
-                    verse: "Each of you should use whatever gift you have received to serve others, as faithful stewards of God's grace in its various forms.",
-                    reference: "1 Peter 4:10",
-                    explanation: "Your unique gifts and talents are God's grace to you - use them generously to bless others."
-                }
-            ],
-            "Media": [
-                {
-                    verse: "So whether you eat or drink or whatever you do, do it all for the glory of God.",
-                    reference: "1 Corinthians 10:31",
-                    explanation: "Your technical skills in media production can bring glory to God when dedicated to His service."
-                },
-                {
-                    verse: "Let your light shine before others, that they may see your good deeds and glorify your Father in heaven.",
-                    reference: "Matthew 5:16",
-                    explanation: "Through media, you help shine God's light to reach people both near and far."
-                },
-                {
-                    verse: "How beautiful on the mountains are the feet of those who bring good news, who proclaim peace, who bring good tidings, who proclaim salvation.",
-                    reference: "Isaiah 52:7",
-                    explanation: "Your work in media helps spread the beautiful message of salvation to those who need to hear it."
-                }
-            ],
-            "Praise And Worship": [
-                {
-                    verse: "Sing to the Lord a new song; sing to the Lord, all the earth. Sing to the Lord, praise his name; proclaim his salvation day after day.",
-                    reference: "Psalm 96:1-2",
-                    explanation: "Your worship ushers people into God's presence and declares His salvation continually."
-                },
-                {
-                    verse: "Let everything that has breath praise the Lord. Praise the Lord.",
-                    reference: "Psalm 150:6",
-                    explanation: "Your ministry helps fulfill this command by leading others in heartfelt praise to God."
-                },
-                {
-                    verse: "God is spirit, and his worshipers must worship in the Spirit and in truth.",
-                    reference: "John 4:24",
-                    explanation: "Lead others in authentic worship that comes from the heart and is guided by the Holy Spirit."
-                }
-            ],
-            "Dancers": [
-                {
-                    verse: "Let them praise his name with dancing and make music to him with timbrel and harp.",
-                    reference: "Psalm 149:3",
-                    explanation: "Your dance is a beautiful form of worship that glorifies God and expresses joy in Him."
-                },
-                {
-                    verse: "You turned my wailing into dancing; you removed my sackcloth and clothed me with joy.",
-                    reference: "Psalm 30:11",
-                    explanation: "Through dance, you can help others experience God's transforming power and joy."
-                },
-                {
-                    verse: "David danced before the Lord with all his might.",
-                    reference: "2 Samuel 6:14",
-                    explanation: "Serve God with your whole heart and energy through the gift of dance."
-                }
-            ],
-            "Ashers": [
-                {
-                    verse: "Do not forget to show hospitality to strangers, for by so doing some people have shown hospitality to angels without knowing it.",
-                    reference: "Hebrews 13:2",
-                    explanation: "Your welcoming presence and service may be ministering to people in ways you can't imagine."
-                },
-                {
-                    verse: "The greatest among you will be your servant.",
-                    reference: "Matthew 23:11",
-                    explanation: "In serving others as an usher, you exemplify Christ's teaching on true greatness."
-                },
-                {
-                    verse: "Welcome one another, therefore, just as Christ has welcomed you, for the glory of God.",
-                    reference: "Romans 15:7",
-                    explanation: "Your welcoming attitude reflects how Christ has welcomed us into God's family."
                 }
             ]
         };
@@ -1291,7 +1186,7 @@
                 'dancers': 'Dancers Ministry',
                 'ashers': 'Ashers Ministry'
             };
-            document.getElementById('pageTitle').textContent = titles[sectionId];
+            document.getElementById('pageTitle').textContent = titles[sectionId] || 'Ministry Portal';
 
             // Close sidebar on mobile
             if (window.innerWidth <= 768) {
