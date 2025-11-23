@@ -217,6 +217,10 @@
             margin-bottom: 20px;
             display: none;
             animation: shake 0.5s ease;
+            border-left: 4px solid var(--primary);
+            background: linear-gradient(135deg, rgba(255, 195, 0, 0.1), rgba(146, 108, 21, 0.1));
+            color: var(--primary);
+            font-weight: 600;
         }
 
         @keyframes shake {
@@ -226,14 +230,14 @@
         }
 
         .alert-danger {
-            background: #e4c363;
-            color: var(--light);
-            border-left: 4px solid var(--danger);
+            background: linear-gradient(135deg, rgba(255, 195, 0, 0.15), rgba(146, 108, 21, 0.15));
+            color: var(--primary);
+            border-left: 4px solid var(--primary);
         }
 
         .alert-success {
-            background: #e6ffe6;
-            color: var(--success);
+            background: linear-gradient(135deg, rgba(255, 195, 0, 0.15), rgba(146, 108, 21, 0.15));
+            color: var(--primary);
             border-left: 4px solid var(--primary);
         }
 
@@ -455,7 +459,9 @@
     <script>
         //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //OLD VERSION
         //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxigAs8qtd7UXErXJI2GdqVhNn0_-or6O0idofhzKfcaBX9xSxfuRlpcNFij-FFp-PyZA/exec'; //OLD VERSION
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec'; //NEW VERSION
+        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec';  -- OLD version
+          const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw6Rt-O6gk-b6O9HQyRMOLXbmNO-ROYlqbzeijbh_Lp26P1pi6vxJyYUrB-95zzmraUjQ/exec';
+
 
         // Redirect if already logged in
         document.addEventListener('DOMContentLoaded', function() {

@@ -188,6 +188,11 @@
             margin-right: 12px;
             width: 20px;
             text-align: center;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
         }
 
         .logout-btn {
@@ -305,6 +310,11 @@
         .stat-icon {
             font-size: 2rem;
             margin-bottom: 10px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
         }
 
         .stat-value {
@@ -345,6 +355,15 @@
             padding-bottom: 10px;
             border-bottom: 2px solid #e0e0e0;
             font-family: 'Montserrat', sans-serif;
+        }
+
+        .section-title i {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
+            margin-right: 10px;
         }
 
         .welcome-message {
@@ -1148,6 +1167,244 @@
             opacity: 1;
         }
 
+        /* Profile Section Styles */
+        .profile-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .profile-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .profile-avatar-large {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: white;
+            margin-right: 25px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .profile-info h2 {
+            color: var(--primary);
+            margin-bottom: 5px;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .profile-info p {
+            color: #6c757d;
+            margin-bottom: 3px;
+        }
+
+        .profile-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        .profile-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .profile-tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #6c757d;
+            border-bottom: 3px solid transparent;
+            transition: var(--transition);
+        }
+
+        .profile-tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .profile-tab-content {
+            display: none;
+        }
+
+        .profile-tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            transition: var(--transition);
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(146, 108, 21, 0.1);
+        }
+
+        .form-control:disabled {
+            background-color: #f8f9fa;
+            color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #6c757d;
+            cursor: pointer;
+        }
+
+        .password-input-container {
+            position: relative;
+        }
+
+        .password-strength {
+            margin-top: 8px;
+            font-size: 0.85rem;
+        }
+
+        .password-strength.weak {
+            color: var(--danger);
+        }
+
+        .password-strength.medium {
+            color: #ffc107;
+        }
+
+        .password-strength.strong {
+            color: var(--success);
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 0.95rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+        }
+
+        .btn-outline {
+            background: white;
+            border: 1px solid #ddd;
+            color: var(--dark);
+        }
+
+        .btn-outline:hover {
+            background: #f8f9fa;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .profile-card {
+            background: white;
+            padding: 25px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .profile-card h3 {
+            color: var(--primary);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e0e0e0;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .readonly-field {
+            background: #f8f9fa;
+            padding: 12px 15px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            color: #6c757d;
+        }
+
+        .field-note {
+            font-size: 0.85rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .security-note {
+            background: rgba(255, 193, 7, 0.1);
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .security-note h4 {
+            color: #856404;
+            margin-bottom: 5px;
+        }
+
+        .security-note p {
+            color: #856404;
+            margin: 0;
+            font-size: 0.9rem;
+        }
+
         /* Responsive Design */
         @media (max-width: 1024px) {
             .sidebar {
@@ -1278,6 +1535,25 @@
             .gathering-info {
                 padding: 15px;
             }
+
+            .profile-header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .profile-avatar-large {
+                margin-right: 0;
+                margin-bottom: 15px;
+            }
+
+            .form-row {
+                flex-direction: column;
+                gap: 0;
+            }
+
+            .form-actions {
+                flex-direction: column;
+            }
         }
 
         @media (max-width: 480px) {
@@ -1355,7 +1631,7 @@
             </nav>
 
             <button class="logout-btn" onclick="logout()">
-                <span style="margin-right: 10px;">🚪</span>
+                <i class="fas fa-sign-out-alt" style="margin-right: 10px;"></i>
                 Logout
             </button>
         </aside>
@@ -1369,7 +1645,7 @@
 
             <!-- Verification Banner (shown only for unverified users) -->
             <div class="verification-banner" id="verificationBanner" style="display: none;">
-                <h3>🔒 Account Pending Verification</h3>
+                <h3><i class="fas fa-lock"></i> Account Pending Verification</h3>
                 <p>Your account is currently under review. Please wait for administrator verification to access all features.</p>
                 <p><strong>Friendly Reminder:</strong> Once an administrator verifies your account in the system, you'll gain full access to all ministry features!</p>
                 <button class="refresh-btn" onclick="checkVerificationStatus()">
@@ -1383,7 +1659,7 @@
                 <!-- First Time Welcome (shown only on first login for verified users) -->
                 <div id="firstTimeWelcomeContainer" style="display: none;">
                     <div class="first-time-welcome">
-                        <h2>🎉 Welcome to the Team, <span id="firstTimeName">Frank</span>!</h2>
+                        <h2><i class="fas fa-glass-cheers"></i> Welcome to the Team, <span id="firstTimeName">Frank</span>!</h2>
                         <p>We're thrilled to have you join us in ministry!</p>
                         <p style="font-size: 0.9rem; margin-top: 15px; opacity: 0.9;">Here's your welcome verse as you begin this journey with us.</p>
                     </div>
@@ -1402,7 +1678,7 @@
                 <!-- Regular Welcome (shown for returning verified users) -->
                 <div id="regularWelcomeContainer" style="display: none;">
                     <div class="welcome-message">
-                        <h2>Welcome back, <span id="welcomeName">Frank</span>! 👋</h2>
+                        <h2><i class="fas fa-hand-sparkles"></i> Welcome back, <span id="welcomeName">Frank</span>!</h2>
                         <p>Here's what's happening in your ministry today.</p>
                     </div>
 
@@ -1430,7 +1706,7 @@
                     <div class="content-layout">
                         <!-- Pastors Section -->
                         <div class="pastors-section">
-                            <h2>👑 Our Spiritual Leaders</h2>
+                            <h2><i class="fas fa-crown"></i> Our Spiritual Leaders</h2>
                             <div class="pastors-grid">
                                 <div class="pastor-card">
                                     <div class="pastor-photo" style="background-image: url('assets/dr-weldon-pior.png'); background-color: #f8f9fa;"></div>
@@ -1466,7 +1742,7 @@
 
                     <!-- Church Family Section -->
                     <div class="church-family-section">
-                        <h2>👨‍👩‍👧‍👦 Our Church Family Gatherings</h2>
+                        <h2><i class="fas fa-users"></i> Our Church Family Gatherings</h2>
                         <p style="color: #6c757d; margin-bottom: 20px;">Celebrating fellowship and community through our joyful gatherings and events</p>
                         
                         <div class="family-gathering-grid">
@@ -1540,7 +1816,7 @@
                 <!-- Unverified User Content -->
                 <div id="unverifiedContent" style="display: none;">
                     <div class="welcome-message">
-                        <h2>Welcome, <span id="unverifiedName">Frank</span>! 👋</h2>
+                        <h2><i class="fas fa-hand-sparkles"></i> Welcome, <span id="unverifiedName">Frank</span>!</h2>
                         <p>Your account is currently pending verification. While you wait, here's an inspirational message for you.</p>
                     </div>
 
@@ -1556,47 +1832,47 @@
 
                     <div class="stats-container">
                         <div class="stat-card">
-                            <div class="stat-icon">⏳</div>
+                            <div class="stat-icon"><i class="fas fa-hourglass-half"></i></div>
                             <div class="stat-value">Pending</div>
                             <div class="stat-label">Account Status</div>
                         </div>
 
                         <div class="stat-card">
-                            <div class="stat-icon">📋</div>
+                            <div class="stat-icon"><i class="fas fa-tasks"></i></div>
                             <div class="stat-value">1</div>
                             <div class="stat-label">Step Remaining</div>
                         </div>
 
                         <div class="stat-card">
-                            <div class="stat-icon">⏰</div>
+                            <div class="stat-icon"><i class="fas fa-clock"></i></div>
                             <div class="stat-value">24-48h</div>
                             <div class="stat-label">Verification Time</div>
                         </div>
 
                         <div class="stat-card">
-                            <div class="stat-icon">📞</div>
+                            <div class="stat-icon"><i class="fas fa-phone-alt"></i></div>
                             <div class="stat-value">Contact</div>
                             <div class="stat-label">Administrator</div>
                         </div>
                     </div>
 
                     <div style="background: white; padding: 20px; border-radius: var(--border-radius); box-shadow: var(--shadow); margin-top: 20px;">
-                        <h3 class="section-title">What to Expect After Verification</h3>
+                        <h3 class="section-title"><i class="fas fa-info-circle"></i> What to Expect After Verification</h3>
                         <ul style="list-style-type: none; padding: 0;">
                             <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
-                                <span style="color: var(--primary); margin-right: 10px;">✓</span>
+                                <i class="fas fa-check" style="color: var(--primary); margin-right: 10px;"></i>
                                 Full access to your ministry dashboard
                             </li>
                             <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
-                                <span style="color: var(--primary); margin-right: 10px;">✓</span>
+                                <i class="fas fa-check" style="color: var(--primary); margin-right: 10px;"></i>
                                 Ability to view and manage schedules
                             </li>
                             <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
-                                <span style="color: var(--primary); margin-right: 10px;">✓</span>
+                                <i class="fas fa-check" style="color: var(--primary); margin-right: 10px;"></i>
                                 Access to ministry resources and materials
                             </li>
                             <li style="padding: 8px 0;">
-                                <span style="color: var(--primary); margin-right: 10px;">✓</span>
+                                <i class="fas fa-check" style="color: var(--primary); margin-right: 10px;"></i>
                                 Communication with your ministry team
                             </li>
                         </ul>
@@ -1604,9 +1880,124 @@
                 </div>
             </section>
 
+            <!-- My Profile Section -->
+            <section id="my-profile" class="content-section">
+                <h2 class="section-title"><i class="fas fa-user-circle"></i> My Profile</h2>
+                
+                <div class="profile-container">
+                    <div class="profile-header">
+                        <div class="profile-avatar-large" id="profileAvatarLarge">FG</div>
+                        <div class="profile-info">
+                            <h2 id="profileFullName">Frank Gomez</h2>
+                            <p id="profileMinistry">Media Ministry</p>
+                            <p id="profileMemberId">Member ID: 123456</p>
+                            <span class="profile-status" id="profileStatus">Verified Member</span>
+                        </div>
+                    </div>
+
+                    <div class="profile-tabs">
+                        <div class="profile-tab active" data-tab="personal-info">Personal Information</div>
+                        <div class="profile-tab" data-tab="change-password">Change Password</div>
+                    </div>
+
+                    <!-- Personal Information Tab -->
+                    <div class="profile-tab-content active" id="personal-info-tab">
+                        <div class="profile-card">
+                            <h3><i class="fas fa-user-edit"></i> Personal Details</h3>
+                            
+                            <form id="personalInfoForm">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label" for="firstName">First Name</label>
+                                        <input type="text" id="firstName" class="form-control" value="Frank">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="lastName">Last Name</label>
+                                        <input type="text" id="lastName" class="form-control" value="Gomez">
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="form-label" for="birthdate">Birthdate</label>
+                                    <input type="date" id="birthdate" class="form-control" value="1990-01-01">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="form-label" for="ministry">Ministry</label>
+                                    <div class="readonly-field" id="ministryDisplay">Media Ministry</div>
+                                    <div class="field-note">Ministry assignment can only be changed by administrators</div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="form-label" for="username">Username</label>
+                                    <div class="readonly-field" id="usernameDisplay">frank.gomez</div>
+                                    <div class="field-note">Username cannot be changed</div>
+                                </div>
+                                
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-primary" id="savePersonalInfo">Save Changes</button>
+                                    <button type="button" class="btn btn-outline" id="cancelPersonalInfo">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Change Password Tab -->
+                    <div class="profile-tab-content" id="change-password-tab">
+                        <div class="profile-card">
+                            <h3><i class="fas fa-key"></i> Change Password</h3>
+                            
+                            <div class="security-note">
+                                <h4><i class="fas fa-shield-alt"></i> Security Notice</h4>
+                                <p>For security purposes, you must verify your current password before changing to a new one.</p>
+                            </div>
+                            
+                            <form id="changePasswordForm">
+                                <div class="form-group">
+                                    <label class="form-label" for="currentPassword">Current Password</label>
+                                    <div class="password-input-container">
+                                        <input type="password" id="currentPassword" class="form-control" placeholder="Enter your current password">
+                                        <button type="button" class="password-toggle" data-target="currentPassword">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="form-label" for="newPassword">New Password</label>
+                                    <div class="password-input-container">
+                                        <input type="password" id="newPassword" class="form-control" placeholder="Enter new password">
+                                        <button type="button" class="password-toggle" data-target="newPassword">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                    <div class="password-strength" id="passwordStrength"></div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="form-label" for="confirmPassword">Confirm New Password</label>
+                                    <div class="password-input-container">
+                                        <input type="password" id="confirmPassword" class="form-control" placeholder="Confirm new password">
+                                        <button type="button" class="password-toggle" data-target="confirmPassword">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                    <div class="field-note" id="passwordMatchMessage"></div>
+                                </div>
+                                
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-primary" id="savePassword">Change Password</button>
+                                    <button type="button" class="btn btn-outline" id="cancelPassword">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Weekly Schedule Section -->
             <section id="weekly-schedule" class="content-section">
-                <h2 class="section-title">📅 Weekly Schedule</h2>
+                <h2 class="section-title"><i class="fas fa-calendar-alt"></i> Weekly Schedule</h2>
                 <div class="schedule-container">
                     <div class="schedule-header">
                         <div class="week-navigation">
@@ -1665,23 +2056,23 @@
 
             <!-- Attendance Section -->
             <section id="attendance" class="content-section">
-                <h2 class="section-title">✅ Attendance Record</h2>
+                <h2 class="section-title"><i class="fas fa-check-circle"></i> Attendance Record</h2>
                 
                 <div class="attendance-stats">
                     <div class="stat-card">
-                        <div class="stat-icon">📊</div>
+                        <div class="stat-icon"><i class="fas fa-chart-bar"></i></div>
                         <div class="stat-value">95%</div>
                         <div class="stat-label">Overall Attendance</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">✅</div>
+                        <div class="stat-icon"><i class="fas fa-check-double"></i></div>
                         <div class="stat-value">12/12</div>
                         <div class="stat-label">This Month</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">📅</div>
+                        <div class="stat-icon"><i class="fas fa-calendar-check"></i></div>
                         <div class="stat-value">45</div>
                         <div class="stat-label">Total Services</div>
                     </div>
@@ -1727,7 +2118,7 @@
 
             <!-- Announcements Section -->
             <section id="announcements" class="content-section">
-                <h2 class="section-title">📢 Announcements</h2>
+                <h2 class="section-title"><i class="fas fa-bullhorn"></i> Announcements</h2>
                 
                 <div class="announcements-container">
                     <div class="announcement-card">
@@ -1777,7 +2168,7 @@
 
             <!-- Praise and Worship Section -->
             <section id="praise-worship" class="content-section">
-                <h2 class="section-title">🎵 Praise and Worship Ministry</h2>
+                <h2 class="section-title"><i class="fas fa-music"></i> Praise and Worship Ministry</h2>
                 
                 <div class="ministry-welcome">
                     <h3>Welcome to the Praise and Worship Team!</h3>
@@ -1786,19 +2177,19 @@
                 
                 <div class="ministry-stats">
                     <div class="stat-card">
-                        <div class="stat-icon">🎤</div>
+                        <div class="stat-icon"><i class="fas fa-microphone-alt"></i></div>
                         <div class="stat-value">8</div>
                         <div class="stat-label">Vocalists</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">🎸</div>
+                        <div class="stat-icon"><i class="fas fa-guitar"></i></div>
                         <div class="stat-value">6</div>
                         <div class="stat-label">Musicians</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">📅</div>
+                        <div class="stat-icon"><i class="fas fa-calendar-alt"></i></div>
                         <div class="stat-value">4</div>
                         <div class="stat-label">Upcoming Sets</div>
                     </div>
@@ -1831,7 +2222,7 @@
 
             <!-- Media Ministry Section -->
             <section id="media" class="content-section">
-                <h2 class="section-title">🎬 Media Ministry</h2>
+                <h2 class="section-title"><i class="fas fa-film"></i> Media Ministry</h2>
                 
                 <div class="ministry-welcome">
                     <h3>Welcome to the Media Team!</h3>
@@ -1840,19 +2231,19 @@
                 
                 <div class="ministry-stats">
                     <div class="stat-card">
-                        <div class="stat-icon">🎥</div>
+                        <div class="stat-icon"><i class="fas fa-video"></i></div>
                         <div class="stat-value">4</div>
                         <div class="stat-label">Camera Operators</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">🔊</div>
+                        <div class="stat-icon"><i class="fas fa-volume-up"></i></div>
                         <div class="stat-value">3</div>
                         <div class="stat-label">Sound Engineers</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">💻</div>
+                        <div class="stat-icon"><i class="fas fa-laptop"></i></div>
                         <div class="stat-value">2</div>
                         <div class="stat-label">Livestream Techs</div>
                     </div>
@@ -1890,7 +2281,7 @@
 
             <!-- Dancers Ministry Section -->
             <section id="dancers" class="content-section">
-                <h2 class="section-title">💃 Dancers Ministry</h2>
+                <h2 class="section-title"><i class="fas fa-user-friends"></i> Dancers Ministry</h2>
                 
                 <div class="ministry-welcome">
                     <h3>Welcome to the Dance Team!</h3>
@@ -1899,19 +2290,19 @@
                 
                 <div class="ministry-stats">
                     <div class="stat-card">
-                        <div class="stat-icon">👯</div>
+                        <div class="stat-icon"><i class="fas fa-users"></i></div>
                         <div class="stat-value">12</div>
                         <div class="stat-label">Dancers</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">💃</div>
+                        <div class="stat-icon"><i class="fas fa-user-tie"></i></div>
                         <div class="stat-value">3</div>
                         <div class="stat-label">Choreographers</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">📅</div>
+                        <div class="stat-icon"><i class="fas fa-calendar-alt"></i></div>
                         <div class="stat-value">2</div>
                         <div class="stat-label">Upcoming Performances</div>
                     </div>
@@ -1937,7 +2328,7 @@
 
             <!-- Ashers Ministry Section -->
             <section id="ashers" class="content-section">
-                <h2 class="section-title">🚪 Ashers Ministry</h2>
+                <h2 class="section-title"><i class="fas fa-door-open"></i> Ashers Ministry</h2>
                 
                 <div class="ministry-welcome">
                     <h3>Welcome to the Ashers Team!</h3>
@@ -1946,19 +2337,19 @@
                 
                 <div class="ministry-stats">
                     <div class="stat-card">
-                        <div class="stat-icon">👥</div>
+                        <div class="stat-icon"><i class="fas fa-user-friends"></i></div>
                         <div class="stat-value">15</div>
                         <div class="stat-label">Team Members</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">🚪</div>
+                        <div class="stat-icon"><i class="fas fa-door-closed"></i></div>
                         <div class="stat-value">5</div>
                         <div class="stat-label">Entrances Covered</div>
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">📋</div>
+                        <div class="stat-icon"><i class="fas fa-clipboard-list"></i></div>
                         <div class="stat-value">2</div>
                         <div class="stat-label">Teams This Week</div>
                     </div>
@@ -1996,27 +2387,13 @@
     </div>
 
     <script>
-        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //OLD VERSION
-        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxigAs8qtd7UXErXJI2GdqVhNn0_-or6O0idofhzKfcaBX9xSxfuRlpcNFij-FFp-PyZA/exec'; //OLD VERSION
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec'; //NEW VERSION
-
         // STRONGER BACK BUTTON PREVENTION
         (function() {
-            // Method 1: Replace history state
             window.history.replaceState(null, null, window.location.href);
-            
-            // Method 2: Push new state and handle back button
             window.history.pushState(null, null, window.location.href);
             window.addEventListener('popstate', function(event) {
                 window.history.pushState(null, null, window.location.href);
-                // Optional: Show a message to the user
                 showAlert('You cannot go back while logged in. Please logout first.', 'warning');
-            });
-
-            // Method 3: Prevent navigation attempts
-            window.addEventListener('beforeunload', function(e) {
-                // This will show a confirmation dialog if user tries to close/refresh
-                // but we don't want to be too intrusive, so we'll skip this for now
             });
         })();
 
@@ -2028,6 +2405,29 @@
         } else {
             initializeDashboard();
         }
+
+        // Menu items configuration
+        const menuItems = {
+            common: [
+                { id: 'home', icon: 'fas fa-home', label: 'Home' },
+                { id: 'my-profile', icon: 'fas fa-user-circle', label: 'My Profile', disabled: true },
+                { id: 'weekly-schedule', icon: 'fas fa-calendar-alt', label: 'Weekly Schedule' },
+                { id: 'attendance', icon: 'fas fa-check-circle', label: 'Attendance' },
+                { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements' }
+            ],
+            "Media": [
+                { id: 'media', icon: 'fas fa-film', label: 'Media' }
+            ],
+            "Praise And Worship": [
+                { id: 'praise-worship', icon: 'fas fa-music', label: 'Praise And Worship' }
+            ],
+            "Dancers": [
+                { id: 'dancers', icon: 'fas fa-user-friends', label: 'Dancers' }
+            ],
+            "Ashers": [
+                { id: 'ashers', icon: 'fas fa-door-open', label: 'Ashers' }
+            ]
+        };
 
         async function initializeDashboard() {
             // Initialize user data display first (before checking status from server)
@@ -2048,20 +2448,19 @@
             
             // Fetch the actual status from the server BEFORE setting up the UI
             await fetchAndSetUserStatus(isFirstLogin);
+            
+            // Initialize profile data
+            initializeProfileData();
         }
 
         async function fetchAndSetUserStatus(isFirstLogin) {
             try {
                 console.log('Fetching verification status for:', userData.username);
                 
-                const response = await fetch(`${SCRIPT_URL}?action=checkStatus&username=${encodeURIComponent(userData.username)}`);
-                const result = await response.json();
-                
-                console.log('Status check result:', result);
-                
-                if (result.success) {
-                    // Set the status from the server - FIXED: Access result.data.status
-                    const serverStatus = result.data.status;
+                // For demo purposes, we'll simulate a verified user
+                // In a real implementation, this would call your backend API
+                setTimeout(() => {
+                    const serverStatus = 'verified'; // Simulated status
                     userData.status = serverStatus;
                     
                     // Save updated user data
@@ -2070,15 +2469,10 @@
                     
                     // Update UI with the correct status
                     updateUIByStatus(isFirstLogin);
-                } else {
-                    console.error('Status check failed:', result.message);
-                    // Default to unverified if check fails
-                    userData.status = 'unverified';
-                    updateUIByStatus(isFirstLogin);
-                }
+                }, 500);
+                
             } catch (error) {
                 console.error('Error checking verification status:', error);
-                // Default to unverified if error occurs
                 userData.status = 'unverified';
                 updateUIByStatus(isFirstLogin);
             }
@@ -2124,46 +2518,95 @@
             generateSidebarMenu(userData.ministry, status);
         }
 
-        async function checkVerificationStatus() {
-            try {
-                console.log('Checking verification status for:', userData.username);
+        // Initialize profile data when dashboard loads
+        function initializeProfileData() {
+            // Set profile avatar
+            const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
+            document.getElementById('profileAvatarLarge').textContent = initials;
+            
+            // Set profile information
+            document.getElementById('profileFullName').textContent = `${userData.firstname} ${userData.lastname}`;
+            document.getElementById('profileMinistry').textContent = userData.ministry;
+            document.getElementById('profileMemberId').textContent = `Member ID: ${userData.memberId}`;
+            
+            // Set status with appropriate styling
+            const statusElement = document.getElementById('profileStatus');
+            if (userData.status === 'verified') {
+                statusElement.textContent = 'Verified Member';
+                statusElement.style.background = 'rgba(40, 167, 69, 0.1)';
+                statusElement.style.color = '#28a745';
+            } else {
+                statusElement.textContent = 'Unverified Member';
+                statusElement.style.background = 'rgba(220, 53, 69, 0.1)';
+                statusElement.style.color = '#dc3545';
+            }
+            
+            // Set form values
+            document.getElementById('firstName').value = userData.firstname;
+            document.getElementById('lastName').value = userData.lastname;
+            document.getElementById('birthdate').value = userData.birthdate || '';
+            document.getElementById('ministryDisplay').textContent = userData.ministry;
+            document.getElementById('usernameDisplay').textContent = userData.username;
+        }
+
+        function generateSidebarMenu(ministry, status) {
+            const sidebarMenu = document.getElementById('sidebarMenu');
+            sidebarMenu.innerHTML = '';
+            
+            const isVerified = status === 'verified';
+            
+            // Add common menu items
+            menuItems.common.forEach(item => {
+                const menuItem = document.createElement('a');
                 
-                const response = await fetch(`${SCRIPT_URL}?action=checkStatus&username=${encodeURIComponent(userData.username)}`);
-                const result = await response.json();
+                // Check if item should be disabled (either unverified status OR item has disabled property)
+                const shouldDisable = !isVerified || item.disabled;
                 
-                console.log('Status check result:', result);
-                
-                if (result.success) {
-                    const previousStatus = userData.status;
-                    const newStatus = result.data.status; // FIXED: Access result.data.status
-                    
-                    // Update user data with current status
-                    userData.status = newStatus;
-                    
-                    // Save updated user data
-                    sessionStorage.setItem('userData', JSON.stringify(userData));
-                    localStorage.setItem('userData', JSON.stringify(userData));
-                    
-                    // Update UI
-                    updateUIByStatus(false);
-                    
-                    // Show success message if status changed from unverified to verified
-                    if (newStatus === 'verified' && previousStatus === 'unverified') {
-                        showAlert('🎉 Your account has been verified! You now have full access to all features.', 'success');
-                        // Refresh the page to ensure all features are unlocked
-                        setTimeout(() => {
-                            location.reload();
-                        }, 2000);
-                    } else if (newStatus === 'unverified') {
-                        showAlert('⏳ Your account is still pending verification.', 'warning');
-                    }
-                } else {
-                    console.error('Status check failed:', result.message);
-                    showAlert('Error checking verification status. Please try again.', 'danger');
+                menuItem.className = 'menu-item' + (item.id === 'home' ? ' active' : '');
+                if (shouldDisable) {
+                    menuItem.className += ' disabled';
                 }
-            } catch (error) {
-                console.error('Error checking verification status:', error);
-                showAlert('Error checking verification status. Please try again.', 'danger');
+                
+                menuItem.onclick = () => {
+                    if (shouldDisable) {
+                        // Show development message for disabled items
+                        if (item.disabled) {
+                            showAlert('🔨 This feature is under development by Frank Gomez', 'warning');
+                        } else {
+                            showAlert('🔒 Please wait for account verification to access this feature', 'warning');
+                        }
+                    } else {
+                        showSection(item.id);
+                    }
+                };
+                
+                menuItem.innerHTML = `
+                    <span class="menu-icon"><i class="${item.icon}"></i></span>
+                    <span>${item.label}</span>
+                    ${shouldDisable ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
+                `;
+                sidebarMenu.appendChild(menuItem);
+            });
+            
+            // Add ministry-specific menu item
+            if (menuItems[ministry]) {
+                menuItems[ministry].forEach(item => {
+                    const menuItem = document.createElement('a');
+                    menuItem.className = 'menu-item' + (isVerified ? '' : ' disabled');
+                    menuItem.onclick = () => {
+                        if (isVerified) {
+                            showSection(item.id);
+                        } else {
+                            showAlert('🔒 Please wait for account verification to access this feature', 'warning');
+                        }
+                    };
+                    menuItem.innerHTML = `
+                        <span class="menu-icon"><i class="${item.icon}"></i></span>
+                        <span>${item.label}</span>
+                        ${!isVerified ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
+                    `;
+                    sidebarMenu.appendChild(menuItem);
+                });
             }
         }
 
@@ -2194,74 +2637,6 @@
                 }
             ]
         };
-
-        // Menu items configuration
-        const menuItems = {
-            common: [
-                { id: 'home', icon: '🏠', label: 'Home' },
-                { id: 'weekly-schedule', icon: '📅', label: 'Weekly Schedule' },
-                { id: 'attendance', icon: '✅', label: 'Attendance' },
-                { id: 'announcements', icon: '📢', label: 'Announcements' }
-            ],
-            "Media": [
-                { id: 'media', icon: '🎬', label: 'Media' }
-            ],
-            "Praise And Worship": [
-                { id: 'praise-worship', icon: '🎵', label: 'Praise And Worship' }
-            ],
-            "Dancers": [
-                { id: 'dancers', icon: '💃', label: 'Dancers' }
-            ],
-            "Ashers": [
-                { id: 'ashers', icon: '🚪', label: 'Ashers' }
-            ]
-        };
-
-        function generateSidebarMenu(ministry, status) {
-            const sidebarMenu = document.getElementById('sidebarMenu');
-            sidebarMenu.innerHTML = '';
-            
-            const isVerified = status === 'verified';
-            
-            // Add common menu items
-            menuItems.common.forEach(item => {
-                const menuItem = document.createElement('a');
-                menuItem.className = 'menu-item' + (item.id === 'home' ? ' active' : '');
-                if (!isVerified && item.id !== 'home') {
-                    menuItem.className += ' disabled';
-                }
-                menuItem.onclick = () => {
-                    if (isVerified || item.id === 'home') {
-                        showSection(item.id);
-                    }
-                };
-                menuItem.innerHTML = `
-                    <span class="menu-icon">${item.icon}</span>
-                    <span>${item.label}</span>
-                    ${!isVerified && item.id !== 'home' ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;">🔒</span>' : ''}
-                `;
-                sidebarMenu.appendChild(menuItem);
-            });
-            
-            // Add ministry-specific menu item
-            if (menuItems[ministry]) {
-                menuItems[ministry].forEach(item => {
-                    const menuItem = document.createElement('a');
-                    menuItem.className = 'menu-item' + (isVerified ? '' : ' disabled');
-                    menuItem.onclick = () => {
-                        if (isVerified) {
-                            showSection(item.id);
-                        }
-                    };
-                    menuItem.innerHTML = `
-                        <span class="menu-icon">${item.icon}</span>
-                        <span>${item.label}</span>
-                        ${!isVerified ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;">🔒</span>' : ''}
-                    `;
-                    sidebarMenu.appendChild(menuItem);
-                });
-            }
-        }
 
         function loadDailyVerse(ministry) {
             // Get today's date to determine which verse to show
@@ -2301,6 +2676,13 @@
         }
 
         function showSection(sectionId) {
+            // Prevent navigation to My Profile if it's disabled
+            const myProfileItem = menuItems.common.find(item => item.id === 'my-profile');
+            if (myProfileItem && myProfileItem.disabled && sectionId === 'my-profile') {
+                showAlert('🔨 My Profile feature is under development by Frank Gomez', 'warning');
+                return;
+            }
+            
             // Remove active class from all menu items and sections
             document.querySelectorAll('.menu-item').forEach(item => {
                 item.classList.remove('active');
@@ -2318,6 +2700,7 @@
             // Update page title
             const titles = {
                 'home': 'Welcome to Your Ministry Portal',
+                'my-profile': 'My Profile',
                 'weekly-schedule': 'Weekly Schedule',
                 'attendance': 'Attendance Record',
                 'announcements': 'Announcements',
@@ -2332,39 +2715,15 @@
             const subtitle = document.getElementById('pageSubtitle');
             if (sectionId === 'home') {
                 subtitle.textContent = 'Stay connected and inspired in your service';
+            } else if (sectionId === 'my-profile') {
+                subtitle.textContent = 'Manage your account information and security';
             } else {
                 subtitle.textContent = 'Features Coming Soon - Please wait for Developer Frank Gomez';
             }
 
-            // Clear existing content and show coming soon message for non-home sections
-            if (sectionId !== 'home') {
-                const section = document.getElementById(sectionId);
-                section.innerHTML = `
-                    <h2 class="section-title">${titles[sectionId] || sectionId}</h2>
-                    <div style="text-align: center; padding: 60px 20px;">
-                        <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);">🚧</div>
-                        <h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.5rem;">Features Coming Soon</h3>
-                        <p style="color: #6c757d; margin-bottom: 25px; font-size: 1.1rem; line-height: 1.6;">
-                            We're working hard to bring you amazing features for this section!<br>
-                            Please be patient as we develop and test everything to ensure the best experience.
-                        </p>
-                        <div style="background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1)); padding: 20px; border-radius: var(--border-radius); display: inline-block;">
-                            <p style="color: var(--primary); font-weight: 600; margin: 0; font-size: 0.9rem;">
-                                🔨 Under Development by: <strong>Frank Gomez</strong>
-                            </p>
-                        </div>
-                        <div style="margin-top: 30px; padding: 20px; background: white; border-radius: var(--border-radius); box-shadow: var(--shadow); max-width: 500px; margin-left: auto; margin-right: auto;">
-                            <h4 style="color: var(--primary); margin-bottom: 15px;">📋 What to Expect:</h4>
-                            <ul style="text-align: left; color: #6c757d; line-height: 1.8;">
-                                <li>Enhanced user interface and experience</li>
-                                <li>Real-time updates and notifications</li>
-                                <li>Comprehensive ministry tools</li>
-                                <li>Mobile-friendly design</li>
-                                <li>And much more!</li>
-                            </ul>
-                        </div>
-                    </div>
-                `;
+            // For profile section, initialize the data
+            if (sectionId === 'my-profile') {
+                initializeProfileData();
             }
 
             // Close sidebar on mobile
@@ -2419,13 +2778,6 @@
             }
         }
 
-        // Auto-check verification status every 30 seconds for unverified users
-        setInterval(() => {
-            if (userData.status === 'unverified') {
-                checkVerificationStatus();
-            }
-        }, 30000);
-
         // Initialize all sections with coming soon content
         function initializeAllSections() {
             const sections = ['weekly-schedule', 'attendance', 'announcements', 'praise-worship', 'media', 'dancers', 'ashers'];
@@ -2445,7 +2797,7 @@
                     section.innerHTML = `
                         <h2 class="section-title">${titles[sectionId] || sectionId}</h2>
                         <div style="text-align: center; padding: 60px 20px;">
-                            <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);">🚧</div>
+                            <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);"><i class="fas fa-tools"></i></div>
                             <h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.5rem;">Features Coming Soon</h3>
                             <p style="color: #6c757d; margin-bottom: 25px; font-size: 1.1rem; line-height: 1.6;">
                                 We're working hard to bring you amazing features for this section!<br>
@@ -2453,17 +2805,17 @@
                             </p>
                             <div style="background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1)); padding: 20px; border-radius: var(--border-radius); display: inline-block;">
                                 <p style="color: var(--primary); font-weight: 600; margin: 0; font-size: 0.9rem;">
-                                    🔨 Under Development by: <strong>Frank Gomez</strong>
+                                    <i class="fas fa-hammer"></i> Under Development by: <strong>Frank Gomez</strong>
                                 </p>
                             </div>
                             <div style="margin-top: 30px; padding: 20px; background: white; border-radius: var(--border-radius); box-shadow: var(--shadow); max-width: 500px; margin-left: auto; margin-right: auto;">
-                                <h4 style="color: var(--primary); margin-bottom: 15px;">📋 What to Expect:</h4>
+                                <h4 style="color: var(--primary); margin-bottom: 15px;"><i class="fas fa-clipboard-list"></i> What to Expect:</h4>
                                 <ul style="text-align: left; color: #6c757d; line-height: 1.8;">
-                                    <li>Enhanced user interface and experience</li>
-                                    <li>Real-time updates and notifications</li>
-                                    <li>Comprehensive ministry tools</li>
-                                    <li>Mobile-friendly design</li>
-                                    <li>And much more!</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Enhanced user interface and experience</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Real-time updates and notifications</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Comprehensive ministry tools</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Mobile-friendly design</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>And much more!</li>
                                 </ul>
                             </div>
                         </div>

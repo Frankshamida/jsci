@@ -187,17 +187,17 @@
         }
 
         .strength-weak {
-            background: var(--danger);
+            background: var(--primary);
             width: 33%;
         }
 
         .strength-medium {
-            background: #ffc107;
+            background: var(--secondary);
             width: 66%;
         }
 
         .strength-strong {
-            background: var(--success);
+            background: var(--accent);
             width: 100%;
         }
 
@@ -274,6 +274,10 @@
             margin-bottom: 20px;
             display: none;
             animation: shake 0.5s ease;
+            border-left: 4px solid var(--primary);
+            background: linear-gradient(135deg, rgba(255, 195, 0, 0.1), rgba(146, 108, 21, 0.1));
+            color: var(--primary);
+            font-weight: 600;
         }
 
         @keyframes shake {
@@ -283,14 +287,14 @@
         }
 
         .alert-danger {
-            background: #e4c363;
-            color: var(--light);
-            border-left: 4px solid var(--danger);
+            background: linear-gradient(135deg, rgba(255, 195, 0, 0.15), rgba(146, 108, 21, 0.15));
+            color: var(--primary);
+            border-left: 4px solid var(--primary);
         }
 
         .alert-success {
-            background: #e6ffe6;
-            color: var(--success);
+            background: linear-gradient(135deg, rgba(255, 195, 0, 0.15), rgba(146, 108, 21, 0.15));
+            color: var(--primary);
             border-left: 4px solid var(--primary);
         }
 
@@ -333,10 +337,15 @@
         }
 
         .error-text {
-            color: var(--danger);
+            color: var(--primary);
             font-size: 0.85rem;
             margin-top: 5px;
             display: none;
+            font-weight: 600;
+            background: linear-gradient(135deg, rgba(255, 195, 0, 0.1), rgba(146, 108, 21, 0.1));
+            padding: 8px 12px;
+            border-radius: 6px;
+            border-left: 3px solid var(--primary);
         }
 
         /* Responsive Design */
@@ -628,8 +637,8 @@
     <script>
         //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //OLD VERSION
         //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxigAs8qtd7UXErXJI2GdqVhNn0_-or6O0idofhzKfcaBX9xSxfuRlpcNFij-FFp-PyZA/exec'; //OLD VERSION
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec'; //NEW VERSION
-
+        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec';  -- OLD version
+          const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw6Rt-O6gk-b6O9HQyRMOLXbmNO-ROYlqbzeijbh_Lp26P1pi6vxJyYUrB-95zzmraUjQ/exec';
 
         // Set current year in footer
         document.getElementById('currentYear').textContent = new Date().getFullYear();
@@ -682,15 +691,15 @@
             if (strength <= 1) {
                 strengthBar.classList.add('strength-weak');
                 strengthText.textContent = 'Weak password';
-                strengthText.style.color = 'var(--danger)';
+                strengthText.style.color = 'var(--primary)';
             } else if (strength <= 3) {
                 strengthBar.classList.add('strength-medium');
                 strengthText.textContent = 'Medium password';
-                strengthText.style.color = '#ffc107';
+                strengthText.style.color = 'var(--secondary)';
             } else {
                 strengthBar.classList.add('strength-strong');
                 strengthText.textContent = 'Strong password';
-                strengthText.style.color = 'var(--success)';
+                strengthText.style.color = 'var(--accent)';
             }
         });
 
