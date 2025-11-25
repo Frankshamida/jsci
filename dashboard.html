@@ -3928,6 +3928,155 @@
         }
     }
 
+    async function saveProfileChanges() {
+            const firstname = document.getElementById('firstname').value.trim();
+            const lastname = document.getElementById('lastname').value.trim();
+            
+            if (!firstname || !lastname) {
+                showAlert('Please fill in both first name and last name', 'warning');
+                return;
+            }
+            
+            // Declare variables in the function scope so they're accessible in finally block
+            let originalText;
+            let saveBtn;
+            
+            try {
+                // Show loading state
+                saveBtn = document.querySelector('#personal-info .btn-primary');
+                originalText = saveBtn.textContent;
+                saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+                saveBtn.disabled = true;
+                
+                const response = await fetch(`${API_BASE_URL}/proxy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'updateProfile',
+                        username: userData.username,
+                        firstname: firstname,
+                        lastname: lastname
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update local user data
+                    userData.firstname = firstname;
+                    userData.lastname = lastname;
+                    
+                    // Update session and local storage
+                    sessionStorage.setItem('userData', JSON.stringify(userData));
+                    localStorage.setItem('userData', JSON.stringify(userData));
+                    
+                    // Update UI
+                    loadProfileData();
+                    document.getElementById('userName').textContent = `${firstname} ${lastname}`;
+                    document.getElementById('welcomeName').textContent = firstname;
+                    
+                    showAlert('Profile updated successfully!', 'success');
+                } else {
+                    showAlert(result.message || 'Failed to update profile', 'danger');
+                }
+                
+            } catch (error) {
+                console.error('Error updating profile:', error);
+                showAlert('Error updating profile. Please try again.', 'danger');
+            } finally {
+                // Restore button state - now originalText and saveBtn are accessible
+                if (saveBtn && originalText) {
+                    saveBtn.textContent = originalText;
+                    saveBtn.disabled = false;
+                }
+            }
+        }
+
+    async function changePassword() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            // Validation
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                showAlert('Please fill in all password fields', 'warning');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                showAlert('New password and confirmation do not match', 'warning');
+                return;
+            }
+            
+            const strength = checkPasswordStrength(newPassword);
+            if (strength < 3) {
+                showAlert('Please use a stronger password', 'warning');
+                return;
+            }
+            
+            // Show loading state
+            const changeBtn = document.querySelector('#change-password .btn-primary');
+            const originalText = changeBtn.textContent;
+            changeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Changing...';
+            changeBtn.disabled = true;
+            
+            try {
+                // Step 1: Verify current password
+                const verifyResponse = await fetch(`${API_BASE_URL}/proxy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'verifyPassword',
+                        username: userData.username,
+                        password: currentPassword
+                    })
+                });
+                
+                const verifyResult = await verifyResponse.json();
+                
+                if (!verifyResult.success) {
+                    showAlert('Current password is incorrect', 'danger');
+                    changeBtn.textContent = originalText;
+                    changeBtn.disabled = false;
+                    return;
+                }
+                
+                // Step 2: Update password
+                const updateResponse = await fetch(`${API_BASE_URL}/proxy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'updatePassword',
+                        username: userData.username,
+                        newPassword: newPassword
+                    })
+                });
+                
+                const updateResult = await updateResponse.json();
+                
+                if (updateResult.success) {
+                    resetPasswordForm();
+                    showAlert('Password changed successfully!', 'success');
+                } else {
+                    showAlert(updateResult.message || 'Failed to change password', 'danger');
+                }
+                
+            } catch (error) {
+                console.error('Error changing password:', error);
+                showAlert('Error changing password. Please try again.', 'danger');
+            } finally {
+                // Restore button state
+                changeBtn.textContent = originalText;
+                changeBtn.disabled = false;
+            }
+        }
+    
     // Close receipt when clicking outside
     document.addEventListener('click', function(event) {
         const receiptModal = document.getElementById('receiptModal');
