@@ -1,5 +1,4 @@
-// api/proxy.js
-const fetch = require('node-fetch');
+// api/proxy.js - No need for node-fetch in Node.js 18+
 
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzigAL47G_8wcUH5Ik3423LnHW5RKPy0YYbuIPh8mFOHNDJpYeiUPi8YPkZD3Xw3OcH4w/exec';
 
