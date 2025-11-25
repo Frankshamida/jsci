@@ -635,10 +635,12 @@
     </div>
 
     <script>
-        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //OLD VERSION
-        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxigAs8qtd7UXErXJI2GdqVhNn0_-or6O0idofhzKfcaBX9xSxfuRlpcNFij-FFp-PyZA/exec'; //OLD VERSION
-        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec';  -- OLD version
-          const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw6Rt-O6gk-b6O9HQyRMOLXbmNO-ROYlqbzeijbh_Lp26P1pi6vxJyYUrB-95zzmraUjQ/exec';
+        // Replace this line in all your HTML files:
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxz4PIMae9fif_T6YsPPTycTqCp-60vEYBqOZIUY6XRMHjb80A9rY3CW_JDw28oJWHCCw/exec';
+
+        // With this:
+        const API_BASE_URL = 'http://localhost:3000/api';
+
 
         // Set current year in footer
         document.getElementById('currentYear').textContent = new Date().getFullYear();
@@ -717,68 +719,73 @@
             }
         });
 
-        // Form submission
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        e.preventDefault();
 
-            // Get form values INCLUDING SECURITY QUESTIONS
-            const formData = {
-                firstname: document.getElementById('firstname').value.trim(),
-                lastname: document.getElementById('lastname').value.trim(),
-                birthdate: document.getElementById('birthdate').value,
-                ministry: document.getElementById('ministry').value,
-                username: document.getElementById('username').value.trim(),
-                password: document.getElementById('password').value,
-                confirmPassword: document.getElementById('confirmPassword').value,
-                securityQuestion: document.getElementById('securityQuestion').value,
-                securityAnswer: document.getElementById('securityAnswer').value.trim(),
-                terms: document.getElementById('terms').checked
-            };
+        // Get form values INCLUDING SECURITY QUESTIONS
+        const formData = {
+            firstname: document.getElementById('firstname').value.trim(),
+            lastname: document.getElementById('lastname').value.trim(),
+            birthdate: document.getElementById('birthdate').value,
+            ministry: document.getElementById('ministry').value,
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value,
+            confirmPassword: document.getElementById('confirmPassword').value,
+            securityQuestion: document.getElementById('securityQuestion').value,
+            securityAnswer: document.getElementById('securityAnswer').value.trim(),
+            terms: document.getElementById('terms').checked
+        };
 
-            // Validate
-            if (!validateForm(formData)) {
-                return;
-            }
+        // Validate
+        if (!validateForm(formData)) {
+            return;
+        }
 
-            const signupBtn = document.getElementById('signupBtn');
-            const btnText = document.getElementById('btnText');
-            const spinner = document.getElementById('spinner');
-            const alert = document.getElementById('alert');
+        const signupBtn = document.getElementById('signupBtn');
+        const btnText = document.getElementById('btnText');
+        const spinner = document.getElementById('spinner');
+        const alert = document.getElementById('alert');
 
-            // Show loading state
-            signupBtn.disabled = true;
-            btnText.style.display = 'none';
-            spinner.style.display = 'block';
-            alert.style.display = 'none';
+        // Show loading state
+        signupBtn.disabled = true;
+        btnText.style.display = 'none';
+        spinner.style.display = 'block';
+        alert.style.display = 'none';
 
-            try {
-                const response = await fetch(`${SCRIPT_URL}?action=signup`, {
-                    method: 'POST',
-                    body: JSON.stringify(formData)
-                });
+        try {
+            const response = await fetch(`${API_BASE_URL}/proxy`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'signup',
+                    ...formData
+                })
+            });
 
-                const result = await response.json();
+            const result = await response.json();
 
-                if (result.success) {
-                    showAlert('Account created successfully! Redirecting to login...', 'success');
-                    
-                    setTimeout(() => {
-                        window.location.href = 'login.html';
-                    }, 2000);
-                } else {
-                    showAlert(result.message || 'Error creating account', 'danger');
-                    signupBtn.disabled = false;
-                    btnText.style.display = 'block';
-                    spinner.style.display = 'none';
-                }
-            } catch (error) {
-                console.error('Signup error:', error);
-                showAlert('An error occurred. Please try again.', 'danger');
+            if (result.success) {
+                showAlert('Account created successfully! Redirecting to login...', 'success');
+                
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 2000);
+            } else {
+                showAlert(result.message || 'Error creating account', 'danger');
                 signupBtn.disabled = false;
                 btnText.style.display = 'block';
                 spinner.style.display = 'none';
             }
-        });
+        } catch (error) {
+            console.error('Signup error:', error);
+            showAlert('An error occurred. Please try again.', 'danger');
+            signupBtn.disabled = false;
+            btnText.style.display = 'block';
+            spinner.style.display = 'none';
+        }
+    });
 
         function validateForm(data) {
         let isValid = true;

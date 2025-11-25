@@ -1906,3 +1906,841 @@ function resetPassword(data) {
   }
 }
 
+
+
+// 11/25/2025
+
+//config.js
+
+// Google Apps Script for Ministry Portal Authentication System
+const SHEET_ID = '1NUrtHTBm4F3JTq9AXOsJXVfp2uLDtdfItCzOpK733fw';
+
+// Sheet Names
+const SHEET_NAMES = {
+  ACCOUNTS: 'Accounts',
+  CHANGE_LOG: 'Change Log'
+};
+
+// Response Status
+const STATUS = {
+  UNVERIFIED: 'unverified',
+  VERIFIED: 'verified'
+};
+
+// Security Questions
+const SECURITY_QUESTIONS = [
+  "What was your childhood nickname?",
+  "What city were you born in?",
+  "What is your mother's maiden name?",
+  "What was the name of your first pet?",
+  "What elementary school did you attend?",
+  "What is your favorite Bible verse?"
+];
+
+
+
+//handlers.js
+
+
+// handlers.gs - Updated with profile editing functions
+
+function doGet(e) {
+  const result = handleGetRequest(e);
+  
+  return ContentService
+    .createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON)
+    .setContent(JSON.stringify(result));
+}
+
+function doPost(e) {
+  let result;
+  
+  try {
+    let data = {};
+    
+    if (e && e.postData && e.postData.contents) {
+      data = JSON.parse(e.postData.contents);
+    } else if (e && e.parameter) {
+      data = e.parameter;
+    }
+    
+    const action = data.action || (e && e.parameter && e.parameter.action);
+    
+    if (action === 'login') {
+      result = handleLogin(data);
+    } else if (action === 'signup') {
+      result = handleSignup(data);
+    } else if (action === 'verifySecurityAnswer') {
+      result = verifySecurityAnswer(data);
+    } else if (action === 'resetPassword') {
+      result = resetPassword(data);
+    } else if (action === 'verifyPassword') {
+      result = verifyCurrentPassword(data);
+    } else if (action === 'updatePassword') {
+      result = updateUserPassword(data);
+    } else if (action === 'updateProfile') {
+      result = updateUserProfile(data);
+    } else {
+      result = createResponse(false, 'Invalid action');
+    }
+  } catch (error) {
+    Logger.log('doPost Error: ' + error.toString());
+    result = { success: false, message: 'Server error: ' + error.toString() };
+  }
+  
+  // FIX: Return with proper CORS headers
+  return ContentService
+    .createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function handleGetRequest(e) {
+  const action = e && e.parameter && e.parameter.action;
+  let result;
+  
+  try {
+    // Log all parameters for debugging
+    if (e && e.parameter) {
+      Logger.log('GET Request Action: ' + action);
+      Logger.log('GET Request Parameters: ' + JSON.stringify(e.parameter));
+    }
+    
+    if (action === 'checkStatus') {
+      result = handleCheckStatus(e);
+    } else if (action === 'getUnverifiedUsers') {
+      result = getUnverifiedUsers();
+    } else if (action === 'verifyUser') {
+      result = verifyUser(e.parameter.username);
+    } else if (action === 'getSecurityQuestion') {
+      // Ensure username parameter exists
+      if (!e.parameter.username) {
+        result = createResponse(false, 'Username parameter is required');
+      } else {
+        result = getSecurityQuestion(e.parameter.username);
+      }
+    } else {
+      result = { success: true, message: 'Ministry Portal API is running' };
+    }
+  } catch (error) {
+    Logger.log('doGet Error: ' + error.toString());
+    Logger.log('Error stack: ' + error.stack);
+    result = { success: false, message: 'Server error: ' + error.toString() };
+  }
+  
+  return result;
+}
+
+// Verify current password
+function verifyCurrentPassword(data) {
+  try {
+    if (!data || !data.username || !data.password) {
+      Logger.log('verifyCurrentPassword: Missing username or password');
+      return createResponse(false, 'Missing username or password');
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    // Hash the password provided by user
+    const hashedPassword = hashPassword(data.password);
+    
+    Logger.log('Verifying password for user: ' + data.username);
+    
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const username = row[6]; // Column G - Username
+      const storedPasswordHash = row[7]; // Column H - Password
+      
+      if (username === data.username) {
+        Logger.log('User found: ' + username);
+        Logger.log('Stored hash: ' + storedPasswordHash.substring(0, 10) + '...');
+        Logger.log('Provided hash: ' + hashedPassword.substring(0, 10) + '...');
+        
+        if (storedPasswordHash === hashedPassword) {
+          Logger.log('Password verified successfully for user: ' + data.username);
+          return createResponse(true, 'Password verified');
+        } else {
+          Logger.log('Password verification failed - hashes do not match');
+          return createResponse(false, 'Incorrect password');
+        }
+      }
+    }
+    
+    Logger.log('User not found: ' + data.username);
+    return createResponse(false, 'User not found');
+    
+  } catch (error) {
+    Logger.log('Verify password error: ' + error.toString());
+    Logger.log('Error stack: ' + error.stack);
+    return createResponse(false, 'Error verifying password: ' + error.toString());
+  }
+}
+
+// Update user password
+function updateUserPassword(data) {
+  try {
+    if (!data || !data.username || !data.newPassword) {
+      Logger.log('updateUserPassword: Missing username or new password');
+      return createResponse(false, 'Missing username or new password');
+    }
+
+    if (!data.newPassword.trim()) {
+      return createResponse(false, 'Password cannot be empty');
+    }
+
+    if (data.newPassword.length < 8) {
+      return createResponse(false, 'Password must be at least 8 characters long');
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    // Hash the new password
+    const hashedNewPassword = hashPassword(data.newPassword);
+    
+    if (!hashedNewPassword) {
+      Logger.log('Password hashing failed');
+      return createResponse(false, 'Error processing password');
+    }
+    
+    Logger.log('Updating password for user: ' + data.username);
+    
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const username = row[6]; // Column G - Username
+      
+      if (username === data.username) {
+        // Update password in Column H (index 7) and Column I (index 8)
+        accountsSheet.getRange(i + 1, 8).setValue(hashedNewPassword); // Column H
+        accountsSheet.getRange(i + 1, 9).setValue(hashedNewPassword); // Column I
+        
+        // Update timestamp in Column A
+        accountsSheet.getRange(i + 1, 1).setValue(new Date());
+        
+        Logger.log('Password updated successfully for user: ' + data.username);
+        Logger.log('New password hash: ' + hashedNewPassword.substring(0, 10) + '...');
+        
+        return createResponse(true, 'Password updated successfully');
+      }
+    }
+    
+    Logger.log('User not found: ' + data.username);
+    return createResponse(false, 'User not found');
+    
+  } catch (error) {
+    Logger.log('Update password error: ' + error.toString());
+    Logger.log('Error stack: ' + error.stack);
+    return createResponse(false, 'Error updating password: ' + error.toString());
+  }
+}
+
+// Update user profile (first name and last name)
+function updateUserProfile(data) {
+  try {
+    if (!data || !data.username || !data.firstname || !data.lastname) {
+      Logger.log('updateUserProfile: Missing required fields');
+      return createResponse(false, 'Missing required fields');
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    const changeLogSheet = ss.getSheetByName('Change Log');
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    let changesMade = [];
+    let oldFirstname = '';
+    let oldLastname = '';
+    let memberId = '';
+    
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const username = row[6]; // Column G - Username
+      
+      if (username === data.username) {
+        // Get old values for change log
+        oldFirstname = row[2] || ''; // Column C - First Name
+        oldLastname = row[3] || '';  // Column D - Last Name
+        memberId = row[1] || '';     // Column B - Member ID
+        
+        // Update first name if changed
+        if (oldFirstname !== data.firstname) {
+          accountsSheet.getRange(i + 1, 3).setValue(data.firstname); // Column C
+          changesMade.push(`First name: "${oldFirstname}" → "${data.firstname}"`);
+        }
+        
+        // Update last name if changed
+        if (oldLastname !== data.lastname) {
+          accountsSheet.getRange(i + 1, 4).setValue(data.lastname); // Column D
+          changesMade.push(`Last name: "${oldLastname}" → "${data.lastname}"`);
+        }
+        
+        // Update timestamp
+        accountsSheet.getRange(i + 1, 1).setValue(new Date());
+        
+        // Log changes if any were made
+        if (changesMade.length > 0 && changeLogSheet) {
+          const timestamp = new Date();
+          const userName = `${oldFirstname} ${oldLastname}`;
+          const changesDescription = changesMade.join('; ');
+          
+          const changeLogRow = [
+            timestamp,    // A - Timestamp
+            memberId,     // B - Member ID
+            userName,     // C - Name
+            changesDescription // D - Changes
+          ];
+          
+          changeLogSheet.appendRow(changeLogRow);
+          
+          Logger.log('Change logged: ' + changesDescription);
+        }
+        
+        Logger.log('Profile updated successfully for user: ' + data.username);
+        return createResponse(true, 'Profile updated successfully', {
+          changes: changesMade
+        });
+      }
+    }
+    
+    Logger.log('User not found: ' + data.username);
+    return createResponse(false, 'User not found');
+    
+  } catch (error) {
+    Logger.log('Update profile error: ' + error.toString());
+    Logger.log('Error stack: ' + error.stack);
+    return createResponse(false, 'Error updating profile: ' + error.toString());
+  }
+}
+
+
+
+//auth.js
+
+function handleLogin(data) {
+  try {
+    if (!data || !data.username || !data.password) {
+      return createResponse(false, 'Missing username or password');
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    var hashedPassword = hashPassword(data.password);
+    
+    for (var i = 1; i < values.length; i++) {
+      const row = values[i];
+      const username = row[6]; // Column G (index 6)
+      const storedPasswordHash = row[7]; // Column H (index 7)
+      const status = row[10] || STATUS.UNVERIFIED; // Column K (index 10)
+      
+      if (username === data.username && storedPasswordHash === hashedPassword) {
+        const userData = {
+          memberId: row[1],
+          firstname: row[2],
+          lastname: row[3],
+          birthdate: row[4],
+          ministry: row[5],
+          username: row[6],
+          status: status
+        };
+        
+        return createResponse(true, 'Login successful', userData);
+      }
+    }
+    
+    return createResponse(false, 'Invalid username or password');
+  } catch (error) {
+    Logger.log('Login error: ' + error.toString());
+    return createResponse(false, 'Login error: ' + error.toString());
+  }
+}
+
+function handleSignup(data) {
+  try {
+    if (!data || !data.username || !data.password || !data.confirmPassword) {
+      return createResponse(false, 'Missing signup fields (username/password/confirmPassword)');
+    }
+    
+    // Validate passwords are not empty
+    if (!data.password.trim() || !data.confirmPassword.trim()) {
+      return createResponse(false, 'Password cannot be empty');
+    }
+    
+    if (data.password !== data.confirmPassword) {
+      return createResponse(false, 'Password and Confirm Password do not match');
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    for (var i = 1; i < values.length; i++) {
+      if (values[i][6] === data.username) {
+        return createResponse(false, 'Username already exists');
+      }
+    }
+    
+    const memberId = generateMemberId();
+    const timestamp = new Date();
+    const hashedPassword = hashPassword(data.password);
+    const hashedConfirmPassword = hashPassword(data.confirmPassword);
+    const status = STATUS.UNVERIFIED;
+    
+    // Validate that hashing was successful
+    if (!hashedPassword || !hashedConfirmPassword) {
+      return createResponse(false, 'Error processing passwords');
+    }
+    
+    // CORRECTED: Build the new row with proper column indexing
+    const newRow = [
+      timestamp,                    // A - Timestamp (index 0)
+      memberId,                    // B - Member ID (index 1)
+      data.firstname || '',        // C - First Name (index 2)
+      data.lastname || '',         // D - Last Name (index 3)
+      data.birthdate || '',        // E - Birthdate (index 4)
+      data.ministry || '',         // F - Ministry (index 5)
+      data.username,               // G - Username (index 6)
+      hashedPassword,              // H - Password Hash (index 7)
+      hashedConfirmPassword,       // I - Confirm Password Hash (index 8)
+      data.terms ? 'Accepted' : 'Not Accepted', // J - Terms Accepted (index 9)
+      status,                      // K - Status (index 10)
+      data.securityQuestion || '', // L - Security Question (index 11)
+      data.securityAnswer || ''    // M - Security Answer (index 12)
+    ];
+    
+    accountsSheet.appendRow(newRow);
+    
+    return createResponse(true, 'Account created successfully! Please wait for verification. An administrator will verify your account soon.', {
+      memberId: memberId,
+      username: data.username,
+      status: status
+    });
+  } catch (error) {
+    Logger.log('Signup error: ' + error.toString());
+    return createResponse(false, 'Signup error: ' + error.toString());
+  }
+}
+
+function handleCheckStatus(e) {
+  try {
+    const username = e && e.parameter && e.parameter.username;
+    if (!username) return createResponse(false, 'Missing username parameter');
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    for (var i = 1; i < values.length; i++) {
+      const row = values[i];
+      if (row[6] === username) {
+        const currentStatus = row[10] || STATUS.UNVERIFIED;
+        
+        return createResponse(true, 'Status check successful', {
+          username: username,
+          status: currentStatus
+        });
+      }
+    }
+    
+    return createResponse(false, 'User not found');
+  } catch (error) {
+    Logger.log('Check status error: ' + error.toString());
+    return createResponse(false, 'Error checking status: ' + error.toString());
+  }
+}
+
+
+
+//utilitiess.js
+
+// Password hashing function using SHA-256
+function hashPassword(password) {
+  // Handle null, undefined, or empty passwords gracefully
+  if (password === null || password === undefined || password === '') {
+    Logger.log('Warning: hashPassword called with invalid password value');
+    return ''; // Return empty string instead of throwing error
+  }
+  
+  password = String(password);
+
+  try {
+    var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, password);
+    var hash = '';
+    for (var i = 0; i < digest.length; i++) {
+      var byte = digest[i];
+      if (byte < 0) byte += 256;
+      var b = byte.toString(16);
+      if (b.length == 1) b = '0' + b;
+      hash += b;
+    }
+    return hash;
+  } catch (error) {
+    Logger.log('Error in hashPassword: ' + error.toString());
+    return ''; // Return empty string on error
+  }
+}
+
+function generateMemberId() {
+  const min = 100000;
+  const max = 999999;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function createResponse(success, message, data = null) {
+  const response = {
+    success: success,
+    message: message
+  };
+  
+  if (data) {
+    response.data = data;
+  }
+  
+  return response;
+}
+
+// Helper function to get Philippine time
+function getPhilippineTime() {
+  return new Date();
+}
+
+
+//admin.js
+
+// admin.gs - Admin Functions for User Verification
+
+function verifyUser(username) {
+  try {
+    if (!username) {
+      return createResponse(false, 'Username is required');
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    for (var i = 1; i < values.length; i++) {
+      const row = values[i];
+      const currentUsername = row[6]; // Column G (username)
+      
+      if (currentUsername === username) {
+        // Update status to verified in Column K (index 10)
+        accountsSheet.getRange(i + 1, 11).setValue(STATUS.VERIFIED);
+        
+        // Update timestamp
+        accountsSheet.getRange(i + 1, 1).setValue(new Date());
+        
+        Logger.log('User verified successfully: ' + username);
+        return createResponse(true, 'User verified successfully');
+      }
+    }
+    
+    return createResponse(false, 'User not found');
+  } catch (error) {
+    Logger.log('Verify user error: ' + error.toString());
+    return createResponse(false, 'Error verifying user: ' + error.toString());
+  }
+}
+
+function getUnverifiedUsers() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found', []);
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    const unverifiedUsers = [];
+    
+    // Start from row 2 (index 1) to skip header
+    for (var i = 1; i < values.length; i++) {
+      const row = values[i];
+      const status = row[10] || STATUS.UNVERIFIED; // Column K (status)
+      
+      if (status === STATUS.UNVERIFIED) {
+        unverifiedUsers.push({
+          timestamp: row[0],     // Column A
+          memberId: row[1],      // Column B
+          firstname: row[2],     // Column C
+          lastname: row[3],      // Column D
+          birthdate: row[4],     // Column E
+          ministry: row[5],      // Column F
+          username: row[6],      // Column G
+          status: status
+        });
+      }
+    }
+    
+    Logger.log('Found ' + unverifiedUsers.length + ' unverified users');
+    return createResponse(true, 'Unverified users retrieved successfully', unverifiedUsers);
+  } catch (error) {
+    Logger.log('Get unverified users error: ' + error.toString());
+    return createResponse(false, 'Error retrieving unverified users: ' + error.toString(), []);
+  }
+}
+
+
+
+
+//security.js
+
+// security.gs - Fixed Forgot Password Security Questions Functions
+
+function getSecurityQuestion(username) {
+  try {
+    // Add validation for username parameter
+    if (!username || username === undefined || username === null || username === '') {
+      Logger.log('getSecurityQuestion called with invalid username:', username);
+      return createResponse(false, 'Username is required');
+    }
+    
+    // Convert username to string to be safe
+    username = String(username).trim();
+    
+    if (!username) {
+      return createResponse(false, 'Username cannot be empty');
+    }
+    
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      Logger.log('Accounts sheet not found');
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    Logger.log('Looking for username: "' + username + '"');
+    Logger.log('Total rows in sheet:', values.length);
+    
+    for (var i = 1; i < values.length; i++) {
+      const row = values[i];
+      const currentUsername = row[6]; // Column G (username)
+      
+      // Skip empty rows
+      if (!currentUsername || currentUsername === '') {
+        continue;
+      }
+      
+      // Compare usernames (case-insensitive)
+      if (currentUsername.toString().toLowerCase().trim() === username.toLowerCase()) {
+        const securityQuestion = row[11] || ''; // Column L (Security Question)
+        const securityAnswer = row[12] || '';   // Column M (Security Answer)
+        
+        Logger.log('Found user: "' + currentUsername + '"');
+        Logger.log('Security Question: "' + securityQuestion + '"');
+        Logger.log('Has Security Answer:', !!securityAnswer);
+        
+        if (!securityQuestion || !securityAnswer) {
+          return createResponse(false, 'No security question set for this account. Please contact administrator.');
+        }
+        
+        return createResponse(true, 'Security question retrieved', {
+          username: currentUsername,
+          securityQuestion: securityQuestion,
+          hasSecurity: true
+        });
+      }
+    }
+    
+    Logger.log('Username not found: "' + username + '"');
+    return createResponse(false, 'Username not found');
+  } catch (error) {
+    Logger.log('Get security question error: ' + error.toString());
+    Logger.log('Error stack: ' + error.stack);
+    return createResponse(false, 'Error retrieving security question: ' + error.toString());
+  }
+}
+
+function verifySecurityAnswer(data) {
+  try {
+    if (!data || !data.username || !data.answer) {
+      Logger.log('verifySecurityAnswer missing data:', JSON.stringify(data));
+      return createResponse(false, 'Missing username or security answer');
+    }
+
+    // Convert to strings and trim
+    const username = String(data.username).trim();
+    const answer = String(data.answer).trim();
+    
+    if (!username || !answer) {
+      return createResponse(false, 'Username and answer cannot be empty');
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    Logger.log('Verifying security answer for: "' + username + '"');
+    
+    for (var i = 1; i < values.length; i++) {
+      const row = values[i];
+      const currentUsername = row[6]; // Column G (username)
+      
+      // Skip empty rows
+      if (!currentUsername || currentUsername === '') {
+        continue;
+      }
+      
+      if (currentUsername.toString().toLowerCase().trim() === username.toLowerCase()) {
+        const storedAnswer = row[12] || ''; // Column M (Security Answer)
+        
+        Logger.log('Found user: "' + currentUsername + '"');
+        Logger.log('Stored answer: "' + storedAnswer + '"');
+        Logger.log('Provided answer: "' + answer + '"');
+        
+        if (!storedAnswer) {
+          return createResponse(false, 'No security answer set for this account. Please contact administrator.');
+        }
+        
+        // Case-insensitive comparison, trim whitespace
+        if (storedAnswer.toString().toLowerCase().trim() === answer.toLowerCase()) {
+          Logger.log('Security answer verified successfully');
+          return createResponse(true, 'Security answer verified successfully');
+        } else {
+          Logger.log('Security answer does not match');
+          return createResponse(false, 'Incorrect security answer');
+        }
+      }
+    }
+    
+    Logger.log('User not found: "' + username + '"');
+    return createResponse(false, 'User not found');
+  } catch (error) {
+    Logger.log('Verify security answer error: ' + error.toString());
+    Logger.log('Error stack: ' + error.stack);
+    return createResponse(false, 'Error verifying security answer: ' + error.toString());
+  }
+}
+
+function resetPassword(data) {
+  try {
+    if (!data || !data.username || !data.newPassword) {
+      Logger.log('resetPassword missing data:', JSON.stringify(data));
+      return createResponse(false, 'Missing username or new password');
+    }
+
+    // Convert to strings and validate
+    const username = String(data.username).trim();
+    const newPassword = String(data.newPassword).trim();
+    
+    if (!username) {
+      return createResponse(false, 'Username cannot be empty');
+    }
+    
+    if (!newPassword) {
+      return createResponse(false, 'Password cannot be empty');
+    }
+    
+    if (newPassword.length < 8) {
+      return createResponse(false, 'Password must be at least 8 characters long');
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const accountsSheet = ss.getSheetByName(SHEET_NAMES.ACCOUNTS);
+    
+    if (!accountsSheet) {
+      return createResponse(false, 'Accounts sheet not found');
+    }
+    
+    const dataRange = accountsSheet.getDataRange();
+    const values = dataRange.getValues();
+    
+    Logger.log('Resetting password for: "' + username + '"');
+    
+    for (var i = 1; i < values.length; i++) {
+      const row = values[i];
+      const currentUsername = row[6]; // Column G (username)
+      
+      // Skip empty rows
+      if (!currentUsername || currentUsername === '') {
+        continue;
+      }
+      
+      if (currentUsername.toString().toLowerCase().trim() === username.toLowerCase()) {
+        // Update password (Column H) and confirm password (Column I)
+        const hashedNewPassword = hashPassword(newPassword);
+        
+        // Check if hashing was successful
+        if (!hashedNewPassword) {
+          Logger.log('Password hashing failed');
+          return createResponse(false, 'Error processing password');
+        }
+        
+        accountsSheet.getRange(i + 1, 8).setValue(hashedNewPassword); // Column H
+        accountsSheet.getRange(i + 1, 9).setValue(hashedNewPassword); // Column I
+        
+        // Update timestamp
+        accountsSheet.getRange(i + 1, 1).setValue(new Date());
+        
+        Logger.log('Password reset successfully for user: "' + username + '"');
+        
+        return createResponse(true, 'Password reset successfully');
+      }
+    }
+    
+    Logger.log('User not found: "' + username + '"');
+    return createResponse(false, 'User not found');
+  } catch (error) {
+    Logger.log('Reset password error: ' + error.toString());
+    Logger.log('Error stack: ' + error.stack);
+    return createResponse(false, 'Error resetting password: ' + error.toString());
+  }
+}

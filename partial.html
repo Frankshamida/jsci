@@ -1,0 +1,2472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home - Ministry Portal</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="icon" type="image/x-icon" href="assets/LOGO.png">
+    <link rel="shortcut icon" type="image/x-icon" href="assets/LOGO.png">
+    <link rel="apple-touch-icon" href="assets/LOGO.png">
+    <style>
+        :root {
+            --primary: #926C15;
+            --secondary: #C9980B;
+            --accent: #FFC300;
+            --light-yellow: #FFD235;
+            --bright-yellow: #FFE169;
+            --light: #f8f9fa;
+            --dark: #343a40;
+            --success: #28a745;
+            --danger: #dc3545;
+            --border-radius: 12px;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+            --sidebar-width: 280px;
+            --header-height: 80px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .dashboard-container {
+            display: flex;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: white;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            transition: var(--transition);
+            z-index: 1000;
+        }
+
+        .sidebar-header {
+            background: linear-gradient(135deg, var(--accent), var(--primary));
+            padding: 20px 15px;
+            text-align: center;
+            color: white;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            background-image: url('assets/LOGO.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            margin: 0 auto 10px;
+            filter: drop-shadow(0px 4px 10px rgba(0,0,0,0.6));
+        }
+
+        .church-name {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+            font-family: 'Montserrat', sans-serif;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.25);
+        }
+
+        .church-subtitle {
+            font-size: 0.7rem;
+            opacity: 0.9;
+            font-family: 'Montserrat', sans-serif;
+            letter-spacing: 5px;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.25);
+        }
+
+        .user-info {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 12px;
+            border-radius: var(--border-radius);
+            margin-top: 15px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-avatar-container {
+            position: relative;
+            width: 70px;
+            height: 70px;
+            flex-shrink: 0;
+        }
+
+        .user-avatar {
+            width: 100%;
+            height: 100%;
+            background: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--primary);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .user-details {
+            flex: 1;
+        }
+
+        .user-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: white;
+            margin: 0 0 3px 0;
+        }
+
+        .user-ministry {
+            font-size: 0.75rem;
+            opacity: 0.9;
+            color: white;
+            margin: 0;
+        }
+
+        .status-indicator {
+            position: absolute;
+            bottom: -2px;
+            right: -2px;
+            z-index: 10;
+        }
+
+        .status-circle {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid white;
+            position: relative;
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-circle:hover {
+            transform: scale(1.2);
+        }
+
+        .status-circle.verified {
+            background-color: var(--success);
+        }
+
+        .status-circle.unverified {
+            background-color: var(--danger);
+        }
+
+        .status-tooltip {
+            position: absolute;
+            bottom: 100%;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition);
+            z-index: 100;
+            margin-bottom: 5px;
+        }
+
+        .status-circle:hover .status-tooltip {
+            opacity: 1;
+            transform: translateY(-3px);
+        }
+
+        .sidebar-menu {
+            padding: 15px 0;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            color: var(--dark);
+            text-decoration: none;
+            transition: var(--transition);
+            cursor: pointer;
+            border-left: 4px solid transparent;
+            font-size: 0.9rem;
+        }
+
+        .menu-item:hover {
+            background: #f8f9fa;
+            border-left-color: var(--primary);
+        }
+
+        .menu-item.active {
+            background: linear-gradient(90deg, rgba(146, 108, 21, 0.1), transparent);
+            border-left-color: var(--primary);
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .menu-item.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .menu-item.disabled:hover {
+            background: transparent;
+            border-left-color: transparent;
+        }
+
+        .menu-icon {
+            font-size: 1.1rem;
+            margin-right: 12px;
+            width: 20px;
+            text-align: center;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .logout-btn {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            padding: 10px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.9rem;
+        }
+
+        .logout-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+        }
+
+        /* Main Content Styles */
+        .main-content {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            padding: 20px;
+            transition: var(--transition);
+            width: calc(100% - var(--sidebar-width));
+        }
+
+        .content-header {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .content-header h1 {
+            color: var(--primary);
+            margin-bottom: 5px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.5rem;
+        }
+
+        .content-header p {
+            color: #6c757d;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.9rem;
+        }
+
+        /* Common Card Styles */
+        .card {
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .stat-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.85rem;
+        }
+
+        .content-section {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .content-section.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-title {
+            color: var(--primary);
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .section-title i {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
+            margin-right: 10px;
+        }
+
+        .welcome-message {
+            padding: 15px;
+            background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1));
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .welcome-message h2 {
+            color: var(--primary);
+            margin-bottom: 8px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.3rem;
+        }
+
+        .first-time-welcome {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+            text-align: center;
+            animation: slideInUp 0.6s ease;
+        }
+
+        .first-time-welcome h2 {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .first-time-welcome p {
+            font-size: 0.95rem;
+            margin-bottom: 8px;
+            opacity: 0.95;
+        }
+
+        @keyframes slideInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Verification Banner */
+        .verification-banner {
+            background: linear-gradient(135deg, #ffc107, #ff8c00);
+            color: white;
+            padding: 15px;
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+            text-align: center;
+            box-shadow: var(--shadow);
+        }
+
+        .verification-banner h3 {
+            margin-bottom: 8px;
+            font-size: 1.1rem;
+        }
+
+        .verification-banner p {
+            margin-bottom: 10px;
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+
+        .refresh-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 2px solid white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: var(--transition);
+            font-size: 0.85rem;
+        }
+
+        .refresh-btn:hover {
+            background: white;
+            color: #ff8c00;
+        }
+
+        /* Bible Verse Section */
+        .bible-verse-container {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bible-verse-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" opacity="0.1"><text x="50%" y="50%" font-size="80" text-anchor="middle" dominant-baseline="middle" font-family="serif">✝</text></svg>');
+            background-size: 150px;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+
+        .verse-of-the-day {
+            font-size: 1rem;
+            font-style: italic;
+            margin-bottom: 10px;
+            line-height: 1.5;
+            position: relative;
+            z-index: 1;
+        }
+
+        .verse-reference {
+            font-size: 0.85rem;
+            text-align: right;
+            font-weight: 600;
+            position: relative;
+            z-index: 1;
+        }
+
+        .verse-explanation {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Mobile Menu Toggle */
+        .mobile-menu-toggle {
+            display: none;
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            z-index: 1001;
+            background: var(--primary);
+            color: white;
+            border: none;
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            font-size: 1.3rem;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+        }
+
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 500px;
+        }
+
+        table th {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 10px;
+            text-align: left;
+            font-weight: 600;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.9rem;
+        }
+
+        table td {
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.85rem;
+        }
+
+        table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(40, 167, 69, 0.1);
+            color: var(--success);
+        }
+
+        .badge-warning {
+            background: rgba(255, 193, 7, 0.1);
+            color: #ffc107;
+        }
+
+        .badge-danger {
+            background: rgba(220, 53, 69, 0.1);
+            color: var(--danger);
+        }
+
+        /* Schedule Styles */
+        .schedule-container {
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .schedule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .week-navigation {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .nav-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .nav-btn:hover {
+            background: var(--secondary);
+        }
+
+        .schedule-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .action-btn {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .action-btn:hover {
+            background: #f8f9fa;
+        }
+
+        .schedule-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            padding: 20px;
+        }
+
+        .day-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .day-header {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 12px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .day-events {
+            padding: 15px;
+        }
+
+        .event-item {
+            display: flex;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .event-item:last-child {
+            border-bottom: none;
+        }
+
+        .event-time {
+            font-weight: 600;
+            color: var(--primary);
+            min-width: 70px;
+        }
+
+        .event-details {
+            flex: 1;
+        }
+
+        .event-title {
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+        .event-location {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+
+        /* Announcement Styles */
+        .announcements-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .announcement-card {
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            transition: var(--transition);
+        }
+
+        .announcement-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .announcement-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .announcement-title {
+            font-weight: 600;
+            color: var(--primary);
+            font-size: 1.1rem;
+        }
+
+        .announcement-date {
+            color: #6c757d;
+            font-size: 0.85rem;
+        }
+
+        .announcement-content {
+            padding: 20px;
+        }
+
+        .announcement-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .announcement-author {
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .announcement-priority {
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .high-priority {
+            background: rgba(220, 53, 69, 0.1);
+            color: var(--danger);
+        }
+
+        .medium-priority {
+            background: rgba(255, 193, 7, 0.1);
+            color: #ffc107;
+        }
+
+        /* Ministry Specific Styles */
+        .ministry-welcome {
+            background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1));
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .ministry-welcome h3 {
+            color: var(--primary);
+            margin-bottom: 8px;
+        }
+
+        .ministry-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        /* Worship Sets Styles */
+        .worship-sets {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+        }
+
+        .set-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+
+        .set-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .set-date {
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .set-team {
+            background: var(--primary);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .set-songs {
+            padding: 15px;
+        }
+
+        .song-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .song-item:last-child {
+            border-bottom: none;
+        }
+
+        .song-title {
+            font-weight: 600;
+        }
+
+        .song-key {
+            color: #6c757d;
+            font-size: 0.85rem;
+        }
+
+        /* Media Tasks Styles */
+        .media-tasks {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+        }
+
+        .task-list {
+            margin-top: 15px;
+        }
+
+        .task-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .task-item:last-child {
+            border-bottom: none;
+        }
+
+        .task-info {
+            flex: 1;
+        }
+
+        .task-title {
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+        .task-details {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+
+        .task-status {
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .confirmed {
+            background: rgba(40, 167, 69, 0.1);
+            color: var(--success);
+        }
+
+        .pending {
+            background: rgba(255, 193, 7, 0.1);
+            color: #ffc107;
+        }
+
+        .in-progress {
+            background: rgba(0, 123, 255, 0.1);
+            color: #007bff;
+        }
+
+        /* Rehearsal Styles */
+        .rehearsal-schedule {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+        }
+
+        .rehearsal-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .rehearsal-date {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 5px;
+        }
+
+        .rehearsal-time, .rehearsal-location {
+            margin-bottom: 3px;
+            color: #6c757d;
+        }
+
+        .rehearsal-focus {
+            margin-top: 8px;
+            font-weight: 600;
+        }
+
+        /* Usher Assignments Styles */
+        .usher-assignments {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+        }
+
+        .assignment-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .assignment-location {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 10px;
+        }
+
+        .assignment-team {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .team-member {
+            background: #f8f9fa;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 0.85rem;
+        }
+
+        .church-logo-section {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 30px;
+            background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1));
+            border-radius: var(--border-radius);
+        }
+
+        .church-logo-large {
+            width: 300px;
+            height: 300px;
+            background-image: url('assets/LOGO2.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            margin: 0 auto 10px;
+            filter: drop-shadow(0px 4px 15px rgba(0,0,0,0.3));
+        }
+
+        .church-background {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .church-background h2 {
+            color: var(--primary);
+            margin-bottom: 15px;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .church-background p {
+            color: #6c757d;
+            line-height: 1.6;
+            font-size: 1.1rem;
+        }
+
+        .pastors-section {
+            margin: 40px 0;
+            text-align: center;
+        }
+
+        .pastors-section h2 {
+            color: var(--primary);
+            margin-bottom: 30px;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .pastors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+
+        .pastor-card {
+            text-align: center;
+        }
+
+        .pastor-photo {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            background-size: cover;
+            background-position: center;
+            border: 4px solid var(--primary);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: var(--transition);
+        }
+
+        .pastor-photo:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+        }
+
+        .pastor-name {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 5px;
+            font-size: 0.95rem;
+        }
+
+        .pastor-title {
+            color: #6c757d;
+            font-size: 0.85rem;
+        }
+
+        .pastors-description {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .pastors-description p {
+            color: #6c757d;
+            line-height: 1.6;
+            margin: 0;
+            font-style: italic;
+        }
+
+        /* Church Family Section */
+        .church-family-section {
+            margin: 40px 0;
+            text-align: center;
+        }
+
+        .church-family-section h2 {
+            color: var(--primary);
+            margin-bottom: 20px;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .family-gathering-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-top: 20px;
+        }
+
+        .gathering-card {
+            background: white;
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+            position: relative;
+        }
+
+        .gathering-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .gathering-photo {
+            width: 100%;
+            height: 200px;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            transition: var(--transition);
+        }
+
+        .gathering-card:hover .gathering-photo {
+            transform: scale(1.05);
+        }
+
+        .gathering-info {
+            padding: 20px;
+            text-align: left;
+        }
+
+        .gathering-title {
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 8px;
+            font-size: 1.1rem;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .gathering-description {
+            color: #6c757d;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        /* Add overlay effect for better text readability */
+        .gathering-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.1));
+            opacity: 0;
+            transition: var(--transition);
+            pointer-events: none;
+        }
+
+        .gathering-card:hover::before {
+            opacity: 1;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 250px;
+            }
+            
+            .main-content {
+                margin-left: 250px;
+                width: calc(100% - 250px);
+            }
+        }
+
+        @media (max-width: 900px) {
+            .stats-container {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                width: 280px;
+            }
+
+            .sidebar.active {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+                width: 100%;
+                padding: 70px 15px 15px;
+            }
+
+            .mobile-menu-toggle {
+                display: block;
+            }
+
+            .overlay.active {
+                display: block;
+            }
+
+            .stats-container {
+                grid-template-columns: 1fr;
+            }
+
+            .logout-btn {
+                position: relative;
+                bottom: auto;
+                left: auto;
+                right: auto;
+                margin: 15px;
+            }
+            
+            .content-header h1 {
+                font-size: 1.3rem;
+            }
+            
+            .content-header p {
+                font-size: 0.85rem;
+            }
+            
+            .section-title {
+                font-size: 1.2rem;
+            }
+            
+            .schedule-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+            
+            .schedule-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .announcement-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .announcement-footer {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+            
+            .task-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .assignment-team {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .content-layout {
+                grid-template-columns: 1fr;
+            }
+            
+            .pastors-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 20px;
+            }
+            
+            .pastor-photo {
+                width: 100px;
+                height: 100px;
+            }
+            
+            .church-logo-large {
+                width: 150px;
+                height: 150px;
+            }
+
+            .family-gathering-grid {
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            }
+            
+            .gathering-photo {
+                height: 180px;
+            }
+            
+            .gathering-info {
+                padding: 15px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .main-content {
+                padding: 60px 10px 10px;
+            }
+            
+            .content-header {
+                padding: 15px;
+            }
+            
+            .content-section {
+                padding: 15px;
+            }
+            
+            .first-time-welcome {
+                padding: 20px;
+            }
+            
+            .first-time-welcome h2 {
+                font-size: 1.3rem;
+            }
+            
+            .bible-verse-container {
+                padding: 15px;
+            }
+            
+            .verse-of-the-day {
+                font-size: 0.95rem;
+            }
+            
+            .stat-card {
+                padding: 15px;
+            }
+            
+            .stat-value {
+                font-size: 1.3rem;
+            }
+            
+            .welcome-message h2 {
+                font-size: 1.2rem;
+            }
+            .family-gathering-grid {
+            grid-template-columns: 1fr;
+            }
+            
+            .gathering-photo {
+                height: 160px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <button class="mobile-menu-toggle" onclick="toggleSidebar()">☰</button>
+    <div class="overlay" onclick="toggleSidebar()"></div>
+
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"></div>
+                <div class="church-name">JOYFUL SOUND CHURCH</div>
+                <div class="church-subtitle">INTERNATIONAL</div>
+                
+                <div class="user-info">
+                    <div class="user-avatar-container">
+                        <div class="user-avatar" id="userAvatar">
+                            <div class="avatar-content">FG</div>
+                        </div>
+                        <div class="status-indicator" id="statusIndicator">
+                            <!-- Status circle will be dynamically generated -->
+                        </div>
+                    </div>
+                    <div class="user-details">
+                        <div class="user-name" id="userName">Frank Gomez</div>
+                        <div class="user-ministry" id="userMinistry">Media Ministry</div>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="sidebar-menu" id="sidebarMenu">
+                <!-- Menu items will be dynamically generated based on user's ministry and status -->
+            </nav>
+
+            <button class="logout-btn" onclick="logout()">
+                <i class="fas fa-sign-out-alt" style="margin-right: 10px;"></i>
+                Logout
+            </button>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="content-header">
+                <h1 id="pageTitle">Welcome to Your Ministry Portal</h1>
+                <p id="pageSubtitle">Stay connected and inspired in your service</p>
+            </div>
+
+            <!-- Verification Banner (shown only for unverified users) -->
+            <div class="verification-banner" id="verificationBanner" style="display: none;">
+                <h3><i class="fas fa-lock"></i> Account Pending Verification</h3>
+                <p>Your account is currently under review. Please wait for administrator verification to access all features.</p>
+                <p><strong>Friendly Reminder:</strong> Once an administrator verifies your account in the system, you'll gain full access to all ministry features!</p>
+                <button class="refresh-btn" onclick="checkVerificationStatus()">
+                    <i class="fas fa-sync-alt" style="margin-right: 5px;"></i>
+                    Check Verification Status
+                </button>
+            </div>
+
+            <!-- Home Section -->
+            <section id="home" class="content-section active">
+                <!-- First Time Welcome (shown only on first login for verified users) -->
+                <div id="firstTimeWelcomeContainer" style="display: none;">
+                    <div class="first-time-welcome">
+                        <h2><i class="fas fa-glass-cheers"></i> Welcome to the Team, <span id="firstTimeName">Frank</span>!</h2>
+                        <p>We're thrilled to have you join us in ministry!</p>
+                        <p style="font-size: 0.9rem; margin-top: 15px; opacity: 0.9;">Here's your welcome verse as you begin this journey with us.</p>
+                    </div>
+
+                    <div class="bible-verse-container" id="welcomeVerseContainer">
+                        <div class="verse-of-the-day" id="welcomeVerse">
+                            "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do."
+                        </div>
+                        <div class="verse-reference" id="welcomeVerseReference">Ephesians 2:10</div>
+                        <div class="verse-explanation" id="welcomeVerseExplanation">
+                            You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Regular Welcome (shown for returning verified users) -->
+                <div id="regularWelcomeContainer" style="display: none;">
+                    <div class="welcome-message">
+                        <h2><i class="fas fa-hand-sparkles"></i> Welcome back, <span id="welcomeName">Frank</span>!</h2>
+                        <p>Here's what's happening in your ministry today.</p>
+                    </div>
+
+                    <!-- Bible Verse of the Day -->
+                    <div class="bible-verse-container">
+                        <div class="verse-of-the-day" id="dailyVerse">
+                            "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do."
+                        </div>
+                        <div class="verse-reference" id="verseReference">Ephesians 2:10</div>
+                        <div class="verse-explanation" id="verseExplanation">
+                            You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service.
+                        </div>
+                    </div>
+
+                    <!-- Church Logo and Background Section -->
+                    <div class="church-logo-section">
+                        <div class="church-logo-large"></div>
+                        <div class="church-background">
+                            <h2>Joyful Sound Church International</h2>
+                            <p>A vibrant community of believers dedicated to spreading God's love through worship, fellowship, and service. 
+                            We are committed to ministering to hearts and transforming lives through the power of the Holy Spirit.</p>
+                        </div>
+                    </div>
+                    <div class="content-layout">
+                        <!-- Pastors Section -->
+                        <div class="pastors-section">
+                            <h2><i class="fas fa-crown"></i> Our Spiritual Leaders</h2>
+                            <div class="pastors-grid">
+                                <div class="pastor-card">
+                                    <div class="pastor-photo" style="background-image: url('assets/dr-weldon-pior.png'); background-color: #f8f9fa;"></div>
+                                    <div class="pastor-name">Dr. Weldon Pior</div>
+                                    <div class="pastor-title">Senior Pastor</div>
+                                </div>
+                                <div class="pastor-card">
+                                    <div class="pastor-photo" style="background-image: url('assets/dr-dorothy-pior.png'); background-color: #f8f9fa;"></div>
+                                    <div class="pastor-name">Dr. Dorothy Pior</div>
+                                    <div class="pastor-title">Senior Pastor</div>
+                                </div>
+                                <div class="pastor-card">
+                                    <div class="pastor-photo" style="background-image: url('assets/ptr-gracelyn-gambe.png'); background-color: #f8f9fa;"></div>
+                                    <div class="pastor-name">Ptr. Gracelyn Gambe</div>
+                                    <div class="pastor-title">Associate Pastor</div>
+                                </div>
+                                <div class="pastor-card">
+                                    <div class="pastor-photo" style="background-image: url('assets/ptr-eldan-gambe.png'); background-color: #f8f9fa;"></div>
+                                    <div class="pastor-name">Ptr. Eldan Gambe</div>
+                                    <div class="pastor-title">Associate Pastor</div>
+                                </div>
+                                <div class="pastor-card">
+                                    <div class="pastor-photo" style="background-image: url('assets/ptr-psalm-gambe.png'); background-color: #f8f9fa;"></div>
+                                    <div class="pastor-name">Ptr. Psalm Gambe</div>
+                                    <div class="pastor-title">Youth Pastor</div>
+                                </div>
+                            </div>
+                            <div class="pastors-description">
+                                <p>Our dedicated pastors serve with compassion and commitment, guiding our congregation with wisdom and love. They are devoted to nurturing spiritual growth and building a strong community of faith.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Church Family Section -->
+                    <div class="church-family-section">
+                        <h2><i class="fas fa-users"></i> Our Church Family Gatherings</h2>
+                        <p style="color: #6c757d; margin-bottom: 20px;">Celebrating fellowship and community through our joyful gatherings and events</p>
+                        
+                        <div class="family-gathering-grid">
+                            <div class="gathering-card">
+                                <div class="gathering-photo" style="background-image: url('assets/worship-service.jpg'); background-color: #e9ecef;"></div>
+                                <div class="gathering-info">
+                                    <div class="gathering-title">Sunday Worship Service</div>
+                                    <div class="gathering-description">Our church family united in powerful worship and biblical teaching every Sunday</div>
+                                </div>
+                            </div>
+                            
+                            <div class="gathering-card">
+                                <div class="gathering-photo" style="background-image: url('assets/pastor-appreciation.jpg'); background-color: #e9ecef;"></div>
+                                <div class="gathering-info">
+                                    <div class="gathering-title">Pastor Appreciation</div>
+                                    <div class="gathering-description">Honoring and celebrating our dedicated pastors for their faithful service and leadership</div>
+                                </div>
+                            </div>
+                            
+                            <div class="gathering-card">
+                                <div class="gathering-photo" style="background-image: url('assets/youth-event.jpg'); background-color: #e9ecef;"></div>
+                                <div class="gathering-info">
+                                    <div class="gathering-title">Youth Ministry Event</div>
+                                    <div class="gathering-description">Dynamic youth gatherings filled with fun, fellowship, and spiritual growth</div>
+                                </div>
+                            </div>
+                            
+                            <div class="gathering-card">
+                                <div class="gathering-photo" style="background-image: url('assets/community-outreach.jpg'); background-color: #e9ecef;"></div>
+                                <div class="gathering-info">
+                                    <div class="gathering-title">Community Outreach</div>
+                                    <div class="gathering-description">Extending God's love through practical service and evangelism in our community</div>
+                                </div>
+                            </div>
+                            
+                            <div class="gathering-card">
+                                <div class="gathering-photo" style="background-image: url('assets/christian-leadership-conference.jpg'); background-color: #e9ecef;"></div>
+                                <div class="gathering-info">
+                                    <div class="gathering-title">Christian Leadership Conference</div>
+                                    <div class="gathering-description">Equipping and empowering leaders for effective ministry and spiritual guidance</div>
+                                </div>
+                            </div>
+                            
+                            <div class="gathering-card">
+                                <div class="gathering-photo" style="background-image: url('assets/baptism-service.jpg'); background-color: #e9ecef;"></div>
+                                <div class="gathering-info">
+                                    <div class="gathering-title">Baptism Service</div>
+                                    <div class="gathering-description">Powerful moments of public declaration of faith through water baptism</div>
+                                </div>
+                            </div>
+
+                            <div class="gathering-card">
+                                <div class="gathering-photo" style="background-image: url('assets/friday-bible-study.jpg'); background-color: #e9ecef;"></div>
+                                <div class="gathering-info">
+                                    <div class="gathering-title">Friday Bible Study</div>
+                                    <div class="gathering-description">In-depth Bible study and discussion for spiritual growth and deeper understanding</div>
+                                </div>
+                            </div>
+
+                            <div class="gathering-card">
+                                <div class="gathering-photo" style="background-image: url('assets/isom-training.jpg'); background-color: #e9ecef;"></div>
+                                <div class="gathering-info">
+                                    <div class="gathering-title">ISOM</div>
+                                    <div class="gathering-description">International School of Ministry training for leadership development and ministry equipping</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Unverified User Content -->
+                <div id="unverifiedContent" style="display: none;">
+                    <div class="welcome-message">
+                        <h2><i class="fas fa-hand-sparkles"></i> Welcome, <span id="unverifiedName">Frank</span>!</h2>
+                        <p>Your account is currently pending verification. While you wait, here's an inspirational message for you.</p>
+                    </div>
+
+                    <div class="bible-verse-container">
+                        <div class="verse-of-the-day">
+                            "For I know the plans I have for you," declares the Lord, "plans to prosper you and not to harm you, plans to give you hope and a future."
+                        </div>
+                        <div class="verse-reference">Jeremiah 29:11</div>
+                        <div class="verse-explanation">
+                            God has wonderful plans for your ministry journey. While you wait for verification, trust in His timing and purpose for your life.
+                        </div>
+                    </div>
+
+                    <div class="stats-container">
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-hourglass-half"></i></div>
+                            <div class="stat-value">Pending</div>
+                            <div class="stat-label">Account Status</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-tasks"></i></div>
+                            <div class="stat-value">1</div>
+                            <div class="stat-label">Step Remaining</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-clock"></i></div>
+                            <div class="stat-value">24-48h</div>
+                            <div class="stat-label">Verification Time</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-phone-alt"></i></div>
+                            <div class="stat-value">Contact</div>
+                            <div class="stat-label">Administrator</div>
+                        </div>
+                    </div>
+
+                    <div style="background: white; padding: 20px; border-radius: var(--border-radius); box-shadow: var(--shadow); margin-top: 20px;">
+                        <h3 class="section-title"><i class="fas fa-info-circle"></i> What to Expect After Verification</h3>
+                        <ul style="list-style-type: none; padding: 0;">
+                            <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                <i class="fas fa-check" style="color: var(--primary); margin-right: 10px;"></i>
+                                Full access to your ministry dashboard
+                            </li>
+                            <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                <i class="fas fa-check" style="color: var(--primary); margin-right: 10px;"></i>
+                                Ability to view and manage schedules
+                            </li>
+                            <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                <i class="fas fa-check" style="color: var(--primary); margin-right: 10px;"></i>
+                                Access to ministry resources and materials
+                            </li>
+                            <li style="padding: 8px 0;">
+                                <i class="fas fa-check" style="color: var(--primary); margin-right: 10px;"></i>
+                                Communication with your ministry team
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Weekly Schedule Section -->
+            <section id="weekly-schedule" class="content-section">
+                <h2 class="section-title"><i class="fas fa-calendar-alt"></i> Weekly Schedule</h2>
+                <div class="schedule-container">
+                    <div class="schedule-header">
+                        <div class="week-navigation">
+                            <button class="nav-btn"><i class="fas fa-chevron-left"></i></button>
+                            <h3>November 17-23, 2025</h3>
+                            <button class="nav-btn"><i class="fas fa-chevron-right"></i></button>
+                        </div>
+                        <div class="schedule-actions">
+                            <button class="action-btn"><i class="fas fa-print"></i> Print</button>
+                            <button class="action-btn"><i class="fas fa-download"></i> Export</button>
+                        </div>
+                    </div>
+                    
+                    <div class="schedule-grid">
+                        <div class="day-card">
+                            <div class="day-header">Sunday</div>
+                            <div class="day-events">
+                                <div class="event-item">
+                                    <div class="event-time">9:00 AM</div>
+                                    <div class="event-details">
+                                        <div class="event-title">Sunday Service</div>
+                                        <div class="event-location">Main Sanctuary</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="day-card">
+                            <div class="day-header">Wednesday</div>
+                            <div class="day-events">
+                                <div class="event-item">
+                                    <div class="event-time">6:00 PM</div>
+                                    <div class="event-details">
+                                        <div class="event-title">Prayer Meeting</div>
+                                        <div class="event-location">Prayer Room</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="day-card">
+                            <div class="day-header">Friday</div>
+                            <div class="day-events">
+                                <div class="event-item">
+                                    <div class="event-time">7:00 PM</div>
+                                    <div class="event-details">
+                                        <div class="event-title">Youth Service</div>
+                                        <div class="event-location">Youth Hall</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Attendance Section -->
+            <section id="attendance" class="content-section">
+                <h2 class="section-title"><i class="fas fa-check-circle"></i> Attendance Record</h2>
+                
+                <div class="attendance-stats">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-chart-bar"></i></div>
+                        <div class="stat-value">95%</div>
+                        <div class="stat-label">Overall Attendance</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-check-double"></i></div>
+                        <div class="stat-value">12/12</div>
+                        <div class="stat-label">This Month</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-calendar-check"></i></div>
+                        <div class="stat-value">45</div>
+                        <div class="stat-label">Total Services</div>
+                    </div>
+                </div>
+                
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Service</th>
+                                <th>Status</th>
+                                <th>Check-in Time</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Nov 17, 2025</td>
+                                <td>Sunday Service</td>
+                                <td><span class="badge badge-success">Present</span></td>
+                                <td>8:45 AM</td>
+                                <td>-</td>
+                            </tr>
+                            <tr>
+                                <td>Nov 13, 2025</td>
+                                <td>Prayer Meeting</td>
+                                <td><span class="badge badge-success">Present</span></td>
+                                <td>5:55 PM</td>
+                                <td>-</td>
+                            </tr>
+                            <tr>
+                                <td>Nov 10, 2025</td>
+                                <td>Sunday Service</td>
+                                <td><span class="badge badge-danger">Absent</span></td>
+                                <td>-</td>
+                                <td>Out of town</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Announcements Section -->
+            <section id="announcements" class="content-section">
+                <h2 class="section-title"><i class="fas fa-bullhorn"></i> Announcements</h2>
+                
+                <div class="announcements-container">
+                    <div class="announcement-card">
+                        <div class="announcement-header">
+                            <div class="announcement-title">Ministry Meeting This Saturday</div>
+                            <div class="announcement-date">Nov 15, 2025</div>
+                        </div>
+                        <div class="announcement-content">
+                            <p>All media ministry members are required to attend the monthly meeting this Saturday at 10:00 AM in the media room.</p>
+                            <p>We'll be discussing upcoming events and equipment upgrades.</p>
+                        </div>
+                        <div class="announcement-footer">
+                            <div class="announcement-author">Pastor John Smith</div>
+                            <div class="announcement-priority high-priority">High Priority</div>
+                        </div>
+                    </div>
+                    
+                    <div class="announcement-card">
+                        <div class="announcement-header">
+                            <div class="announcement-title">Christmas Program Rehearsals</div>
+                            <div class="announcement-date">Nov 10, 2025</div>
+                        </div>
+                        <div class="announcement-content">
+                            <p>Christmas program rehearsals will begin next week. Please check the schedule for your specific rehearsal times.</p>
+                        </div>
+                        <div class="announcement-footer">
+                            <div class="announcement-author">Worship Director</div>
+                            <div class="announcement-priority medium-priority">Medium Priority</div>
+                        </div>
+                    </div>
+                    
+                    <div class="announcement-card">
+                        <div class="announcement-header">
+                            <div class="announcement-title">New Equipment Training</div>
+                            <div class="announcement-date">Nov 5, 2025</div>
+                        </div>
+                        <div class="announcement-content">
+                            <p>Training for the new audio equipment will be held next Thursday at 6:00 PM. All sound team members should attend.</p>
+                        </div>
+                        <div class="announcement-footer">
+                            <div class="announcement-author">Media Director</div>
+                            <div class="announcement-priority medium-priority">Medium Priority</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Praise and Worship Section -->
+            <section id="praise-worship" class="content-section">
+                <h2 class="section-title"><i class="fas fa-music"></i> Praise and Worship Ministry</h2>
+                
+                <div class="ministry-welcome">
+                    <h3>Welcome to the Praise and Worship Team!</h3>
+                    <p>Your role is vital in creating an atmosphere where people can encounter God through worship.</p>
+                </div>
+                
+                <div class="ministry-stats">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-microphone-alt"></i></div>
+                        <div class="stat-value">8</div>
+                        <div class="stat-label">Vocalists</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-guitar"></i></div>
+                        <div class="stat-value">6</div>
+                        <div class="stat-label">Musicians</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-calendar-alt"></i></div>
+                        <div class="stat-value">4</div>
+                        <div class="stat-label">Upcoming Sets</div>
+                    </div>
+                </div>
+                
+                <div class="worship-sets">
+                    <h3>This Week's Worship Sets</h3>
+                    <div class="set-card">
+                        <div class="set-header">
+                            <div class="set-date">Sunday, Nov 17</div>
+                            <div class="set-team">Team A</div>
+                        </div>
+                        <div class="set-songs">
+                            <div class="song-item">
+                                <span class="song-title">Goodness of God</span>
+                                <span class="song-key">Key: G</span>
+                            </div>
+                            <div class="song-item">
+                                <span class="song-title">What a Beautiful Name</span>
+                                <span class="song-key">Key: D</span>
+                            </div>
+                            <div class="song-item">
+                                <span class="song-title">Reckless Love</span>
+                                <span class="song-key">Key: C</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Media Ministry Section -->
+            <section id="media" class="content-section">
+                <h2 class="section-title"><i class="fas fa-film"></i> Media Ministry</h2>
+                
+                <div class="ministry-welcome">
+                    <h3>Welcome to the Media Team!</h3>
+                    <p>Your technical skills help spread the gospel through various media platforms.</p>
+                </div>
+                
+                <div class="ministry-stats">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-video"></i></div>
+                        <div class="stat-value">4</div>
+                        <div class="stat-label">Camera Operators</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-volume-up"></i></div>
+                        <div class="stat-value">3</div>
+                        <div class="stat-label">Sound Engineers</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-laptop"></i></div>
+                        <div class="stat-value">2</div>
+                        <div class="stat-label">Livestream Techs</div>
+                    </div>
+                </div>
+                
+                <div class="media-tasks">
+                    <h3>This Week's Assignments</h3>
+                    <div class="task-list">
+                        <div class="task-item">
+                            <div class="task-info">
+                                <div class="task-title">Sunday Service Coverage</div>
+                                <div class="task-details">Camera 1: John | Camera 2: Sarah | Sound: Michael</div>
+                            </div>
+                            <div class="task-status confirmed">Confirmed</div>
+                        </div>
+                        
+                        <div class="task-item">
+                            <div class="task-info">
+                                <div class="task-title">Equipment Maintenance</div>
+                                <div class="task-details">Check all mics and cables</div>
+                            </div>
+                            <div class="task-status pending">Pending</div>
+                        </div>
+                        
+                        <div class="task-item">
+                            <div class="task-info">
+                                <div class="task-title">Social Media Content</div>
+                                <div class="task-details">Prepare clips from last sermon</div>
+                            </div>
+                            <div class="task-status in-progress">In Progress</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Dancers Ministry Section -->
+            <section id="dancers" class="content-section">
+                <h2 class="section-title"><i class="fas fa-user-friends"></i> Dancers Ministry</h2>
+                
+                <div class="ministry-welcome">
+                    <h3>Welcome to the Dance Team!</h3>
+                    <p>Your movements help tell the story of God's love and grace.</p>
+                </div>
+                
+                <div class="ministry-stats">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-users"></i></div>
+                        <div class="stat-value">12</div>
+                        <div class="stat-label">Dancers</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-user-tie"></i></div>
+                        <div class="stat-value">3</div>
+                        <div class="stat-label">Choreographers</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-calendar-alt"></i></div>
+                        <div class="stat-value">2</div>
+                        <div class="stat-label">Upcoming Performances</div>
+                    </div>
+                </div>
+                
+                <div class="rehearsal-schedule">
+                    <h3>Rehearsal Schedule</h3>
+                    <div class="rehearsal-card">
+                        <div class="rehearsal-date">Tuesday, Nov 19</div>
+                        <div class="rehearsal-time">6:00 PM - 8:00 PM</div>
+                        <div class="rehearsal-location">Fellowship Hall</div>
+                        <div class="rehearsal-focus">Christmas Program Routine</div>
+                    </div>
+                    
+                    <div class="rehearsal-card">
+                        <div class="rehearsal-date">Thursday, Nov 21</div>
+                        <div class="rehearsal-time">6:00 PM - 8:00 PM</div>
+                        <div class="rehearsal-location">Fellowship Hall</div>
+                        <div class="rehearsal-focus">Sunday Special</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Ashers Ministry Section -->
+            <section id="ashers" class="content-section">
+                <h2 class="section-title"><i class="fas fa-door-open"></i> Ashers Ministry</h2>
+                
+                <div class="ministry-welcome">
+                    <h3>Welcome to the Ashers Team!</h3>
+                    <p>Your welcoming presence and service create a warm environment for all who enter God's house.</p>
+                </div>
+                
+                <div class="ministry-stats">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-user-friends"></i></div>
+                        <div class="stat-value">15</div>
+                        <div class="stat-label">Team Members</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-door-closed"></i></div>
+                        <div class="stat-value">5</div>
+                        <div class="stat-label">Entrances Covered</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-clipboard-list"></i></div>
+                        <div class="stat-value">2</div>
+                        <div class="stat-label">Teams This Week</div>
+                    </div>
+                </div>
+                
+                <div class="usher-assignments">
+                    <h3>This Sunday's Assignments</h3>
+                    <div class="assignment-card">
+                        <div class="assignment-location">Main Entrance</div>
+                        <div class="assignment-team">
+                            <span class="team-member">James Wilson</span>
+                            <span class="team-member">Lisa Chen</span>
+                            <span class="team-member">Robert Johnson</span>
+                        </div>
+                    </div>
+                    
+                    <div class="assignment-card">
+                        <div class="assignment-location">Side Entrance</div>
+                        <div class="assignment-team">
+                            <span class="team-member">Maria Garcia</span>
+                            <span class="team-member">David Brown</span>
+                        </div>
+                    </div>
+                    
+                    <div class="assignment-card">
+                        <div class="assignment-location">Welcome Desk</div>
+                        <div class="assignment-team">
+                            <span class="team-member">Sarah Williams</span>
+                            <span class="team-member">Thomas Anderson</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // STRONGER BACK BUTTON PREVENTION
+        (function() {
+            window.history.replaceState(null, null, window.location.href);
+            window.history.pushState(null, null, window.location.href);
+            window.addEventListener('popstate', function(event) {
+                window.history.pushState(null, null, window.location.href);
+                showAlert('You cannot go back while logged in. Please logout first.', 'warning');
+            });
+        })();
+
+        // Check if user is logged in
+        let userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
+        
+        if (!userData.firstname) {
+            window.location.href = 'login.html';
+        } else {
+            initializeDashboard();
+        }
+
+        // Menu items configuration
+        const menuItems = {
+            common: [
+                { id: 'home', icon: 'fas fa-home', label: 'Home' },
+                { id: 'weekly-schedule', icon: 'fas fa-calendar-alt', label: 'Weekly Schedule' },
+                { id: 'attendance', icon: 'fas fa-check-circle', label: 'Attendance' },
+                { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements' }
+            ],
+            "Media": [
+                { id: 'media', icon: 'fas fa-film', label: 'Media' }
+            ],
+            "Praise And Worship": [
+                { id: 'praise-worship', icon: 'fas fa-music', label: 'Praise And Worship' }
+            ],
+            "Dancers": [
+                { id: 'dancers', icon: 'fas fa-user-friends', label: 'Dancers' }
+            ],
+            "Ashers": [
+                { id: 'ashers', icon: 'fas fa-door-open', label: 'Ashers' }
+            ]
+        };
+
+        async function initializeDashboard() {
+            // Initialize user data display first (before checking status from server)
+            const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
+            document.getElementById('userAvatar').textContent = initials;
+            document.getElementById('userName').textContent = `${userData.firstname} ${userData.lastname}`;
+            document.getElementById('userMinistry').textContent = userData.ministry;
+            document.getElementById('welcomeName').textContent = userData.firstname;
+            document.getElementById('firstTimeName').textContent = userData.firstname;
+            document.getElementById('unverifiedName').textContent = userData.firstname;
+            
+            // Check if this is first login
+            const loginCount = parseInt(localStorage.getItem(`loginCount_${userData.username}`) || '0');
+            const isFirstLogin = loginCount === 0;
+            
+            // Increment login count
+            localStorage.setItem(`loginCount_${userData.username}`, String(loginCount + 1));
+            
+            // Fetch the actual status from the server BEFORE setting up the UI
+            await fetchAndSetUserStatus(isFirstLogin);
+        }
+
+        async function fetchAndSetUserStatus(isFirstLogin) {
+            try {
+                console.log('Fetching verification status for:', userData.username);
+                
+                // For demo purposes, we'll simulate a verified user
+                // In a real implementation, this would call your backend API
+                setTimeout(() => {
+                    const serverStatus = 'verified'; // Simulated status
+                    userData.status = serverStatus;
+                    
+                    // Save updated user data
+                    sessionStorage.setItem('userData', JSON.stringify(userData));
+                    localStorage.setItem('userData', JSON.stringify(userData));
+                    
+                    // Update UI with the correct status
+                    updateUIByStatus(isFirstLogin);
+                }, 500);
+                
+            } catch (error) {
+                console.error('Error checking verification status:', error);
+                userData.status = 'unverified';
+                updateUIByStatus(isFirstLogin);
+            }
+        }
+
+        function updateUIByStatus(isFirstLogin) {
+            const status = userData.status || 'unverified';
+            
+            console.log('Updating UI with status:', status);
+            
+            // Update status indicator
+            updateStatusIndicator(status);
+            
+            // Update verification banner
+            if (status === 'verified') {
+                document.getElementById('verificationBanner').style.display = 'none';
+                
+                // Show verified content
+                document.getElementById('unverifiedContent').style.display = 'none';
+                
+                if (isFirstLogin) {
+                    document.getElementById('firstTimeWelcomeContainer').style.display = 'block';
+                    document.getElementById('regularWelcomeContainer').style.display = 'none';
+                    loadWelcomeVerse(userData.ministry);
+                } else {
+                    document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+                    document.getElementById('regularWelcomeContainer').style.display = 'block';
+                    loadDailyVerse(userData.ministry);
+                }
+                
+            } else {
+                document.getElementById('verificationBanner').style.display = 'block';
+                
+                // Show unverified content
+                document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+                document.getElementById('regularWelcomeContainer').style.display = 'none';
+                document.getElementById('unverifiedContent').style.display = 'block';
+            }
+            
+            // Generate sidebar menu with current status
+            generateSidebarMenu(userData.ministry, status);
+        }
+
+        function updateStatusIndicator(status) {
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = status === 'verified' ? 'Verified' : 'Unverified';
+            const statusClass = status === 'verified' ? 'verified' : 'unverified';
+            
+            statusIndicator.innerHTML = `
+                <div class="status-circle ${statusClass}">
+                    <div class="status-tooltip">${statusText}</div>
+                </div>
+            `;
+        }
+
+        function generateSidebarMenu(ministry, status) {
+            const sidebarMenu = document.getElementById('sidebarMenu');
+            sidebarMenu.innerHTML = '';
+            
+            const isVerified = status === 'verified';
+            
+            // Add common menu items
+            menuItems.common.forEach(item => {
+                const menuItem = document.createElement('a');
+                
+                // Check if item should be disabled (only for unverified status)
+                const shouldDisable = !isVerified;
+                
+                menuItem.className = 'menu-item' + (item.id === 'home' ? ' active' : '');
+                if (shouldDisable) {
+                    menuItem.className += ' disabled';
+                }
+                
+                menuItem.onclick = () => {
+                    if (shouldDisable) {
+                        showAlert('🔒 Please wait for account verification to access this feature', 'warning');
+                    } else {
+                        showSection(item.id);
+                    }
+                };
+                
+                menuItem.innerHTML = `
+                    <span class="menu-icon"><i class="${item.icon}"></i></span>
+                    <span>${item.label}</span>
+                    ${shouldDisable ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
+                `;
+                sidebarMenu.appendChild(menuItem);
+            });
+            
+            // Add ministry-specific menu item
+            if (menuItems[ministry]) {
+                menuItems[ministry].forEach(item => {
+                    const menuItem = document.createElement('a');
+                    menuItem.className = 'menu-item' + (isVerified ? '' : ' disabled');
+                    menuItem.onclick = () => {
+                        if (isVerified) {
+                            showSection(item.id);
+                        } else {
+                            showAlert('🔒 Please wait for account verification to access this feature', 'warning');
+                        }
+                    };
+                    menuItem.innerHTML = `
+                        <span class="menu-icon"><i class="${item.icon}"></i></span>
+                        <span>${item.label}</span>
+                        ${!isVerified ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
+                    `;
+                    sidebarMenu.appendChild(menuItem);
+                });
+            }
+        }
+
+        // Bible verses database
+        const bibleVerses = {
+            welcome: [
+                {
+                    verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
+                    reference: "Ephesians 2:10",
+                    explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
+                },
+                {
+                    verse: "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
+                    reference: "Proverbs 3:5-6",
+                    explanation: "As you begin this journey with us, trust that God will guide your path and use you mightily in this ministry."
+                }
+            ],
+            general: [
+                {
+                    verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
+                    reference: "Ephesians 2:10",
+                    explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
+                },
+                {
+                    verse: "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters.",
+                    reference: "Colossians 3:23",
+                    explanation: "Serve with excellence and passion, remembering that your ultimate audience is God Himself."
+                }
+            ]
+        };
+
+        function loadDailyVerse(ministry) {
+            // Get today's date to determine which verse to show
+            const today = new Date();
+            const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+            
+            // Get verses for the specific ministry or general verses
+            let verses = bibleVerses[ministry] || bibleVerses.general;
+            
+            // Select verse based on day of year (cycles through available verses)
+            const verseIndex = dayOfYear % verses.length;
+            const selectedVerse = verses[verseIndex];
+            
+            // Update the DOM with the selected verse
+            document.getElementById('dailyVerse').textContent = `"${selectedVerse.verse}"`;
+            document.getElementById('verseReference').textContent = selectedVerse.reference;
+            document.getElementById('verseExplanation').textContent = selectedVerse.explanation;
+        }
+
+        function loadWelcomeVerse(ministry) {
+            // For first-time users, select from welcome verses
+            const welcomeVerses = bibleVerses.welcome;
+            const randomIndex = Math.floor(Math.random() * welcomeVerses.length);
+            const selectedVerse = welcomeVerses[randomIndex];
+            
+            // Update the DOM with the welcome verse
+            document.getElementById('welcomeVerse').textContent = `"${selectedVerse.verse}"`;
+            document.getElementById('welcomeVerseReference').textContent = selectedVerse.reference;
+            document.getElementById('welcomeVerseExplanation').textContent = selectedVerse.explanation;
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.querySelector('.overlay');
+            sidebar.classList.toggle('active');
+            overlay.classList.toggle('active');
+        }
+
+        function showSection(sectionId) {
+            // Remove active class from all menu items and sections
+            document.querySelectorAll('.menu-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('active');
+            });
+
+            // Add active class to clicked menu item
+            event.target.closest('.menu-item').classList.add('active');
+
+            // Show selected section
+            document.getElementById(sectionId).classList.add('active');
+
+            // Update page title
+            const titles = {
+                'home': 'Welcome to Your Ministry Portal',
+                'weekly-schedule': 'Weekly Schedule',
+                'attendance': 'Attendance Record',
+                'announcements': 'Announcements',
+                'praise-worship': 'Praise And Worship',
+                'media': 'Media Ministry',
+                'dancers': 'Dancers Ministry',
+                'ashers': 'Ashers Ministry'
+            };
+            document.getElementById('pageTitle').textContent = titles[sectionId] || 'Ministry Portal';
+
+            // Update page subtitle with coming soon message for non-home sections
+            const subtitle = document.getElementById('pageSubtitle');
+            if (sectionId === 'home') {
+                subtitle.textContent = 'Stay connected and inspired in your service';
+            } else {
+                subtitle.textContent = 'Features Coming Soon - Please wait for Developer Frank Gomez';
+            }
+
+            // Close sidebar on mobile
+            if (window.innerWidth <= 768) {
+                toggleSidebar();
+            }
+        }
+
+        function showAlert(message, type) {
+            // Create alert element
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 1002;
+                max-width: 400px;
+                animation: slideInRight 0.5s ease;
+                background: ${type === 'success' ? '#28a745' : type === 'warning' ? '#ffc107' : '#dc3545'};
+                color: white;
+                padding: 15px 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                font-weight: 500;
+            `;
+            alert.textContent = message;
+            
+            // Add styles for slideInRight animation
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes slideInRight {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+            
+            document.body.appendChild(alert);
+            
+            // Remove alert after 5 seconds
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                sessionStorage.removeItem('userData');
+                localStorage.removeItem('userData');
+                window.location.href = 'login.html';
+            }
+        }
+
+        // Initialize all sections with coming soon content
+        function initializeAllSections() {
+            const sections = ['weekly-schedule', 'attendance', 'announcements', 'praise-worship', 'media', 'dancers', 'ashers'];
+            sections.forEach(sectionId => {
+                const section = document.getElementById(sectionId);
+                if (section) {
+                    const titles = {
+                        'weekly-schedule': 'Weekly Schedule',
+                        'attendance': 'Attendance Record',
+                        'announcements': 'Announcements',
+                        'praise-worship': 'Praise And Worship',
+                        'media': 'Media Ministry',
+                        'dancers': 'Dancers Ministry',
+                        'ashers': 'Ashers Ministry'
+                    };
+                    
+                    section.innerHTML = `
+                        <h2 class="section-title">${titles[sectionId] || sectionId}</h2>
+                        <div style="text-align: center; padding: 60px 20px;">
+                            <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);"><i class="fas fa-tools"></i></div>
+                            <h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.5rem;">Features Coming Soon</h3>
+                            <p style="color: #6c757d; margin-bottom: 25px; font-size: 1.1rem; line-height: 1.6;">
+                                We're working hard to bring you amazing features for this section!<br>
+                                Please be patient as we develop and test everything to ensure the best experience.
+                            </p>
+                            <div style="background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1)); padding: 20px; border-radius: var(--border-radius); display: inline-block;">
+                                <p style="color: var(--primary); font-weight: 600; margin: 0; font-size: 0.9rem;">
+                                    <i class="fas fa-hammer"></i> Under Development by: <strong>Frank Gomez</strong>
+                                </p>
+                            </div>
+                            <div style="margin-top: 30px; padding: 20px; background: white; border-radius: var(--border-radius); box-shadow: var(--shadow); max-width: 500px; margin-left: auto; margin-right: auto;">
+                                <h4 style="color: var(--primary); margin-bottom: 15px;"><i class="fas fa-clipboard-list"></i> What to Expect:</h4>
+                                <ul style="text-align: left; color: #6c757d; line-height: 1.8;">
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Enhanced user interface and experience</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Real-time updates and notifications</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Comprehensive ministry tools</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Mobile-friendly design</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>And much more!</li>
+                                </ul>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+        }
+
+        // Call this function when the dashboard loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeAllSections();
+        });
+    </script>
+</body>
+</html>
