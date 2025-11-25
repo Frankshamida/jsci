@@ -457,11 +457,12 @@
     </div>
 
     <script>
-        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9hNuCzNVjuSLL89-kC4UVHrtIzeI3J5pa7f4s-ebaPPExLcN1UUhakdEi1GF2uX22/exec'; //OLD VERSION
-        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxigAs8qtd7UXErXJI2GdqVhNn0_-or6O0idofhzKfcaBX9xSxfuRlpcNFij-FFp-PyZA/exec'; //OLD VERSION
-        //const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxucBATDDw5Bgj9r1QpPALdAeFi41X5iiUVNUQgH1jZZOI46JhCHiubRstzLUU76z7KeA/exec';  -- OLD version
-          const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw6Rt-O6gk-b6O9HQyRMOLXbmNO-ROYlqbzeijbh_Lp26P1pi6vxJyYUrB-95zzmraUjQ/exec';
 
+        // Replace this line in all your HTML files:
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxz4PIMae9fif_T6YsPPTycTqCp-60vEYBqOZIUY6XRMHjb80A9rY3CW_JDw28oJWHCCw/exec';
+
+        // With this:
+        const API_BASE_URL = 'http://localhost:3000/api';
 
         // Redirect if already logged in
         document.addEventListener('DOMContentLoaded', function() {
@@ -505,41 +506,48 @@
         });
 
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        e.preventDefault();
 
-            const username = document.getElementById('username').value.trim();
-            const password = document.getElementById('password').value;
-            const rememberMe = document.getElementById('rememberMe').checked;
-            const loginBtn = document.getElementById('loginBtn');
-            const btnText = document.getElementById('btnText');
-            const spinner = document.getElementById('spinner');
-            const alert = document.getElementById('alert');
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        const rememberMe = document.getElementById('rememberMe').checked;
+        const loginBtn = document.getElementById('loginBtn');
+        const btnText = document.getElementById('btnText');
+        const spinner = document.getElementById('spinner');
+        const alert = document.getElementById('alert');
 
-            // Save credentials if "Remember me" is checked
-            if (rememberMe) {
-                localStorage.setItem('savedUsername', username);
-                localStorage.setItem('savedPassword', password);
-            } else {
-                // Clear saved credentials if "Remember me" is unchecked
-                localStorage.removeItem('savedUsername');
-                localStorage.removeItem('savedPassword');
-            }
+        // Save credentials if "Remember me" is checked
+        if (rememberMe) {
+            localStorage.setItem('savedUsername', username);
+            localStorage.setItem('savedPassword', password);
+        } else {
+            // Clear saved credentials if "Remember me" is unchecked
+            localStorage.removeItem('savedUsername');
+            localStorage.removeItem('savedPassword');
+        }
 
-            // Show loading state
-            loginBtn.disabled = true;
-            btnText.style.display = 'none';
-            spinner.style.display = 'block';
-            alert.style.display = 'none';
+        // Show loading state
+        loginBtn.disabled = true;
+        btnText.style.display = 'none';
+        spinner.style.display = 'block';
+        alert.style.display = 'none';
 
-            try {
-                const response = await fetch(`${SCRIPT_URL}?action=login`, {
-                    method: 'POST',
-                    body: JSON.stringify({ username, password })
-                });
+        try {
+            const response = await fetch(`${API_BASE_URL}/proxy`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    action: 'login',
+                    username, 
+                    password 
+                })
+            });
 
-                const result = await response.json();
+            const result = await response.json();
 
-                if (result.success) {
+            if (result.success) {
                 // Store user data including status
                 sessionStorage.setItem('userData', JSON.stringify(result.data));
                 
@@ -551,20 +559,20 @@
                     window.location.href = 'dashboard.html';
                 }, 1000);
 
-                } else {
-                    showAlert(result.message || 'Invalid username or password', 'danger');
-                    loginBtn.disabled = false;
-                    btnText.style.display = 'block';
-                    spinner.style.display = 'none';
-                }
-            } catch (error) {
-                console.error('Login error:', error);
-                showAlert('An error occurred. Please try again.', 'danger');
+            } else {
+                showAlert(result.message || 'Invalid username or password', 'danger');
                 loginBtn.disabled = false;
                 btnText.style.display = 'block';
                 spinner.style.display = 'none';
             }
-        });
+        } catch (error) {
+            console.error('Login error:', error);
+            showAlert('An error occurred. Please try again.', 'danger');
+            loginBtn.disabled = false;
+            btnText.style.display = 'block';
+            spinner.style.display = 'none';
+        }
+    });
 
         function showAlert(message, type) {
             const alert = document.getElementById('alert');

@@ -1,18 +1,34 @@
 {
+  "version": 2,
   "routes": [
     {
-      "src": "/",
-      "dest": "/index.html"
+      "src": "/api/proxy",
+      "methods": ["GET", "POST", "OPTIONS"],
+      "dest": "/api/proxy.js"
+    },
+    {
+      "src": "/login",
+      "dest": "/login.html"
+    },
+    {
+      "src": "/signup", 
+      "dest": "/signup.html"
+    },
+    {
+      "src": "/forgot-password",
+      "dest": "/forgot-password.html"
     },
     {
       "src": "/dashboard",
       "dest": "/dashboard.html"
     },
     {
-      "src": "/login",
+      "src": "/",
       "dest": "/login.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
     }
   ]
 }
-
-

@@ -97,51 +97,100 @@
             border-radius: var(--border-radius);
             margin-top: 15px;
             backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-avatar-container {
+            position: relative;
+            width: 70px;
+            height: 70px;
+            flex-shrink: 0;
         }
 
         .user-avatar {
-            width: 50px;
-            height: 50px;
+            width: 100%;
+            height: 100%;
             background: white;
             border-radius: 50%;
-            margin: 0 auto 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
+            font-size: 1.5rem;
             font-weight: bold;
             color: var(--primary);
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
 
+        .user-details {
+            flex: 1;
+        }
+
         .user-name {
-            font-size: 0.9rem;
+            font-size: 1rem;
             font-weight: 600;
-            margin-bottom: 3px;
+            color: white;
+            margin: 0 0 3px 0;
         }
 
         .user-ministry {
             font-size: 0.75rem;
             opacity: 0.9;
-            margin-bottom: 3px;
+            color: white;
+            margin: 0;
         }
 
-        .user-status {
+        .status-indicator {
+            position: absolute;
+            bottom: -2px;
+            right: -2px;
+            z-index: 10;
+        }
+
+        .status-circle {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid white;
+            position: relative;
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-circle:hover {
+            transform: scale(1.2);
+        }
+
+        .status-circle.verified {
+            background-color: var(--success);
+        }
+
+        .status-circle.unverified {
+            background-color: var(--danger);
+        }
+
+        .status-tooltip {
+            position: absolute;
+            bottom: 100%;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
             font-size: 0.7rem;
-            font-weight: 600;
-            padding: 3px 8px;
-            border-radius: 12px;
-            display: inline-block;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition);
+            z-index: 100;
+            margin-bottom: 5px;
         }
 
-        .status-verified {
-            background: rgba(40, 167, 69, 0.2);
-            color: #f8f9fa;
-        }
-
-        .status-unverified {
-            background: #dc3545;
-            color: #f8f9fa;
+        .status-circle:hover .status-tooltip {
+            opacity: 1;
+            transform: translateY(-3px);
         }
 
         .sidebar-menu {
@@ -1167,37 +1216,50 @@
             opacity: 1;
         }
 
-        /* Profile Section Styles */
+        /* Profile Styles */
         .profile-container {
-            max-width: 800px;
-            margin: 0 auto;
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
         }
 
         .profile-header {
             display: flex;
             align-items: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 2px solid #e0e0e0;
+            padding: 30px;
+            background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1));
+            gap: 25px;
         }
 
-        .profile-avatar-large {
+        .profile-avatar {
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .avatar-large {
             width: 100px;
             height: 100px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
             border-radius: 50%;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 2.5rem;
+            font-size: 2rem;
             font-weight: bold;
             color: white;
-            margin-right: 25px;
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
         }
 
-        .profile-info h2 {
+        .avatar-status {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+        }
+
+        .profile-info h3 {
             color: var(--primary);
+            font-size: 1.5rem;
             margin-bottom: 5px;
             font-family: 'Montserrat', sans-serif;
         }
@@ -1207,37 +1269,37 @@
             margin-bottom: 3px;
         }
 
-        .profile-status {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 15px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            margin-top: 8px;
-        }
-
         .profile-tabs {
             display: flex;
-            margin-bottom: 20px;
+            background: #f8f9fa;
             border-bottom: 1px solid #e0e0e0;
         }
 
-        .profile-tab {
-            padding: 12px 20px;
+        .tab-btn {
+            padding: 15px 25px;
+            background: none;
+            border: none;
             cursor: pointer;
             font-weight: 600;
             color: #6c757d;
-            border-bottom: 3px solid transparent;
             transition: var(--transition);
+            border-bottom: 3px solid transparent;
         }
 
-        .profile-tab.active {
+        .tab-btn:hover {
+            color: var(--primary);
+            background: rgba(146, 108, 21, 0.05);
+        }
+
+        .tab-btn.active {
             color: var(--primary);
             border-bottom-color: var(--primary);
+            background: white;
         }
 
         .profile-tab-content {
             display: none;
+            padding: 30px;
         }
 
         .profile-tab-content.active {
@@ -1247,20 +1309,10 @@
 
         .form-group {
             margin-bottom: 20px;
+            position: relative;
         }
 
-        .form-row {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-
-        .form-row .form-group {
-            flex: 1;
-            margin-bottom: 0;
-        }
-
-        .form-label {
+        .form-group label {
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
@@ -1270,10 +1322,11 @@
         .form-control {
             width: 100%;
             padding: 12px 15px;
-            border: 1px solid #ddd;
+            border: 2px solid #e0e0e0;
             border-radius: 8px;
-            font-size: 0.95rem;
+            font-size: 1rem;
             transition: var(--transition);
+            background: white;
         }
 
         .form-control:focus {
@@ -1291,118 +1344,516 @@
         .password-toggle {
             position: absolute;
             right: 15px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
+            top: 40px;
+            cursor: pointer;
             color: #6c757d;
-            cursor: pointer;
-        }
-
-        .password-input-container {
-            position: relative;
-        }
-
-        .password-strength {
-            margin-top: 8px;
-            font-size: 0.85rem;
-        }
-
-        .password-strength.weak {
-            color: var(--danger);
-        }
-
-        .password-strength.medium {
-            color: #ffc107;
-        }
-
-        .password-strength.strong {
-            color: var(--success);
-        }
-
-        .btn {
-            padding: 12px 25px;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
             transition: var(--transition);
-            font-size: 0.95rem;
         }
 
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
-        }
-
-        .btn-outline {
-            background: white;
-            border: 1px solid #ddd;
-            color: var(--dark);
-        }
-
-        .btn-outline:hover {
-            background: #f8f9fa;
+        .password-toggle:hover {
+            color: var(--primary);
         }
 
         .form-actions {
             display: flex;
             gap: 15px;
             margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
         }
 
-        .profile-card {
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            flex: 1;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            flex: 1;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .password-strength {
+            margin: 20px 0;
+        }
+
+        .strength-bar {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .strength-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 3px;
+            transition: var(--transition);
+        }
+
+        .strength-text {
+            font-size: 0.85rem;
+            color: #6c757d;
+            text-align: center;
+        }
+
+        .password-requirements {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .password-requirements p {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--dark);
+        }
+
+        .password-requirements ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .password-requirements li {
+            padding: 5px 0;
+            color: #6c757d;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .password-requirements li:before {
+            content: '✗';
+            margin-right: 8px;
+            color: var(--danger);
+        }
+
+        .password-requirements li.valid:before {
+            content: '✓';
+            color: var(--success);
+        }
+
+        /* Create Lineup Styles */
+        .lineup-container {
             background: white;
-            padding: 25px;
+            padding: 30px;
             border-radius: var(--border-radius);
             box-shadow: var(--shadow);
-            margin-bottom: 20px;
         }
 
-        .profile-card h3 {
+        .form-section:last-child {
+            border-bottom: none;
+        }
+
+        .form-section h3 {
             color: var(--primary);
             margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #e0e0e0;
             font-family: 'Montserrat', sans-serif;
+            font-size: 1.2rem;
         }
 
-        .readonly-field {
+        .form-section h3 i {
+            margin-right: 10px;
+        }
+
+        /* Two-column layout using Grid */
+        .form-section .form-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .song-row {
             background: #f8f9fa;
-            padding: 12px 15px;
+            padding: 20px;
             border-radius: 8px;
-            border: 1px solid #e0e0e0;
-            color: #6c757d;
+            margin-bottom: 20px;
+            border-left: 4px solid var(--primary);
         }
 
-        .field-note {
+        .backup-row {
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .youtube-preview {
+            margin-top: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .youtube-preview iframe {
+            width: 100%;
+            height: 200px;
+            border: none;
+        }
+
+        .form-text {
             font-size: 0.85rem;
             color: #6c757d;
             margin-top: 5px;
         }
 
-        .security-note {
-            background: rgba(255, 193, 7, 0.1);
-            border-left: 4px solid #ffc107;
-            padding: 15px;
-            margin: 20px 0;
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+            border: none;
+            padding: 8px 15px;
             border-radius: 4px;
+            cursor: pointer;
+            transition: var(--transition);
         }
 
-        .security-note h4 {
-            color: #856404;
+        /* Receipt Modal Styles */
+        .receipt-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            backdrop-filter: blur(5px);
+        }
+
+        .receipt-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: modalSlideIn 0.4s ease-out;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -60%);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        .receipt-header {
+            background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
+             background-image: linear-gradient(135deg, #926C15, #C9980B) !important;
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 20px 20px 0 0;
+            position: relative;
+        }
+
+        [class*="gradient"] {
+            background-image: inherit !important;
+        }
+
+        /* Ensure text contrast */
+        .receipt-title,
+        .receipt-subtitle,
+        .receipt-section-title {
+            color: inherit !important;
+            text-shadow: inherit !important;
+        }
+
+        /* Remove any animations/transitions during capture */
+        .html2canvas-container * {
+            animation: none !important;
+            transition: none !important;
+        }
+
+        .receipt-logo {
+            width: 80px;
+            height: 80px;
+            background-image: url('assets/LOGO.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            margin: 0 auto 15px;
+            filter: drop-shadow(0px 4px 10px rgba(0,0,0,0.6));
+        }
+
+        .receipt-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+            font-family: 'Montserrat', sans-serif;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.25);
+        }
+
+        .receipt-subtitle {
+            font-size: 1rem;
+            opacity: 0.9;
+            font-family: 'Montserrat', sans-serif;
+            letter-spacing: 3px;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.25);
+        }
+
+        .receipt-content {
+            padding: 30px;
+        }
+
+        .receipt-section {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .receipt-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        .receipt-section-title {
+            color: var(--primary);
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 15px;
+            font-family: 'Montserrat', sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .receipt-section-title i {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .receipt-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+
+        .receipt-info-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .receipt-label {
+            font-size: 0.85rem;
+            color: #6c757d;
+            font-weight: 600;
             margin-bottom: 5px;
         }
 
-        .security-note p {
-            color: #856404;
+        .receipt-value {
+            font-size: 1rem;
+            color: var(--dark);
+            font-weight: 600;
+        }
+
+        .receipt-list {
+            list-style: none;
+            padding: 0;
             margin: 0;
+        }
+
+        .receipt-list-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #f8f9fa;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .receipt-list-item:last-child {
+            border-bottom: none;
+        }
+
+        .receipt-number {
+            background: var(--primary);
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .receipt-song-title {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .receipt-note {
+            background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 195, 0, 0.05));
+            border-left: 4px solid #ffc107;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .receipt-note-title {
+            color: #856404;
+            font-weight: 700;
+            margin-bottom: 8px;
+            font-size: 1rem;
+        }
+
+        .receipt-note-text {
+            color: #856404;
             font-size: 0.9rem;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        .receipt-footer {
+            background: #f8f9fa;
+            padding: 25px 30px;
+            border-radius: 0 0 20px 20px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .receipt-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+        }
+
+        .receipt-btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
+            appearance: none !important;
+        }
+
+        .receipt-btn-edit {
+            background: #6c757d;
+            color: white;
+        }
+
+        .receipt-btn-edit:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .receipt-btn-save {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+        }
+
+        .receipt-btn-save:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+        }
+
+        .receipt-btn-confirm {
+            background: var(--success);
+            color: white;
+        }
+
+        .receipt-btn-confirm:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+
+        /* Print styles for receipt */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            .receipt-container,
+            .receipt-container * {
+                visibility: visible;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+            .receipt-container {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                max-width: 100%;
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+            }
+            .receipt-actions {
+                display: none;
+            }
+            .receipt-header {
+                padding: 20px;
+            }
+            .receipt-content {
+                padding: 20px;
+            }
+            .receipt-footer {
+                padding: 20px;
+            }
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+            transform: translateY(-2px);
         }
 
         /* Responsive Design */
@@ -1536,23 +1987,80 @@
                 padding: 15px;
             }
 
+            /* Profile Responsive */
             .profile-header {
                 flex-direction: column;
                 text-align: center;
+                padding: 20px;
             }
-
-            .profile-avatar-large {
-                margin-right: 0;
-                margin-bottom: 15px;
-            }
-
-            .form-row {
+            
+            .profile-tabs {
                 flex-direction: column;
-                gap: 0;
             }
-
+            
+            .tab-btn {
+                padding: 12px 20px;
+                text-align: center;
+            }
+            
+            .profile-tab-content {
+                padding: 20px;
+            }
+            
             .form-actions {
                 flex-direction: column;
+            }
+
+            /* Create Lineup Responsive */
+            .lineup-container {
+                padding: 20px;
+            }
+            
+            .song-row {
+                padding: 15px;
+            }
+            
+            .form-section h3 {
+                font-size: 1.1rem;
+            }
+            
+            .backup-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .backup-row .btn-danger {
+                align-self: flex-start;
+            }
+
+            .receipt-container {
+                width: 95%;
+                max-height: 95vh;
+            }
+            
+            .receipt-header {
+                padding: 20px;
+            }
+            
+            .receipt-content {
+                padding: 20px;
+            }
+            
+            .receipt-info {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            
+            .receipt-actions {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            
+            .receipt-btn {
+                padding: 15px 20px;
+            }
+            .form-section .form-fields {
+                grid-template-columns: 1fr;
             }
         }
 
@@ -1619,10 +2127,18 @@
                 <div class="church-subtitle">INTERNATIONAL</div>
                 
                 <div class="user-info">
-                    <div class="user-avatar" id="userAvatar">FG</div>
-                    <div class="user-name" id="userName">Frank Gomez</div>
-                    <div class="user-ministry" id="userMinistry">Media Ministry</div>
-                    <div class="user-status" id="userStatus">Loading...</div>
+                    <div class="user-avatar-container">
+                        <div class="user-avatar" id="userAvatar">
+                            <div class="avatar-content">FG</div>
+                        </div>
+                        <div class="status-indicator" id="statusIndicator">
+                            <!-- Status circle will be dynamically generated -->
+                        </div>
+                    </div>
+                    <div class="user-details">
+                        <div class="user-name" id="userName">Frank Gomez</div>
+                        <div class="user-ministry" id="userMinistry">Media Ministry</div>
+                    </div>
                 </div>
             </div>
 
@@ -1681,7 +2197,6 @@
                         <h2><i class="fas fa-hand-sparkles"></i> Welcome back, <span id="welcomeName">Frank</span>!</h2>
                         <p>Here's what's happening in your ministry today.</p>
                     </div>
-
 
                     <!-- Bible Verse of the Day -->
                     <div class="bible-verse-container">
@@ -1876,121 +2391,6 @@
                                 Communication with your ministry team
                             </li>
                         </ul>
-                    </div>
-                </div>
-            </section>
-
-            <!-- My Profile Section -->
-            <section id="my-profile" class="content-section">
-                <h2 class="section-title"><i class="fas fa-user-circle"></i> My Profile</h2>
-                
-                <div class="profile-container">
-                    <div class="profile-header">
-                        <div class="profile-avatar-large" id="profileAvatarLarge">FG</div>
-                        <div class="profile-info">
-                            <h2 id="profileFullName">Frank Gomez</h2>
-                            <p id="profileMinistry">Media Ministry</p>
-                            <p id="profileMemberId">Member ID: 123456</p>
-                            <span class="profile-status" id="profileStatus">Verified Member</span>
-                        </div>
-                    </div>
-
-                    <div class="profile-tabs">
-                        <div class="profile-tab active" data-tab="personal-info">Personal Information</div>
-                        <div class="profile-tab" data-tab="change-password">Change Password</div>
-                    </div>
-
-                    <!-- Personal Information Tab -->
-                    <div class="profile-tab-content active" id="personal-info-tab">
-                        <div class="profile-card">
-                            <h3><i class="fas fa-user-edit"></i> Personal Details</h3>
-                            
-                            <form id="personalInfoForm">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label class="form-label" for="firstName">First Name</label>
-                                        <input type="text" id="firstName" class="form-control" value="Frank">
-                                    </div>
-                                    <div class="form-group">
-                                        <label class="form-label" for="lastName">Last Name</label>
-                                        <input type="text" id="lastName" class="form-control" value="Gomez">
-                                    </div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label" for="birthdate">Birthdate</label>
-                                    <input type="date" id="birthdate" class="form-control" value="1990-01-01">
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label" for="ministry">Ministry</label>
-                                    <div class="readonly-field" id="ministryDisplay">Media Ministry</div>
-                                    <div class="field-note">Ministry assignment can only be changed by administrators</div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label" for="username">Username</label>
-                                    <div class="readonly-field" id="usernameDisplay">frank.gomez</div>
-                                    <div class="field-note">Username cannot be changed</div>
-                                </div>
-                                
-                                <div class="form-actions">
-                                    <button type="button" class="btn btn-primary" id="savePersonalInfo">Save Changes</button>
-                                    <button type="button" class="btn btn-outline" id="cancelPersonalInfo">Cancel</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-
-                    <!-- Change Password Tab -->
-                    <div class="profile-tab-content" id="change-password-tab">
-                        <div class="profile-card">
-                            <h3><i class="fas fa-key"></i> Change Password</h3>
-                            
-                            <div class="security-note">
-                                <h4><i class="fas fa-shield-alt"></i> Security Notice</h4>
-                                <p>For security purposes, you must verify your current password before changing to a new one.</p>
-                            </div>
-                            
-                            <form id="changePasswordForm">
-                                <div class="form-group">
-                                    <label class="form-label" for="currentPassword">Current Password</label>
-                                    <div class="password-input-container">
-                                        <input type="password" id="currentPassword" class="form-control" placeholder="Enter your current password">
-                                        <button type="button" class="password-toggle" data-target="currentPassword">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label" for="newPassword">New Password</label>
-                                    <div class="password-input-container">
-                                        <input type="password" id="newPassword" class="form-control" placeholder="Enter new password">
-                                        <button type="button" class="password-toggle" data-target="newPassword">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                    </div>
-                                    <div class="password-strength" id="passwordStrength"></div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label" for="confirmPassword">Confirm New Password</label>
-                                    <div class="password-input-container">
-                                        <input type="password" id="confirmPassword" class="form-control" placeholder="Confirm new password">
-                                        <button type="button" class="password-toggle" data-target="confirmPassword">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                    </div>
-                                    <div class="field-note" id="passwordMatchMessage"></div>
-                                </div>
-                                
-                                <div class="form-actions">
-                                    <button type="button" class="btn btn-primary" id="savePassword">Change Password</button>
-                                    <button type="button" class="btn btn-outline" id="cancelPassword">Cancel</button>
-                                </div>
-                            </form>
-                        </div>
                     </div>
                 </div>
             </section>
@@ -2383,451 +2783,1505 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Create Lineup Section -->
+            <section id="create-lineup" class="content-section">
+                <h2 class="section-title"><i class="fas fa-plus-circle"></i> Create Worship Lineup</h2>
+                
+                <div class="lineup-container">
+                    <!-- Date Selection -->
+                    <div class="form-section">
+                        <h3><i class="fas fa-calendar-day"></i> Select Schedule Date</h3>
+                        <div class="form-group">
+                            <label for="scheduleDate">Schedule Day *</label>
+                            <input type="date" id="scheduleDate" class="form-control" required>
+                            <small class="form-text">Select the date for this worship lineup</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="practiceDate">Practice Day *</label>
+                            <input type="date" id="practiceDate" class="form-control" required>
+                            <small class="form-text">Select practice date (Saturdays or Sundays only)</small>
+                        </div>
+                    </div>
+
+                    <!-- Team Selection -->
+                    <div class="form-section">
+                        <h3><i class="fas fa-users"></i> Team Members</h3>
+                        <div class="form-group">
+                            <label for="songLeader">Song Leader *</label>
+                            <select id="songLeader" class="form-control" required>
+                                <option value="">Select Song Leader</option>
+                                <option value="Psalm Gambe">Psalm Gambe</option>
+                                <option value="Geneveve España">Geneveve España</option>
+                                <option value="Cathy Martinez">Cathy Martinez</option>
+                                <option value="Tiffany Dañal">Tiffany Dañal</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Backup Singers (Max 5)</label>
+                            <div id="backupContainer">
+                                <div class="backup-row">
+                                    <select class="form-control backup-select" onchange="updateBackupOptions()">
+                                        <option value="">Select Backup 1</option>
+                                        <!-- Options will be populated dynamically -->
+                                    </select>
+                                </div>
+                            </div>
+                            <button type="button" class="btn-secondary" onclick="addBackupField()" id="addBackupBtn" style="margin-top: 10px;">
+                                <i class="fas fa-plus"></i> Add Backup
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Slow Songs Section -->
+                    <div class="form-section">
+                        <h3><i class="fas fa-music"></i> Slow Songs (Max 5)</h3>
+                        <div id="slowSongsContainer">
+                            <div class="song-row slow-song">
+                                <div class="form-group">
+                                    <label>Slow Song 1 Title *</label>
+                                    <input type="text" class="form-control slow-title" placeholder="Enter song title" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>YouTube Link *</label>
+                                    <input type="url" class="form-control slow-link" placeholder="https://www.youtube.com/watch?v=..." required>
+                                    <div class="youtube-preview"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Lyrics (Optional)</label>
+                                    <textarea class="form-control slow-lyrics" placeholder="Enter song lyrics..."></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label>Instructions (Optional)</label>
+                                    <textarea class="form-control slow-instructions" placeholder="Any special instructions..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-secondary" onclick="addSlowSong()" id="addSlowSongBtn" style="margin-top: 10px;">
+                            <i class="fas fa-plus"></i> Add Slow Song
+                        </button>
+                    </div>
+
+                    <!-- Fast Songs Section -->
+                    <div class="form-section">
+                        <h3><i class="fas fa-bolt"></i> Fast Songs (Max 5)</h3>
+                        <div id="fastSongsContainer">
+                            <div class="song-row fast-song">
+                                <div class="form-group">
+                                    <label>Fast Song 1 Title *</label>
+                                    <input type="text" class="form-control fast-title" placeholder="Enter song title" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>YouTube Link *</label>
+                                    <input type="url" class="form-control fast-link" placeholder="https://www.youtube.com/watch?v=..." required>
+                                    <div class="youtube-preview"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Lyrics (Optional)</label>
+                                    <textarea class="form-control fast-lyrics" placeholder="Enter song lyrics..."></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label>Instructions (Optional)</label>
+                                    <textarea class="form-control fast-instructions" placeholder="Any special instructions..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-secondary" onclick="addFastSong()" id="addFastSongBtn" style="margin-top: 10px;">
+                            <i class="fas fa-plus"></i> Add Fast Song
+                        </button>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="form-actions" style="margin-top: 30px;">
+                        <button type="button" class="btn-secondary" onclick="resetLineupForm()">Reset Form</button>
+                        <button type="button" class="btn-primary" onclick="submitLineup()" id="submitLineupBtn">
+                            <i class="fas fa-paper-plane"></i> Submit Lineup for Approval
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- My Profile Section -->
+            <section id="my-profile" class="content-section">
+                <h2 class="section-title"><i class="fas fa-user-circle"></i> My Profile</h2>
+                
+                <div class="profile-container">
+                    <div class="profile-header">
+                        <div class="profile-avatar">
+                            <div class="avatar-large" id="profileAvatar">FG</div>
+                            <div class="avatar-status">
+                                <div class="status-circle verified" id="profileStatus">
+                                    <div class="status-tooltip">Verified</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="profile-info">
+                            <h3 id="profileName">Frank Gomez</h3>
+                            <p id="profileMinistry">Media Ministry</p>
+                            <p id="profileMemberId">Member ID: 123456</p>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-tabs">
+                        <button class="tab-btn active" onclick="openProfileTab('personal-info')">Personal Information</button>
+                        <button class="tab-btn" onclick="openProfileTab('change-password')">Change Password</button>
+                    </div>
+                    
+                    <!-- Personal Information Tab -->
+                    <div id="personal-info" class="profile-tab-content active">
+                        <div class="profile-form">
+                            <div class="form-group">
+                                <label for="firstname">First Name</label>
+                                <input type="text" id="firstname" class="form-control" value="Frank">
+                            </div>
+                            <div class="form-group">
+                                <label for="lastname">Last Name</label>
+                                <input type="text" id="lastname" class="form-control" value="Gomez">
+                            </div>
+                            <div class="form-group">
+                                <label for="username">Username</label>
+                                <input type="text" id="username" class="form-control" value="frank.gomez" disabled>
+                            </div>
+                            <div class="form-group">
+                                <label for="birthdate">Birthdate</label>
+                                <input type="text" id="birthdate" class="form-control" value="1990-01-01" disabled>
+                            </div>
+                            <div class="form-group">
+                                <label for="ministry">Ministry</label>
+                                <input type="text" id="ministry" class="form-control" value="Media Ministry" disabled>
+                            </div>
+                            <div class="form-group">
+                                <label for="memberId">Member ID</label>
+                                <input type="text" id="memberId" class="form-control" value="123456" disabled>
+                            </div>
+                            <div class="form-group">
+                                <label for="status">Account Status</label>
+                                <input type="text" id="status" class="form-control" value="Verified" disabled>
+                            </div>
+                            
+                            <div class="form-actions">
+                                <button type="button" class="btn-secondary" onclick="resetProfileForm()">Cancel</button>
+                                <button type="button" class="btn-primary" onclick="saveProfileChanges()">Save Changes</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Change Password Tab -->
+                    <div id="change-password" class="profile-tab-content">
+                        <div class="password-form">
+                            <div class="form-group">
+                                <label for="currentPassword">Current Password</label>
+                                <input type="password" id="currentPassword" class="form-control" placeholder="Enter your current password">
+                                <div class="password-toggle" onclick="togglePasswordVisibility('currentPassword')">
+                                    <i class="fas fa-eye"></i>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="newPassword">New Password</label>
+                                <input type="password" id="newPassword" class="form-control" placeholder="Enter new password">
+                                <div class="password-toggle" onclick="togglePasswordVisibility('newPassword')">
+                                    <i class="fas fa-eye"></i>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="confirmPassword">Confirm New Password</label>
+                                <input type="password" id="confirmPassword" class="form-control" placeholder="Confirm new password">
+                                <div class="password-toggle" onclick="togglePasswordVisibility('confirmPassword')">
+                                    <i class="fas fa-eye"></i>
+                                </div>
+                            </div>
+                            
+                            <div class="password-strength" id="passwordStrength">
+                                <div class="strength-bar">
+                                    <div class="strength-fill" id="strengthFill"></div>
+                                </div>
+                                <div class="strength-text" id="strengthText">Password strength</div>
+                            </div>
+                            
+                            <div class="password-requirements">
+                                <p>Password Requirements:</p>
+                                <ul>
+                                    <li id="reqLength">At least 8 characters</li>
+                                    <li id="reqUppercase">One uppercase letter</li>
+                                    <li id="reqLowercase">One lowercase letter</li>
+                                    <li id="reqNumber">One number</li>
+                                    <li id="reqSpecial">One special character</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="form-actions">
+                                <button type="button" class="btn-secondary" onclick="resetPasswordForm()">Cancel</button>
+                                <button type="button" class="btn-primary" onclick="changePassword()">Change Password</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
+
+        <!-- Receipt Modal -->
+        <div id="receiptModal" class="receipt-modal">
+            <div class="receipt-container" id="receiptContent">
+                <div class="receipt-header">
+                    <div class="receipt-logo"></div>
+                    <div class="receipt-title">JOYFUL SOUND CHURCH</div>
+                    <div class="receipt-subtitle">INTERNATIONAL</div>
+                </div>
+                
+                <div class="receipt-content">
+                    <div class="receipt-section">
+                        <h3 class="receipt-section-title">
+                            <i class="fas fa-file-invoice"></i>
+                            Worship Lineup Receipt
+                        </h3>
+                        <div class="receipt-info">
+                            <div class="receipt-info-item">
+                                <div class="receipt-label">Schedule For</div>
+                                <div class="receipt-value" id="receiptScheduleDate">-</div>
+                            </div>
+                            <div class="receipt-info-item">
+                                <div class="receipt-label">Practice Day</div>
+                                <div class="receipt-value" id="receiptPracticeDate">-</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="receipt-section">
+                        <h3 class="receipt-section-title">
+                            <i class="fas fa-users"></i>
+                            Team Members
+                        </h3>
+                        <div class="receipt-info">
+                            <div class="receipt-info-item">
+                                <div class="receipt-label">Song Leader</div>
+                                <div class="receipt-value" id="receiptSongLeader">-</div>
+                            </div>
+                            <div class="receipt-info-item">
+                                <div class="receipt-label">Backup Singers</div>
+                                <div class="receipt-value" id="receiptBackupCount">0</div>
+                            </div>
+                        </div>
+                        <div id="receiptBackupList">
+                            <!-- Backup list will be populated here -->
+                        </div>
+                    </div>
+                    
+                    <div class="receipt-section">
+                        <h3 class="receipt-section-title">
+                            <i class="fas fa-bolt"></i>
+                            Fast Songs
+                        </h3>
+                        <ul class="receipt-list" id="receiptFastSongs">
+                            <!-- Fast songs will be populated here -->
+                        </ul>
+                    </div>
+                    
+                    <div class="receipt-section">
+                        <h3 class="receipt-section-title">
+                            <i class="fas fa-music"></i>
+                            Slow Songs
+                        </h3>
+                        <ul class="receipt-list" id="receiptSlowSongs">
+                            <!-- Slow songs will be populated here -->
+                        </ul>
+                    </div>
+                    
+                    <div class="receipt-note">
+                        <div class="receipt-note-title">
+                            <i class="fas fa-exclamation-circle"></i>
+                            Important Note
+                        </div>
+                        <p class="receipt-note-text">
+                            Please inform ahead if you are absent that day para naa mi e kapuli. Thank You.
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="receipt-footer">
+                    <div class="receipt-actions">
+                        <button class="receipt-btn receipt-btn-edit" onclick="editLineup()">
+                            <i class="fas fa-edit"></i>
+                            Edit
+                        </button>
+                        <button class="receipt-btn receipt-btn-save" onclick="saveReceiptAsImage()">
+                            <i class="fas fa-download"></i>
+                            Save Image
+                        </button>
+                        <button class="receipt-btn receipt-btn-confirm" onclick="confirmAndReset()">
+                            <i class="fas fa-check"></i>
+                            Confirm & Reset
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        // STRONGER BACK BUTTON PREVENTION
-        (function() {
-            window.history.replaceState(null, null, window.location.href);
+
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzigAL47G_8wcUH5Ik3423LnHW5RKPy0YYbuIPh8mFOHNDJpYeiUPi8YPkZD3Xw3OcH4w/exec';
+
+    // With this:
+    const API_BASE_URL = 'http://localhost:3000/api';
+
+    // STRONGER BACK BUTTON PREVENTION
+    (function() {
+        window.history.replaceState(null, null, window.location.href);
+        window.history.pushState(null, null, window.location.href);
+        window.addEventListener('popstate', function(event) {
             window.history.pushState(null, null, window.location.href);
-            window.addEventListener('popstate', function(event) {
-                window.history.pushState(null, null, window.location.href);
-                showAlert('You cannot go back while logged in. Please logout first.', 'warning');
-            });
-        })();
+            showAlert('You cannot go back while logged in. Please logout first.', 'warning');
+        });
+    })();
 
-        // Check if user is logged in
-        let userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
+    // Check if user is logged in
+    let userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
+    
+    if (!userData.firstname) {
+        window.location.href = 'login.html';
+    } else {
+        initializeDashboard();
+    }
+
+    // Menu items configuration
+    const menuItems = {
+        common: [
+            { id: 'home', icon: 'fas fa-home', label: 'Home' },
+            { id: 'weekly-schedule', icon: 'fas fa-calendar-alt', label: 'Weekly Schedule' },
+            { id: 'attendance', icon: 'fas fa-check-circle', label: 'Attendance' },
+            { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements' },
+            { id: 'my-profile', icon: 'fas fa-user-circle', label: 'My Profile' }
+        ],
+        "Media": [
+            { id: 'media', icon: 'fas fa-film', label: 'Media' }
+        ],
+        "Praise And Worship": [
+            { id: 'praise-worship', icon: 'fas fa-music', label: 'Praise And Worship' }
+        ],
+        "Dancers": [
+            { id: 'dancers', icon: 'fas fa-user-friends', label: 'Dancers' }
+        ],
+        "Ashers": [
+            { id: 'ashers', icon: 'fas fa-door-open', label: 'Ashers' }
+        ]
+    };
+
+    // Create Lineup Variables
+    let backupCount = 1;
+    let slowSongCount = 1;
+    let fastSongCount = 1;
+    const backupOptions = ["Psalm", "Cathy", "Tiffany", "Geneveve", "Merianne", "Ezra", "Julie", "Jewel", "Abby", "Myka"];
+
+    async function initializeDashboard() {
+        // Initialize user data display first (before checking status from server)
+        const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
+        document.getElementById('userAvatar').textContent = initials;
+        document.getElementById('userName').textContent = `${userData.firstname} ${userData.lastname}`;
+        document.getElementById('userMinistry').textContent = userData.ministry;
+        document.getElementById('welcomeName').textContent = userData.firstname;
+        document.getElementById('firstTimeName').textContent = userData.firstname;
+        document.getElementById('unverifiedName').textContent = userData.firstname;
         
-        if (!userData.firstname) {
-            window.location.href = 'login.html';
-        } else {
-            initializeDashboard();
-        }
+        // Check if this is first login
+        const loginCount = parseInt(localStorage.getItem(`loginCount_${userData.username}`) || '0');
+        const isFirstLogin = loginCount === 0;
+        
+        // Increment login count
+        localStorage.setItem(`loginCount_${userData.username}`, String(loginCount + 1));
+        
+        // Fetch the actual status from the server BEFORE setting up the UI
+        await fetchAndSetUserStatus(isFirstLogin);
+    }
 
-        // Menu items configuration
-        const menuItems = {
-            common: [
-                { id: 'home', icon: 'fas fa-home', label: 'Home' },
-                { id: 'my-profile', icon: 'fas fa-user-circle', label: 'My Profile', disabled: true },
-                { id: 'weekly-schedule', icon: 'fas fa-calendar-alt', label: 'Weekly Schedule' },
-                { id: 'attendance', icon: 'fas fa-check-circle', label: 'Attendance' },
-                { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements' }
-            ],
-            "Media": [
-                { id: 'media', icon: 'fas fa-film', label: 'Media' }
-            ],
-            "Praise And Worship": [
-                { id: 'praise-worship', icon: 'fas fa-music', label: 'Praise And Worship' }
-            ],
-            "Dancers": [
-                { id: 'dancers', icon: 'fas fa-user-friends', label: 'Dancers' }
-            ],
-            "Ashers": [
-                { id: 'ashers', icon: 'fas fa-door-open', label: 'Ashers' }
-            ]
-        };
-
-        async function initializeDashboard() {
-            // Initialize user data display first (before checking status from server)
-            const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
-            document.getElementById('userAvatar').textContent = initials;
-            document.getElementById('userName').textContent = `${userData.firstname} ${userData.lastname}`;
-            document.getElementById('userMinistry').textContent = userData.ministry;
-            document.getElementById('welcomeName').textContent = userData.firstname;
-            document.getElementById('firstTimeName').textContent = userData.firstname;
-            document.getElementById('unverifiedName').textContent = userData.firstname;
+    async function fetchAndSetUserStatus(isFirstLogin) {
+        try {
+            console.log('Fetching verification status for:', userData.username);
             
-            // Check if this is first login
-            const loginCount = parseInt(localStorage.getItem(`loginCount_${userData.username}`) || '0');
-            const isFirstLogin = loginCount === 0;
-            
-            // Increment login count
-            localStorage.setItem(`loginCount_${userData.username}`, String(loginCount + 1));
-            
-            // Fetch the actual status from the server BEFORE setting up the UI
-            await fetchAndSetUserStatus(isFirstLogin);
-            
-            // Initialize profile data
-            initializeProfileData();
-        }
-
-        async function fetchAndSetUserStatus(isFirstLogin) {
-            try {
-                console.log('Fetching verification status for:', userData.username);
+            // For demo purposes, we'll simulate a verified user
+            // In a real implementation, this would call your backend API
+            setTimeout(() => {
+                const serverStatus = 'verified'; // Simulated status
+                userData.status = serverStatus;
                 
-                // For demo purposes, we'll simulate a verified user
-                // In a real implementation, this would call your backend API
-                setTimeout(() => {
-                    const serverStatus = 'verified'; // Simulated status
-                    userData.status = serverStatus;
-                    
-                    // Save updated user data
-                    sessionStorage.setItem('userData', JSON.stringify(userData));
-                    localStorage.setItem('userData', JSON.stringify(userData));
-                    
-                    // Update UI with the correct status
-                    updateUIByStatus(isFirstLogin);
-                }, 500);
+                // Save updated user data
+                sessionStorage.setItem('userData', JSON.stringify(userData));
+                localStorage.setItem('userData', JSON.stringify(userData));
                 
-            } catch (error) {
-                console.error('Error checking verification status:', error);
-                userData.status = 'unverified';
+                // Update UI with the correct status
                 updateUIByStatus(isFirstLogin);
-            }
+            }, 500);
+            
+        } catch (error) {
+            console.error('Error checking verification status:', error);
+            userData.status = 'unverified';
+            updateUIByStatus(isFirstLogin);
         }
+    }
 
-        function updateUIByStatus(isFirstLogin) {
-            const status = userData.status || 'unverified';
-            const statusElement = document.getElementById('userStatus');
+    function updateUIByStatus(isFirstLogin) {
+        const status = userData.status || 'unverified';
+        
+        console.log('Updating UI with status:', status);
+        
+        // Update status indicator
+        updateStatusIndicator(status);
+        
+        // Update verification banner
+        if (status === 'verified') {
+            document.getElementById('verificationBanner').style.display = 'none';
             
-            console.log('Updating UI with status:', status);
+            // Show verified content
+            document.getElementById('unverifiedContent').style.display = 'none';
             
-            // Update status text and styling
-            if (status === 'verified') {
-                statusElement.textContent = 'Verified Member';
-                statusElement.className = 'user-status status-verified';
-                document.getElementById('verificationBanner').style.display = 'none';
-                
-                // Show verified content
-                document.getElementById('unverifiedContent').style.display = 'none';
-                
-                if (isFirstLogin) {
-                    document.getElementById('firstTimeWelcomeContainer').style.display = 'block';
-                    document.getElementById('regularWelcomeContainer').style.display = 'none';
-                    loadWelcomeVerse(userData.ministry);
-                } else {
-                    document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
-                    document.getElementById('regularWelcomeContainer').style.display = 'block';
-                    loadDailyVerse(userData.ministry);
-                }
-                
-            } else {
-                statusElement.textContent = 'Unverified Member';
-                statusElement.className = 'user-status status-unverified';
-                document.getElementById('verificationBanner').style.display = 'block';
-                
-                // Show unverified content
-                document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+            if (isFirstLogin) {
+                document.getElementById('firstTimeWelcomeContainer').style.display = 'block';
                 document.getElementById('regularWelcomeContainer').style.display = 'none';
-                document.getElementById('unverifiedContent').style.display = 'block';
-            }
-            
-            // Generate sidebar menu with current status
-            generateSidebarMenu(userData.ministry, status);
-        }
-
-        // Initialize profile data when dashboard loads
-        function initializeProfileData() {
-            // Set profile avatar
-            const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
-            document.getElementById('profileAvatarLarge').textContent = initials;
-            
-            // Set profile information
-            document.getElementById('profileFullName').textContent = `${userData.firstname} ${userData.lastname}`;
-            document.getElementById('profileMinistry').textContent = userData.ministry;
-            document.getElementById('profileMemberId').textContent = `Member ID: ${userData.memberId}`;
-            
-            // Set status with appropriate styling
-            const statusElement = document.getElementById('profileStatus');
-            if (userData.status === 'verified') {
-                statusElement.textContent = 'Verified Member';
-                statusElement.style.background = 'rgba(40, 167, 69, 0.1)';
-                statusElement.style.color = '#28a745';
+                loadWelcomeVerse(userData.ministry);
             } else {
-                statusElement.textContent = 'Unverified Member';
-                statusElement.style.background = 'rgba(220, 53, 69, 0.1)';
-                statusElement.style.color = '#dc3545';
+                document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+                document.getElementById('regularWelcomeContainer').style.display = 'block';
+                loadDailyVerse(userData.ministry);
             }
             
-            // Set form values
-            document.getElementById('firstName').value = userData.firstname;
-            document.getElementById('lastName').value = userData.lastname;
-            document.getElementById('birthdate').value = userData.birthdate || '';
-            document.getElementById('ministryDisplay').textContent = userData.ministry;
-            document.getElementById('usernameDisplay').textContent = userData.username;
+        } else {
+            document.getElementById('verificationBanner').style.display = 'block';
+            
+            // Show unverified content
+            document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+            document.getElementById('regularWelcomeContainer').style.display = 'none';
+            document.getElementById('unverifiedContent').style.display = 'block';
         }
+        
+        // Generate sidebar menu with current status
+        generateSidebarMenu(userData.ministry, status);
+    }
 
-        function generateSidebarMenu(ministry, status) {
-            const sidebarMenu = document.getElementById('sidebarMenu');
-            sidebarMenu.innerHTML = '';
+    function updateStatusIndicator(status) {
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = status === 'verified' ? 'Verified' : 'Unverified';
+        const statusClass = status === 'verified' ? 'verified' : 'unverified';
+        
+        statusIndicator.innerHTML = `
+            <div class="status-circle ${statusClass}">
+                <div class="status-tooltip">${statusText}</div>
+            </div>
+        `;
+    }
+
+    function generateSidebarMenu(ministry, status) {
+        const sidebarMenu = document.getElementById('sidebarMenu');
+        sidebarMenu.innerHTML = '';
+        
+        const isVerified = status === 'verified';
+        const isSongLeader = userData.username && userData.username.includes('@songlead');
+        
+        // Add common menu items
+        menuItems.common.forEach(item => {
+            const menuItem = document.createElement('a');
             
-            const isVerified = status === 'verified';
+            // Check if item should be disabled (only for unverified status)
+            const shouldDisable = !isVerified && item.id !== 'home';
             
-            // Add common menu items
-            menuItems.common.forEach(item => {
-                const menuItem = document.createElement('a');
-                
-                // Check if item should be disabled (either unverified status OR item has disabled property)
-                const shouldDisable = !isVerified || item.disabled;
-                
-                menuItem.className = 'menu-item' + (item.id === 'home' ? ' active' : '');
+            menuItem.className = 'menu-item' + (item.id === 'home' ? ' active' : '');
+            if (shouldDisable) {
+                menuItem.className += ' disabled';
+            }
+            
+            menuItem.onclick = () => {
                 if (shouldDisable) {
-                    menuItem.className += ' disabled';
+                    showAlert('🔒 Please wait for account verification to access this feature', 'warning');
+                } else {
+                    showSection(item.id);
                 }
-                
+            };
+            
+            menuItem.innerHTML = `
+                <span class="menu-icon"><i class="${item.icon}"></i></span>
+                <span>${item.label}</span>
+                ${shouldDisable ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
+            `;
+            sidebarMenu.appendChild(menuItem);
+        });
+        
+        // Add Create Lineup button for song leaders
+        if (isSongLeader && isVerified) {
+            const lineupItem = document.createElement('a');
+            lineupItem.className = 'menu-item';
+            lineupItem.onclick = () => showSection('create-lineup');
+            lineupItem.innerHTML = `
+                <span class="menu-icon"><i class="fas fa-plus-circle"></i></span>
+                <span>Create Lineup</span>
+            `;
+            sidebarMenu.appendChild(lineupItem);
+        }
+        
+        // Add ministry-specific menu item
+        if (menuItems[ministry]) {
+            menuItems[ministry].forEach(item => {
+                const menuItem = document.createElement('a');
+                menuItem.className = 'menu-item' + (isVerified ? '' : ' disabled');
                 menuItem.onclick = () => {
-                    if (shouldDisable) {
-                        // Show development message for disabled items
-                        if (item.disabled) {
-                            showAlert('🔨 This feature is under development by Frank Gomez', 'warning');
-                        } else {
-                            showAlert('🔒 Please wait for account verification to access this feature', 'warning');
-                        }
-                    } else {
+                    if (isVerified) {
                         showSection(item.id);
+                    } else {
+                        showAlert('🔒 Please wait for account verification to access this feature', 'warning');
                     }
                 };
-                
                 menuItem.innerHTML = `
                     <span class="menu-icon"><i class="${item.icon}"></i></span>
                     <span>${item.label}</span>
-                    ${shouldDisable ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
+                    ${!isVerified ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
                 `;
                 sidebarMenu.appendChild(menuItem);
             });
-            
-            // Add ministry-specific menu item
-            if (menuItems[ministry]) {
-                menuItems[ministry].forEach(item => {
-                    const menuItem = document.createElement('a');
-                    menuItem.className = 'menu-item' + (isVerified ? '' : ' disabled');
-                    menuItem.onclick = () => {
-                        if (isVerified) {
-                            showSection(item.id);
-                        } else {
-                            showAlert('🔒 Please wait for account verification to access this feature', 'warning');
-                        }
-                    };
-                    menuItem.innerHTML = `
-                        <span class="menu-icon"><i class="${item.icon}"></i></span>
-                        <span>${item.label}</span>
-                        ${!isVerified ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
-                    `;
-                    sidebarMenu.appendChild(menuItem);
-                });
+        }
+    }
+
+    // Bible verses database
+    const bibleVerses = {
+        welcome: [
+            {
+                verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
+                reference: "Ephesians 2:10",
+                explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
+            },
+            {
+                verse: "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
+                reference: "Proverbs 3:5-6",
+                explanation: "As you begin this journey with us, trust that God will guide your path and use you mightily in this ministry."
             }
-        }
-
-        // Bible verses database
-        const bibleVerses = {
-            welcome: [
-                {
-                    verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
-                    reference: "Ephesians 2:10",
-                    explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
-                },
-                {
-                    verse: "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
-                    reference: "Proverbs 3:5-6",
-                    explanation: "As you begin this journey with us, trust that God will guide your path and use you mightily in this ministry."
-                }
-            ],
-            general: [
-                {
-                    verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
-                    reference: "Ephesians 2:10",
-                    explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
-                },
-                {
-                    verse: "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters.",
-                    reference: "Colossians 3:23",
-                    explanation: "Serve with excellence and passion, remembering that your ultimate audience is God Himself."
-                }
-            ]
-        };
-
-        function loadDailyVerse(ministry) {
-            // Get today's date to determine which verse to show
-            const today = new Date();
-            const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
-            
-            // Get verses for the specific ministry or general verses
-            let verses = bibleVerses[ministry] || bibleVerses.general;
-            
-            // Select verse based on day of year (cycles through available verses)
-            const verseIndex = dayOfYear % verses.length;
-            const selectedVerse = verses[verseIndex];
-            
-            // Update the DOM with the selected verse
-            document.getElementById('dailyVerse').textContent = `"${selectedVerse.verse}"`;
-            document.getElementById('verseReference').textContent = selectedVerse.reference;
-            document.getElementById('verseExplanation').textContent = selectedVerse.explanation;
-        }
-
-        function loadWelcomeVerse(ministry) {
-            // For first-time users, select from welcome verses
-            const welcomeVerses = bibleVerses.welcome;
-            const randomIndex = Math.floor(Math.random() * welcomeVerses.length);
-            const selectedVerse = welcomeVerses[randomIndex];
-            
-            // Update the DOM with the welcome verse
-            document.getElementById('welcomeVerse').textContent = `"${selectedVerse.verse}"`;
-            document.getElementById('welcomeVerseReference').textContent = selectedVerse.reference;
-            document.getElementById('welcomeVerseExplanation').textContent = selectedVerse.explanation;
-        }
-
-        function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.querySelector('.overlay');
-            sidebar.classList.toggle('active');
-            overlay.classList.toggle('active');
-        }
-
-        function showSection(sectionId) {
-            // Prevent navigation to My Profile if it's disabled
-            const myProfileItem = menuItems.common.find(item => item.id === 'my-profile');
-            if (myProfileItem && myProfileItem.disabled && sectionId === 'my-profile') {
-                showAlert('🔨 My Profile feature is under development by Frank Gomez', 'warning');
-                return;
+        ],
+        general: [
+            {
+                verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
+                reference: "Ephesians 2:10",
+                explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
+            },
+            {
+                verse: "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters.",
+                reference: "Colossians 3:23",
+                explanation: "Serve with excellence and passion, remembering that your ultimate audience is God Himself."
             }
-            
-            // Remove active class from all menu items and sections
-            document.querySelectorAll('.menu-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            document.querySelectorAll('.content-section').forEach(section => {
-                section.classList.remove('active');
-            });
+        ]
+    };
 
-            // Add active class to clicked menu item
-            event.target.closest('.menu-item').classList.add('active');
+    function loadDailyVerse(ministry) {
+        // Get today's date to determine which verse to show
+        const today = new Date();
+        const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+        
+        // Get verses for the specific ministry or general verses
+        let verses = bibleVerses[ministry] || bibleVerses.general;
+        
+        // Select verse based on day of year (cycles through available verses)
+        const verseIndex = dayOfYear % verses.length;
+        const selectedVerse = verses[verseIndex];
+        
+        // Update the DOM with the selected verse
+        document.getElementById('dailyVerse').textContent = `"${selectedVerse.verse}"`;
+        document.getElementById('verseReference').textContent = selectedVerse.reference;
+        document.getElementById('verseExplanation').textContent = selectedVerse.explanation;
+    }
 
-            // Show selected section
-            document.getElementById(sectionId).classList.add('active');
+    function loadWelcomeVerse(ministry) {
+        // For first-time users, select from welcome verses
+        const welcomeVerses = bibleVerses.welcome;
+        const randomIndex = Math.floor(Math.random() * welcomeVerses.length);
+        const selectedVerse = welcomeVerses[randomIndex];
+        
+        // Update the DOM with the welcome verse
+        document.getElementById('welcomeVerse').textContent = `"${selectedVerse.verse}"`;
+        document.getElementById('welcomeVerseReference').textContent = selectedVerse.reference;
+        document.getElementById('welcomeVerseExplanation').textContent = selectedVerse.explanation;
+    }
 
-            // Update page title
-            const titles = {
-                'home': 'Welcome to Your Ministry Portal',
-                'my-profile': 'My Profile',
-                'weekly-schedule': 'Weekly Schedule',
-                'attendance': 'Attendance Record',
-                'announcements': 'Announcements',
-                'praise-worship': 'Praise And Worship',
-                'media': 'Media Ministry',
-                'dancers': 'Dancers Ministry',
-                'ashers': 'Ashers Ministry'
-            };
-            document.getElementById('pageTitle').textContent = titles[sectionId] || 'Ministry Portal';
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.querySelector('.overlay');
+        sidebar.classList.toggle('active');
+        overlay.classList.toggle('active');
+    }
 
-            // Update page subtitle with coming soon message for non-home sections
-            const subtitle = document.getElementById('pageSubtitle');
-            if (sectionId === 'home') {
-                subtitle.textContent = 'Stay connected and inspired in your service';
-            } else if (sectionId === 'my-profile') {
-                subtitle.textContent = 'Manage your account information and security';
-            } else {
-                subtitle.textContent = 'Features Coming Soon - Please wait for Developer Frank Gomez';
-            }
-
-            // For profile section, initialize the data
-            if (sectionId === 'my-profile') {
-                initializeProfileData();
-            }
-
-            // Close sidebar on mobile
-            if (window.innerWidth <= 768) {
-                toggleSidebar();
-            }
-        }
-
-        function showAlert(message, type) {
-            // Create alert element
-            const alert = document.createElement('div');
-            alert.className = `alert alert-${type}`;
-            alert.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                z-index: 1002;
-                max-width: 400px;
-                animation: slideInRight 0.5s ease;
-                background: ${type === 'success' ? '#28a745' : type === 'warning' ? '#ffc107' : '#dc3545'};
-                color: white;
-                padding: 15px 20px;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                font-weight: 500;
-            `;
-            alert.textContent = message;
-            
-            // Add styles for slideInRight animation
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes slideInRight {
-                    from { transform: translateX(100%); opacity: 0; }
-                    to { transform: translateX(0); opacity: 1; }
-                }
-            `;
-            document.head.appendChild(style);
-            
-            document.body.appendChild(alert);
-            
-            // Remove alert after 5 seconds
-            setTimeout(() => {
-                alert.remove();
-            }, 5000);
-        }
-
-        function logout() {
-            if (confirm('Are you sure you want to logout?')) {
-                sessionStorage.removeItem('userData');
-                localStorage.removeItem('userData');
-                window.location.href = 'login.html';
-            }
-        }
-
-        // Initialize all sections with coming soon content
-        function initializeAllSections() {
-            const sections = ['weekly-schedule', 'attendance', 'announcements', 'praise-worship', 'media', 'dancers', 'ashers'];
-            sections.forEach(sectionId => {
-                const section = document.getElementById(sectionId);
-                if (section) {
-                    const titles = {
-                        'weekly-schedule': 'Weekly Schedule',
-                        'attendance': 'Attendance Record',
-                        'announcements': 'Announcements',
-                        'praise-worship': 'Praise And Worship',
-                        'media': 'Media Ministry',
-                        'dancers': 'Dancers Ministry',
-                        'ashers': 'Ashers Ministry'
-                    };
-                    
-                    section.innerHTML = `
-                        <h2 class="section-title">${titles[sectionId] || sectionId}</h2>
-                        <div style="text-align: center; padding: 60px 20px;">
-                            <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);"><i class="fas fa-tools"></i></div>
-                            <h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.5rem;">Features Coming Soon</h3>
-                            <p style="color: #6c757d; margin-bottom: 25px; font-size: 1.1rem; line-height: 1.6;">
-                                We're working hard to bring you amazing features for this section!<br>
-                                Please be patient as we develop and test everything to ensure the best experience.
-                            </p>
-                            <div style="background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1)); padding: 20px; border-radius: var(--border-radius); display: inline-block;">
-                                <p style="color: var(--primary); font-weight: 600; margin: 0; font-size: 0.9rem;">
-                                    <i class="fas fa-hammer"></i> Under Development by: <strong>Frank Gomez</strong>
-                                </p>
-                            </div>
-                            <div style="margin-top: 30px; padding: 20px; background: white; border-radius: var(--border-radius); box-shadow: var(--shadow); max-width: 500px; margin-left: auto; margin-right: auto;">
-                                <h4 style="color: var(--primary); margin-bottom: 15px;"><i class="fas fa-clipboard-list"></i> What to Expect:</h4>
-                                <ul style="text-align: left; color: #6c757d; line-height: 1.8;">
-                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Enhanced user interface and experience</li>
-                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Real-time updates and notifications</li>
-                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Comprehensive ministry tools</li>
-                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Mobile-friendly design</li>
-                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>And much more!</li>
-                                </ul>
-                            </div>
-                        </div>
-                    `;
-                }
-            });
-        }
-
-        // Call this function when the dashboard loads
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeAllSections();
+    function showSection(sectionId) {
+        // Remove active class from all menu items and sections
+        document.querySelectorAll('.menu-item').forEach(item => {
+            item.classList.remove('active');
         });
-    </script>
+        document.querySelectorAll('.content-section').forEach(section => {
+            section.classList.remove('active');
+        });
+
+        // Add active class to clicked menu item
+        event.target.closest('.menu-item').classList.add('active');
+
+        // Show selected section
+        document.getElementById(sectionId).classList.add('active');
+
+        // Update page title
+        const titles = {
+            'home': 'Welcome to Your Ministry Portal',
+            'weekly-schedule': 'Weekly Schedule',
+            'attendance': 'Attendance Record',
+            'announcements': 'Announcements',
+            'praise-worship': 'Praise And Worship',
+            'media': 'Media Ministry',
+            'dancers': 'Dancers Ministry',
+            'ashers': 'Ashers Ministry',
+            'create-lineup': 'Create Worship Lineup',
+            'my-profile': 'My Profile'
+        };
+        document.getElementById('pageTitle').textContent = titles[sectionId] || 'Ministry Portal';
+
+        // Update page subtitle with coming soon message for non-home sections
+        const subtitle = document.getElementById('pageSubtitle');
+        if (sectionId === 'home') {
+            subtitle.textContent = 'Stay connected and inspired in your service';
+        } else if (sectionId === 'my-profile') {
+            subtitle.textContent = 'Manage your personal information and account settings';
+        } else if (sectionId === 'create-lineup') {
+            subtitle.textContent = 'Create and submit worship lineups for approval';
+        } else {
+            subtitle.textContent = 'Features Coming Soon - Please wait for Developer Frank Gomez';
+        }
+
+        // Load profile data when profile section is shown
+        if (sectionId === 'my-profile') {
+            loadProfileData();
+        }
+
+        // Initialize create lineup section when shown
+        if (sectionId === 'create-lineup') {
+            initializeCreateLineup();
+        }
+
+        // Close sidebar on mobile
+        if (window.innerWidth <= 768) {
+            toggleSidebar();
+        }
+    }
+
+    function showAlert(message, type) {
+        // Create alert element
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        alert.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1002;
+            max-width: 400px;
+            animation: slideInRight 0.5s ease;
+            background: ${type === 'success' ? '#28a745' : type === 'warning' ? '#ffc107' : '#dc3545'};
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            font-weight: 500;
+        `;
+        alert.textContent = message;
+        
+        // Add styles for slideInRight animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInRight {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        document.body.appendChild(alert);
+        
+        // Remove alert after 5 seconds
+        setTimeout(() => {
+            alert.remove();
+        }, 5000);
+    }
+
+    function logout() {
+        if (confirm('Are you sure you want to logout?')) {
+            sessionStorage.removeItem('userData');
+            localStorage.removeItem('userData');
+            window.location.href = 'login.html';
+        }
+    }
+
+    // Create Lineup Functions
+    function initializeCreateLineup() {
+        // Initialize date restrictions
+        const today = new Date();
+        const scheduleDate = document.getElementById('scheduleDate');
+        const practiceDate = document.getElementById('practiceDate');
+        
+        // Set min date to today for both fields
+        const minDate = today.toISOString().split('T')[0];
+        scheduleDate.min = minDate;
+        practiceDate.min = minDate;
+        
+        // Initialize backup options
+        updateBackupOptions();
+        
+        // Add event listeners for YouTube preview
+        document.addEventListener('input', function(e) {
+            if (e.target.classList.contains('slow-link') || e.target.classList.contains('fast-link')) {
+                handleYouTubePreview(e.target);
+            }
+        });
+    }
+
+    function updateBackupOptions() {
+        const usedBackups = new Set();
+        const backupSelects = document.querySelectorAll('.backup-select');
+        
+        // Get all currently selected values
+        backupSelects.forEach(select => {
+            if (select.value) {
+                usedBackups.add(select.value);
+            }
+        });
+        
+        // Update options for each select
+        backupSelects.forEach(select => {
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">Select Backup ' + (Array.from(select.parentNode.parentNode.parentNode.children).indexOf(select.parentNode) + 1) + '</option>';
+            
+            backupOptions.forEach(option => {
+                if (!usedBackups.has(option) || option === currentValue) {
+                    const optionElement = document.createElement('option');
+                    optionElement.value = option;
+                    optionElement.textContent = option;
+                    select.appendChild(optionElement);
+                }
+            });
+            
+            // Restore current value
+            if (currentValue) {
+                select.value = currentValue;
+            }
+        });
+        
+        // Update add backup button state
+        const addBackupBtn = document.getElementById('addBackupBtn');
+        addBackupBtn.disabled = backupCount >= 5;
+    }
+
+    function addBackupField() {
+        if (backupCount >= 5) return;
+        
+        backupCount++;
+        const backupContainer = document.getElementById('backupContainer');
+        const backupRow = document.createElement('div');
+        backupRow.className = 'backup-row';
+        backupRow.innerHTML = `
+            <select class="form-control backup-select" onchange="updateBackupOptions()">
+                <option value="">Select Backup ${backupCount}</option>
+            </select>
+            <button type="button" class="btn-danger" onclick="removeBackupField(this)" style="margin-left: 10px; padding: 8px 12px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        backupContainer.appendChild(backupRow);
+        updateBackupOptions();
+    }
+
+    function removeBackupField(button) {
+        const backupRow = button.parentNode;
+        backupRow.remove();
+        backupCount--;
+        updateBackupOptions();
+    }
+
+    function addSlowSong() {
+        if (slowSongCount >= 5) return;
+        
+        slowSongCount++;
+        const slowContainer = document.getElementById('slowSongsContainer');
+        const songRow = document.createElement('div');
+        songRow.className = 'song-row slow-song';
+        songRow.innerHTML = `
+            <div class="form-group">
+                <label>Slow Song ${slowSongCount} Title</label>
+                <input type="text" class="form-control slow-title" placeholder="Enter song title (optional)">
+            </div>
+            <div class="form-group">
+                <label>YouTube Link</label>
+                <input type="url" class="form-control slow-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
+                <div class="youtube-preview"></div>
+            </div>
+            <div class="form-group">
+                <label>Lyrics (Optional)</label>
+                <textarea class="form-control slow-lyrics" placeholder="Enter song lyrics..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Instructions (Optional)</label>
+                <textarea class="form-control slow-instructions" placeholder="Any special instructions..."></textarea>
+            </div>
+            ${slowSongCount > 1 ? `
+            <button type="button" class="btn-danger" onclick="removeSongRow(this, 'slow')" style="margin-top: 10px; padding: 8px 15px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                <i class="fas fa-trash"></i> Remove Song
+            </button>
+            ` : ''}
+        `;
+        slowContainer.appendChild(songRow);
+        
+        // Update add button state
+        document.getElementById('addSlowSongBtn').disabled = slowSongCount >= 5;
+    }
+
+    function addFastSong() {
+        if (fastSongCount >= 5) return;
+        
+        fastSongCount++;
+        const fastContainer = document.getElementById('fastSongsContainer');
+        const songRow = document.createElement('div');
+        songRow.className = 'song-row fast-song';
+        songRow.innerHTML = `
+            <div class="form-group">
+                <label>Fast Song ${fastSongCount} Title</label>
+                <input type="text" class="form-control fast-title" placeholder="Enter song title (optional)">
+            </div>
+            <div class="form-group">
+                <label>YouTube Link</label>
+                <input type="url" class="form-control fast-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
+                <div class="youtube-preview"></div>
+            </div>
+            <div class="form-group">
+                <label>Lyrics (Optional)</label>
+                <textarea class="form-control fast-lyrics" placeholder="Enter song lyrics..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Instructions (Optional)</label>
+                <textarea class="form-control fast-instructions" placeholder="Any special instructions..."></textarea>
+            </div>
+            ${fastSongCount > 1 ? `
+            <button type="button" class="btn-danger" onclick="removeSongRow(this, 'fast')" style="margin-top: 10px; padding: 8px 15px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                <i class="fas fa-trash"></i> Remove Song
+            </button>
+            ` : ''}
+        `;
+        fastContainer.appendChild(songRow);
+        
+        // Update add button state
+        document.getElementById('addFastSongBtn').disabled = fastSongCount >= 5;
+    }
+
+    function removeSongRow(button, type) {
+        const songRow = button.closest('.song-row');
+        songRow.remove();
+        
+        if (type === 'slow') {
+            slowSongCount--;
+            document.getElementById('addSlowSongBtn').disabled = slowSongCount >= 5;
+            renumberSlowSongs();
+        } else {
+            fastSongCount--;
+            document.getElementById('addFastSongBtn').disabled = fastSongCount >= 5;
+            renumberFastSongs();
+        }
+    }
+
+    function renumberSlowSongs() {
+        const slowSongs = document.querySelectorAll('.slow-song');
+        slowSongs.forEach((song, index) => {
+            const titleLabel = song.querySelector('label');
+            titleLabel.textContent = `Slow Song ${index + 1} Title`;
+        });
+    }
+
+    function renumberFastSongs() {
+        const fastSongs = document.querySelectorAll('.fast-song');
+        fastSongs.forEach((song, index) => {
+            const titleLabel = song.querySelector('label');
+            titleLabel.textContent = `Fast Song ${index + 1} Title`;
+        });
+    }
+
+    function handleYouTubePreview(input) {
+        const previewContainer = input.parentNode.querySelector('.youtube-preview');
+        const url = input.value.trim();
+        
+        if (!url) {
+            previewContainer.style.display = 'none';
+            previewContainer.innerHTML = '';
+            return;
+        }
+        
+        // Extract YouTube video ID
+        const videoId = extractYouTubeId(url);
+        if (videoId) {
+            previewContainer.innerHTML = `
+                <iframe src="https://www.youtube.com/embed/${videoId}" 
+                        frameborder="0" 
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                        allowfullscreen>
+                </iframe>
+            `;
+            previewContainer.style.display = 'block';
+        } else {
+            previewContainer.style.display = 'none';
+            previewContainer.innerHTML = '<p style="color: var(--danger); font-size: 0.9rem;">Invalid YouTube URL</p>';
+        }
+    }
+
+    function extractYouTubeId(url) {
+        const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[7].length === 11) ? match[7] : false;
+    }
+
+    function validatePracticeDate(date) {
+        const practiceDate = new Date(date);
+        const dayOfWeek = practiceDate.getDay();
+        // 0 = Sunday, 6 = Saturday
+        return dayOfWeek === 0 || dayOfWeek === 6;
+    }
+
+    function resetLineupForm() {
+        if (confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
+            // Reset counters
+            backupCount = 1;
+            slowSongCount = 1;
+            fastSongCount = 1;
+            
+            // Reset form elements
+            document.getElementById('scheduleDate').value = '';
+            document.getElementById('practiceDate').value = '';
+            document.getElementById('songLeader').value = '';
+            
+            // Reset backup container
+            document.getElementById('backupContainer').innerHTML = `
+                <div class="backup-row">
+                    <select class="form-control backup-select" onchange="updateBackupOptions()">
+                        <option value="">Select Backup 1</option>
+                    </select>
+                </div>
+            `;
+            
+            // Reset song containers
+            document.getElementById('slowSongsContainer').innerHTML = `
+                <div class="song-row slow-song">
+                    <div class="form-group">
+                        <label>Slow Song 1 Title</label>
+                        <input type="text" class="form-control slow-title" placeholder="Enter song title (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label>YouTube Link</label>
+                        <input type="url" class="form-control slow-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
+                        <div class="youtube-preview"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Lyrics (Optional)</label>
+                        <textarea class="form-control slow-lyrics" placeholder="Enter song lyrics..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Instructions (Optional)</label>
+                        <textarea class="form-control slow-instructions" placeholder="Any special instructions..."></textarea>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('fastSongsContainer').innerHTML = `
+                <div class="song-row fast-song">
+                    <div class="form-group">
+                        <label>Fast Song 1 Title</label>
+                        <input type="text" class="form-control fast-title" placeholder="Enter song title (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label>YouTube Link</label>
+                        <input type="url" class="form-control fast-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
+                        <div class="youtube-preview"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Lyrics (Optional)</label>
+                        <textarea class="form-control fast-lyrics" placeholder="Enter song lyrics..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Instructions (Optional)</label>
+                        <textarea class="form-control fast-instructions" placeholder="Any special instructions..."></textarea>
+                    </div>
+                </div>
+            `;
+            
+            // Reset button states
+            document.getElementById('addBackupBtn').disabled = false;
+            document.getElementById('addSlowSongBtn').disabled = false;
+            document.getElementById('addFastSongBtn').disabled = false;
+            
+            // Reinitialize
+            updateBackupOptions();
+            
+            showAlert('Form reset successfully', 'success');
+        }
+    }
+
+    // Receipt Functions
+    function showReceipt(lineupData, scheduleId) {
+        // Populate receipt data
+        document.getElementById('receiptScheduleDate').textContent = formatDate(lineupData.scheduleDate);
+        document.getElementById('receiptPracticeDate').textContent = formatDate(lineupData.practiceDate);
+        document.getElementById('receiptSongLeader').textContent = lineupData.songLeader;
+        
+        // Populate backup singers
+        const backupList = document.getElementById('receiptBackupList');
+        const backupCount = document.getElementById('receiptBackupCount');
+        
+        if (lineupData.backups && lineupData.backups.length > 0) {
+            backupCount.textContent = lineupData.backups.length;
+            backupList.innerHTML = lineupData.backups.map(backup => 
+                `<div class="receipt-list-item">
+                    <div class="receipt-number" style="background: var(--secondary);">✓</div>
+                    <div class="receipt-song-title">${backup}</div>
+                </div>`
+            ).join('');
+        } else {
+            backupCount.textContent = '0';
+            backupList.innerHTML = '<div style="color: #6c757d; font-style: italic;">No backup singers selected</div>';
+        }
+        
+        // Populate fast songs
+        const fastSongsList = document.getElementById('receiptFastSongs');
+        const validFastSongs = lineupData.fastSongs.filter(song => song.title && song.title.trim() !== '');
+        
+        if (validFastSongs.length > 0) {
+            fastSongsList.innerHTML = validFastSongs.map((song, index) => `
+                <li class="receipt-list-item">
+                    <div class="receipt-number">${index + 1}</div>
+                    <div class="receipt-song-title">${song.title}</div>
+                </li>
+            `).join('');
+        } else {
+            fastSongsList.innerHTML = '<div style="color: #6c757d; font-style: italic; padding: 10px;">No fast songs added</div>';
+        }
+        
+        // Populate slow songs
+        const slowSongsList = document.getElementById('receiptSlowSongs');
+        const validSlowSongs = lineupData.slowSongs.filter(song => song.title && song.title.trim() !== '');
+        
+        if (validSlowSongs.length > 0) {
+            slowSongsList.innerHTML = validSlowSongs.map((song, index) => `
+                <li class="receipt-list-item">
+                    <div class="receipt-number">${index + 1}</div>
+                    <div class="receipt-song-title">${song.title}</div>
+                </li>
+            `).join('');
+        } else {
+            slowSongsList.innerHTML = '<div style="color: #6c757d; font-style: italic; padding: 10px;">No slow songs added</div>';
+        }
+        
+        // Show the receipt modal
+        document.getElementById('receiptModal').style.display = 'block';
+        
+        // Store the lineup data for editing
+        window.currentLineupData = lineupData;
+        window.currentScheduleId = scheduleId;
+    }
+
+    function formatDate(dateString) {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    }
+
+    function closeReceipt() {
+        document.getElementById('receiptModal').style.display = 'none';
+    }
+
+    function editLineup() {
+        // Close receipt modal
+        closeReceipt();
+        
+        // User can now edit the form directly
+        showAlert('You can now edit your lineup form', 'info');
+    }
+
+    function saveReceiptAsImage() {
+        // Use browser's print functionality to save as PDF or image
+        showAlert('Use browser print function (Ctrl+P) to save as PDF or image', 'info');
+        setTimeout(() => {
+            window.print();
+        }, 500);
+    }
+
+    function confirmAndReset() {
+        if (confirm('Are you sure you want to reset the form? This action cannot be undone.')) {
+            closeReceipt();
+            resetLineupForm();
+            showAlert('Form has been reset successfully', 'success');
+        }
+    }
+
+    // Close receipt when clicking outside
+    document.addEventListener('click', function(event) {
+        const receiptModal = document.getElementById('receiptModal');
+        const receiptContainer = document.getElementById('receiptContent');
+        
+        if (event.target === receiptModal) {
+            closeReceipt();
+        }
+    });
+
+    async function submitLineup() {
+        // Validate required fields
+        const scheduleDate = document.getElementById('scheduleDate').value;
+        const practiceDate = document.getElementById('practiceDate').value;
+        const songLeader = document.getElementById('songLeader').value;
+        
+        if (!scheduleDate || !practiceDate || !songLeader) {
+            showAlert('Please fill in all required fields (Schedule Date, Practice Date, and Song Leader)', 'warning');
+            return;
+        }
+        
+        // Validate practice date is Saturday or Sunday
+        if (!validatePracticeDate(practiceDate)) {
+            showAlert('Practice day must be on a Saturday or Sunday', 'warning');
+            return;
+        }
+        
+        // Get all songs
+        const slowSongs = document.querySelectorAll('.slow-song');
+        const fastSongs = document.querySelectorAll('.fast-song');
+        
+        // Validate at least one song (either slow or fast) is added
+        let hasSlowSongs = false;
+        let hasFastSongs = false;
+        
+        slowSongs.forEach(song => {
+            const title = song.querySelector('.slow-title').value.trim();
+            const link = song.querySelector('.slow-link').value.trim();
+            if (title && link) {
+                hasSlowSongs = true;
+            }
+        });
+        
+        fastSongs.forEach(song => {
+            const title = song.querySelector('.fast-title').value.trim();
+            const link = song.querySelector('.fast-link').value.trim();
+            if (title && link) {
+                hasFastSongs = true;
+            }
+        });
+        
+        if (!hasSlowSongs && !hasFastSongs) {
+            showAlert('Please add at least one song (either slow or fast)', 'warning');
+            return;
+        }
+        
+        // Validate that for each song added, both title and link are provided
+        let valid = true;
+        slowSongs.forEach((song, index) => {
+            const title = song.querySelector('.slow-title').value.trim();
+            const link = song.querySelector('.slow-link').value.trim();
+            // Only validate if at least one field is filled
+            if (title || link) {
+                if (!title || !link) {
+                    showAlert(`Please fill in both title and YouTube link for Slow Song ${index + 1}, or remove the song`, 'warning');
+                    valid = false;
+                }
+            }
+        });
+        
+        fastSongs.forEach((song, index) => {
+            const title = song.querySelector('.fast-title').value.trim();
+            const link = song.querySelector('.fast-link').value.trim();
+            // Only validate if at least one field is filled
+            if (title || link) {
+                if (!title || !link) {
+                    showAlert(`Please fill in both title and YouTube link for Fast Song ${index + 1}, or remove the song`, 'warning');
+                    valid = false;
+                }
+            }
+        });
+        
+        if (!valid) return;
+        
+        // Prepare data for submission
+        const lineupData = {
+            scheduleDate: scheduleDate,
+            practiceDate: practiceDate,
+            songLeader: songLeader,
+            backups: [],
+            slowSongs: [],
+            fastSongs: [],
+            submittedBy: userData.username,
+            status: 'For Approval'
+        };
+        
+        // Get backup singers
+        const backupSelects = document.querySelectorAll('.backup-select');
+        backupSelects.forEach(select => {
+            if (select.value) {
+                lineupData.backups.push(select.value);
+            }
+        });
+        
+        // Get slow songs - only include songs that have both title and link
+        slowSongs.forEach((song, index) => {
+            const title = song.querySelector('.slow-title').value.trim();
+            const link = song.querySelector('.slow-link').value.trim();
+            const lyrics = song.querySelector('.slow-lyrics').value.trim();
+            const instructions = song.querySelector('.slow-instructions').value.trim();
+            
+            // Only include song if both title and link are provided
+            if (title && link) {
+                lineupData.slowSongs.push({
+                    title: title,
+                    link: link,
+                    lyrics: lyrics,
+                    instructions: instructions
+                });
+            } else {
+                // Add empty object for unused song slot to maintain order
+                lineupData.slowSongs.push({});
+            }
+        });
+        
+        // Get fast songs - only include songs that have both title and link
+        fastSongs.forEach((song, index) => {
+            const title = song.querySelector('.fast-title').value.trim();
+            const link = song.querySelector('.fast-link').value.trim();
+            const lyrics = song.querySelector('.fast-lyrics').value.trim();
+            const instructions = song.querySelector('.fast-instructions').value.trim();
+            
+            // Only include song if both title and link are provided
+            if (title && link) {
+                lineupData.fastSongs.push({
+                    title: title,
+                    link: link,
+                    lyrics: lyrics,
+                    instructions: instructions
+                });
+            } else {
+                // Add empty object for unused song slot to maintain order
+                lineupData.fastSongs.push({});
+            }
+        });
+        
+        // Show loading state
+        const submitBtn = document.getElementById('submitLineupBtn');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+        submitBtn.disabled = true;
+        
+        try {
+            // Submit to Google Apps Script
+            const response = await fetch(`${API_BASE_URL}/proxy`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'createLineup',
+                    lineupData: lineupData
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                showReceipt(lineupData, result.data?.scheduleId);
+                showAlert('Lineup submitted successfully for approval!', 'success');
+            } else {
+                showAlert(result.message || 'Failed to submit lineup', 'danger');
+            }
+            
+        } catch (error) {
+            console.error('Error submitting lineup:', error);
+            showAlert('Error submitting lineup. Please try again.', 'danger');
+        } finally {
+            // Restore button state
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    }
+
+    // Profile Functions
+    function openProfileTab(tabName) {
+        // Hide all tab contents
+        document.querySelectorAll('.profile-tab-content').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        
+        // Remove active class from all tab buttons
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        
+        // Show selected tab content
+        document.getElementById(tabName).classList.add('active');
+        
+        // Add active class to clicked tab button
+        event.target.classList.add('active');
+    }
+
+    function togglePasswordVisibility(fieldId) {
+        const field = document.getElementById(fieldId);
+        const icon = field.nextElementSibling.querySelector('i');
+        
+        if (field.type === 'password') {
+            field.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+        } else {
+            field.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    }
+
+    function checkPasswordStrength(password) {
+        let strength = 0;
+        const requirements = {
+            length: password.length >= 8,
+            uppercase: /[A-Z]/.test(password),
+            lowercase: /[a-z]/.test(password),
+            number: /[0-9]/.test(password),
+            special: /[^A-Za-z0-9]/.test(password)
+        };
+        
+        // Update requirement indicators
+        Object.keys(requirements).forEach(req => {
+            const element = document.getElementById(`req${req.charAt(0).toUpperCase() + req.slice(1)}`);
+            if (requirements[req]) {
+                element.classList.add('valid');
+                strength++;
+            } else {
+                element.classList.remove('valid');
+            }
+        });
+        
+        // Update strength bar and text
+        const strengthFill = document.getElementById('strengthFill');
+        const strengthText = document.getElementById('strengthText');
+        const percentage = (strength / 5) * 100;
+        
+        strengthFill.style.width = `${percentage}%`;
+        
+        if (strength <= 1) {
+            strengthFill.style.background = 'var(--danger)';
+            strengthText.textContent = 'Weak Password';
+            strengthText.style.color = 'var(--danger)';
+        } else if (strength <= 3) {
+            strengthFill.style.background = '#ffc107';
+            strengthText.textContent = 'Medium Password';
+            strengthText.style.color = '#ffc107';
+        } else {
+            strengthFill.style.background = 'var(--success)';
+            strengthText.textContent = 'Strong Password';
+            strengthText.style.color = 'var(--success)';
+        }
+        
+        return strength;
+    }
+
+    function resetProfileForm() {
+        // Reload original user data
+        loadProfileData();
+        showAlert('Changes discarded', 'info');
+    }
+
+    function resetPasswordForm() {
+        document.getElementById('currentPassword').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+        
+        // Reset password strength indicator
+        document.getElementById('strengthFill').style.width = '0%';
+        document.getElementById('strengthText').textContent = 'Password strength';
+        document.getElementById('strengthText').style.color = '#6c757d';
+        
+        // Reset requirement indicators
+        document.querySelectorAll('.password-requirements li').forEach(li => {
+            li.classList.remove('valid');
+        });
+    }
+
+    function loadProfileData() {
+        // Load user data into profile form
+        document.getElementById('firstname').value = userData.firstname || '';
+        document.getElementById('lastname').value = userData.lastname || '';
+        document.getElementById('username').value = userData.username || '';
+        document.getElementById('birthdate').value = userData.birthdate || '';
+        document.getElementById('ministry').value = userData.ministry || '';
+        document.getElementById('memberId').value = userData.memberId || '';
+        document.getElementById('status').value = userData.status === 'verified' ? 'Verified' : 'Unverified';
+        
+        // Update profile header
+        document.getElementById('profileName').textContent = `${userData.firstname} ${userData.lastname}`;
+        document.getElementById('profileMinistry').textContent = userData.ministry;
+        document.getElementById('profileMemberId').textContent = `Member ID: ${userData.memberId}`;
+        
+        // Update avatar
+        const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
+        document.getElementById('profileAvatar').textContent = initials;
+        document.getElementById('userAvatar').textContent = initials;
+        
+        // Update status indicator
+        const statusIndicator = document.getElementById('profileStatus');
+        if (userData.status === 'verified') {
+            statusIndicator.className = 'status-circle verified';
+            statusIndicator.innerHTML = '<div class="status-tooltip">Verified</div>';
+        } else {
+            statusIndicator.className = 'status-circle unverified';
+            statusIndicator.innerHTML = '<div class="status-tooltip">Unverified</div>';
+        }
+    }
+
+    // Initialize all sections with coming soon content
+    function initializeAllSections() {
+        const sections = ['weekly-schedule', 'attendance', 'announcements', 'praise-worship', 'media', 'dancers', 'ashers'];
+        sections.forEach(sectionId => {
+            const section = document.getElementById(sectionId);
+            if (section) {
+                const titles = {
+                    'weekly-schedule': 'Weekly Schedule',
+                    'attendance': 'Attendance Record',
+                    'announcements': 'Announcements',
+                    'praise-worship': 'Praise And Worship',
+                    'media': 'Media Ministry',
+                    'dancers': 'Dancers Ministry',
+                    'ashers': 'Ashers Ministry'
+                };
+                
+                section.innerHTML = `
+                    <h2 class="section-title">${titles[sectionId] || sectionId}</h2>
+                    <div style="text-align: center; padding: 60px 20px;">
+                        <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);"><i class="fas fa-tools"></i></div>
+                        <h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.5rem;">Features Coming Soon</h3>
+                        <p style="color: #6c757d; margin-bottom: 25px; font-size: 1.1rem; line-height: 1.6;">
+                            We're working hard to bring you amazing features for this section!<br>
+                            Please be patient as we develop and test everything to ensure the best experience.
+                        </p>
+                        <div style="background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1)); padding: 20px; border-radius: var(--border-radius); display: inline-block;">
+                            <p style="color: var(--primary); font-weight: 600; margin: 0; font-size: 0.9rem;">
+                                <i class="fas fa-hammer"></i> Under Development by: <strong>Frank Gomez</strong>
+                            </p>
+                        </div>
+                        <div style="margin-top: 30px; padding: 20px; background: white; border-radius: var(--border-radius); box-shadow: var(--shadow); max-width: 500px; margin-left: auto; margin-right: auto;">
+                            <h4 style="color: var(--primary); margin-bottom: 15px;"><i class="fas fa-clipboard-list"></i> What to Expect:</h4>
+                            <ul style="text-align: left; color: #6c757d; line-height: 1.8;">
+                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Enhanced user interface and experience</li>
+                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Real-time updates and notifications</li>
+                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Comprehensive ministry tools</li>
+                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Mobile-friendly design</li>
+                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>And much more!</li>
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+    }
+
+    // Call this function when the dashboard loads
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeAllSections();
+    });
+</script>
 </body>
 </html>
