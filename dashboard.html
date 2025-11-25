@@ -4116,6 +4116,37 @@
         }
     });
 
+    // Add this to your dashboard script
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle image loading errors
+        document.querySelectorAll('img, [style*="background-image"]').forEach(element => {
+            if (element.tagName === 'IMG') {
+                element.onerror = function() {
+                    console.warn('Failed to load image:', this.src);
+                    this.style.display = 'none';
+                };
+            } else {
+                // For elements with background-image
+                const checkBackgroundImage = function() {
+                    const bgImage = getComputedStyle(this).backgroundImage;
+                    if (bgImage.includes('url') && !bgImage.includes('gradient')) {
+                        const img = new Image();
+                        const url = bgImage.replace(/url\(['"]?(.*?)['"]?\)/i, "$1");
+                        img.onerror = () => {
+                            console.warn('Failed to load background image:', url);
+                            this.style.backgroundImage = 'none';
+                            this.style.backgroundColor = '#f8f9fa'; // Fallback color
+                        };
+                        img.src = url;
+                    }
+                };
+                
+                // Check after a short delay to ensure styles are applied
+                setTimeout(() => checkBackgroundImage.call(element), 100);
+            }
+        });
+    });
+
     async function submitLineup() {
         // Validate required fields
         const scheduleDate = document.getElementById('scheduleDate').value;
