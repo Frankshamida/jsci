@@ -1474,6 +1474,12 @@
             box-shadow: var(--shadow);
         }
 
+        .form-section {
+        margin-bottom: 40px;
+        padding-bottom: 30px;
+        border-bottom: 2px solid #f0f0f0;
+        }
+
         .form-section:last-child {
             border-bottom: none;
         }
@@ -1489,12 +1495,21 @@
             margin-right: 10px;
         }
 
-        /* Two-column layout using Grid */
-        .form-section .form-fields {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
+        /* Two-column layout using float */
+        .form-column {
+            float: left;
+            width: 50%;
+            padding: 10px;
+            box-sizing: border-box; /* Important for padding calculation */
         }
+
+        /* Clear floats after the columns */
+        .form-section:after {
+            content: "";
+            display: table;
+            clear: both;
+        }
+
 
         .song-row {
             background: #f8f9fa;
@@ -3124,7 +3139,8 @@
     const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzigAL47G_8wcUH5Ik3423LnHW5RKPy0YYbuIPh8mFOHNDJpYeiUPi8YPkZD3Xw3OcH4w/exec';
 
     // With this:
-    const API_BASE_URL = 'http://localhost:3000/api';
+    //const API_BASE_URL = 'http://localhost:3000/api';
+    const API_BASE_URL = '/api';
 
     // STRONGER BACK BUTTON PREVENTION
     (function() {
