@@ -1526,6 +1526,43 @@
             gap: 10px;
         }
 
+        .backup-row select {
+            flex: 1;
+        }
+
+        .btn-remove-backup {
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--transition);
+            flex-shrink: 0;
+        }
+
+        .btn-remove-backup:hover:not(:disabled) {
+            background: #c82333;
+            transform: translateY(-2px);
+        }
+
+        .btn-remove-backup:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .preserve-formatting {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: inherit;
+            line-height: 1.5;
+        }
+
         .youtube-preview {
             margin-top: 10px;
             border-radius: 8px;
@@ -1827,6 +1864,490 @@
             transform: translateY(-2px);
         }
 
+        /* Calendar Styles */
+        .calendar-container {
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            margin-top: 15px;
+        }
+
+        .calendar-header {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .calendar-day-header {
+            padding: 12px 5px;
+            font-size: 0.9rem;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .calendar-day-header:last-child {
+            border-right: none;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            grid-auto-rows: 1fr;
+            min-height: 400px;
+        }
+
+        .calendar-day {
+            border: 1px solid #e0e0e0;
+            padding: 8px 5px;
+            min-height: 80px;
+            position: relative;
+            cursor: pointer;
+            transition: var(--transition);
+            background: white;
+        }
+
+        .calendar-day:hover {
+            background: #f8f9fa;
+        }
+
+        .calendar-day.other-month {
+            background: #f8f9fa;
+            color: #adb5bd;
+        }
+
+        .calendar-day.has-schedule {
+            background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1));
+            border-left: 4px solid var(--primary);
+        }
+
+        .calendar-day.has-schedule::after {
+            content: '';
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+        }
+
+        .calendar-day-number {
+            font-weight: 600;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+
+        .calendar-day-events {
+            font-size: 0.7rem;
+            color: var(--primary);
+            font-weight: 500;
+        }
+
+        .calendar-type-selector {
+            display: flex;
+            gap: 5px;
+        }
+
+        .calendar-type-selector .action-btn {
+            padding: 8px 12px;
+            font-size: 0.85rem;
+        }
+
+        .calendar-type-selector .action-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* Schedule Modal Styles */
+        .schedule-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: modalSlideIn 0.4s ease-out;
+        }
+
+        /* Network Status Indicator */
+        .network-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            transition: all 0.3s ease;
+            display: none;
+        }
+        
+        .network-status.online {
+            background: #28a745;
+            color: white;
+        }
+        
+        .network-status.offline {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .network-status.slow {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        /* Improved Song Layout Styles */
+        .song-item {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            background: #f8f9fa;
+        }
+        
+        .song-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0;
+        }
+        
+        .song-title {
+            font-weight: 600;
+            color: var(--primary);
+            font-size: 1.1rem;
+            margin: 0;
+        }
+        
+        .youtube-preview-container {
+            width: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .youtube-preview-container iframe {
+            width: 100%;
+            height: 200px;
+            border: none;
+        }
+        
+        .song-details {
+            display: none;
+            width: 100%;
+        }
+        
+        .song-details.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .details-section {
+            margin-bottom: 15px;
+        }
+        
+        .details-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .details-label {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+        
+        .details-content {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #e0e0e0;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            white-space: pre-line;
+        }
+        
+        /* YouTube Placeholder for Slow/No Connection */
+        .youtube-placeholder {
+            width: 100%;
+            height: 200px;
+            background: #e9ecef;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #6c757d;
+        }
+        
+        .youtube-placeholder i {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -60%);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 25px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-radius: 15px 15px 0 0;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.3rem;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: var(--transition);
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .modal-body {
+            padding: 25px;
+        }
+
+        .schedule-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .schedule-card-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .schedule-card-title {
+            color: var(--primary);
+            font-weight: 600;
+            margin: 0 0 5px 0;
+            font-size: 1.1rem;
+        }
+
+        .schedule-card-subtitle {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        .schedule-card-body {
+            padding: 20px;
+        }
+
+        .schedule-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .info-label {
+            font-size: 0.85rem;
+            color: #6c757d;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .info-value {
+            font-size: 1rem;
+            color: var(--dark);
+            font-weight: 600;
+        }
+
+        .lineup-section {
+            margin-top: 25px;
+        }
+
+        .lineup-section-title {
+            color: var(--primary);
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .song-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .song-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .song-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .song-title {
+            font-weight: 600;
+            color: var(--primary);
+            font-size: 1rem;
+            margin: 0;
+        }
+
+        .song-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .song-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .song-btn:hover {
+            background: var(--secondary);
+            transform: translateY(-2px);
+        }
+
+        .youtube-preview-container {
+            margin-top: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .youtube-preview-container iframe {
+            width: 100%;
+            height: 200px;
+            border: none;
+        }
+
+        .song-details {
+            margin-top: 15px;
+            display: none;
+        }
+
+        .song-details.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .details-section {
+            margin-bottom: 15px;
+        }
+
+        .details-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .details-label {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+
+        .details-content {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #e0e0e0;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            white-space: pre-line;
+        }
+
+        .no-schedule {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6c757d;
+        }
+
+        .no-schedule i {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            color: #adb5bd;
+        }
+
+        .no-schedule h4 {
+            margin-bottom: 10px;
+            color: #6c757d;
+        }
+
+        .form-fields {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+        }
+
         /* Print styles for receipt */
         @media print {
             body * {
@@ -2068,10 +2589,130 @@
             .receipt-btn {
                 padding: 15px 20px;
             }
-            .form-section .form-fields {
+            .form-section {
                 grid-template-columns: 1fr;
             }
+
+            .form-fields {
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+            }
+
+            .calendar-day {
+            min-height: 60px;
+            padding: 5px 3px;
+            }
+
+            .calendar-day-number {
+                font-size: 0.8rem;
+            }
+
+            .calendar-day-events {
+                font-size: 0.65rem;
+            }
+
+            .modal-content {
+                width: 95%;
+            }
+
+            .modal-header {
+                padding: 15px 20px;
+            }
+
+            .modal-body {
+                padding: 20px;
+            }
+
+            .schedule-info {
+                grid-template-columns: 1fr;
+            }
+
+            .song-header {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .song-actions {
+                align-self: flex-start;
+            }
+    
         }
+
+        @media (max-width: 767px) {
+        .lineup-container {
+            padding: 15px;
+        }
+        
+        .form-section {
+            padding-bottom: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .form-fields {
+            grid-template-columns: 1fr !important;
+            gap: 15px;
+        }
+        
+        .song-row {
+            padding: 15px;
+        }
+        
+        .backup-row {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+        }
+        
+        .btn-remove-backup {
+            align-self: flex-start;
+            margin-top: 5px;
+        }
+        
+        .form-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .form-actions button {
+            width: 100%;
+        }
+        
+        /* Ensure form controls are properly sized on mobile */
+        .form-control {
+            padding: 14px 12px;
+            font-size: 16px; /* Prevents zoom on iOS */
+        }
+        
+        /* Improve spacing for better mobile experience */
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        /* Make sure labels are properly sized */
+        .form-group label {
+            font-size: 0.9rem;
+            margin-bottom: 6px;
+        }
+        
+        /* Adjust section titles for mobile */
+        .form-section h3 {
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+        }
+        
+        /* Improve button spacing */
+        .btn-secondary, .btn-primary {
+            padding: 14px 20px;
+            font-size: 0.9rem;
+        }
+        
+        /* Adjust YouTube preview for mobile */
+        .youtube-preview iframe {
+            height: 180px;
+        }
+    }
+
 
         @media (max-width: 480px) {
             .main-content {
@@ -2120,10 +2761,62 @@
             .gathering-photo {
                 height: 160px;
             }
+            .calendar-day {
+                min-height: 50px;
+            }
+
+            .calendar-day-number {
+                font-size: 0.75rem;
+            }
+
+            .calendar-day-events {
+                display: none;
+            }
+
+            .schedule-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+
+            .calendar-type-selector {
+                width: 100%;
+            }
+
+            .calendar-type-selector .action-btn {
+                flex: 1;
+                text-align: center;
+            }
+
+            .lineup-container {
+                padding: 12px;
+            }
+            
+            .song-row {
+                padding: 12px;
+            }
+            
+            .form-section h3 {
+                font-size: 1rem;
+            }
+            
+            .form-control {
+                padding: 12px 10px;
+            }
+            
+            /* Stack the form actions more tightly */
+            .form-actions {
+                gap: 8px;
+            }
         }
     </style>
 </head>
 <body>
+
+     <div id="networkStatus" class="network-status">
+        <i class="fas fa-wifi"></i> <span id="networkStatusText">Connection Status</span>
+    </div>
+
     <button class="mobile-menu-toggle" onclick="toggleSidebar()">☰</button>
     <div class="overlay" onclick="toggleSidebar()"></div>
 
@@ -2404,59 +3097,44 @@
                 </div>
             </section>
 
-            <!-- Weekly Schedule Section -->
+            <!-- Add this to your dashboard.html file in the Weekly Schedule section -->
             <section id="weekly-schedule" class="content-section">
                 <h2 class="section-title"><i class="fas fa-calendar-alt"></i> Weekly Schedule</h2>
+                
                 <div class="schedule-container">
                     <div class="schedule-header">
                         <div class="week-navigation">
-                            <button class="nav-btn"><i class="fas fa-chevron-left"></i></button>
-                            <h3>November 17-23, 2025</h3>
-                            <button class="nav-btn"><i class="fas fa-chevron-right"></i></button>
+                            <button class="nav-btn" onclick="changeMonth(-1)"><i class="fas fa-chevron-left"></i></button>
+                            <h3 id="currentMonth">November 2025</h3>
+                            <button class="nav-btn" onclick="changeMonth(1)"><i class="fas fa-chevron-right"></i></button>
                         </div>
                         <div class="schedule-actions">
-                            <button class="action-btn"><i class="fas fa-print"></i> Print</button>
-                            <button class="action-btn"><i class="fas fa-download"></i> Export</button>
+                            <div class="calendar-type-selector">
+                                <button class="action-btn active" id="pawBtn" onclick="switchCalendar('paw')">
+                                    <i class="fas fa-music"></i> PAW
+                                </button>
+                                <button class="action-btn" id="meetingsBtn" onclick="switchCalendar('meetings')">
+                                    <i class="fas fa-users"></i> MEETINGS
+                                </button>
+                            </div>
+                            <button class="action-btn" onclick="printCalendar()"><i class="fas fa-print"></i> Print</button>
                         </div>
                     </div>
                     
-                    <div class="schedule-grid">
-                        <div class="day-card">
-                            <div class="day-header">Sunday</div>
-                            <div class="day-events">
-                                <div class="event-item">
-                                    <div class="event-time">9:00 AM</div>
-                                    <div class="event-details">
-                                        <div class="event-title">Sunday Service</div>
-                                        <div class="event-location">Main Sanctuary</div>
-                                    </div>
-                                </div>
+                    <!-- Calendar Container -->
+                    <div class="calendar-container" id="calendarContainer">
+                        <!-- Calendar will be dynamically generated here -->
+                    </div>
+                    
+                    <!-- Schedule Details Modal -->
+                    <div id="scheduleModal" class="schedule-modal">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3 id="modalDate">Schedule Details</h3>
+                                <button class="close-btn" onclick="closeModal()">&times;</button>
                             </div>
-                        </div>
-                        
-                        <div class="day-card">
-                            <div class="day-header">Wednesday</div>
-                            <div class="day-events">
-                                <div class="event-item">
-                                    <div class="event-time">6:00 PM</div>
-                                    <div class="event-details">
-                                        <div class="event-title">Prayer Meeting</div>
-                                        <div class="event-location">Prayer Room</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="day-card">
-                            <div class="day-header">Friday</div>
-                            <div class="day-events">
-                                <div class="event-item">
-                                    <div class="event-time">7:00 PM</div>
-                                    <div class="event-details">
-                                        <div class="event-title">Youth Service</div>
-                                        <div class="event-location">Youth Hall</div>
-                                    </div>
-                                </div>
+                            <div class="modal-body" id="modalBody">
+                                <!-- Schedule details will be populated here -->
                             </div>
                         </div>
                     </div>
@@ -2801,16 +3479,18 @@
                     <!-- Date Selection -->
                     <div class="form-section">
                         <h3><i class="fas fa-calendar-day"></i> Select Schedule Date</h3>
-                        <div class="form-group">
-                            <label for="scheduleDate">Schedule Day *</label>
-                            <input type="date" id="scheduleDate" class="form-control" required>
-                            <small class="form-text">Select the date for this worship lineup</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="practiceDate">Practice Day *</label>
-                            <input type="date" id="practiceDate" class="form-control" required>
-                            <small class="form-text">Select practice date (Saturdays or Sundays only)</small>
+                        <div class="form-fields">
+                            <div class="form-group">
+                                <label for="scheduleDate">Schedule Day *</label>
+                                <input type="date" id="scheduleDate" class="form-control" required>
+                                <small class="form-text">Select the date for this worship lineup</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="practiceDate">Practice Day *</label>
+                                <input type="date" id="practiceDate" class="form-control" required>
+                                <small class="form-text">Select practice date (Saturdays or Sundays only)</small>
+                            </div>
                         </div>
                     </div>
 
@@ -2836,6 +3516,9 @@
                                         <option value="">Select Backup 1</option>
                                         <!-- Options will be populated dynamically -->
                                     </select>
+                                    <button type="button" class="btn-remove-backup" onclick="removeBackupField(this)" disabled>
+                                        <i class="fas fa-times"></i>
+                                    </button>
                                 </div>
                             </div>
                             <button type="button" class="btn-secondary" onclick="addBackupField()" id="addBackupBtn" style="margin-top: 10px;">
@@ -2860,7 +3543,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Lyrics (Optional)</label>
-                                    <textarea class="form-control slow-lyrics" placeholder="Enter song lyrics..."></textarea>
+                                    <textarea class="form-control slow-lyrics preserve-formatting" placeholder="Enter song lyrics..." onpaste="handleLyricsPaste(event)"></textarea>
                                 </div>
                                 <div class="form-group">
                                     <label>Instructions (Optional)</label>
@@ -2889,7 +3572,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Lyrics (Optional)</label>
-                                    <textarea class="form-control fast-lyrics" placeholder="Enter song lyrics..."></textarea>
+                                    <textarea class="form-control fast-lyrics preserve-formatting" placeholder="Enter song lyrics..." onpaste="handleLyricsPaste(event)"></textarea>
                                 </div>
                                 <div class="form-group">
                                     <label>Instructions (Optional)</label>
@@ -3043,7 +3726,7 @@
                     <div class="receipt-section">
                         <h3 class="receipt-section-title">
                             <i class="fas fa-file-invoice"></i>
-                            Worship Lineup Receipt
+                            Praise and Worship Lineup
                         </h3>
                         <div class="receipt-info">
                             <div class="receipt-info-item">
@@ -3103,7 +3786,7 @@
                             Important Note
                         </div>
                         <p class="receipt-note-text">
-                            Please inform ahead if you are absent that day para naa mi e kapuli. Thank You.
+                            Hello everyone! To make sure we can find a replacement, please let us know ahead of time if you can't make it to a practice or on the day of the event itself. Thanks so much!
                         </p>
                     </div>
                 </div>
@@ -3130,807 +3813,1167 @@
 
     <script>
 
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzigAL47G_8wcUH5Ik3423LnHW5RKPy0YYbuIPh8mFOHNDJpYeiUPi8YPkZD3Xw3OcH4w/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyQi9AT6tQhngPy3ljF3Hz50XcmWPmLzs7kHZn1EsyNs9rFKgw4Px4ipOLMD9crJWybXQ/exec';
 
-    // With this:
-    //const API_BASE_URL = 'http://localhost:3000/api';
-    const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-    ? 'http://localhost:3000/api' 
-    : '/api';
+        const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+            ? 'http://localhost:3000/api' 
+            : '/api';
 
-    // STRONGER BACK BUTTON PREVENTION
-    (function() {
-        window.history.replaceState(null, null, window.location.href);
-        window.history.pushState(null, null, window.location.href);
-        window.addEventListener('popstate', function(event) {
+        // STRONGER BACK BUTTON PREVENTION
+        (function() {
+            window.history.replaceState(null, null, window.location.href);
             window.history.pushState(null, null, window.location.href);
-            showAlert('You cannot go back while logged in. Please logout first.', 'warning');
-        });
-    })();
+            window.addEventListener('popstate', function(event) {
+                window.history.pushState(null, null, window.location.href);
+                showAlert('You cannot go back while logged in. Please logout first.', 'warning');
+            });
+        })();
 
-    // Check if user is logged in
-    let userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
-    
-    if (!userData.firstname) {
-        window.location.href = 'login.html';
-    } else {
-        initializeDashboard();
-    }
-
-    // Menu items configuration
-    const menuItems = {
-        common: [
-            { id: 'home', icon: 'fas fa-home', label: 'Home' },
-            { id: 'weekly-schedule', icon: 'fas fa-calendar-alt', label: 'Weekly Schedule' },
-            { id: 'attendance', icon: 'fas fa-check-circle', label: 'Attendance' },
-            { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements' },
-            { id: 'my-profile', icon: 'fas fa-user-circle', label: 'My Profile' }
-        ],
-        "Media": [
-            { id: 'media', icon: 'fas fa-film', label: 'Media' }
-        ],
-        "Praise And Worship": [
-            { id: 'praise-worship', icon: 'fas fa-music', label: 'Praise And Worship' }
-        ],
-        "Dancers": [
-            { id: 'dancers', icon: 'fas fa-user-friends', label: 'Dancers' }
-        ],
-        "Ashers": [
-            { id: 'ashers', icon: 'fas fa-door-open', label: 'Ashers' }
-        ]
-    };
-
-    // Create Lineup Variables
-    let backupCount = 1;
-    let slowSongCount = 1;
-    let fastSongCount = 1;
-    const backupOptions = ["Psalm", "Cathy", "Tiffany", "Geneveve", "Merianne", "Ezra", "Julie", "Jewel", "Abby", "Myka"];
-
-    async function initializeDashboard() {
-        // Initialize user data display first (before checking status from server)
-        const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
-        document.getElementById('userAvatar').textContent = initials;
-        document.getElementById('userName').textContent = `${userData.firstname} ${userData.lastname}`;
-        document.getElementById('userMinistry').textContent = userData.ministry;
-        document.getElementById('welcomeName').textContent = userData.firstname;
-        document.getElementById('firstTimeName').textContent = userData.firstname;
-        document.getElementById('unverifiedName').textContent = userData.firstname;
+        // Check if user is logged in
+        let userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
         
-        // Check if this is first login
-        const loginCount = parseInt(localStorage.getItem(`loginCount_${userData.username}`) || '0');
-        const isFirstLogin = loginCount === 0;
-        
-        // Increment login count
-        localStorage.setItem(`loginCount_${userData.username}`, String(loginCount + 1));
-        
-        // Fetch the actual status from the server BEFORE setting up the UI
-        await fetchAndSetUserStatus(isFirstLogin);
-    }
-
-    async function fetchAndSetUserStatus(isFirstLogin) {
-        try {
-            console.log('Fetching verification status for:', userData.username);
-            
-            // For demo purposes, we'll simulate a verified user
-            // In a real implementation, this would call your backend API
-            setTimeout(() => {
-                const serverStatus = 'verified'; // Simulated status
-                userData.status = serverStatus;
-                
-                // Save updated user data
-                sessionStorage.setItem('userData', JSON.stringify(userData));
-                localStorage.setItem('userData', JSON.stringify(userData));
-                
-                // Update UI with the correct status
-                updateUIByStatus(isFirstLogin);
-            }, 500);
-            
-        } catch (error) {
-            console.error('Error checking verification status:', error);
-            userData.status = 'unverified';
-            updateUIByStatus(isFirstLogin);
-        }
-    }
-
-    function updateUIByStatus(isFirstLogin) {
-        const status = userData.status || 'unverified';
-        
-        console.log('Updating UI with status:', status);
-        
-        // Update status indicator
-        updateStatusIndicator(status);
-        
-        // Update verification banner
-        if (status === 'verified') {
-            document.getElementById('verificationBanner').style.display = 'none';
-            
-            // Show verified content
-            document.getElementById('unverifiedContent').style.display = 'none';
-            
-            if (isFirstLogin) {
-                document.getElementById('firstTimeWelcomeContainer').style.display = 'block';
-                document.getElementById('regularWelcomeContainer').style.display = 'none';
-                loadWelcomeVerse(userData.ministry);
-            } else {
-                document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
-                document.getElementById('regularWelcomeContainer').style.display = 'block';
-                loadDailyVerse(userData.ministry);
-            }
-            
+        if (!userData.firstname) {
+            window.location.href = 'login.html';
         } else {
-            document.getElementById('verificationBanner').style.display = 'block';
-            
-            // Show unverified content
-            document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
-            document.getElementById('regularWelcomeContainer').style.display = 'none';
-            document.getElementById('unverifiedContent').style.display = 'block';
+            initializeDashboard();
         }
-        
-        // Generate sidebar menu with current status
-        generateSidebarMenu(userData.ministry, status);
-    }
 
-    function updateStatusIndicator(status) {
-        const statusIndicator = document.getElementById('statusIndicator');
-        const statusText = status === 'verified' ? 'Verified' : 'Unverified';
-        const statusClass = status === 'verified' ? 'verified' : 'unverified';
-        
-        statusIndicator.innerHTML = `
-            <div class="status-circle ${statusClass}">
-                <div class="status-tooltip">${statusText}</div>
-            </div>
-        `;
-    }
+        // Menu items configuration
+        const menuItems = {
+            common: [
+                { id: 'home', icon: 'fas fa-home', label: 'Home' },
+                { id: 'weekly-schedule', icon: 'fas fa-calendar-alt', label: 'Weekly Schedule' },
+                { id: 'attendance', icon: 'fas fa-check-circle', label: 'Attendance' },
+                { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements' },
+                { id: 'my-profile', icon: 'fas fa-user-circle', label: 'My Profile' }
+            ],
+            "Media": [
+                { id: 'media', icon: 'fas fa-film', label: 'Media' }
+            ],
+            "Praise And Worship": [
+                { id: 'praise-worship', icon: 'fas fa-music', label: 'Praise And Worship' }
+            ],
+            "Dancers": [
+                { id: 'dancers', icon: 'fas fa-user-friends', label: 'Dancers' }
+            ],
+            "Ashers": [
+                { id: 'ashers', icon: 'fas fa-door-open', label: 'Ashers' }
+            ]
+        };
 
-    function generateSidebarMenu(ministry, status) {
-        const sidebarMenu = document.getElementById('sidebarMenu');
-        sidebarMenu.innerHTML = '';
-        
-        const isVerified = status === 'verified';
-        const isSongLeader = userData.username && userData.username.includes('@songlead');
-        
-        // Add common menu items
-        menuItems.common.forEach(item => {
-            const menuItem = document.createElement('a');
+        // Create Lineup Variables
+        let backupCount = 1;
+        let slowSongCount = 1;
+        let fastSongCount = 1;
+        const backupOptions = ["Psalm", "Cathy", "Tiffany", "Geneveve", "Merianne", "Ezra", "Julie", "Jewel", "Abby", "Myka"];
+
+        // Calendar state
+        let currentDate = new Date();
+        let currentCalendarType = 'paw'; // 'paw' or 'meetings'
+        let scheduleData = [];
+
+        // Bible verses database
+        const bibleVerses = {
+            welcome: [
+                {
+                    verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
+                    reference: "Ephesians 2:10",
+                    explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
+                },
+                {
+                    verse: "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
+                    reference: "Proverbs 3:5-6",
+                    explanation: "As you begin this journey with us, trust that God will guide your path and use you mightily in this ministry."
+                }
+            ],
+            general: [
+                {
+                    verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
+                    reference: "Ephesians 2:10",
+                    explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
+                },
+                {
+                    verse: "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters.",
+                    reference: "Colossians 3:23",
+                    explanation: "Serve with excellence and passion, remembering that your ultimate audience is God Himself."
+                }
+            ]
+        };
+
+        async function initializeDashboard() {
+            // Initialize user data display first (before checking status from server)
+            const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
+            document.getElementById('userAvatar').textContent = initials;
+            document.getElementById('userName').textContent = `${userData.firstname} ${userData.lastname}`;
+            document.getElementById('userMinistry').textContent = userData.ministry;
+            document.getElementById('welcomeName').textContent = userData.firstname;
+            document.getElementById('firstTimeName').textContent = userData.firstname;
+            document.getElementById('unverifiedName').textContent = userData.firstname;
             
-            // Check if item should be disabled (only for unverified status)
-            const shouldDisable = !isVerified && item.id !== 'home';
+            // Check if this is first login
+            const loginCount = parseInt(localStorage.getItem(`loginCount_${userData.username}`) || '0');
+            const isFirstLogin = loginCount === 0;
             
-            menuItem.className = 'menu-item' + (item.id === 'home' ? ' active' : '');
-            if (shouldDisable) {
-                menuItem.className += ' disabled';
+            // Increment login count
+            localStorage.setItem(`loginCount_${userData.username}`, String(loginCount + 1));
+            
+            // Fetch the actual status from the server BEFORE setting up the UI
+            await fetchAndSetUserStatus(isFirstLogin);
+            
+            // Initialize all sections
+            initializeAllSections();
+        }
+
+        async function fetchAndSetUserStatus(isFirstLogin) {
+            try {
+                console.log('Fetching verification status for:', userData.username);
+                
+                // For demo purposes, we'll simulate a verified user
+                // In a real implementation, this would call your backend API
+                setTimeout(() => {
+                    const serverStatus = 'verified'; // Simulated status
+                    userData.status = serverStatus;
+                    
+                    // Save updated user data
+                    sessionStorage.setItem('userData', JSON.stringify(userData));
+                    localStorage.setItem('userData', JSON.stringify(userData));
+                    
+                    // Update UI with the correct status
+                    updateUIByStatus(isFirstLogin);
+                }, 500);
+                
+            } catch (error) {
+                console.error('Error checking verification status:', error);
+                userData.status = 'unverified';
+                updateUIByStatus(isFirstLogin);
+            }
+        }
+
+        function updateUIByStatus(isFirstLogin) {
+            const status = userData.status || 'unverified';
+            
+            console.log('Updating UI with status:', status);
+            
+            // Update status indicator
+            updateStatusIndicator(status);
+            
+            // Update verification banner
+            if (status === 'verified') {
+                document.getElementById('verificationBanner').style.display = 'none';
+                
+                // Show verified content
+                document.getElementById('unverifiedContent').style.display = 'none';
+                
+                if (isFirstLogin) {
+                    document.getElementById('firstTimeWelcomeContainer').style.display = 'block';
+                    document.getElementById('regularWelcomeContainer').style.display = 'none';
+                    loadWelcomeVerse(userData.ministry);
+                } else {
+                    document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+                    document.getElementById('regularWelcomeContainer').style.display = 'block';
+                    loadDailyVerse(userData.ministry);
+                }
+                
+            } else {
+                document.getElementById('verificationBanner').style.display = 'block';
+                
+                // Show unverified content
+                document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
+                document.getElementById('regularWelcomeContainer').style.display = 'none';
+                document.getElementById('unverifiedContent').style.display = 'block';
             }
             
-            menuItem.onclick = () => {
-                if (shouldDisable) {
-                    showAlert('🔒 Please wait for account verification to access this feature', 'warning');
-                } else {
-                    showSection(item.id);
-                }
-            };
-            
-            menuItem.innerHTML = `
-                <span class="menu-icon"><i class="${item.icon}"></i></span>
-                <span>${item.label}</span>
-                ${shouldDisable ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
-            `;
-            sidebarMenu.appendChild(menuItem);
-        });
-        
-        // Add Create Lineup button for song leaders
-        if (isSongLeader && isVerified) {
-            const lineupItem = document.createElement('a');
-            lineupItem.className = 'menu-item';
-            lineupItem.onclick = () => showSection('create-lineup');
-            lineupItem.innerHTML = `
-                <span class="menu-icon"><i class="fas fa-plus-circle"></i></span>
-                <span>Create Lineup</span>
-            `;
-            sidebarMenu.appendChild(lineupItem);
+            // Generate sidebar menu with current status
+            generateSidebarMenu(userData.ministry, status);
         }
-        
-        // Add ministry-specific menu item
-        if (menuItems[ministry]) {
-            menuItems[ministry].forEach(item => {
+
+        function updateStatusIndicator(status) {
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = status === 'verified' ? 'Verified' : 'Unverified';
+            const statusClass = status === 'verified' ? 'verified' : 'unverified';
+            
+            statusIndicator.innerHTML = `
+                <div class="status-circle ${statusClass}">
+                    <div class="status-tooltip">${statusText}</div>
+                </div>
+            `;
+        }
+
+        function generateSidebarMenu(ministry, status) {
+            const sidebarMenu = document.getElementById('sidebarMenu');
+            sidebarMenu.innerHTML = '';
+            
+            const isVerified = status === 'verified';
+            const isSongLeader = userData.username && userData.username.includes('@songlead');
+            
+            // Add common menu items
+            menuItems.common.forEach(item => {
                 const menuItem = document.createElement('a');
-                menuItem.className = 'menu-item' + (isVerified ? '' : ' disabled');
-                menuItem.onclick = () => {
-                    if (isVerified) {
-                        showSection(item.id);
-                    } else {
+                
+                // Check if item should be disabled (only for unverified status)
+                const shouldDisable = !isVerified && item.id !== 'home';
+                
+                menuItem.className = 'menu-item' + (item.id === 'home' ? ' active' : '');
+                if (shouldDisable) {
+                    menuItem.className += ' disabled';
+                }
+                
+                menuItem.onclick = function() {
+                    if (shouldDisable) {
                         showAlert('🔒 Please wait for account verification to access this feature', 'warning');
+                    } else {
+                        showSection(item.id);
                     }
                 };
+                
                 menuItem.innerHTML = `
                     <span class="menu-icon"><i class="${item.icon}"></i></span>
                     <span>${item.label}</span>
-                    ${!isVerified ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
+                    ${shouldDisable ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
                 `;
                 sidebarMenu.appendChild(menuItem);
             });
-        }
-    }
-
-    // Bible verses database
-    const bibleVerses = {
-        welcome: [
-            {
-                verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
-                reference: "Ephesians 2:10",
-                explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
-            },
-            {
-                verse: "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
-                reference: "Proverbs 3:5-6",
-                explanation: "As you begin this journey with us, trust that God will guide your path and use you mightily in this ministry."
-            }
-        ],
-        general: [
-            {
-                verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
-                reference: "Ephesians 2:10",
-                explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
-            },
-            {
-                verse: "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters.",
-                reference: "Colossians 3:23",
-                explanation: "Serve with excellence and passion, remembering that your ultimate audience is God Himself."
-            }
-        ]
-    };
-
-    function loadDailyVerse(ministry) {
-        // Get today's date to determine which verse to show
-        const today = new Date();
-        const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
-        
-        // Get verses for the specific ministry or general verses
-        let verses = bibleVerses[ministry] || bibleVerses.general;
-        
-        // Select verse based on day of year (cycles through available verses)
-        const verseIndex = dayOfYear % verses.length;
-        const selectedVerse = verses[verseIndex];
-        
-        // Update the DOM with the selected verse
-        document.getElementById('dailyVerse').textContent = `"${selectedVerse.verse}"`;
-        document.getElementById('verseReference').textContent = selectedVerse.reference;
-        document.getElementById('verseExplanation').textContent = selectedVerse.explanation;
-    }
-
-    function loadWelcomeVerse(ministry) {
-        // For first-time users, select from welcome verses
-        const welcomeVerses = bibleVerses.welcome;
-        const randomIndex = Math.floor(Math.random() * welcomeVerses.length);
-        const selectedVerse = welcomeVerses[randomIndex];
-        
-        // Update the DOM with the welcome verse
-        document.getElementById('welcomeVerse').textContent = `"${selectedVerse.verse}"`;
-        document.getElementById('welcomeVerseReference').textContent = selectedVerse.reference;
-        document.getElementById('welcomeVerseExplanation').textContent = selectedVerse.explanation;
-    }
-
-    function toggleSidebar() {
-        const sidebar = document.getElementById('sidebar');
-        const overlay = document.querySelector('.overlay');
-        sidebar.classList.toggle('active');
-        overlay.classList.toggle('active');
-    }
-
-    function showSection(sectionId) {
-        // Remove active class from all menu items and sections
-        document.querySelectorAll('.menu-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        document.querySelectorAll('.content-section').forEach(section => {
-            section.classList.remove('active');
-        });
-
-        // Add active class to clicked menu item
-        event.target.closest('.menu-item').classList.add('active');
-
-        // Show selected section
-        document.getElementById(sectionId).classList.add('active');
-
-        // Update page title
-        const titles = {
-            'home': 'Welcome to Your Ministry Portal',
-            'weekly-schedule': 'Weekly Schedule',
-            'attendance': 'Attendance Record',
-            'announcements': 'Announcements',
-            'praise-worship': 'Praise And Worship',
-            'media': 'Media Ministry',
-            'dancers': 'Dancers Ministry',
-            'ashers': 'Ashers Ministry',
-            'create-lineup': 'Create Worship Lineup',
-            'my-profile': 'My Profile'
-        };
-        document.getElementById('pageTitle').textContent = titles[sectionId] || 'Ministry Portal';
-
-        // Update page subtitle with coming soon message for non-home sections
-        const subtitle = document.getElementById('pageSubtitle');
-        if (sectionId === 'home') {
-            subtitle.textContent = 'Stay connected and inspired in your service';
-        } else if (sectionId === 'my-profile') {
-            subtitle.textContent = 'Manage your personal information and account settings';
-            // Initialize password validation when profile section is shown
-            setTimeout(initializePasswordValidation, 100);
-        } else if (sectionId === 'create-lineup') {
-            subtitle.textContent = 'Create and submit worship lineups for approval';
-        } else {
-            subtitle.textContent = 'Features Coming Soon - Please wait for Developer Frank Gomez';
-        }
-
-        // Load profile data when profile section is shown
-        if (sectionId === 'my-profile') {
-            loadProfileData();
-        }
-
-        // Initialize create lineup section when shown
-        if (sectionId === 'create-lineup') {
-            initializeCreateLineup();
-        }
-
-        // Close sidebar on mobile
-        if (window.innerWidth <= 768) {
-            toggleSidebar();
-        }
-    }
-
-    function showAlert(message, type) {
-        // Create alert element
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type}`;
-        alert.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1002;
-            max-width: 400px;
-            animation: slideInRight 0.5s ease;
-            background: ${type === 'success' ? '#28a745' : type === 'warning' ? '#ffc107' : '#dc3545'};
-            color: white;
-            padding: 15px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            font-weight: 500;
-        `;
-        alert.textContent = message;
-        
-        // Add styles for slideInRight animation
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideInRight {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-        `;
-        document.head.appendChild(style);
-        
-        document.body.appendChild(alert);
-        
-        // Remove alert after 5 seconds
-        setTimeout(() => {
-            alert.remove();
-        }, 5000);
-    }
-
-    function logout() {
-        if (confirm('Are you sure you want to logout?')) {
-            sessionStorage.removeItem('userData');
-            localStorage.removeItem('userData');
-            window.location.href = 'login.html';
-        }
-    }
-
-    // Create Lineup Functions
-    function initializeCreateLineup() {
-        // Initialize date restrictions
-        const today = new Date();
-        const scheduleDate = document.getElementById('scheduleDate');
-        const practiceDate = document.getElementById('practiceDate');
-        
-        // Set min date to today for both fields
-        const minDate = today.toISOString().split('T')[0];
-        scheduleDate.min = minDate;
-        practiceDate.min = minDate;
-        
-        // Initialize backup options
-        updateBackupOptions();
-        
-        // Add event listeners for YouTube preview
-        document.addEventListener('input', function(e) {
-            if (e.target.classList.contains('slow-link') || e.target.classList.contains('fast-link')) {
-                handleYouTubePreview(e.target);
-            }
-        });
-    }
-
-    function updateBackupOptions() {
-        const usedBackups = new Set();
-        const backupSelects = document.querySelectorAll('.backup-select');
-        
-        // Get all currently selected values
-        backupSelects.forEach(select => {
-            if (select.value) {
-                usedBackups.add(select.value);
-            }
-        });
-        
-        // Update options for each select
-        backupSelects.forEach(select => {
-            const currentValue = select.value;
-            select.innerHTML = '<option value="">Select Backup ' + (Array.from(select.parentNode.parentNode.parentNode.children).indexOf(select.parentNode) + 1) + '</option>';
             
-            backupOptions.forEach(option => {
-                if (!usedBackups.has(option) || option === currentValue) {
-                    const optionElement = document.createElement('option');
-                    optionElement.value = option;
-                    optionElement.textContent = option;
-                    select.appendChild(optionElement);
+            // Add Create Lineup button for song leaders
+            if (isSongLeader && isVerified) {
+                const lineupItem = document.createElement('a');
+                lineupItem.className = 'menu-item';
+                lineupItem.onclick = function() { showSection('create-lineup'); };
+                lineupItem.innerHTML = `
+                    <span class="menu-icon"><i class="fas fa-plus-circle"></i></span>
+                    <span>Create Lineup</span>
+                `;
+                sidebarMenu.appendChild(lineupItem);
+            }
+            
+            // Add ministry-specific menu item
+            if (menuItems[ministry]) {
+                menuItems[ministry].forEach(item => {
+                    const menuItem = document.createElement('a');
+                    menuItem.className = 'menu-item' + (isVerified ? '' : ' disabled');
+                    menuItem.onclick = function() {
+                        if (isVerified) {
+                            showSection(item.id);
+                        } else {
+                            showAlert('🔒 Please wait for account verification to access this feature', 'warning');
+                        }
+                    };
+                    menuItem.innerHTML = `
+                        <span class="menu-icon"><i class="${item.icon}"></i></span>
+                        <span>${item.label}</span>
+                        ${!isVerified ? '<span style="margin-left: auto; font-size: 0.7rem; color: #ffc107;"><i class="fas fa-lock"></i></span>' : ''}
+                    `;
+                    sidebarMenu.appendChild(menuItem);
+                });
+            }
+        }
+
+        function loadDailyVerse(ministry) {
+            // Get today's date to determine which verse to show
+            const today = new Date();
+            const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+            
+            // Get verses for the specific ministry or general verses
+            let verses = bibleVerses[ministry] || bibleVerses.general;
+            
+            // Select verse based on day of year (cycles through available verses)
+            const verseIndex = dayOfYear % verses.length;
+            const selectedVerse = verses[verseIndex];
+            
+            // Update the DOM with the selected verse
+            document.getElementById('dailyVerse').textContent = `"${selectedVerse.verse}"`;
+            document.getElementById('verseReference').textContent = selectedVerse.reference;
+            document.getElementById('verseExplanation').textContent = selectedVerse.explanation;
+        }
+
+        function loadWelcomeVerse(ministry) {
+            // For first-time users, select from welcome verses
+            const welcomeVerses = bibleVerses.welcome;
+            const randomIndex = Math.floor(Math.random() * welcomeVerses.length);
+            const selectedVerse = welcomeVerses[randomIndex];
+            
+            // Update the DOM with the welcome verse
+            document.getElementById('welcomeVerse').textContent = `"${selectedVerse.verse}"`;
+            document.getElementById('welcomeVerseReference').textContent = selectedVerse.reference;
+            document.getElementById('welcomeVerseExplanation').textContent = selectedVerse.explanation;
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.querySelector('.overlay');
+            sidebar.classList.toggle('active');
+            overlay.classList.toggle('active');
+        }
+
+        function showSection(sectionId) {
+            // Remove active class from all menu items and sections
+            document.querySelectorAll('.menu-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('active');
+            });
+
+            // Add active class to clicked menu item
+            event.target.closest('.menu-item').classList.add('active');
+
+            // Show selected section
+            document.getElementById(sectionId).classList.add('active');
+
+            // Update page title
+            const titles = {
+                'home': 'Welcome to Your Ministry Portal',
+                'weekly-schedule': 'Weekly Schedule',
+                'attendance': 'Attendance Record',
+                'announcements': 'Announcements',
+                'praise-worship': 'Praise And Worship',
+                'media': 'Media Ministry',
+                'dancers': 'Dancers Ministry',
+                'ashers': 'Ashers Ministry',
+                'create-lineup': 'Create Worship Lineup',
+                'my-profile': 'My Profile'
+            };
+            document.getElementById('pageTitle').textContent = titles[sectionId] || 'Ministry Portal';
+
+            // Update page subtitle
+            const subtitle = document.getElementById('pageSubtitle');
+            if (sectionId === 'home') {
+                subtitle.textContent = 'Stay connected and inspired in your service';
+            } else if (sectionId === 'my-profile') {
+                subtitle.textContent = 'Manage your personal information and account settings';
+                setTimeout(initializePasswordValidation, 100);
+            } else if (sectionId === 'create-lineup') {
+                subtitle.textContent = 'Create and submit worship lineups for approval';
+            } else if (sectionId === 'weekly-schedule') {
+                subtitle.textContent = 'View and manage your weekly ministry schedule';
+            } else {
+                subtitle.textContent = 'Features Coming Soon - Please wait for Developer Frank Gomez';
+            }
+
+            // Load profile data when profile section is shown
+            if (sectionId === 'my-profile') {
+                loadProfileData();
+            }
+
+            // Initialize create lineup section when shown
+            if (sectionId === 'create-lineup') {
+                initializeCreateLineup();
+            }
+
+            // Initialize calendar when weekly schedule is shown
+            if (sectionId === 'weekly-schedule') {
+                initializeCalendar();
+            }
+
+            // Close sidebar on mobile
+            if (window.innerWidth <= 768) {
+                toggleSidebar();
+            }
+        }
+
+        function showAlert(message, type) {
+            // Create alert element
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 1002;
+                max-width: 400px;
+                animation: slideInRight 0.5s ease;
+                background: ${type === 'success' ? '#28a745' : type === 'warning' ? '#ffc107' : '#dc3545'};
+                color: white;
+                padding: 15px 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                font-weight: 500;
+            `;
+            alert.textContent = message;
+            
+            // Add styles for slideInRight animation
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes slideInRight {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+            
+            document.body.appendChild(alert);
+            
+            // Remove alert after 5 seconds
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                sessionStorage.removeItem('userData');
+                localStorage.removeItem('userData');
+                window.location.href = 'login.html';
+            }
+        }
+
+        // Updated initializeCreateLineup function
+        function initializeCreateLineup() {
+            // Initialize date restrictions
+            const today = new Date();
+            const scheduleDate = document.getElementById('scheduleDate');
+            const practiceDate = document.getElementById('practiceDate');
+            
+            // Set min date to today for both fields
+            const minDate = today.toISOString().split('T')[0];
+            scheduleDate.min = minDate;
+            practiceDate.min = minDate;
+            
+            // Initialize backup options and remove buttons
+            updateBackupOptions();
+            updateBackupRemoveButtons();
+            
+            // Add event listeners for YouTube preview
+            document.addEventListener('input', function(e) {
+                if (e.target.classList.contains('slow-link') || e.target.classList.contains('fast-link')) {
+                    handleYouTubePreview(e.target);
+                }
+            });
+        }
+
+
+        function updateBackupOptions() {
+            const usedBackups = new Set();
+            const backupSelects = document.querySelectorAll('.backup-select');
+            
+            // Get all currently selected values
+            backupSelects.forEach(select => {
+                if (select.value) {
+                    usedBackups.add(select.value);
                 }
             });
             
-            // Restore current value
-            if (currentValue) {
-                select.value = currentValue;
-            }
-        });
-        
-        // Update add backup button state
-        const addBackupBtn = document.getElementById('addBackupBtn');
-        addBackupBtn.disabled = backupCount >= 5;
-    }
-
-    function addBackupField() {
-        if (backupCount >= 5) return;
-        
-        backupCount++;
-        const backupContainer = document.getElementById('backupContainer');
-        const backupRow = document.createElement('div');
-        backupRow.className = 'backup-row';
-        backupRow.innerHTML = `
-            <select class="form-control backup-select" onchange="updateBackupOptions()">
-                <option value="">Select Backup ${backupCount}</option>
-            </select>
-            <button type="button" class="btn-danger" onclick="removeBackupField(this)" style="margin-left: 10px; padding: 8px 12px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer;">
-                <i class="fas fa-times"></i>
-            </button>
-        `;
-        backupContainer.appendChild(backupRow);
-        updateBackupOptions();
-    }
-
-    function removeBackupField(button) {
-        const backupRow = button.parentNode;
-        backupRow.remove();
-        backupCount--;
-        updateBackupOptions();
-    }
-
-    function addSlowSong() {
-        if (slowSongCount >= 5) return;
-        
-        slowSongCount++;
-        const slowContainer = document.getElementById('slowSongsContainer');
-        const songRow = document.createElement('div');
-        songRow.className = 'song-row slow-song';
-        songRow.innerHTML = `
-            <div class="form-group">
-                <label>Slow Song ${slowSongCount} Title</label>
-                <input type="text" class="form-control slow-title" placeholder="Enter song title (optional)">
-            </div>
-            <div class="form-group">
-                <label>YouTube Link</label>
-                <input type="url" class="form-control slow-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
-                <div class="youtube-preview"></div>
-            </div>
-            <div class="form-group">
-                <label>Lyrics (Optional)</label>
-                <textarea class="form-control slow-lyrics" placeholder="Enter song lyrics..."></textarea>
-            </div>
-            <div class="form-group">
-                <label>Instructions (Optional)</label>
-                <textarea class="form-control slow-instructions" placeholder="Any special instructions..."></textarea>
-            </div>
-            ${slowSongCount > 1 ? `
-            <button type="button" class="btn-danger" onclick="removeSongRow(this, 'slow')" style="margin-top: 10px; padding: 8px 15px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer;">
-                <i class="fas fa-trash"></i> Remove Song
-            </button>
-            ` : ''}
-        `;
-        slowContainer.appendChild(songRow);
-        
-        // Update add button state
-        document.getElementById('addSlowSongBtn').disabled = slowSongCount >= 5;
-    }
-
-    function addFastSong() {
-        if (fastSongCount >= 5) return;
-        
-        fastSongCount++;
-        const fastContainer = document.getElementById('fastSongsContainer');
-        const songRow = document.createElement('div');
-        songRow.className = 'song-row fast-song';
-        songRow.innerHTML = `
-            <div class="form-group">
-                <label>Fast Song ${fastSongCount} Title</label>
-                <input type="text" class="form-control fast-title" placeholder="Enter song title (optional)">
-            </div>
-            <div class="form-group">
-                <label>YouTube Link</label>
-                <input type="url" class="form-control fast-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
-                <div class="youtube-preview"></div>
-            </div>
-            <div class="form-group">
-                <label>Lyrics (Optional)</label>
-                <textarea class="form-control fast-lyrics" placeholder="Enter song lyrics..."></textarea>
-            </div>
-            <div class="form-group">
-                <label>Instructions (Optional)</label>
-                <textarea class="form-control fast-instructions" placeholder="Any special instructions..."></textarea>
-            </div>
-            ${fastSongCount > 1 ? `
-            <button type="button" class="btn-danger" onclick="removeSongRow(this, 'fast')" style="margin-top: 10px; padding: 8px 15px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer;">
-                <i class="fas fa-trash"></i> Remove Song
-            </button>
-            ` : ''}
-        `;
-        fastContainer.appendChild(songRow);
-        
-        // Update add button state
-        document.getElementById('addFastSongBtn').disabled = fastSongCount >= 5;
-    }
-
-    function removeSongRow(button, type) {
-        const songRow = button.closest('.song-row');
-        songRow.remove();
-        
-        if (type === 'slow') {
-            slowSongCount--;
-            document.getElementById('addSlowSongBtn').disabled = slowSongCount >= 5;
-            renumberSlowSongs();
-        } else {
-            fastSongCount--;
-            document.getElementById('addFastSongBtn').disabled = fastSongCount >= 5;
-            renumberFastSongs();
+            // Update options for each select
+            backupSelects.forEach(select => {
+                const currentValue = select.value;
+                select.innerHTML = '<option value="">Select Backup ' + (Array.from(select.parentNode.parentNode.parentNode.children).indexOf(select.parentNode) + 1) + '</option>';
+                
+                backupOptions.forEach(option => {
+                    if (!usedBackups.has(option) || option === currentValue) {
+                        const optionElement = document.createElement('option');
+                        optionElement.value = option;
+                        optionElement.textContent = option;
+                        select.appendChild(optionElement);
+                    }
+                });
+                
+                // Restore current value
+                if (currentValue) {
+                    select.value = currentValue;
+                }
+            });
+            
+            // Update add backup button state
+            const addBackupBtn = document.getElementById('addBackupBtn');
+            addBackupBtn.disabled = backupCount >= 5;
         }
-    }
 
-    function renumberSlowSongs() {
-        const slowSongs = document.querySelectorAll('.slow-song');
-        slowSongs.forEach((song, index) => {
-            const titleLabel = song.querySelector('label');
-            titleLabel.textContent = `Slow Song ${index + 1} Title`;
-        });
-    }
-
-    function renumberFastSongs() {
-        const fastSongs = document.querySelectorAll('.fast-song');
-        fastSongs.forEach((song, index) => {
-            const titleLabel = song.querySelector('label');
-            titleLabel.textContent = `Fast Song ${index + 1} Title`;
-        });
-    }
-
-    function handleYouTubePreview(input) {
-        const previewContainer = input.parentNode.querySelector('.youtube-preview');
-        const url = input.value.trim();
-        
-        if (!url) {
-            previewContainer.style.display = 'none';
-            previewContainer.innerHTML = '';
-            return;
-        }
-        
-        // Extract YouTube video ID
-        const videoId = extractYouTubeId(url);
-        if (videoId) {
-            previewContainer.innerHTML = `
-                <iframe src="https://www.youtube.com/embed/${videoId}" 
-                        frameborder="0" 
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                        allowfullscreen>
-                </iframe>
+        // Updated addBackupField function with close button
+        function addBackupField() {
+            if (backupCount >= 5) return;
+            
+            backupCount++;
+            const backupContainer = document.getElementById('backupContainer');
+            const backupRow = document.createElement('div');
+            backupRow.className = 'backup-row';
+            backupRow.innerHTML = `
+                <select class="form-control backup-select" onchange="updateBackupOptions()">
+                    <option value="">Select Backup ${backupCount}</option>
+                </select>
+                <button type="button" class="btn-remove-backup" onclick="removeBackupField(this)">
+                    <i class="fas fa-times"></i>
+                </button>
             `;
-            previewContainer.style.display = 'block';
-        } else {
-            previewContainer.style.display = 'none';
-            previewContainer.innerHTML = '<p style="color: var(--danger); font-size: 0.9rem;">Invalid YouTube URL</p>';
-        }
-    }
-
-    function extractYouTubeId(url) {
-        const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
-        const match = url.match(regExp);
-        return (match && match[7].length === 11) ? match[7] : false;
-    }
-
-    function validatePracticeDate(date) {
-        const practiceDate = new Date(date);
-        const dayOfWeek = practiceDate.getDay();
-        // 0 = Sunday, 6 = Saturday
-        return dayOfWeek === 0 || dayOfWeek === 6;
-    }
-
-    function resetLineupForm() {
-        if (confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
-            // Reset counters
-            backupCount = 1;
-            slowSongCount = 1;
-            fastSongCount = 1;
+            backupContainer.appendChild(backupRow);
             
-            // Reset form elements
-            document.getElementById('scheduleDate').value = '';
-            document.getElementById('practiceDate').value = '';
-            document.getElementById('songLeader').value = '';
-            
-            // Reset backup container
-            document.getElementById('backupContainer').innerHTML = `
-                <div class="backup-row">
-                    <select class="form-control backup-select" onchange="updateBackupOptions()">
-                        <option value="">Select Backup 1</option>
-                    </select>
-                </div>
-            `;
-            
-            // Reset song containers
-            document.getElementById('slowSongsContainer').innerHTML = `
-                <div class="song-row slow-song">
-                    <div class="form-group">
-                        <label>Slow Song 1 Title</label>
-                        <input type="text" class="form-control slow-title" placeholder="Enter song title (optional)">
-                    </div>
-                    <div class="form-group">
-                        <label>YouTube Link</label>
-                        <input type="url" class="form-control slow-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
-                        <div class="youtube-preview"></div>
-                    </div>
-                    <div class="form-group">
-                        <label>Lyrics (Optional)</label>
-                        <textarea class="form-control slow-lyrics" placeholder="Enter song lyrics..."></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Instructions (Optional)</label>
-                        <textarea class="form-control slow-instructions" placeholder="Any special instructions..."></textarea>
-                    </div>
-                </div>
-            `;
-
-            document.getElementById('fastSongsContainer').innerHTML = `
-                <div class="song-row fast-song">
-                    <div class="form-group">
-                        <label>Fast Song 1 Title</label>
-                        <input type="text" class="form-control fast-title" placeholder="Enter song title (optional)">
-                    </div>
-                    <div class="form-group">
-                        <label>YouTube Link</label>
-                        <input type="url" class="form-control fast-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
-                        <div class="youtube-preview"></div>
-                    </div>
-                    <div class="form-group">
-                        <label>Lyrics (Optional)</label>
-                        <textarea class="form-control fast-lyrics" placeholder="Enter song lyrics..."></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Instructions (Optional)</label>
-                        <textarea class="form-control fast-instructions" placeholder="Any special instructions..."></textarea>
-                    </div>
-                </div>
-            `;
-            
-            // Reset button states
-            document.getElementById('addBackupBtn').disabled = false;
-            document.getElementById('addSlowSongBtn').disabled = false;
-            document.getElementById('addFastSongBtn').disabled = false;
-            
-            // Reinitialize
+            // Enable remove buttons for all backup rows except the first one
+            updateBackupRemoveButtons();
             updateBackupOptions();
+        }
+
+        // Updated removeBackupField function
+        function removeBackupField(button) {
+            const backupRow = button.parentNode;
+            backupRow.remove();
+            backupCount--;
             
-            showAlert('Form reset successfully', 'success');
+            // Update backup numbers and remove button states
+            updateBackupNumbers();
+            updateBackupRemoveButtons();
+            updateBackupOptions();
         }
-    }
 
-    // Receipt Functions
-    function showReceipt(lineupData, scheduleId) {
-        // Populate receipt data
-        document.getElementById('receiptScheduleDate').textContent = formatDate(lineupData.scheduleDate);
-        document.getElementById('receiptPracticeDate').textContent = formatDate(lineupData.practiceDate);
-        document.getElementById('receiptSongLeader').textContent = lineupData.songLeader;
-        
-        // Populate backup singers
-        const backupList = document.getElementById('receiptBackupList');
-        const backupCount = document.getElementById('receiptBackupCount');
-        
-        if (lineupData.backups && lineupData.backups.length > 0) {
-            backupCount.textContent = lineupData.backups.length;
-            backupList.innerHTML = lineupData.backups.map(backup => 
-                `<div class="receipt-list-item">
-                    <div class="receipt-number" style="background: var(--secondary);">✓</div>
-                    <div class="receipt-song-title">${backup}</div>
-                </div>`
-            ).join('');
-        } else {
-            backupCount.textContent = '0';
-            backupList.innerHTML = '<div style="color: #6c757d; font-style: italic;">No backup singers selected</div>';
+        // Function to update backup numbers after removal
+        function updateBackupNumbers() {
+            const backupRows = document.querySelectorAll('.backup-row');
+            backupRows.forEach((row, index) => {
+                const select = row.querySelector('.backup-select');
+                const placeholder = select.querySelector('option[value=""]');
+                if (placeholder) {
+                    placeholder.textContent = `Select Backup ${index + 1}`;
+                }
+            });
         }
-        
-        // Populate fast songs
-        const fastSongsList = document.getElementById('receiptFastSongs');
-        const validFastSongs = lineupData.fastSongs.filter(song => song.title && song.title.trim() !== '');
-        
-        if (validFastSongs.length > 0) {
-            fastSongsList.innerHTML = validFastSongs.map((song, index) => `
-                <li class="receipt-list-item">
-                    <div class="receipt-number">${index + 1}</div>
-                    <div class="receipt-song-title">${song.title}</div>
-                </li>
-            `).join('');
-        } else {
-            fastSongsList.innerHTML = '<div style="color: #6c757d; font-style: italic; padding: 10px;">No fast songs added</div>';
+
+        // Function to update remove button states
+        function updateBackupRemoveButtons() {
+            const removeButtons = document.querySelectorAll('.btn-remove-backup');
+            const backupRows = document.querySelectorAll('.backup-row');
+            
+            // Disable remove button for the first backup row if there's only one
+            if (backupRows.length === 1) {
+                removeButtons[0].disabled = true;
+            } else {
+                removeButtons.forEach(button => {
+                    button.disabled = false;
+                });
+            }
         }
-        
-        // Populate slow songs
-        const slowSongsList = document.getElementById('receiptSlowSongs');
-        const validSlowSongs = lineupData.slowSongs.filter(song => song.title && song.title.trim() !== '');
-        
-        if (validSlowSongs.length > 0) {
-            slowSongsList.innerHTML = validSlowSongs.map((song, index) => `
-                <li class="receipt-list-item">
-                    <div class="receipt-number">${index + 1}</div>
-                    <div class="receipt-song-title">${song.title}</div>
-                </li>
-            `).join('');
-        } else {
-            slowSongsList.innerHTML = '<div style="color: #6c757d; font-style: italic; padding: 10px;">No slow songs added</div>';
+
+
+        function addSlowSong() {
+            if (slowSongCount >= 5) return;
+            
+            slowSongCount++;
+            const slowContainer = document.getElementById('slowSongsContainer');
+            const songRow = document.createElement('div');
+            songRow.className = 'song-row slow-song';
+            songRow.innerHTML = `
+                <div class="form-group">
+                    <label>Slow Song ${slowSongCount} Title</label>
+                    <input type="text" class="form-control slow-title" placeholder="Enter song title (optional)">
+                </div>
+                <div class="form-group">
+                    <label>YouTube Link</label>
+                    <input type="url" class="form-control slow-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
+                    <div class="youtube-preview"></div>
+                </div>
+                <div class="form-group">
+                    <label>Lyrics (Optional)</label>
+                    <textarea class="form-control slow-lyrics" placeholder="Enter song lyrics..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Instructions (Optional)</label>
+                    <textarea class="form-control slow-instructions" placeholder="Any special instructions..."></textarea>
+                </div>
+                ${slowSongCount > 1 ? `
+                <button type="button" class="btn-danger" onclick="removeSongRow(this, 'slow')" style="margin-top: 10px; padding: 8px 15px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    <i class="fas fa-trash"></i> Remove Song
+                </button>
+                ` : ''}
+            `;
+            slowContainer.appendChild(songRow);
+            
+            // Update add button state
+            document.getElementById('addSlowSongBtn').disabled = slowSongCount >= 5;
         }
-        
-        // Show the receipt modal
-        document.getElementById('receiptModal').style.display = 'block';
-        
-        // Store the lineup data for editing
-        window.currentLineupData = lineupData;
-        window.currentScheduleId = scheduleId;
-    }
 
-    function formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-    }
+        function addFastSong() {
+            if (fastSongCount >= 5) return;
+            
+            fastSongCount++;
+            const fastContainer = document.getElementById('fastSongsContainer');
+            const songRow = document.createElement('div');
+            songRow.className = 'song-row fast-song';
+            songRow.innerHTML = `
+                <div class="form-group">
+                    <label>Fast Song ${fastSongCount} Title</label>
+                    <input type="text" class="form-control fast-title" placeholder="Enter song title (optional)">
+                </div>
+                <div class="form-group">
+                    <label>YouTube Link</label>
+                    <input type="url" class="form-control fast-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
+                    <div class="youtube-preview"></div>
+                </div>
+                <div class="form-group">
+                    <label>Lyrics (Optional)</label>
+                    <textarea class="form-control fast-lyrics" placeholder="Enter song lyrics..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Instructions (Optional)</label>
+                    <textarea class="form-control fast-instructions" placeholder="Any special instructions..."></textarea>
+                </div>
+                ${fastSongCount > 1 ? `
+                <button type="button" class="btn-danger" onclick="removeSongRow(this, 'fast')" style="margin-top: 10px; padding: 8px 15px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    <i class="fas fa-trash"></i> Remove Song
+                </button>
+                ` : ''}
+            `;
+            fastContainer.appendChild(songRow);
+            
+            // Update add button state
+            document.getElementById('addFastSongBtn').disabled = fastSongCount >= 5;
+        }
 
-    function closeReceipt() {
-        document.getElementById('receiptModal').style.display = 'none';
-    }
+        function removeSongRow(button, type) {
+            const songRow = button.closest('.song-row');
+            songRow.remove();
+            
+            if (type === 'slow') {
+                slowSongCount--;
+                document.getElementById('addSlowSongBtn').disabled = slowSongCount >= 5;
+                renumberSlowSongs();
+            } else {
+                fastSongCount--;
+                document.getElementById('addFastSongBtn').disabled = fastSongCount >= 5;
+                renumberFastSongs();
+            }
+        }
 
-    function editLineup() {
-        // Close receipt modal
-        closeReceipt();
-        
-        // User can now edit the form directly
-        showAlert('You can now edit your lineup form', 'info');
-    }
+        function renumberSlowSongs() {
+            const slowSongs = document.querySelectorAll('.slow-song');
+            slowSongs.forEach((song, index) => {
+                const titleLabel = song.querySelector('label');
+                titleLabel.textContent = `Slow Song ${index + 1} Title`;
+            });
+        }
 
-    function saveReceiptAsImage() {
-        // Use browser's print functionality to save as PDF or image
-        showAlert('Use browser print function (Ctrl+P) to save as PDF or image', 'info');
-        setTimeout(() => {
-            window.print();
-        }, 500);
-    }
+        function renumberFastSongs() {
+            const fastSongs = document.querySelectorAll('.fast-song');
+            fastSongs.forEach((song, index) => {
+                const titleLabel = song.querySelector('label');
+                titleLabel.textContent = `Fast Song ${index + 1} Title`;
+            });
+        }
 
-    function confirmAndReset() {
-        if (confirm('Are you sure you want to reset the form? This action cannot be undone.')) {
+        function handleYouTubePreview(input) {
+            const previewContainer = input.parentNode.querySelector('.youtube-preview');
+            const url = input.value.trim();
+            
+            if (!url) {
+                previewContainer.style.display = 'none';
+                previewContainer.innerHTML = '';
+                return;
+            }
+            
+            // Extract YouTube video ID
+            const videoId = extractYouTubeId(url);
+            if (videoId) {
+                previewContainer.innerHTML = `
+                    <iframe src="https://www.youtube.com/embed/${videoId}" 
+                            frameborder="0" 
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                            allowfullscreen>
+                    </iframe>
+                `;
+                previewContainer.style.display = 'block';
+            } else {
+                previewContainer.style.display = 'none';
+                previewContainer.innerHTML = '<p style="color: var(--danger); font-size: 0.9rem;">Invalid YouTube URL</p>';
+            }
+        }
+
+        function extractYouTubeId(url) {
+            const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[7].length === 11) ? match[7] : false;
+        }
+
+        function validatePracticeDate(date) {
+            const practiceDate = new Date(date);
+            const dayOfWeek = practiceDate.getDay();
+            // 0 = Sunday, 6 = Saturday
+            return dayOfWeek === 0 || dayOfWeek === 6;
+        }
+
+        function resetLineupForm() {
+            if (confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
+                // Reset counters
+                backupCount = 1;
+                slowSongCount = 1;
+                fastSongCount = 1;
+                
+                // Reset form elements
+                document.getElementById('scheduleDate').value = '';
+                document.getElementById('practiceDate').value = '';
+                document.getElementById('songLeader').value = '';
+                
+                // Reset backup container
+                document.getElementById('backupContainer').innerHTML = `
+                    <div class="backup-row">
+                        <select class="form-control backup-select" onchange="updateBackupOptions()">
+                            <option value="">Select Backup 1</option>
+                        </select>
+                    </div>
+                `;
+                
+                // Reset song containers
+                document.getElementById('slowSongsContainer').innerHTML = `
+                    <div class="song-row slow-song">
+                        <div class="form-group">
+                            <label>Slow Song 1 Title</label>
+                            <input type="text" class="form-control slow-title" placeholder="Enter song title (optional)">
+                        </div>
+                        <div class="form-group">
+                            <label>YouTube Link</label>
+                            <input type="url" class="form-control slow-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
+                            <div class="youtube-preview"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Lyrics (Optional)</label>
+                            <textarea class="form-control slow-lyrics" placeholder="Enter song lyrics..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Instructions (Optional)</label>
+                            <textarea class="form-control slow-instructions" placeholder="Any special instructions..."></textarea>
+                        </div>
+                    </div>
+                `;
+
+                document.getElementById('fastSongsContainer').innerHTML = `
+                    <div class="song-row fast-song">
+                        <div class="form-group">
+                            <label>Fast Song 1 Title</label>
+                            <input type="text" class="form-control fast-title" placeholder="Enter song title (optional)">
+                        </div>
+                        <div class="form-group">
+                            <label>YouTube Link</label>
+                            <input type="url" class="form-control fast-link" placeholder="https://www.youtube.com/watch?v=... (optional)">
+                            <div class="youtube-preview"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Lyrics (Optional)</label>
+                            <textarea class="form-control fast-lyrics" placeholder="Enter song lyrics..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Instructions (Optional)</label>
+                            <textarea class="form-control fast-instructions" placeholder="Any special instructions..."></textarea>
+                        </div>
+                    </div>
+                `;
+                
+                // Reset button states
+                document.getElementById('addBackupBtn').disabled = false;
+                document.getElementById('addSlowSongBtn').disabled = false;
+                document.getElementById('addFastSongBtn').disabled = false;
+                
+                // Reinitialize
+                updateBackupOptions();
+                
+                showAlert('Form reset successfully', 'success');
+            }
+        }
+
+        async function submitLineup() {
+            // Validate required fields
+            const scheduleDate = document.getElementById('scheduleDate').value;
+            const practiceDate = document.getElementById('practiceDate').value;
+            const songLeader = document.getElementById('songLeader').value;
+            
+            if (!scheduleDate || !practiceDate || !songLeader) {
+                showAlert('Please fill in all required fields (Schedule Date, Practice Date, and Song Leader)', 'warning');
+                return;
+            }
+            
+            // Validate practice date is Saturday or Sunday
+            if (!validatePracticeDate(practiceDate)) {
+                showAlert('Practice day must be on a Saturday or Sunday', 'warning');
+                return;
+            }
+            
+            // Get all songs
+            const slowSongs = document.querySelectorAll('.slow-song');
+            const fastSongs = document.querySelectorAll('.fast-song');
+            
+            // Validate at least one song (either slow or fast) is added
+            let hasSlowSongs = false;
+            let hasFastSongs = false;
+            
+            slowSongs.forEach(song => {
+                const title = song.querySelector('.slow-title').value.trim();
+                const link = song.querySelector('.slow-link').value.trim();
+                if (title && link) {
+                    hasSlowSongs = true;
+                }
+            });
+            
+            fastSongs.forEach(song => {
+                const title = song.querySelector('.fast-title').value.trim();
+                const link = song.querySelector('.fast-link').value.trim();
+                if (title && link) {
+                    hasFastSongs = true;
+                }
+            });
+            
+            if (!hasSlowSongs && !hasFastSongs) {
+                showAlert('Please add at least one song (either slow or fast)', 'warning');
+                return;
+            }
+            
+            // Validate that for each song added, both title and link are provided
+            let valid = true;
+            slowSongs.forEach((song, index) => {
+                const title = song.querySelector('.slow-title').value.trim();
+                const link = song.querySelector('.slow-link').value.trim();
+                // Only validate if at least one field is filled
+                if (title || link) {
+                    if (!title || !link) {
+                        showAlert(`Please fill in both title and YouTube link for Slow Song ${index + 1}, or remove the song`, 'warning');
+                        valid = false;
+                    }
+                }
+            });
+            
+            fastSongs.forEach((song, index) => {
+                const title = song.querySelector('.fast-title').value.trim();
+                const link = song.querySelector('.fast-link').value.trim();
+                // Only validate if at least one field is filled
+                if (title || link) {
+                    if (!title || !link) {
+                        showAlert(`Please fill in both title and YouTube link for Fast Song ${index + 1}, or remove the song`, 'warning');
+                        valid = false;
+                    }
+                }
+            });
+            
+            if (!valid) return;
+            
+            // Prepare data for submission
+            const lineupData = {
+                scheduleDate: scheduleDate,
+                practiceDate: practiceDate,
+                songLeader: songLeader,
+                backups: [],
+                slowSongs: [],
+                fastSongs: [],
+                submittedBy: userData.username,
+                status: 'For Approval'
+            };
+            
+            // Get backup singers
+            const backupSelects = document.querySelectorAll('.backup-select');
+            backupSelects.forEach(select => {
+                if (select.value) {
+                    lineupData.backups.push(select.value);
+                }
+            });
+            
+            // Get slow songs - only include songs that have both title and link
+            slowSongs.forEach((song, index) => {
+                const title = song.querySelector('.slow-title').value.trim();
+                const link = song.querySelector('.slow-link').value.trim();
+                const lyrics = song.querySelector('.slow-lyrics').value.trim();
+                const instructions = song.querySelector('.slow-instructions').value.trim();
+                
+                // Only include song if both title and link are provided
+                if (title && link) {
+                    lineupData.slowSongs.push({
+                        title: title,
+                        link: link,
+                        lyrics: lyrics,
+                        instructions: instructions
+                    });
+                } else {
+                    // Add empty object for unused song slot to maintain order
+                    lineupData.slowSongs.push({});
+                }
+            });
+            
+            // Get fast songs - only include songs that have both title and link
+            fastSongs.forEach((song, index) => {
+                const title = song.querySelector('.fast-title').value.trim();
+                const link = song.querySelector('.fast-link').value.trim();
+                const lyrics = song.querySelector('.fast-lyrics').value.trim();
+                const instructions = song.querySelector('.fast-instructions').value.trim();
+                
+                // Only include song if both title and link are provided
+                if (title && link) {
+                    lineupData.fastSongs.push({
+                        title: title,
+                        link: link,
+                        lyrics: lyrics,
+                        instructions: instructions
+                    });
+                } else {
+                    // Add empty object for unused song slot to maintain order
+                    lineupData.fastSongs.push({});
+                }
+            });
+            
+            // Show loading state
+            const submitBtn = document.getElementById('submitLineupBtn');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+            submitBtn.disabled = true;
+            
+            try {
+                // Submit to Google Apps Script
+                const response = await fetch(`${API_BASE_URL}/proxy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'createLineup',
+                        lineupData: lineupData
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showReceipt(lineupData, result.data?.scheduleId);
+                    showAlert('Lineup submitted successfully for approval!', 'success');
+                } else {
+                    showAlert(result.message || 'Failed to submit lineup', 'danger');
+                }
+                
+            } catch (error) {
+                console.error('Error submitting lineup:', error);
+                showAlert('Error submitting lineup. Please try again.', 'danger');
+            } finally {
+                // Restore button state
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+
+        // Receipt Functions
+        function showReceipt(lineupData, scheduleId) {
+            // Populate receipt data
+            document.getElementById('receiptScheduleDate').textContent = formatDate(lineupData.scheduleDate);
+            document.getElementById('receiptPracticeDate').textContent = formatDate(lineupData.practiceDate);
+            document.getElementById('receiptSongLeader').textContent = lineupData.songLeader;
+            
+            // Populate backup singers
+            const backupList = document.getElementById('receiptBackupList');
+            const backupCount = document.getElementById('receiptBackupCount');
+            
+            if (lineupData.backups && lineupData.backups.length > 0) {
+                backupCount.textContent = lineupData.backups.length;
+                backupList.innerHTML = lineupData.backups.map(backup => 
+                    `<div class="receipt-list-item">
+                        <div class="receipt-number" style="background: var(--secondary);">✓</div>
+                        <div class="receipt-song-title">${backup}</div>
+                    </div>`
+                ).join('');
+            } else {
+                backupCount.textContent = '0';
+                backupList.innerHTML = '<div style="color: #6c757d; font-style: italic;">No backup singers selected</div>';
+            }
+            
+            // Populate fast songs
+            const fastSongsList = document.getElementById('receiptFastSongs');
+            const validFastSongs = lineupData.fastSongs.filter(song => song.title && song.title.trim() !== '');
+            
+            if (validFastSongs.length > 0) {
+                fastSongsList.innerHTML = validFastSongs.map((song, index) => `
+                    <li class="receipt-list-item">
+                        <div class="receipt-number">${index + 1}</div>
+                        <div class="receipt-song-title">${song.title}</div>
+                    </li>
+                `).join('');
+            } else {
+                fastSongsList.innerHTML = '<div style="color: #6c757d; font-style: italic; padding: 10px;">No fast songs added</div>';
+            }
+            
+            // Populate slow songs
+            const slowSongsList = document.getElementById('receiptSlowSongs');
+            const validSlowSongs = lineupData.slowSongs.filter(song => song.title && song.title.trim() !== '');
+            
+            if (validSlowSongs.length > 0) {
+                slowSongsList.innerHTML = validSlowSongs.map((song, index) => `
+                    <li class="receipt-list-item">
+                        <div class="receipt-number">${index + 1}</div>
+                        <div class="receipt-song-title">${song.title}</div>
+                    </li>
+                `).join('');
+            } else {
+                slowSongsList.innerHTML = '<div style="color: #6c757d; font-style: italic; padding: 10px;">No slow songs added</div>';
+            }
+            
+            // Show the receipt modal
+            document.getElementById('receiptModal').style.display = 'block';
+            
+            // Store the lineup data for editing
+            window.currentLineupData = lineupData;
+            window.currentScheduleId = scheduleId;
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        function closeReceipt() {
+            document.getElementById('receiptModal').style.display = 'none';
+        }
+
+        function editLineup() {
+            // Close receipt modal
             closeReceipt();
-            resetLineupForm();
-            showAlert('Form has been reset successfully', 'success');
+            
+            // User can now edit the form directly
+            showAlert('You can now edit your lineup form', 'info');
         }
-    }
 
-    async function saveProfileChanges() {
+        function saveReceiptAsImage() {
+            // Use browser's print functionality to save as PDF or image
+            showAlert('Use browser print function (Ctrl+P) to save as PDF or image', 'info');
+            setTimeout(() => {
+                window.print();
+            }, 500);
+        }
+
+        function confirmAndReset() {
+            if (confirm('Are you sure you want to reset the form? This action cannot be undone.')) {
+                closeReceipt();
+                resetLineupForm();
+                showAlert('Form has been reset successfully', 'success');
+            }
+        }
+
+        // Profile Functions
+        function openProfileTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.profile-tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Remove active class from all tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab content
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to clicked tab button
+            event.target.classList.add('active');
+            
+            // Initialize password validation if changing to password tab
+            if (tabName === 'change-password') {
+                setTimeout(initializePasswordValidation, 100);
+            }
+        }
+
+        function togglePasswordVisibility(fieldId) {
+            const field = document.getElementById(fieldId);
+            const icon = field.nextElementSibling.querySelector('i');
+            
+            if (field.type === 'password') {
+                field.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                field.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+
+        function checkPasswordStrength(password) {
+            let strength = 0;
+            const requirements = {
+                length: password.length >= 8,
+                uppercase: /[A-Z]/.test(password),
+                lowercase: /[a-z]/.test(password),
+                number: /[0-9]/.test(password),
+                special: /[^A-Za-z0-9]/.test(password)
+            };
+            
+            // Update requirement indicators
+            Object.keys(requirements).forEach(req => {
+                const element = document.getElementById(`req${req.charAt(0).toUpperCase() + req.slice(1)}`);
+                if (element) {
+                    if (requirements[req]) {
+                        element.classList.add('valid');
+                        strength++;
+                    } else {
+                        element.classList.remove('valid');
+                    }
+                }
+            });
+            
+            // Update strength bar and text
+            const strengthFill = document.getElementById('strengthFill');
+            const strengthText = document.getElementById('strengthText');
+            
+            if (strengthFill && strengthText) {
+                const percentage = (strength / 5) * 100;
+                
+                strengthFill.style.width = `${percentage}%`;
+                
+                if (password.length === 0) {
+                    strengthFill.style.background = '#e0e0e0';
+                    strengthText.textContent = 'Password strength';
+                    strengthText.style.color = '#6c757d';
+                } else if (strength <= 1) {
+                    strengthFill.style.background = 'var(--danger)';
+                    strengthText.textContent = 'Weak Password';
+                    strengthText.style.color = 'var(--danger)';
+                } else if (strength <= 3) {
+                    strengthFill.style.background = '#ffc107';
+                    strengthText.textContent = 'Medium Password';
+                    strengthText.style.color = '#ffc107';
+                } else {
+                    strengthFill.style.background = 'var(--success)';
+                    strengthText.textContent = 'Strong Password';
+                    strengthText.style.color = 'var(--success)';
+                }
+            }
+            
+            return strength;
+        }
+
+        // Add event listeners for password fields
+        function initializePasswordValidation() {
+            const newPasswordField = document.getElementById('newPassword');
+            const currentPasswordField = document.getElementById('currentPassword');
+            const confirmPasswordField = document.getElementById('confirmPassword');
+            
+            if (newPasswordField) {
+                newPasswordField.addEventListener('input', function() {
+                    checkPasswordStrength(this.value);
+                    
+                    // Also check if passwords match
+                    const confirmPassword = document.getElementById('confirmPassword').value;
+                    if (confirmPassword) {
+                        validatePasswordMatch(this.value, confirmPassword);
+                    }
+                });
+            }
+            
+            if (confirmPasswordField) {
+                confirmPasswordField.addEventListener('input', function() {
+                    const newPassword = document.getElementById('newPassword').value;
+                    validatePasswordMatch(newPassword, this.value);
+                });
+            }
+        }
+
+        // Validate password match
+        function validatePasswordMatch(newPassword, confirmPassword) {
+            const confirmField = document.getElementById('confirmPassword');
+            
+            if (confirmPassword && newPassword !== confirmPassword) {
+                confirmField.style.borderColor = 'var(--danger)';
+                confirmField.style.boxShadow = '0 0 0 3px rgba(220, 53, 69, 0.1)';
+            } else if (confirmPassword && newPassword === confirmPassword) {
+                confirmField.style.borderColor = 'var(--success)';
+                confirmField.style.boxShadow = '0 0 0 3px rgba(40, 167, 69, 0.1)';
+            } else {
+                confirmField.style.borderColor = '#e0e0e0';
+                confirmField.style.boxShadow = 'none';
+            }
+        }
+
+        async function saveProfileChanges() {
             const firstname = document.getElementById('firstname').value.trim();
             const lastname = document.getElementById('lastname').value.trim();
             
@@ -3996,584 +5039,987 @@
             }
         }
 
-    // Enhanced change password function
-    async function changePassword() {
-        const currentPassword = document.getElementById('currentPassword').value;
-        const newPassword = document.getElementById('newPassword').value;
-        const confirmPassword = document.getElementById('confirmPassword').value;
-        
-        // Validation
-        if (!currentPassword || !newPassword || !confirmPassword) {
-            showAlert('Please fill in all password fields', 'warning');
-            return;
-        }
-        
-        if (newPassword !== confirmPassword) {
-            showAlert('New password and confirmation do not match', 'warning');
-            return;
-        }
-        
-        const strength = checkPasswordStrength(newPassword);
-        if (strength < 3) {
-            showAlert('Please use a stronger password (meet at least 3 requirements)', 'warning');
-            return;
-        }
-        
-        // Additional password validation
-        if (newPassword.length < 8) {
-            showAlert('Password must be at least 8 characters long', 'warning');
-            return;
-        }
-        
-        if (!/[A-Z]/.test(newPassword)) {
-            showAlert('Password must contain at least one uppercase letter', 'warning');
-            return;
-        }
-        
-        if (!/[a-z]/.test(newPassword)) {
-            showAlert('Password must contain at least one lowercase letter', 'warning');
-            return;
-        }
-        
-        if (!/[0-9]/.test(newPassword)) {
-            showAlert('Password must contain at least one number', 'warning');
-            return;
-        }
-        
-        if (!/[^A-Za-z0-9]/.test(newPassword)) {
-            showAlert('Password must contain at least one special character', 'warning');
-            return;
-        }
-        
-        // Show loading state
-        const changeBtn = document.querySelector('#change-password .btn-primary');
-        const originalText = changeBtn.textContent;
-        changeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Changing...';
-        changeBtn.disabled = true;
-        
-        try {
-            // Step 1: Verify current password
-            const verifyResponse = await fetch(`${API_BASE_URL}/proxy`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    action: 'verifyPassword',
-                    username: userData.username,
-                    password: currentPassword
-                })
-            });
+        async function changePassword() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
             
-            const verifyResult = await verifyResponse.json();
-            
-            if (!verifyResult.success) {
-                showAlert('Current password is incorrect', 'danger');
-                changeBtn.textContent = originalText;
-                changeBtn.disabled = false;
+            // Validation
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                showAlert('Please fill in all password fields', 'warning');
                 return;
             }
             
-            // Step 2: Update password
-            const updateResponse = await fetch(`${API_BASE_URL}/proxy`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    action: 'updatePassword',
-                    username: userData.username,
-                    newPassword: newPassword
-                })
+            if (newPassword !== confirmPassword) {
+                showAlert('New password and confirmation do not match', 'warning');
+                return;
+            }
+            
+            const strength = checkPasswordStrength(newPassword);
+            if (strength < 3) {
+                showAlert('Please use a stronger password (meet at least 3 requirements)', 'warning');
+                return;
+            }
+            
+            // Additional password validation
+            if (newPassword.length < 8) {
+                showAlert('Password must be at least 8 characters long', 'warning');
+                return;
+            }
+            
+            if (!/[A-Z]/.test(newPassword)) {
+                showAlert('Password must contain at least one uppercase letter', 'warning');
+                return;
+            }
+            
+            if (!/[a-z]/.test(newPassword)) {
+                showAlert('Password must contain at least one lowercase letter', 'warning');
+                return;
+            }
+            
+            if (!/[0-9]/.test(newPassword)) {
+                showAlert('Password must contain at least one number', 'warning');
+                return;
+            }
+            
+            if (!/[^A-Za-z0-9]/.test(newPassword)) {
+                showAlert('Password must contain at least one special character', 'warning');
+                return;
+            }
+            
+            // Show loading state
+            const changeBtn = document.querySelector('#change-password .btn-primary');
+            const originalText = changeBtn.textContent;
+            changeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Changing...';
+            changeBtn.disabled = true;
+            
+            try {
+                // Step 1: Verify current password
+                const verifyResponse = await fetch(`${API_BASE_URL}/proxy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'verifyPassword',
+                        username: userData.username,
+                        password: currentPassword
+                    })
+                });
+                
+                const verifyResult = await verifyResponse.json();
+                
+                if (!verifyResult.success) {
+                    showAlert('Current password is incorrect', 'danger');
+                    changeBtn.textContent = originalText;
+                    changeBtn.disabled = false;
+                    return;
+                }
+                
+                // Step 2: Update password
+                const updateResponse = await fetch(`${API_BASE_URL}/proxy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'updatePassword',
+                        username: userData.username,
+                        newPassword: newPassword
+                    })
+                });
+                
+                const updateResult = await updateResponse.json();
+                
+                if (updateResult.success) {
+                    resetPasswordForm();
+                    showAlert('Password changed successfully!', 'success');
+                } else {
+                    showAlert(updateResult.message || 'Failed to change password', 'danger');
+                }
+                
+            } catch (error) {
+                console.error('Error changing password:', error);
+                showAlert('Error changing password. Please try again.', 'danger');
+            } finally {
+                // Restore button state
+                changeBtn.textContent = originalText;
+                changeBtn.disabled = false;
+            }
+        }
+
+        function resetProfileForm() {
+            // Reload original user data
+            loadProfileData();
+            showAlert('Changes discarded', 'info');
+        }
+
+        // Enhanced reset password form function
+        function resetPasswordForm() {
+            document.getElementById('currentPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmPassword').value = '';
+            
+            // Reset password strength indicator
+            const strengthFill = document.getElementById('strengthFill');
+            const strengthText = document.getElementById('strengthText');
+            
+            if (strengthFill && strengthText) {
+                strengthFill.style.width = '0%';
+                strengthFill.style.background = '#e0e0e0';
+                strengthText.textContent = 'Password strength';
+                strengthText.style.color = '#6c757d';
+            }
+            
+            // Reset requirement indicators
+            document.querySelectorAll('.password-requirements li').forEach(li => {
+                li.classList.remove('valid');
             });
             
-            const updateResult = await updateResponse.json();
+            // Reset border styles
+            const confirmField = document.getElementById('confirmPassword');
+            if (confirmField) {
+                confirmField.style.borderColor = '#e0e0e0';
+                confirmField.style.boxShadow = 'none';
+            }
+        }
+
+        function loadProfileData() {
+            // Load user data into profile form
+            document.getElementById('firstname').value = userData.firstname || '';
+            document.getElementById('lastname').value = userData.lastname || '';
+            document.getElementById('username').value = userData.username || '';
+            document.getElementById('birthdate').value = userData.birthdate || '';
+            document.getElementById('ministry').value = userData.ministry || '';
+            document.getElementById('memberId').value = userData.memberId || '';
+            document.getElementById('status').value = userData.status === 'verified' ? 'Verified' : 'Unverified';
             
-            if (updateResult.success) {
-                resetPasswordForm();
-                showAlert('Password changed successfully!', 'success');
+            // Update profile header
+            document.getElementById('profileName').textContent = `${userData.firstname} ${userData.lastname}`;
+            document.getElementById('profileMinistry').textContent = userData.ministry;
+            document.getElementById('profileMemberId').textContent = `Member ID: ${userData.memberId}`;
+            
+            // Update avatar
+            const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
+            document.getElementById('profileAvatar').textContent = initials;
+            document.getElementById('userAvatar').textContent = initials;
+            
+            // Update status indicator
+            const statusIndicator = document.getElementById('profileStatus');
+            if (userData.status === 'verified') {
+                statusIndicator.className = 'status-circle verified';
+                statusIndicator.innerHTML = '<div class="status-tooltip">Verified</div>';
             } else {
-                showAlert(updateResult.message || 'Failed to change password', 'danger');
+                statusIndicator.className = 'status-circle unverified';
+                statusIndicator.innerHTML = '<div class="status-tooltip">Unverified</div>';
+            }
+        }
+
+        // Calendar Functions
+        function initializeCalendar() {
+            generateCalendar(currentDate);
+            loadScheduleData();
+        }
+
+        function generateCalendar(date) {
+        const calendarContainer = document.getElementById('calendarContainer');
+        const monthNames = ["January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ];
+        
+        // Update month header
+        document.getElementById('currentMonth').textContent = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+        
+        // Get first day of month and number of days
+        const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+        const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        const startingDay = firstDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
+        
+        // Debug: Log schedule data
+        console.log('Schedule data for calendar:', scheduleData);
+        console.log('Current month:', date.getMonth() + 1, date.getFullYear());
+        
+        // Create calendar header
+        let calendarHTML = `
+            <div class="calendar-header">
+                <div class="calendar-day-header">Sun</div>
+                <div class="calendar-day-header">Mon</div>
+                <div class="calendar-day-header">Tue</div>
+                <div class="calendar-day-header">Wed</div>
+                <div class="calendar-day-header">Thu</div>
+                <div class="calendar-day-header">Fri</div>
+                <div class="calendar-day-header">Sat</div>
+            </div>
+            <div class="calendar-grid">
+        `;
+        
+        // Add empty cells for days before the first day of the month
+        for (let i = 0; i < startingDay; i++) {
+            const prevMonth = new Date(date.getFullYear(), date.getMonth(), 0 - i);
+            calendarHTML += `
+                <div class="calendar-day other-month">
+                    <div class="calendar-day-number">${prevMonth.getDate()}</div>
+                </div>
+            `;
+        }
+        
+        // Add days of the month
+        for (let day = 1; day <= daysInMonth; day++) {
+            const currentDay = new Date(date.getFullYear(), date.getMonth(), day);
+            const dayOfWeek = currentDay.getDay();
+            const dateString = formatDateForAPI(currentDay);
+            const hasSchedule = checkIfDateHasSchedule(dateString);
+            
+            // Debug: Log specific dates
+            if (hasSchedule) {
+                console.log('Date with schedule:', dateString, 'has schedule:', hasSchedule);
             }
             
-        } catch (error) {
-            console.error('Error changing password:', error);
-            showAlert('Error changing password. Please try again.', 'danger');
-        } finally {
-            // Restore button state
-            changeBtn.textContent = originalText;
-            changeBtn.disabled = false;
+            calendarHTML += `
+                <div class="calendar-day ${hasSchedule ? 'has-schedule' : ''}" onclick="showScheduleDetails('${dateString}')">
+                    <div class="calendar-day-number">${day}</div>
+                    ${hasSchedule ? '<div class="calendar-day-events">Scheduled</div>' : ''}
+                </div>
+            `;
         }
-    }
-    
-    // Close receipt when clicking outside
-    document.addEventListener('click', function(event) {
-        const receiptModal = document.getElementById('receiptModal');
-        const receiptContainer = document.getElementById('receiptContent');
         
-        if (event.target === receiptModal) {
-            closeReceipt();
+        // Calculate how many empty cells we need at the end
+        const totalCells = 42; // 6 rows x 7 days
+        const remainingCells = totalCells - (startingDay + daysInMonth);
+        
+        // Add empty cells for days after the last day of the month
+        for (let i = 1; i <= remainingCells; i++) {
+            calendarHTML += `
+                <div class="calendar-day other-month">
+                    <div class="calendar-day-number">${i}</div>
+                </div>
+            `;
         }
-    });
+        
+        calendarHTML += `</div>`;
+        calendarContainer.innerHTML = calendarHTML;
+        
+        // Debug: Log total scheduled days found
+        const scheduledDays = document.querySelectorAll('.calendar-day.has-schedule').length;
+        console.log(`Found ${scheduledDays} days with schedules in ${monthNames[date.getMonth()]} ${date.getFullYear()}`);
+    }
 
-    // Add this to your dashboard script
-    document.addEventListener('DOMContentLoaded', function() {
-        // Handle image loading errors
-        document.querySelectorAll('img, [style*="background-image"]').forEach(element => {
-            if (element.tagName === 'IMG') {
-                element.onerror = function() {
-                    console.warn('Failed to load image:', this.src);
-                    this.style.display = 'none';
-                };
-            } else {
-                // For elements with background-image
-                const checkBackgroundImage = function() {
-                    const bgImage = getComputedStyle(this).backgroundImage;
-                    if (bgImage.includes('url') && !bgImage.includes('gradient')) {
-                        const img = new Image();
-                        const url = bgImage.replace(/url\(['"]?(.*?)['"]?\)/i, "$1");
-                        img.onerror = () => {
-                            console.warn('Failed to load background image:', url);
-                            this.style.backgroundImage = 'none';
-                            this.style.backgroundColor = '#f8f9fa'; // Fallback color
-                        };
-                        img.src = url;
-                    }
+        function changeMonth(direction) {
+            currentDate.setMonth(currentDate.getMonth() + direction);
+            generateCalendar(currentDate);
+        }
+
+        function switchCalendar(type) {
+            currentCalendarType = type;
+            
+            // Update active button
+            document.getElementById('pawBtn').classList.toggle('active', type === 'paw');
+            document.getElementById('meetingsBtn').classList.toggle('active', type === 'meetings');
+            
+            // Regenerate calendar with new data
+            generateCalendar(currentDate);
+        }
+
+        function formatDateForAPI(date) {
+            // Format date as YYYY-MM-DD for API calls
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDateForDisplay(dateString) {
+            // Format date for display (e.g., "Sunday, November 17, 2025")
+            const date = new Date(dateString);
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            return date.toLocaleDateString('en-US', options);
+        }
+
+        function getScheduleData() {
+        try {
+            const ss = SpreadsheetApp.openById(SHEET_ID);
+            const lineupSheet = ss.getSheetByName(SHEET_NAMES.PRAISE_WORSHIP_SONG);
+            
+            if (!lineupSheet) {
+            Logger.log('Praise & Worship Song sheet not found');
+            return createResponse(true, 'No schedule data available', []);
+            }
+            
+            const dataRange = lineupSheet.getDataRange();
+            const values = dataRange.getValues();
+            
+            // Check if there's any data beyond headers
+            if (values.length <= 1) {
+            Logger.log('No schedule data found in sheet (only headers)');
+            return createResponse(true, 'No schedule data available', []);
+            }
+            
+            // Skip header row
+            const schedules = [];
+            
+            for (let i = 1; i < values.length; i++) {
+            const row = values[i];
+            
+            // Check if this row has valid data (has ScheduleID)
+            if (row[1] && row[1] !== '') { // Column B - ScheduleID
+                const schedule = {
+                scheduleId: row[1],           // B - ScheduleID
+                songLeader: row[2] || '',     // C - Song Leader
+                backups: [
+                    row[3] || '',              // D - Backup 1
+                    row[4] || '',              // E - Backup 2
+                    row[5] || '',              // F - Backup 3
+                    row[6] || '',              // G - Backup 4
+                    row[7] || ''               // H - Backup 5
+                ].filter(backup => backup !== ''), // Remove empty backups
+                practiceDate: row[9] || '',  // J - Practice Day
+                scheduleDate: row[8] || '',  // I - Schedule Day
+                slowSongs: [],
+                fastSongs: []
                 };
                 
-                // Check after a short delay to ensure styles are applied
-                setTimeout(() => checkBackgroundImage.call(element), 100);
+                // Extract slow songs (columns K-AD)
+                for (let j = 0; j < 5; j++) {
+                const startCol = 10 + (j * 4); // K=10, O=14, S=18, W=22, AA=26
+                const slowSong = {
+                    title: row[startCol] || '',           // Slow Title
+                    link: row[startCol + 1] || '',        // Slow Link
+                    lyrics: row[startCol + 2] || '',      // Slow Lyrics
+                    instructions: row[startCol + 3] || '' // Slow Instructions
+                };
+                
+                // Only add song if it has a title
+                if (slowSong.title && slowSong.title.trim() !== '') {
+                    schedule.slowSongs.push(slowSong);
+                }
+                }
+                
+                // Extract fast songs (columns AE-AX)
+                for (let j = 0; j < 5; j++) {
+                const startCol = 30 + (j * 4); // AE=30, AI=34, AM=38, AQ=42, AU=46
+                const fastSong = {
+                    title: row[startCol] || '',           // Fast Title
+                    link: row[startCol + 1] || '',        // Fast Link
+                    lyrics: row[startCol + 2] || '',      // Fast Lyrics
+                    instructions: row[startCol + 3] || '' // Fast Instructions
+                };
+                
+                // Only add song if it has a title
+                if (fastSong.title && fastSong.title.trim() !== '') {
+                    schedule.fastSongs.push(fastSong);
+                }
+                }
+                
+                schedules.push(schedule);
             }
-        });
-    });
+            }
+            
+            Logger.log('Retrieved ' + schedules.length + ' schedules');
+            return createResponse(true, 'Schedule data retrieved successfully', schedules);
+            
+        } catch (error) {
+            Logger.log('Get schedule data error: ' + error.toString());
+            Logger.log('Error stack: ' + error.stack);
+            return createResponse(false, 'Error retrieving schedule data: ' + error.toString(), []);
+        }
+        }
 
-    async function submitLineup() {
-        // Validate required fields
-        const scheduleDate = document.getElementById('scheduleDate').value;
-        const practiceDate = document.getElementById('practiceDate').value;
-        const songLeader = document.getElementById('songLeader').value;
-        
-        if (!scheduleDate || !practiceDate || !songLeader) {
-            showAlert('Please fill in all required fields (Schedule Date, Practice Date, and Song Leader)', 'warning');
-            return;
-        }
-        
-        // Validate practice date is Saturday or Sunday
-        if (!validatePracticeDate(practiceDate)) {
-            showAlert('Practice day must be on a Saturday or Sunday', 'warning');
-            return;
-        }
-        
-        // Get all songs
-        const slowSongs = document.querySelectorAll('.slow-song');
-        const fastSongs = document.querySelectorAll('.fast-song');
-        
-        // Validate at least one song (either slow or fast) is added
-        let hasSlowSongs = false;
-        let hasFastSongs = false;
-        
-        slowSongs.forEach(song => {
-            const title = song.querySelector('.slow-title').value.trim();
-            const link = song.querySelector('.slow-link').value.trim();
-            if (title && link) {
-                hasSlowSongs = true;
-            }
-        });
-        
-        fastSongs.forEach(song => {
-            const title = song.querySelector('.fast-title').value.trim();
-            const link = song.querySelector('.fast-link').value.trim();
-            if (title && link) {
-                hasFastSongs = true;
-            }
-        });
-        
-        if (!hasSlowSongs && !hasFastSongs) {
-            showAlert('Please add at least one song (either slow or fast)', 'warning');
-            return;
-        }
-        
-        // Validate that for each song added, both title and link are provided
-        let valid = true;
-        slowSongs.forEach((song, index) => {
-            const title = song.querySelector('.slow-title').value.trim();
-            const link = song.querySelector('.slow-link').value.trim();
-            // Only validate if at least one field is filled
-            if (title || link) {
-                if (!title || !link) {
-                    showAlert(`Please fill in both title and YouTube link for Slow Song ${index + 1}, or remove the song`, 'warning');
-                    valid = false;
-                }
-            }
-        });
-        
-        fastSongs.forEach((song, index) => {
-            const title = song.querySelector('.fast-title').value.trim();
-            const link = song.querySelector('.fast-link').value.trim();
-            // Only validate if at least one field is filled
-            if (title || link) {
-                if (!title || !link) {
-                    showAlert(`Please fill in both title and YouTube link for Fast Song ${index + 1}, or remove the song`, 'warning');
-                    valid = false;
-                }
-            }
-        });
-        
-        if (!valid) return;
-        
-        // Prepare data for submission
-        const lineupData = {
-            scheduleDate: scheduleDate,
-            practiceDate: practiceDate,
-            songLeader: songLeader,
-            backups: [],
-            slowSongs: [],
-            fastSongs: [],
-            submittedBy: userData.username,
-            status: 'For Approval'
-        };
-        
-        // Get backup singers
-        const backupSelects = document.querySelectorAll('.backup-select');
-        backupSelects.forEach(select => {
-            if (select.value) {
-                lineupData.backups.push(select.value);
-            }
-        });
-        
-        // Get slow songs - only include songs that have both title and link
-        slowSongs.forEach((song, index) => {
-            const title = song.querySelector('.slow-title').value.trim();
-            const link = song.querySelector('.slow-link').value.trim();
-            const lyrics = song.querySelector('.slow-lyrics').value.trim();
-            const instructions = song.querySelector('.slow-instructions').value.trim();
-            
-            // Only include song if both title and link are provided
-            if (title && link) {
-                lineupData.slowSongs.push({
-                    title: title,
-                    link: link,
-                    lyrics: lyrics,
-                    instructions: instructions
-                });
-            } else {
-                // Add empty object for unused song slot to maintain order
-                lineupData.slowSongs.push({});
-            }
-        });
-        
-        // Get fast songs - only include songs that have both title and link
-        fastSongs.forEach((song, index) => {
-            const title = song.querySelector('.fast-title').value.trim();
-            const link = song.querySelector('.fast-link').value.trim();
-            const lyrics = song.querySelector('.fast-lyrics').value.trim();
-            const instructions = song.querySelector('.fast-instructions').value.trim();
-            
-            // Only include song if both title and link are provided
-            if (title && link) {
-                lineupData.fastSongs.push({
-                    title: title,
-                    link: link,
-                    lyrics: lyrics,
-                    instructions: instructions
-                });
-            } else {
-                // Add empty object for unused song slot to maintain order
-                lineupData.fastSongs.push({});
-            }
-        });
-        
-        // Show loading state
-        const submitBtn = document.getElementById('submitLineupBtn');
-        const originalText = submitBtn.innerHTML;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
-        submitBtn.disabled = true;
-        
+        async function loadScheduleData() {
         try {
-            // Submit to Google Apps Script
+            // Fetch schedule data from Google Sheets using POST
             const response = await fetch(`${API_BASE_URL}/proxy`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    action: 'createLineup',
-                    lineupData: lineupData
+                    action: 'getScheduleData'
                 })
             });
             
             const result = await response.json();
             
             if (result.success) {
-                showReceipt(lineupData, result.data?.scheduleId);
-                showAlert('Lineup submitted successfully for approval!', 'success');
+                // Clean the data by removing header row
+                scheduleData = cleanScheduleData(result.data || []);
+                console.log('Cleaned schedule data:', scheduleData);
+                
+                // Regenerate calendar to show schedule markers
+                generateCalendar(currentDate);
             } else {
-                showAlert(result.message || 'Failed to submit lineup', 'danger');
+                console.error('Failed to load schedule data:', result.message);
+                // For demo purposes, we'll use mock data
+                scheduleData = getMockScheduleData();
+                generateCalendar(currentDate);
             }
-            
         } catch (error) {
-            console.error('Error submitting lineup:', error);
-            showAlert('Error submitting lineup. Please try again.', 'danger');
-        } finally {
-            // Restore button state
-            submitBtn.innerHTML = originalText;
-            submitBtn.disabled = false;
+            console.error('Error loading schedule data:', error);
+            // For demo purposes, we'll use mock data
+            scheduleData = getMockScheduleData();
+            generateCalendar(currentDate);
         }
     }
 
-    // Update the openProfileTab function to initialize password validation
-    function openProfileTab(tabName) {
-        // Hide all tab contents
-        document.querySelectorAll('.profile-tab-content').forEach(tab => {
-            tab.classList.remove('active');
-        });
-        
-        // Remove active class from all tab buttons
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        
-        // Show selected tab content
-        document.getElementById(tabName).classList.add('active');
-        
-        // Add active class to clicked tab button
-        event.target.classList.add('active');
-        
-        // Initialize password validation if changing to password tab
-        if (tabName === 'change-password') {
-            setTimeout(initializePasswordValidation, 100);
-        }
-    }
-
-    function togglePasswordVisibility(fieldId) {
-        const field = document.getElementById(fieldId);
-        const icon = field.nextElementSibling.querySelector('i');
-        
-        if (field.type === 'password') {
-            field.type = 'text';
-            icon.classList.remove('fa-eye');
-            icon.classList.add('fa-eye-slash');
-        } else {
-            field.type = 'password';
-            icon.classList.remove('fa-eye-slash');
-            icon.classList.add('fa-eye');
-        }
-    }
-
-    function checkPasswordStrength(password) {
-        let strength = 0;
-        const requirements = {
-            length: password.length >= 8,
-            uppercase: /[A-Z]/.test(password),
-            lowercase: /[a-z]/.test(password),
-            number: /[0-9]/.test(password),
-            special: /[^A-Za-z0-9]/.test(password)
-        };
-        
-        // Update requirement indicators
-        Object.keys(requirements).forEach(req => {
-            const element = document.getElementById(`req${req.charAt(0).toUpperCase() + req.slice(1)}`);
-            if (element) {
-                if (requirements[req]) {
-                    element.classList.add('valid');
-                    strength++;
-                } else {
-                    element.classList.remove('valid');
-                }
-            }
-        });
-        
-        // Update strength bar and text
-        const strengthFill = document.getElementById('strengthFill');
-        const strengthText = document.getElementById('strengthText');
-        
-        if (strengthFill && strengthText) {
-            const percentage = (strength / 5) * 100;
-            
-            strengthFill.style.width = `${percentage}%`;
-            
-            if (password.length === 0) {
-                strengthFill.style.background = '#e0e0e0';
-                strengthText.textContent = 'Password strength';
-                strengthText.style.color = '#6c757d';
-            } else if (strength <= 1) {
-                strengthFill.style.background = 'var(--danger)';
-                strengthText.textContent = 'Weak Password';
-                strengthText.style.color = 'var(--danger)';
-            } else if (strength <= 3) {
-                strengthFill.style.background = '#ffc107';
-                strengthText.textContent = 'Medium Password';
-                strengthText.style.color = '#ffc107';
-            } else {
-                strengthFill.style.background = 'var(--success)';
-                strengthText.textContent = 'Strong Password';
-                strengthText.style.color = 'var(--success)';
-            }
-        }
-        
-        return strength;
-    }
-
-    // Add event listeners for password fields
-    function initializePasswordValidation() {
-        const newPasswordField = document.getElementById('newPassword');
-        const currentPasswordField = document.getElementById('currentPassword');
-        const confirmPasswordField = document.getElementById('confirmPassword');
-        
-        if (newPasswordField) {
-            newPasswordField.addEventListener('input', function() {
-                checkPasswordStrength(this.value);
+        function checkIfDateHasSchedule(dateString) {
+        if (currentCalendarType === 'paw') {
+            // Check if date has PAW schedule (practice or schedule day)
+            return scheduleData.some(schedule => {
+                // Skip the header row
+                if (schedule.scheduleId === 'ScheduleID') return false;
                 
-                // Also check if passwords match
-                const confirmPassword = document.getElementById('confirmPassword').value;
-                if (confirmPassword) {
-                    validatePasswordMatch(this.value, confirmPassword);
-                }
-            });
-        }
-        
-        if (confirmPasswordField) {
-            confirmPasswordField.addEventListener('input', function() {
-                const newPassword = document.getElementById('newPassword').value;
-                validatePasswordMatch(newPassword, this.value);
-            });
-        }
-    }
-
-    // Validate password match
-    function validatePasswordMatch(newPassword, confirmPassword) {
-        const confirmField = document.getElementById('confirmPassword');
-        
-        if (confirmPassword && newPassword !== confirmPassword) {
-            confirmField.style.borderColor = 'var(--danger)';
-            confirmField.style.boxShadow = '0 0 0 3px rgba(220, 53, 69, 0.1)';
-        } else if (confirmPassword && newPassword === confirmPassword) {
-            confirmField.style.borderColor = 'var(--success)';
-            confirmField.style.boxShadow = '0 0 0 3px rgba(40, 167, 69, 0.1)';
-        } else {
-            confirmField.style.borderColor = '#e0e0e0';
-            confirmField.style.boxShadow = 'none';
-        }
-    }
-
-
-    function resetProfileForm() {
-        // Reload original user data
-        loadProfileData();
-        showAlert('Changes discarded', 'info');
-    }
-
-    // Enhanced reset password form function
-    function resetPasswordForm() {
-        document.getElementById('currentPassword').value = '';
-        document.getElementById('newPassword').value = '';
-        document.getElementById('confirmPassword').value = '';
-        
-        // Reset password strength indicator
-        const strengthFill = document.getElementById('strengthFill');
-        const strengthText = document.getElementById('strengthText');
-        
-        if (strengthFill && strengthText) {
-            strengthFill.style.width = '0%';
-            strengthFill.style.background = '#e0e0e0';
-            strengthText.textContent = 'Password strength';
-            strengthText.style.color = '#6c757d';
-        }
-        
-        // Reset requirement indicators
-        document.querySelectorAll('.password-requirements li').forEach(li => {
-            li.classList.remove('valid');
-        });
-        
-        // Reset border styles
-        const confirmField = document.getElementById('confirmPassword');
-        if (confirmField) {
-            confirmField.style.borderColor = '#e0e0e0';
-            confirmField.style.boxShadow = 'none';
-        }
-    }
-
-    function loadProfileData() {
-        // Load user data into profile form
-        document.getElementById('firstname').value = userData.firstname || '';
-        document.getElementById('lastname').value = userData.lastname || '';
-        document.getElementById('username').value = userData.username || '';
-        document.getElementById('birthdate').value = userData.birthdate || '';
-        document.getElementById('ministry').value = userData.ministry || '';
-        document.getElementById('memberId').value = userData.memberId || '';
-        document.getElementById('status').value = userData.status === 'verified' ? 'Verified' : 'Unverified';
-        
-        // Update profile header
-        document.getElementById('profileName').textContent = `${userData.firstname} ${userData.lastname}`;
-        document.getElementById('profileMinistry').textContent = userData.ministry;
-        document.getElementById('profileMemberId').textContent = `Member ID: ${userData.memberId}`;
-        
-        // Update avatar
-        const initials = (userData.firstname.charAt(0) + userData.lastname.charAt(0)).toUpperCase();
-        document.getElementById('profileAvatar').textContent = initials;
-        document.getElementById('userAvatar').textContent = initials;
-        
-        // Update status indicator
-        const statusIndicator = document.getElementById('profileStatus');
-        if (userData.status === 'verified') {
-            statusIndicator.className = 'status-circle verified';
-            statusIndicator.innerHTML = '<div class="status-tooltip">Verified</div>';
-        } else {
-            statusIndicator.className = 'status-circle unverified';
-            statusIndicator.innerHTML = '<div class="status-tooltip">Unverified</div>';
-        }
-    }
-
-    // Initialize all sections with coming soon content
-    function initializeAllSections() {
-        const sections = ['weekly-schedule', 'attendance', 'announcements', 'praise-worship', 'media', 'dancers', 'ashers'];
-        sections.forEach(sectionId => {
-            const section = document.getElementById(sectionId);
-            if (section) {
-                const titles = {
-                    'weekly-schedule': 'Weekly Schedule',
-                    'attendance': 'Attendance Record',
-                    'announcements': 'Announcements',
-                    'praise-worship': 'Praise And Worship',
-                    'media': 'Media Ministry',
-                    'dancers': 'Dancers Ministry',
-                    'ashers': 'Ashers Ministry'
-                };
+                // Format dates for comparison (YYYY-MM-DD)
+                const scheduleDate = formatDateForComparison(schedule.scheduleDate);
+                const practiceDate = formatDateForComparison(schedule.practiceDate);
+                const checkDate = formatDateForComparison(dateString);
                 
-                section.innerHTML = `
-                    <h2 class="section-title">${titles[sectionId] || sectionId}</h2>
-                    <div style="text-align: center; padding: 60px 20px;">
-                        <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);"><i class="fas fa-tools"></i></div>
-                        <h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.5rem;">Features Coming Soon</h3>
-                        <p style="color: #6c757d; margin-bottom: 25px; font-size: 1.1rem; line-height: 1.6;">
-                            We're working hard to bring you amazing features for this section!<br>
-                            Please be patient as we develop and test everything to ensure the best experience.
-                        </p>
-                        <div style="background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1)); padding: 20px; border-radius: var(--border-radius); display: inline-block;">
-                            <p style="color: var(--primary); font-weight: 600; margin: 0; font-size: 0.9rem;">
-                                <i class="fas fa-hammer"></i> Under Development by: <strong>Frank Gomez</strong>
-                            </p>
-                        </div>
-                        <div style="margin-top: 30px; padding: 20px; background: white; border-radius: var(--border-radius); box-shadow: var(--shadow); max-width: 500px; margin-left: auto; margin-right: auto;">
-                            <h4 style="color: var(--primary); margin-bottom: 15px;"><i class="fas fa-clipboard-list"></i> What to Expect:</h4>
-                            <ul style="text-align: left; color: #6c757d; line-height: 1.8;">
-                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Enhanced user interface and experience</li>
-                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Real-time updates and notifications</li>
-                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Comprehensive ministry tools</li>
-                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Mobile-friendly design</li>
-                                <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>And much more!</li>
-                            </ul>
-                        </div>
+                return scheduleDate === checkDate || practiceDate === checkDate;
+            });
+        } else {
+            // For meetings calendar, check if date has meetings
+            return false;
+        }
+    }
+
+    // Add this helper function to format dates for comparison
+    function formatDateForComparison(dateString) {
+        if (!dateString) return '';
+        
+        // Handle both Date objects and string dates
+        const date = new Date(dateString);
+        
+        // Format as YYYY-MM-DD for consistent comparison
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        
+        return `${year}-${month}-${day}`;
+    }
+
+         // Improved Song Layout Function
+        function showScheduleDetails(dateString) {
+            const modal = document.getElementById('scheduleModal');
+            const modalDate = document.getElementById('modalDate');
+            const modalBody = document.getElementById('modalBody');
+            
+            // Set modal date title
+            modalDate.textContent = formatDateForDisplay(dateString);
+            
+            // Get schedules for this date
+            const schedules = getSchedulesForDate(dateString);
+            
+            if (schedules.length === 0) {
+                modalBody.innerHTML = `
+                    <div class="no-schedule">
+                        <i class="fas fa-calendar-times"></i>
+                        <h4>No Schedule Found</h4>
+                        <p>There are no schedules for ${formatDateForDisplay(dateString)}</p>
                     </div>
                 `;
+            } else {
+                let scheduleHTML = '';
+                
+                schedules.forEach((schedule, index) => {
+                    scheduleHTML += `
+                        <div class="schedule-card">
+                            <div class="schedule-card-header">
+                                <h4 class="schedule-card-title">Praise & Worship Schedule</h4>
+                                <p class="schedule-card-subtitle">Schedule ID: ${schedule.scheduleId}</p>
+                            </div>
+                            <div class="schedule-card-body">
+                                <div class="schedule-info">
+                                    <div class="info-item">
+                                        <div class="info-label">Practice Day</div>
+                                        <div class="info-value">${formatDateForDisplay(schedule.practiceDate)}</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <div class="info-label">Schedule Day</div>
+                                        <div class="info-value">${formatDateForDisplay(schedule.scheduleDate)}</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <div class="info-label">Song Leader</div>
+                                        <div class="info-value">${schedule.songLeader}</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <div class="info-label">Backup Singers</div>
+                                        <div class="info-value">${schedule.backups.filter(b => b).join(', ') || 'None'}</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="lineup-section">
+                                    <h5 class="lineup-section-title">Slow Songs</h5>
+                                    <div class="song-list">
+                                        ${schedule.slowSongs.filter(song => song.title).map((song, idx) => `
+                                            <div class="song-item">
+                                                <div class="song-header">
+                                                    <h6 class="song-title">${song.title}</h6>
+                                                    <div class="song-actions">
+                                                        <button class="song-btn" onclick="toggleSongDetails('slow-${index}-${idx}')">
+                                                            <i class="fas fa-info-circle"></i> Details
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                ${song.link ? `
+                                                    <div class="youtube-preview-container" id="youtube-slow-${index}-${idx}">
+                                                        <!-- YouTube iframe will be loaded here -->
+                                                    </div>
+                                                ` : ''}
+                                                <div class="song-details" id="slow-${index}-${idx}">
+                                                    ${song.lyrics ? `
+                                                        <div class="details-section">
+                                                            <div class="details-label">Lyrics</div>
+                                                            <div class="details-content">${song.lyrics}</div>
+                                                        </div>
+                                                    ` : ''}
+                                                    ${song.instructions ? `
+                                                        <div class="details-section">
+                                                            <div class="details-label">Instructions</div>
+                                                            <div class="details-content">${song.instructions}</div>
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                        ${schedule.slowSongs.filter(song => song.title).length === 0 ? 
+                                            '<p style="color: #6c757d; text-align: center; padding: 20px;">No slow songs scheduled</p>' : ''}
+                                    </div>
+                                </div>
+                                
+                                <div class="lineup-section">
+                                    <h5 class="lineup-section-title">Fast Songs</h5>
+                                    <div class="song-list">
+                                        ${schedule.fastSongs.filter(song => song.title).map((song, idx) => `
+                                            <div class="song-item">
+                                                <div class="song-header">
+                                                    <h6 class="song-title">${song.title}</h6>
+                                                    <div class="song-actions">
+                                                        <button class="song-btn" onclick="toggleSongDetails('fast-${index}-${idx}')">
+                                                            <i class="fas fa-info-circle"></i> Details
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                ${song.link ? `
+                                                    <div class="youtube-preview-container" id="youtube-fast-${index}-${idx}">
+                                                        <!-- YouTube iframe will be loaded here -->
+                                                    </div>
+                                                ` : ''}
+                                                <div class="song-details" id="fast-${index}-${idx}">
+                                                    ${song.lyrics ? `
+                                                        <div class="details-section">
+                                                            <div class="details-label">Lyrics</div>
+                                                            <div class="details-content">${song.lyrics}</div>
+                                                        </div>
+                                                    ` : ''}
+                                                    ${song.instructions ? `
+                                                        <div class="details-section">
+                                                            <div class="details-label">Instructions</div>
+                                                            <div class="details-content">${song.instructions}</div>
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                        ${schedule.fastSongs.filter(song => song.title).length === 0 ? 
+                                            '<p style="color: #6c757d; text-align: center; padding: 20px;">No fast songs scheduled</p>' : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                modalBody.innerHTML = scheduleHTML;
+                
+                // Load YouTube embeds after the modal is displayed
+                setTimeout(() => {
+                    loadYouTubeEmbeds(schedules);
+                }, 100);
+            }
+            
+            modal.style.display = 'block';
+        }
+
+        // Function to load YouTube embeds with network awareness
+        function loadYouTubeEmbeds(schedules) {
+            schedules.forEach((schedule, scheduleIndex) => {
+                // Load slow song YouTube embeds
+                schedule.slowSongs.forEach((song, songIndex) => {
+                    if (song.link) {
+                        const containerId = `youtube-slow-${scheduleIndex}-${songIndex}`;
+                        loadYouTubeEmbed(song.link, containerId);
+                    }
+                });
+                
+                // Load fast song YouTube embeds
+                schedule.fastSongs.forEach((song, songIndex) => {
+                    if (song.link) {
+                        const containerId = `youtube-fast-${scheduleIndex}-${songIndex}`;
+                        loadYouTubeEmbed(song.link, containerId);
+                    }
+                });
+            });
+        }
+
+        // Function to load a single YouTube embed with network awareness
+        function loadYouTubeEmbed(youtubeLink, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            const videoId = extractYouTubeId(youtubeLink);
+            
+            if (!videoId) {
+                container.innerHTML = '<div class="youtube-placeholder"><i class="fas fa-exclamation-triangle"></i> Invalid YouTube URL</div>';
+                return;
+            }
+            
+            // Check if we're online before trying to load YouTube
+            if (!navigator.onLine) {
+                container.innerHTML = `
+                    <div class="youtube-placeholder">
+                        <i class="fas fa-wifi-slash"></i>
+                        <span>No Internet Connection</span>
+                        <small>YouTube video unavailable</small>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Check connection speed for slow connections
+            checkConnectionSpeed().then(speed => {
+                if (speed < 0.5) {
+                    // Slow connection - show placeholder with option to load
+                    container.innerHTML = `
+                        <div class="youtube-placeholder">
+                            <i class="fas fa-tachometer-alt"></i>
+                            <span>Slow Connection Detected</span>
+                            <small>Loading YouTube may be slow</small>
+                            <button class="btn-primary" onclick="loadYouTubeVideo('${videoId}', '${containerId}')" style="margin-top: 10px; padding: 8px 15px;">
+                                <i class="fas fa-play"></i> Load Video Anyway
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    // Good connection - load video directly
+                    loadYouTubeVideo(videoId, containerId);
+                }
+            });
+        }
+
+        // Function to actually load the YouTube iframe
+        function loadYouTubeVideo(videoId, containerId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = `
+                <iframe src="https://www.youtube.com/embed/${videoId}" 
+                        frameborder="0" 
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                        allowfullscreen
+                        loading="lazy">
+                </iframe>
+            `;
+        }
+
+        // Initialize network status when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeNetworkStatus();
+        });
+
+        function closeModal() {
+            document.getElementById('scheduleModal').style.display = 'none';
+        }
+
+        function toggleSongDetails(songId) {
+            const detailsElement = document.getElementById(songId);
+            detailsElement.classList.toggle('active');
+        }
+
+        function getSchedulesForDate(dateString) {
+            if (currentCalendarType === 'paw') {
+                return scheduleData.filter(schedule => {
+                    // Skip header row
+                    if (schedule.scheduleId === 'ScheduleID') return false;
+                    
+                    // Format dates for comparison
+                    const scheduleDate = formatDateForComparison(schedule.scheduleDate);
+                    const practiceDate = formatDateForComparison(schedule.practiceDate);
+                    const checkDate = formatDateForComparison(dateString);
+                    
+                    return scheduleDate === checkDate || practiceDate === checkDate;
+                });
+            } else {
+                // For meetings, return meetings data
+                return [];
+            }
+        }
+
+        function cleanScheduleData(data) {
+            return data.filter(schedule => {
+                // Remove header row and invalid schedules
+                return schedule.scheduleId && schedule.scheduleId !== 'ScheduleID' && schedule.scheduleId !== '';
+            });
+        }
+
+        function printCalendar() {
+            window.print();
+        }
+
+        // Mock data for demonstration
+        function getMockScheduleData() {
+            return [
+                {
+                    scheduleId: '12345678',
+                    songLeader: 'Psalm Gambe',
+                    backups: ['Cathy', 'Tiffany', 'Geneveve'],
+                    practiceDate: '2025-11-16',
+                    scheduleDate: '2025-11-23',
+                    slowSongs: [
+                        {
+                            title: 'Goodness of God',
+                            link: 'https://www.youtube.com/watch?v=example1',
+                            lyrics: 'I love You Lord\nFor Your mercy never fails me\nAll my days, I\'ve been held in Your hands',
+                            instructions: 'Start softly, build to powerful chorus'
+                        },
+                        {
+                            title: 'What a Beautiful Name',
+                            link: 'https://www.youtube.com/watch?v=example2',
+                            lyrics: 'You were the Word at the beginning\nOne with God the Lord Most High',
+                            instructions: 'Emphasize the bridge section'
+                        }
+                    ],
+                    fastSongs: [
+                        {
+                            title: 'Reckless Love',
+                            link: 'https://www.youtube.com/watch?v=example3',
+                            lyrics: 'Before I spoke a word, You were singing over me\nYou have been so, so good to me',
+                            instructions: 'Keep energy high throughout'
+                        },
+                        {
+                            title: 'Way Maker',
+                            link: 'https://www.youtube.com/watch?v=example4',
+                            lyrics: 'You are here, moving in our midst\nYou are here, working in this place',
+                            instructions: 'Start with keyboard intro'
+                        }
+                    ]
+                },
+                {
+                    scheduleId: '87654321',
+                    songLeader: 'Geneveve España',
+                    backups: ['Cathy', 'Merianne', 'Ezra'],
+                    practiceDate: '2025-11-23',
+                    scheduleDate: '2025-11-30',
+                    slowSongs: [
+                        {
+                            title: 'O Come to the Altar',
+                            link: 'https://www.youtube.com/watch?v=example5',
+                            lyrics: 'Are you hurting and broken within?\nOverwhelmed by the weight of your sin?',
+                            instructions: 'Build gradually to powerful finish'
+                        }
+                    ],
+                    fastSongs: [
+                        {
+                            title: 'Do It Again',
+                            link: 'https://www.youtube.com/watch?v=example6',
+                            lyrics: 'Walking around these walls\nI thought by now they\'d fall',
+                            instructions: 'Keep tempo steady'
+                        },
+                        {
+                            title: 'Great Are You Lord',
+                            link: 'https://www.youtube.com/watch?v=example7',
+                            lyrics: 'You give life, You are love\nYou bring light to the darkness',
+                            instructions: 'Focus on harmonies in chorus'
+                        }
+                    ]
+                }
+            ];
+        }
+
+        function initializeNetworkStatus() {
+            const networkStatus = document.getElementById('networkStatus');
+            const networkStatusText = document.getElementById('networkStatusText');
+            
+            // Check initial connection status
+            updateNetworkStatus();
+            
+            // Listen for online/offline events
+            window.addEventListener('online', updateNetworkStatus);
+            window.addEventListener('offline', updateNetworkStatus);
+            
+            // Check connection speed periodically
+            setInterval(checkConnectionSpeed, 30000); // Check every 30 seconds
+        }
+        
+        function updateNetworkStatus() {
+            const networkStatus = document.getElementById('networkStatus');
+            const networkStatusText = document.getElementById('networkStatusText');
+            
+            if (navigator.onLine) {
+                // Check if connection is slow
+                checkConnectionSpeed().then(speed => {
+                    if (speed < 0.5) { // Less than 0.5 Mbps
+                        networkStatus.className = 'network-status slow';
+                        networkStatusText.innerHTML = '<i class="fas fa-tachometer-alt"></i> Slow Connection';
+                        networkStatus.style.display = 'block';
+                        
+                        // Auto-hide after 5 seconds
+                        setTimeout(() => {
+                            networkStatus.style.display = 'none';
+                        }, 5000);
+                    } else {
+                        networkStatus.className = 'network-status online';
+                        networkStatusText.innerHTML = '<i class="fas fa-wifi"></i> Online';
+                        networkStatus.style.display = 'block';
+                        
+                        // Auto-hide after 3 seconds
+                        setTimeout(() => {
+                            networkStatus.style.display = 'none';
+                        }, 3000);
+                    }
+                });
+            } else {
+                networkStatus.className = 'network-status offline';
+                networkStatusText.innerHTML = '<i class="fas fa-wifi-slash"></i> Offline';
+                networkStatus.style.display = 'block';
+            }
+        }
+        
+        function checkConnectionSpeed() {
+            return new Promise((resolve) => {
+                // Simple connection speed test by downloading a small image
+                const startTime = Date.now();
+                const image = new Image();
+                const fileSize = 50000; // 50KB test file
+                
+                // Use a small image from a reliable CDN for testing
+                image.src = 'https://via.placeholder.com/100x100.png?text=Test&' + startTime;
+                
+                image.onload = function() {
+                    const endTime = Date.now();
+                    const duration = (endTime - startTime) / 1000; // in seconds
+                    const bitsLoaded = fileSize * 8;
+                    const speedMbps = (bitsLoaded / duration / (1024 * 1024)).toFixed(2);
+                    resolve(parseFloat(speedMbps));
+                };
+                
+                image.onerror = function() {
+                    // If we can't load the test image, assume slow connection
+                    resolve(0.1);
+                };
+                
+                // Set a timeout in case the image takes too long to load
+                setTimeout(() => {
+                    resolve(0.1); // Assume slow connection if timeout
+                }, 5000);
+            });
+        }
+
+        function handleLyricsPaste(event) {
+            // Let the paste happen normally first
+            setTimeout(() => {
+                const textarea = event.target;
+                // The formatting should be preserved automatically with white-space: pre-wrap
+                // But we can add any additional processing here if needed
+            }, 0);
+        }
+
+        // Initialize all sections with coming soon content
+        function initializeAllSections() {
+            const sections = ['attendance', 'announcements', 'praise-worship', 'media', 'dancers', 'ashers'];
+            sections.forEach(sectionId => {
+                const section = document.getElementById(sectionId);
+                if (section) {
+                    const titles = {
+                        'attendance': 'Attendance Record',
+                        'announcements': 'Announcements',
+                        'praise-worship': 'Praise And Worship',
+                        'media': 'Media Ministry',
+                        'dancers': 'Dancers Ministry',
+                        'ashers': 'Ashers Ministry'
+                    };
+                    
+                    section.innerHTML = `
+                        <h2 class="section-title">${titles[sectionId] || sectionId}</h2>
+                        <div style="text-align: center; padding: 60px 20px;">
+                            <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);"><i class="fas fa-tools"></i></div>
+                            <h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.5rem;">Features Coming Soon</h3>
+                            <p style="color: #6c757d; margin-bottom: 25px; font-size: 1.1rem; line-height: 1.6;">
+                                We're working hard to bring you amazing features for this section!<br>
+                                Please be patient as we develop and test everything to ensure the best experience.
+                            </p>
+                            <div style="background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1)); padding: 20px; border-radius: var(--border-radius); display: inline-block;">
+                                <p style="color: var(--primary); font-weight: 600; margin: 0; font-size: 0.9rem;">
+                                    <i class="fas fa-hammer"></i> Under Development by: <strong>Frank Gomez</strong>
+                                </p>
+                            </div>
+                            <div style="margin-top: 30px; padding: 20px; background: white; border-radius: var(--border-radius); box-shadow: var(--shadow); max-width: 500px; margin-left: auto; margin-right: auto;">
+                                <h4 style="color: var(--primary); margin-bottom: 15px;"><i class="fas fa-clipboard-list"></i> What to Expect:</h4>
+                                <ul style="text-align: left; color: #6c757d; line-height: 1.8;">
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Enhanced user interface and experience</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Real-time updates and notifications</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Comprehensive ministry tools</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>Mobile-friendly design</li>
+                                    <li><i class="fas fa-check" style="color: var(--primary); margin-right: 8px;"></i>And much more!</li>
+                                </ul>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+        }
+
+        // Close modals when clicking outside
+        document.addEventListener('click', function(event) {
+            const receiptModal = document.getElementById('receiptModal');
+            const receiptContainer = document.getElementById('receiptContent');
+            const scheduleModal = document.getElementById('scheduleModal');
+            const modalContent = document.querySelector('.modal-content');
+            
+            if (event.target === receiptModal) {
+                closeReceipt();
+            }
+            
+            if (event.target === scheduleModal) {
+                closeModal();
             }
         });
-    }
 
-    // Call this function when the dashboard loads
-    document.addEventListener('DOMContentLoaded', function() {
-        initializeAllSections();
-    });
-</script>
+        // Handle image loading errors
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('img, [style*="background-image"]').forEach(element => {
+                if (element.tagName === 'IMG') {
+                    element.onerror = function() {
+                        console.warn('Failed to load image:', this.src);
+                        this.style.display = 'none';
+                    };
+                } else {
+                    // For elements with background-image
+                    const checkBackgroundImage = function() {
+                        const bgImage = getComputedStyle(this).backgroundImage;
+                        if (bgImage.includes('url') && !bgImage.includes('gradient')) {
+                            const img = new Image();
+                            const url = bgImage.replace(/url\(['"]?(.*?)['"]?\)/i, "$1");
+                            img.onerror = () => {
+                                console.warn('Failed to load background image:', url);
+                                this.style.backgroundImage = 'none';
+                                this.style.backgroundColor = '#f8f9fa'; // Fallback color
+                            };
+                            img.src = url;
+                        }
+                    };
+                    
+                    // Check after a short delay to ensure styles are applied
+                    setTimeout(() => checkBackgroundImage.call(element), 100);
+                }
+            });
+        });
+
+        // Check verification status function
+        function checkVerificationStatus() {
+            showAlert('Checking verification status...', 'info');
+            // In a real implementation, this would call your backend API
+            setTimeout(() => {
+                showAlert('Your account is still pending verification. Please check back later.', 'warning');
+            }, 1000);
+        }
+    </script>
+
 </body>
 </html>
