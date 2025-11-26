@@ -1,6 +1,6 @@
 // api/proxy.js - No need for node-fetch in Node.js 18+
 
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzigAL47G_8wcUH5Ik3423LnHW5RKPy0YYbuIPh8mFOHNDJpYeiUPi8YPkZD3Xw3OcH4w/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyQi9AT6tQhngPy3ljF3Hz50XcmWPmLzs7kHZn1EsyNs9rFKgw4Px4ipOLMD9crJWybXQ/exec';
 
 module.exports = async (req, res) => {
   // Set CORS headers
