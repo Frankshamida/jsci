@@ -286,6 +286,16 @@
         border-radius: var(--border-radius);
         box-shadow: var(--shadow);
         margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+
+    .content-header-text {
+        flex: 1;
+        min-width: 250px;
     }
 
     .content-header h1 {
@@ -299,6 +309,145 @@
         color: #6c757d;
         font-family: 'Montserrat', sans-serif;
         font-size: 0.9rem;
+    }
+
+    .notification-btn {
+        position: relative;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border: none;
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        font-size: 1.3rem;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(146, 108, 21, 0.3);
+        transition: var(--transition);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .notification-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+    }
+
+    .notification-badge {
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        background: #dc3545;
+        color: white;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: bold;
+        border: 2px solid white;
+    }
+
+    /* Notification Modal */
+    .notification-modal {
+        position: fixed;
+        top: 0;
+        right: -400px;
+        width: 400px;
+        height: 100vh;
+        background: white;
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.2);
+        z-index: 2000;
+        transition: right 0.4s ease;
+        overflow-y: auto;
+        border-radius: 12px 0 0 12px;
+    }
+
+    .notification-modal.active {
+        right: 0;
+    }
+
+    .notification-modal-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 1.3rem;
+        font-weight: bold;
+    }
+
+    .notification-modal-close {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 1.5rem;
+        cursor: pointer;
+        transition: var(--transition);
+    }
+
+    .notification-modal-close:hover {
+        transform: scale(1.2);
+    }
+
+    .notification-modal-content {
+        padding: 20px;
+    }
+
+    .notification-item {
+        background: #f8f9fa;
+        border-left: 4px solid var(--primary);
+        padding: 15px;
+        margin-bottom: 15px;
+        border-radius: 6px;
+        transition: var(--transition);
+    }
+
+    .notification-item:hover {
+        background: #e9ecef;
+        transform: translateX(5px);
+    }
+
+    .notification-greeting-header {
+        font-weight: 700;
+        color: var(--primary);
+        margin-bottom: 8px;
+        font-size: 1.1rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .notification-greeting-text {
+        color: #555;
+        line-height: 1.5;
+        margin-bottom: 8px;
+        font-size: 0.95rem;
+    }
+
+    .notification-footer {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85rem;
+        color: #999;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid #e0e0e0;
+    }
+
+    .notification-no-items {
+        text-align: center;
+        padding: 40px 20px;
+        color: #999;
+    }
+
+    .notification-no-items i {
+        font-size: 2.5rem;
+        margin-bottom: 10px;
+        opacity: 0.3;
     }
 
     /* Common Card Styles */
@@ -1060,6 +1209,137 @@
     .medium-priority {
         background: rgba(255, 193, 7, 0.1);
         color: #ffc107;
+    }
+
+    /* Birthday Greetings in Announcements */
+    .birthday-greeting-card {
+        background: linear-gradient(135deg, #fff8e1, #fff9c4);
+        border: 2px solid #ffc107;
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 12px rgba(255, 195, 0, 0.15);
+        transition: var(--transition);
+    }
+
+    .birthday-greeting-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px rgba(255, 195, 0, 0.25);
+    }
+
+    .birthday-greeting-header-section {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .birthday-emoji {
+        font-size: 2rem;
+    }
+
+    .birthday-greeting-info {
+        flex: 1;
+    }
+
+    .birthday-greeting-name {
+        font-weight: 700;
+        color: #f57f17;
+        font-size: 1.1rem;
+        margin: 0;
+    }
+
+    .birthday-greeting-role {
+        font-size: 0.85rem;
+        color: #e67e22;
+        margin: 3px 0 0 0;
+        font-weight: 500;
+    }
+
+    .birthday-greeting-message {
+        color: #555;
+        line-height: 1.6;
+        font-size: 0.95rem;
+        background: rgba(255, 255, 255, 0.7);
+        padding: 12px;
+        border-radius: 8px;
+        border-left: 3px solid #ff9800;
+    }
+
+    /* Upcoming Birthdays in Announcements */
+    .upcoming-birthdays-container {
+        background: white;
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        margin-top: 20px;
+    }
+
+    .upcoming-birthdays-header {
+        background: linear-gradient(135deg, rgba(63, 81, 181, 0.1), rgba(103, 58, 183, 0.1));
+        padding: 15px 20px;
+        border-bottom: 2px solid #6735b7;
+    }
+
+    .upcoming-birthdays-header h3 {
+        margin: 0;
+        color: #3f51b5;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .upcoming-birthday-list {
+        padding: 15px;
+    }
+
+    .upcoming-birthday-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 15px;
+        align-items: center;
+        padding: 12px;
+        border-bottom: 1px solid #f0f0f0;
+        transition: var(--transition);
+    }
+
+    .upcoming-birthday-row:last-child {
+        border-bottom: none;
+    }
+
+    .upcoming-birthday-row:hover {
+        background: #f8f9fa;
+    }
+
+    .upcoming-birthday-icon {
+        font-size: 24px;
+    }
+
+    .upcoming-birthday-details {
+        flex: 1;
+    }
+
+    .upcoming-birthday-name {
+        font-weight: 600;
+        color: #333;
+        margin: 0 0 4px 0;
+    }
+
+    .upcoming-birthday-info {
+        font-size: 0.85rem;
+        color: #777;
+        margin: 0;
+    }
+
+    .upcoming-birthday-days-badge {
+        background: linear-gradient(135deg, #3f51b5, #6735b7);
+        color: white;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        white-space: nowrap;
     }
 
     /* Ministry Specific Styles */
@@ -3080,6 +3360,22 @@
             display: block;
         }
 
+        .content-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .notification-btn {
+            align-self: flex-end;
+            margin-top: -10px;
+        }
+
+        .notification-modal {
+            width: 100%;
+            right: -100%;
+            border-radius: 0;
+        }
+
         .overlay.active {
             display: block;
         }
@@ -3946,8 +4242,25 @@
         <!-- Main Content -->
         <main class="main-content">
             <div class="content-header">
-                <h1 id="pageTitle">Welcome to Your Ministry Portal</h1>
-                <p id="pageSubtitle">Stay connected and inspired in your service</p>
+                <div class="content-header-text">
+                    <h1 id="pageTitle">Welcome to Your Ministry Portal</h1>
+                    <p id="pageSubtitle">Stay connected and inspired in your service</p>
+                </div>
+                <button class="notification-btn" onclick="toggleNotificationModal()" title="Birthday Notifications">
+                    <i class="fas fa-bell"></i>
+                    <div class="notification-badge" id="notificationBadge" style="display: none;">0</div>
+                </button>
+            </div>
+
+            <!-- Notification Modal -->
+            <div class="notification-modal" id="notificationModal">
+                <div class="notification-modal-header">
+                    <span><i class="fas fa-bell" style="margin-right: 10px;"></i>Birthday Greetings</span>
+                    <button class="notification-modal-close" onclick="toggleNotificationModal()">&times;</button>
+                </div>
+                <div class="notification-modal-content" id="notificationModalContent">
+                    <!-- Notification items will be populated here -->
+                </div>
             </div>
 
             <!-- Verification Banner (shown only for unverified users) -->
@@ -4306,14 +4619,25 @@
 
             <!-- Announcements Section -->
             <section id="announcements" class="content-section">
-                <h2 class="section-title"><i class="fas fa-bullhorn"></i> Announcements</h2>
+                <h2 class="section-title"><i class="fas fa-bullhorn"></i> Announcements & Birthday Greetings</h2>
                 
-                <div class="announcements-container">
+                <!-- Birthday Greetings -->
+                <div id="birthdayGreetingsContainer" style="margin-bottom: 30px;">
+                    <!-- Birthday greetings with names and ministries will be displayed here -->
+                </div>
+
+                <!-- General Announcements -->
+                <div class="announcements-container" id="announcementsContainer">
                     
                 </div>
 
+                <!-- Upcoming Birthdays Section -->
+                <div id="upcomingBirthdaysContainer" style="margin-top: 30px;">
+                    <!-- Upcoming birthdays will be displayed here -->
+                </div>
+
                 <!-- Birthday Today Section -->
-                <div class="birthday-today-section" id="birthdayTodaySection" style="margin-top: 30px;">
+                <div class="birthday-today-section" id="birthdayTodaySection" style="margin-top: 30px; display: none;">
                     <div class="birthday-header">
                         <h2><i class="fas fa-birthday-cake"></i> Birthday Celebrants Today</h2>
                         <div class="birthday-greeting-box" id="birthdayGreetingBox"></div>
@@ -4324,45 +4648,7 @@
                 </div>
             </section>
 
-            <!-- Spiritual Assistant Section -->
-            <section id="spiritual-assistant" class="content-section">
-                <h2 class="section-title"><i class="fas fa-heart"></i> Spiritual Assistant</h2>
-                
-                <div class="disclaimer-banner">
-                    <div class="disclaimer-header">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <span>Important Disclaimer</span>
-                    </div>
-                    <p>I am just your AI Spiritual Assistant. God and you between is the real communication. Please seek professional pastoral counsel for serious matters and always consult your spiritual leaders.</p>
-                </div>
-                
-                <div class="chat-container">
-                    <div class="chat-messages" id="chatMessages">
-                    <div class="chat-message ai-message" id="initialGreeting">
-                                <p>Hello! 👋 I'm your Spiritual Assistant. I'm here to help you reflect on life's challenges through the lens of biblical wisdom and scripture.</p>
-                                <p style="margin-top: 10px; font-size: 0.95em; color: #888;">Ask me about any situation you're facing, and I'll help you find biblical guidance and relevant scriptures.</p>
-                            </div>
-                            <div class="message-time">Just now</div>
-                        </div>
-                    </div>
-                    
-                    <div class="chat-input-area">
-                        <div class="input-group">
-                            <textarea 
-                                id="userInput" 
-                                class="chat-input" 
-                                placeholder="Ask about your situation, concerns, or questions... (e.g., 'I'm struggling with anxiety' or 'How should I handle conflict?')"
-                                rows="3"></textarea>
-                            <button id="sendBtn" class="send-button" onclick="sendSpiritualQuestion()">
-                                <i class="fas fa-paper-plane"></i> Ask
-                            </button>
-                        </div>
-                        <div class="input-hint">💡 Tip: Be specific about your situation for more personalized biblical guidance</div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Praise and Worship Section -->
+             <!-- Praise and Worship Section -->
             <section id="praise-worship" class="content-section">
                 <h2 class="section-title"><i class="fas fa-music"></i> Praise and Worship Ministry</h2>
                 
@@ -4922,6 +5208,44 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Spiritual Assistant Section -->
+            <section id="spiritual-assistant" class="content-section">
+                <h2 class="section-title"><i class="fas fa-heart"></i> Spiritual Assistant</h2>
+                
+                <div class="disclaimer-banner">
+                    <div class="disclaimer-header">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Important Disclaimer</span>
+                    </div>
+                    <p>I am just your AI Spiritual Assistant. God and you between is the real communication. Please seek professional pastoral counsel for serious matters and always consult your spiritual leaders.</p>
+                </div>
+                
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                    <div class="chat-message ai-message" id="initialGreeting">
+                                <p>Hello! 👋 I'm your Spiritual Assistant. I'm here to help you reflect on life's challenges through the lens of biblical wisdom and scripture.</p>
+                                <p style="margin-top: 10px; font-size: 0.95em; color: #888;">Ask me about any situation you're facing, and I'll help you find biblical guidance and relevant scriptures.</p>
+                            </div>
+                            <div class="message-time">Just now</div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-area">
+                        <div class="input-group">
+                            <textarea 
+                                id="userInput" 
+                                class="chat-input" 
+                                placeholder="Ask about your situation, concerns, or questions... (e.g., 'I'm struggling with anxiety' or 'How should I handle conflict?')"
+                                rows="3"></textarea>
+                            <button id="sendBtn" class="send-button" onclick="sendSpiritualQuestion()">
+                                <i class="fas fa-paper-plane"></i> Ask
+                            </button>
+                        </div>
+                        <div class="input-hint">💡 Tip: Be specific about your situation for more personalized biblical guidance</div>
+                    </div>
+                </div>
+            </section>
         </main>    
         
         <!-- Receipt Modal -->
@@ -5420,11 +5744,24 @@
                     console.log('✓ Found', todaysCelebrrants.length, 'celebrants today');
                     console.log('✓ Found', upcomingBirthdays.length, 'upcoming birthdays');
                     
+                    // Update notification badge
+                    updateNotificationBadge(todaysCelebrrants.length);
+                    
+                    // Populate notification modal
+                    populateNotificationModal(todaysCelebrrants);
+                    
+                    // Display birthday greetings in announcements section
+                    displayBirthdayGreetingsInAnnouncements(todaysCelebrrants, upcomingBirthdays);
+                    
+                    // Display upcoming birthdays in announcements section
+                    displayUpcomingBirthdaysInAnnouncements(upcomingBirthdays);
+                    
                     // Display birthdays
                     displayBirthdaySection(todaysCelebrrants, upcomingBirthdays);
                 } else {
                     console.error('Invalid response format:', result);
                     displayBirthdaySection([], []);
+                    updateNotificationBadge(0);
                 }
             } catch (error) {
                 console.error('Error fetching birthdays:', error);
@@ -5577,6 +5914,138 @@
                 { text: 'May you be blessed by the Lord, the Maker of heaven and earth.', reference: 'Psalm 115:15 (NIV)' }
             ];
             return birthdayVerses[Math.floor(Math.random() * birthdayVerses.length)];
+        }
+
+        // Notification Functions
+        let allBirthdayNotifications = [];
+
+        function toggleNotificationModal() {
+            const modal = document.getElementById('notificationModal');
+            modal.classList.toggle('active');
+        }
+
+        function updateNotificationBadge(count) {
+            const badge = document.getElementById('notificationBadge');
+            if (count > 0) {
+                badge.textContent = count;
+                badge.style.display = 'flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        function populateNotificationModal(todaysCelebrrants) {
+            const modalContent = document.getElementById('notificationModalContent');
+            let html = '';
+
+            if (!todaysCelebrrants || todaysCelebrrants.length === 0) {
+                html = `
+                    <div class="notification-no-items">
+                        <div><i class="fas fa-gift"></i></div>
+                        <p>No birthday notifications today. Check back tomorrow!</p>
+                    </div>
+                `;
+            } else {
+                todaysCelebrrants.forEach(member => {
+                    const greeting = generateBirthdayWish(member);
+                    html += `
+                        <div class="notification-item">
+                            <div class="notification-greeting-header">
+                                <span style="font-size: 1.3rem;">🎉</span>
+                                <span>${member.fullName}</span>
+                            </div>
+                            <div style="margin-bottom: 8px; font-size: 0.85rem; color: var(--primary); font-weight: 600;">
+                                <i class="fas fa-briefcase" style="margin-right: 5px;"></i>${member.ministry || 'Ministry Member'}
+                            </div>
+                            <div class="notification-greeting-text">
+                                "${greeting}"
+                            </div>
+                            <div class="notification-footer">
+                                <span><i class="fas fa-calendar"></i> Today's Birthday</span>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            modalContent.innerHTML = html;
+        }
+
+        function displayBirthdayGreetingsInAnnouncements(todaysCelebrrants, upcomingBirthdays) {
+            const greetingsContainer = document.getElementById('birthdayGreetingsContainer');
+            if (!greetingsContainer) return;
+
+            let html = '';
+
+            // Display today's birthday greetings
+            if (todaysCelebrrants && todaysCelebrrants.length > 0) {
+                todaysCelebrrants.forEach(member => {
+                    const greeting = generateBirthdayWish(member);
+                    html += `
+                        <div class="birthday-greeting-card">
+                            <div class="birthday-greeting-header-section">
+                                <div class="birthday-emoji">🎂</div>
+                                <div class="birthday-greeting-info">
+                                    <p class="birthday-greeting-name">${member.fullName}</p>
+                                    <p class="birthday-greeting-role">
+                                        <i class="fas fa-users"></i> ${member.ministry || 'Ministry Member'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="birthday-greeting-message">
+                                <i class="fas fa-quote-left" style="margin-right: 5px; opacity: 0.5;"></i>${greeting}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            greetingsContainer.innerHTML = html;
+        }
+
+        function displayUpcomingBirthdaysInAnnouncements(upcomingBirthdays) {
+            const container = document.getElementById('upcomingBirthdaysContainer');
+            if (!container) return;
+
+            let html = '';
+
+            if (upcomingBirthdays && upcomingBirthdays.length > 0) {
+                html = `
+                    <div class="upcoming-birthdays-container">
+                        <div class="upcoming-birthdays-header">
+                            <h3><i class="fas fa-calendar-check"></i> Upcoming Birthdays</h3>
+                        </div>
+                        <div class="upcoming-birthday-list">
+                `;
+
+                upcomingBirthdays.forEach(member => {
+                    const monthName = new Date(member.birthdayDate).toLocaleDateString('en-US', { month: 'short' });
+                    const dayNum = new Date(member.birthdayDate).getDate();
+                    const daysText = member.daysUntilBirthday === 1 ? '1 day away' : 'in ' + member.daysUntilBirthday + ' days';
+
+                    html += `
+                        <div class="upcoming-birthday-row">
+                            <div class="upcoming-birthday-icon">🎁</div>
+                            <div class="upcoming-birthday-details">
+                                <p class="upcoming-birthday-name">${member.fullName}</p>
+                                <p class="upcoming-birthday-info">
+                                    <i class="fas fa-calendar-day"></i> ${monthName} ${dayNum}
+                                </p>
+                            </div>
+                            <div class="upcoming-birthday-days-badge">
+                                ${daysText}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
         }
 
         async function initializeDashboard() {
@@ -6100,6 +6569,16 @@ Create fresh, authentic affirmations that will actually inspire this ministry wo
             sidebar.classList.toggle('active');
             overlay.classList.toggle('active');
         }
+
+        // Close notification modal when clicking outside
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('notificationModal');
+            const btn = document.querySelector('.notification-btn');
+            
+            if (modal && btn && !modal.contains(event.target) && !btn.contains(event.target)) {
+                modal.classList.remove('active');
+            }
+        });
 
         function showSection(sectionId) {
         // Remove active class from all menu items and sections
