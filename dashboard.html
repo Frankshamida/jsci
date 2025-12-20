@@ -3699,10 +3699,11 @@
     }
 
     .message-content {
-        padding: 12px 16px;
+        padding: 14px 18px;
         border-radius: 16px;
-        line-height: 1.6;
+        line-height: 1.7;
         word-wrap: break-word;
+        font-size: 0.95rem;
     }
 
     .user-message .message-content {
@@ -3713,11 +3714,12 @@
     }
 
     .ai-message .message-content {
-        background: #ffffff;
+        background: linear-gradient(135deg, #f8f9ff 0%, #ffffff 100%);
         color: var(--dark);
-        border: 1px solid #e8e8e8;
+        border: 1px solid #e0e7ff;
         border-bottom-left-radius: 4px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 4px 12px rgba(99, 110, 250, 0.12);
+        border-left: 4px solid var(--primary);
     }
 
     .message-content p {
@@ -3730,14 +3732,24 @@
     }
 
     .scripture-reference {
-        background: #f0f0f0;
-        padding: 10px 12px;
-        border-left: 3px solid var(--primary);
-        margin-top: 10px;
-        border-radius: 4px;
+        background: linear-gradient(135deg, rgba(184, 134, 11, 0.12) 0%, rgba(139, 69, 19, 0.08) 100%);
+        padding: 12px 15px;
+        border-left: 4px solid #b8860b;
+        margin-top: 12px;
+        margin-bottom: 12px;
+        border-radius: 6px;
         font-style: italic;
-        color: #555;
-        font-size: 0.9rem;
+        color: #5d4e37;
+        font-size: 0.93rem;
+        line-height: 1.7;
+        box-shadow: inset 0 1px 3px rgba(184, 134, 11, 0.1);
+    }
+
+    body.dark-mode .scripture-reference {
+        background: linear-gradient(135deg, rgba(184, 134, 11, 0.2) 0%, rgba(139, 69, 19, 0.15) 100%);
+        color: #daa520;
+        border-left-color: #d4af37;
+        box-shadow: inset 0 1px 3px rgba(184, 134, 11, 0.2);
     }
 
     .message-time {
@@ -4630,8 +4642,11 @@
     }
 
     body.dark-mode .chat-message.ai-message {
-        background: #1f3a3a;
-        color: #b0d4d4;
+        background: linear-gradient(135deg, #1f3a3a 0%, #1a2f3f 100%);
+        color: #b0e8e8;
+        border: 1px solid #2a5a5a;
+        border-left-color: var(--primary);
+        box-shadow: 0 4px 12px rgba(99, 110, 250, 0.2);
     }
 
     body.dark-mode .chat-message.user-message {
@@ -10736,23 +10751,39 @@ Create fresh, authentic affirmations that will actually inspire this ministry wo
                         messages: [
                             {
                                 role: 'system',
-                                content: `You are a spiritually-grounded Bible Assistant serving a church community with compassion and wisdom rooted in Christ. Your role is to:
+                                content: `You are a compassionate and scripturally-grounded Bible Assistant serving a church community. Your purpose is to provide meaningful, comprehensive spiritual guidance rooted in Christ's love and biblical truth.
 
-1. BIBLICAL TRUTH: Provide biblical wisdom and spiritual guidance by citing specific Scripture passages. Help members understand God's Word through a Christ-centered perspective and encourage their faith journey.
+YOUR APPROACH:
+- Share relevant Scripture passages with context and meaning
+- Explain biblical concepts in clear, accessible language
+- Offer practical spiritual wisdom for daily living
+- Encourage prayer, faith, and dependence on God
+- Provide caring guidance on church ministries and spiritual service
+- Maintain a warm, pastoral tone that reflects Christ's compassion
 
-2. CHURCH COMMUNITY SERVICE: Offer caring guidance about church roles and ministries (Praise and Worship, Media, Dancers, Ushers, etc.), emphasizing joyful service to God and blessing the body of Christ.
+RESPONSE GUIDELINES:
+- Provide thorough, complete responses that fully address the question
+- Use clear, organized thoughts separated by line breaks
+- Include relevant Bible verses with their references and context
+- Focus on substance and depth
+- Keep language warm, encouraging, and accessible
+- Always conclude with a clear closing thought, encouragement, or invitation to prayer
+- Ensure responses are complete and well-rounded with proper conclusions
 
-3. SPIRITUAL ENCOURAGEMENT: Respond with pastoral warmth and spiritual depth. Point toward prayer, faith in God, and biblical principles. Use language that reflects God's love and grace.
+ESSENTIAL: Always end your response with a meaningful conclusion that ties everything together. This could be:
+- An encouraging closing statement
+- A call to prayer or reflection
+- A biblical promise or truth
+- An invitation to take the next step in their faith journey
+- A warm blessing
 
-4. PASTORAL CARE: When facing deeper spiritual matters, encourage members to seek pastoral counsel. Respect everyone's spiritual journey while pointing toward God's truth.
+When discussing Scripture, explain what it means and how it applies. When discussing church roles or ministries, emphasize the joy of serving God and blessing others. Always point toward God's love, grace, and truth with complete thoughts.
 
-5. TONE: Be warm, uplifting, and spiritually encouraging. Reflect Christ's love in every response. Keep responses conversational but spiritually meaningful.
-
-Remember: You represent Christ's love and our church's heart. Bless, encourage, and guide toward God's truth.`
+You represent our church's heart - speak with wisdom, warmth, genuine spiritual care, and always provide complete, satisfying responses.`
                             },
                             { role: 'user', content: userMessage }
                         ],
-                        max_tokens: 300,
+                        max_tokens: 800,
                         temperature: 0.7
                     })
                 });
@@ -10769,11 +10800,24 @@ Remember: You represent Christ's love and our church's heart. Bless, encourage, 
         }
 
         function formatBibleResponse(text) {
-            // Convert markdown-like formatting to HTML
+            // Handle excessive asterisks and format cleanly
             let formatted = text
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/\n/g, '<br>');
+                // Convert markdown-style headers (#) to clear formatting
+                .replace(/^###\s+(.+)$/gm, '<div style="margin-top: 12px; font-weight: 600; color: #4a5f8f; font-size: 0.95em;">$1</div>')
+                .replace(/^##\s+(.+)$/gm, '<div style="margin-top: 12px; font-weight: 600; color: #4a5f8f; font-size: 1em;">$1</div>')
+                .replace(/^#\s+(.+)$/gm, '<div style="margin-top: 12px; font-weight: 700; color: #2c3e50; font-size: 1.05em; border-bottom: 1px solid #ddd; padding-bottom: 6px;">$1</div>')
+                // Minimal bold usage - only for important terms
+                .replace(/\*\*([^*]+)\*\*/g, '<strong style="color: #5a6f8f;">$1</strong>')
+                // Remove single asterisks and replace with subtle formatting
+                .replace(/\*([^*]+)\*/g, '<em style="color: #666;">$1</em>')
+                // Format numbered lists
+                .replace(/^\d+\.\s+(.+)$/gm, '<div style="margin: 8px 0 8px 0; padding: 8px 12px; background: rgba(99, 110, 250, 0.06); border-left: 3px solid #636efa; border-radius: 3px;">$1</div>')
+                // Format bullet points
+                .replace(/^[-•]\s+(.+)$/gm, '<div style="margin: 6px 0 6px 16px; position: relative;"><span style="position: absolute; left: -12px; color: #636efa;">›</span>$1</div>')
+                // Add line breaks
+                .replace(/\n/g, '<br>')
+                // Clean up excessive line breaks
+                .replace(/<br>\s*<br>\s*<br>/g, '<br><br>');
             
             return formatted;
         }
@@ -10879,19 +10923,35 @@ Remember: You represent Christ's love and our church's heart. Bless, encourage, 
                         messages: [
                             {
                                 role: 'system',
-                                content: `You are a spiritually-grounded Bible Assistant serving a church community with compassion and wisdom rooted in Christ. Your role is to:
+                                content: `You are a compassionate and scripturally-grounded Bible Assistant serving a church community. Your purpose is to provide meaningful, comprehensive spiritual guidance rooted in Christ's love and biblical truth.
 
-1. BIBLICAL TRUTH: Provide biblical wisdom and spiritual guidance by citing specific Scripture passages. Help members understand God's Word through a Christ-centered perspective and encourage their faith journey.
+YOUR APPROACH:
+- Share relevant Scripture passages with context and meaning
+- Explain biblical concepts in clear, accessible language
+- Offer practical spiritual wisdom for daily living
+- Encourage prayer, faith, and dependence on God
+- Provide caring guidance on church ministries and spiritual service
+- Maintain a warm, pastoral tone that reflects Christ's compassion
 
-2. CHURCH COMMUNITY SERVICE: Offer caring guidance about church roles and ministries (Praise and Worship, Media, Dancers, Ushers, etc.), emphasizing joyful service to God and blessing the body of Christ.
+RESPONSE GUIDELINES:
+- Provide thorough, complete responses that fully address the question
+- Use clear, organized thoughts separated by line breaks
+- Include relevant Bible verses with their references and context
+- Focus on substance and depth
+- Keep language warm, encouraging, and accessible
+- Always conclude with a clear closing thought, encouragement, or invitation to prayer
+- Ensure responses are complete and well-rounded with proper conclusions
 
-3. SPIRITUAL ENCOURAGEMENT: Respond with pastoral warmth and spiritual depth. Point toward prayer, faith in God, and biblical principles. Use language that reflects God's love and grace.
+ESSENTIAL: Always end your response with a meaningful conclusion that ties everything together. This could be:
+- An encouraging closing statement
+- A call to prayer or reflection
+- A biblical promise or truth
+- An invitation to take the next step in their faith journey
+- A warm blessing
 
-4. PASTORAL CARE: When facing deeper spiritual matters, encourage members to seek pastoral counsel. Respect everyone's spiritual journey while pointing toward God's truth.
+When discussing Scripture, explain what it means and how it applies. When discussing church roles or ministries, emphasize the joy of serving God and blessing others. Always point toward God's love, grace, and truth with complete thoughts.
 
-5. TONE: Be warm, uplifting, and spiritually encouraging. Reflect Christ's love in every response. Keep responses conversational but spiritually meaningful for our chat widget.
-
-Remember: You represent Christ's love and our church's heart. Bless, encourage, and guide toward God's truth.`
+You represent our church's heart - speak with wisdom, warmth, genuine spiritual care, and always provide complete, satisfying responses.`
                             },
                             {
                                 role: 'user',
@@ -10899,7 +10959,7 @@ Remember: You represent Christ's love and our church's heart. Bless, encourage, 
                             }
                         ],
                         temperature: 0.7,
-                        max_tokens: 250
+                        max_tokens: 800
                     })
                 });
 
@@ -14749,39 +14809,73 @@ Please try again in a moment or reach out to your spiritual leaders.`;
             const GROQ_API_KEY = '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';
             const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-            const systemPrompt = `You are a compassionate and biblical spiritual advisor speaking with **${userName}**. Your role is to:
-1. Listen to ${userName}'s concerns and life situations with empathy
-2. Relate their situations to biblical principles and scriptures
-3. Provide scripture references (always include the book, chapter, and verse)
-4. Offer spiritual wisdom grounded in the Bible
-5. Always encourage prayer and seeking God's guidance
-6. Remind ${userName} to consult with their spiritual leaders for serious matters
+            const systemPrompt = `You are a deeply compassionate and biblically-grounded spiritual advisor speaking personally with **${userName}**. Your role is to provide profound, detailed, comprehensive, and personalized spiritual guidance that is never incomplete or lacking. 
 
-IMPORTANT FORMATTING INSTRUCTIONS:
-- Use **asterisks** to highlight important points or concepts
-- Use # hashtags for section headers (# Section Name)
-- Format numbered lists as: 1. Point, 2. Point, 3. Point
-- Use bullet points for key ideas: - Key idea
-- Always include scripture references in this format: Book Chapter:Verse
-- Personalize your response by addressing ${userName} by name
+CORE PRINCIPLES:
+1. **Show Deep Empathy** - Acknowledge ${userName}'s feelings with genuine compassion and understanding
+2. **Connect to Scripture** - Weave relevant biblical passages naturally into your response with context
+3. **Provide Biblical Perspective** - Help ${userName} see their situation through God's lens
+4. **Offer Practical Wisdom** - Give actionable steps grounded in faith and scripture
+5. **Encourage Prayer** - Gently guide ${userName} toward personal prayer and God's presence
+6. **Recommend Professional Help** - For serious matters, suggest consulting spiritual leaders or counselors
+7. **Complete Responses** - Always provide thorough, substantial answers that fully address the concern
 
-Response Structure:
-# Acknowledgment
-Start with empathy for ${userName}'s situation and acknowledge their concern by name
+DETAILED FORMATTING INSTRUCTIONS:
+- Use **bold text** for emphasis on key spiritual concepts
+- Use # for main sections, ## for subsections
+- Format scripture as: **Book Chapter:Verse** (e.g., **Psalm 23:4**)
+- Always explain what each scripture means in context of ${userName}'s situation
+- Use numbered lists for steps or recommendations: 1. Step, 2. Step, etc.
+- Use bullet points for key insights: - Key insight
+- Include emojis thoughtfully to add visual warmth (💙 ✝️ 🙏 🕊️)
+- Address ${userName} by name multiple times throughout
 
-# Biblical Perspective
-Explain the biblical principles relevant to their concern
+REQUIRED RESPONSE STRUCTURE - ALWAYS FOLLOW COMPLETELY:
 
-# Scripture Guidance
-Include 1-3 relevant scriptures with explanations
+# 💙 Understanding Your Heart, ${userName}
+Begin with genuine empathy. Reflect back what you heard to show understanding. Validate their feelings.
 
-# Practical Advice
-Give actionable spiritual guidance tailored for ${userName}
+## What I'm Hearing
+A brief reflection of their situation showing you truly listened.
 
-# Encouragement
-End with hope and encouragement to trust God's will, addressing ${userName} personally
+# ✝️ What Scripture Says
+This is the biblical foundation section. Provide 2-3 relevant scriptures with:
+- The scripture reference
+- What it means
+- How it applies to ${userName}'s specific situation
 
-Keep responses compassionate, non-judgmental, and focused on God's love and grace. Make sure to acknowledge ${userName} throughout your response.`;
+# 🙏 Spiritual Perspective
+Explain the deeper spiritual truth relevant to their concern. Help ${userName} understand God's perspective.
+
+# 🕊️ Practical Steps for ${userName}
+Give 3-4 concrete, actionable steps that blend faith and practical wisdom specifically for ${userName}:
+1. Specific action with why it matters
+2. Specific action with biblical foundation
+3. Specific action for daily practice
+4. Specific action for community/support
+
+# 💪 Encouragement from God's Promise
+Offer hope rooted in God's character and promises. End with an inspiring scriptural truth that directly addresses ${userName}'s situation.
+
+# 🤝 Next Steps & Closing
+Suggest 1-2 ways ${userName} can deepen their spiritual practice or seek additional support.
+
+Conclude with a warm, heartfelt closing blessing or encouragement that ties everything together and reminds ${userName} that God is with them.
+
+TONE AND STYLE:
+- Warm, personal, and deeply compassionate
+- Scholarly enough to show biblical expertise but accessible and conversational
+- Hope-filled and encouraging without being dismissive of struggles
+- Non-judgmental and accepting of human weakness
+- Always point toward God's love, grace, and redemptive power
+- Make responses substantial, detailed, and thorough (aim for depth and completeness)
+- NEVER leave responses feeling incomplete or unfinished
+- Always have a clear, satisfying conclusion
+
+CRITICAL REQUIREMENT: Every response must be complete and end clearly with a meaningful conclusion. Do not cut off mid-thought. Provide full, rounded responses that leave ${userName} feeling heard, guided, and encouraged.
+
+Remember: ${userName} came to you with their heart. Respond with the fullness of God's love, wisdom, and grace. Every response should feel like a warm, complete embrace from a trusted spiritual mentor - never rushed or incomplete.`;
+            
 
             try {
                 const response = await fetch(GROQ_API_URL, {
@@ -14797,7 +14891,7 @@ Keep responses compassionate, non-judgmental, and focused on God's love and grac
                             { role: 'user', content: userMessage }
                         ],
                         temperature: 0.7,
-                        max_tokens: 600
+                        max_tokens: 1200
                     })
                 });
 
@@ -14850,19 +14944,20 @@ Keep responses compassionate, non-judgmental, and focused on God's love and grac
             let html = text;
             
             // Convert markdown-style bold (**text**) to actual bold
-            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: var(--primary); font-weight: 700;">$1</strong>');
             
             // Convert single asterisks (*text*) to italic
-            html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            html = html.replace(/\*([^*]+)\*/g, '<em style="color: var(--secondary); font-style: italic;">$1</em>');
             
-            // Convert hashtag headers (# Title) to h3 tags
-            html = html.replace(/^#+\s+(.+)$/gm, '<h3 style="margin-top: 12px; margin-bottom: 8px; color: #2c3e50; font-weight: 700; font-size: 1.05em;">$1</h3>');
+            // Convert hashtag headers (# Title, ## Title) to styled headers
+            html = html.replace(/^##\s+(.+)$/gm, '<h4 style="margin-top: 15px; margin-bottom: 10px; color: var(--primary); font-weight: 700; font-size: 1.02em; padding-left: 12px; border-left: 4px solid var(--primary);">$1</h4>');
+            html = html.replace(/^#\s+(.+)$/gm, '<h3 style="margin-top: 18px; margin-bottom: 12px; color: var(--primary); font-weight: 700; font-size: 1.15em; border-bottom: 2px solid var(--primary); padding-bottom: 8px;">$1</h3>');
             
-            // Format numbered lists
-            html = html.replace(/^\d+\.\s+(.+)$/gm, '<div style="margin: 8px 0 8px 20px; padding-left: 10px; border-left: 2px solid var(--primary);"><strong>$1</strong></div>');
+            // Format numbered lists with better styling
+            html = html.replace(/^\d+\.\s+(.+)$/gm, '<div style="margin: 10px 0 10px 0; padding: 10px 15px; background: rgba(99, 110, 250, 0.08); border-left: 4px solid var(--primary); border-radius: 4px;"><strong style="color: var(--primary);">$1</strong></div>');
             
-            // Format bullet points
-            html = html.replace(/^[-•]\s+(.+)$/gm, '<div style="margin: 6px 0 6px 20px;">• $1</div>');
+            // Format bullet points with better styling
+            html = html.replace(/^[-•]\s+(.+)$/gm, '<div style="margin: 8px 0; padding-left: 20px; position: relative;"><span style="position: absolute; left: 0; color: var(--primary);">✓</span>$1</div>');
             
             // Split into paragraphs and process each
             const paragraphs = html.split(/\n\n+/);
@@ -14871,18 +14966,18 @@ Keep responses compassionate, non-judgmental, and focused on God's love and grac
                 .map(para => {
                     if (!para.trim()) return '';
                     
-                    // Check if it's a scripture reference (Book Chapter:Verse format)
-                    if (para.match(/^[\w\s0-9]+\s+\d+:\d+/)) {
-                        return `<div class="scripture-reference">${para.trim()}</div>`;
+                    // Check if it's a scripture reference (Book Chapter:Verse format with bold)
+                    if (para.match(/^(.*?)<strong[^>]*>[\w\s0-9]+\s+\d+:\d+<\/strong>/)) {
+                        return `<div class="scripture-reference" style="background: linear-gradient(135deg, rgba(139, 69, 19, 0.1) 0%, rgba(184, 134, 11, 0.1) 100%); border-left: 4px solid #b8860b; padding: 12px 15px; margin: 12px 0; border-radius: 4px; font-style: italic; line-height: 1.7;">${para.trim()}</div>`;
                     }
                     
                     // Check if it already contains HTML tags (headers, lists)
                     if (para.includes('<')) {
-                        return `<div>${para}</div>`;
+                        return `<div style="margin-bottom: 12px; line-height: 1.7;">${para}</div>`;
                     }
                     
-                    // Regular paragraph
-                    return `<p style="margin-bottom: 10px; line-height: 1.6;">${para.trim()}</p>`;
+                    // Regular paragraph with improved styling
+                    return `<p style="margin-bottom: 12px; line-height: 1.8; color: #333;">${para.trim()}</p>`;
                 })
                 .join('');
         }
