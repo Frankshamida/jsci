@@ -286,16 +286,6 @@
         border-radius: var(--border-radius);
         box-shadow: var(--shadow);
         margin-bottom: 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 15px;
-    }
-
-    .content-header-text {
-        flex: 1;
-        min-width: 250px;
     }
 
     .content-header h1 {
@@ -309,145 +299,6 @@
         color: #6c757d;
         font-family: 'Montserrat', sans-serif;
         font-size: 0.9rem;
-    }
-
-    .notification-btn {
-        position: relative;
-        background: linear-gradient(135deg, var(--primary), var(--secondary));
-        color: white;
-        border: none;
-        width: 50px;
-        height: 50px;
-        border-radius: 50%;
-        font-size: 1.3rem;
-        cursor: pointer;
-        box-shadow: 0 4px 12px rgba(146, 108, 21, 0.3);
-        transition: var(--transition);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .notification-btn:hover {
-        transform: scale(1.1);
-        box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
-    }
-
-    .notification-badge {
-        position: absolute;
-        top: -5px;
-        right: -5px;
-        background: #dc3545;
-        color: white;
-        border-radius: 50%;
-        width: 24px;
-        height: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.75rem;
-        font-weight: bold;
-        border: 2px solid white;
-    }
-
-    /* Notification Modal */
-    .notification-modal {
-        position: fixed;
-        top: 0;
-        right: -400px;
-        width: 400px;
-        height: 100vh;
-        background: white;
-        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.2);
-        z-index: 2000;
-        transition: right 0.4s ease;
-        overflow-y: auto;
-        border-radius: 12px 0 0 12px;
-    }
-
-    .notification-modal.active {
-        right: 0;
-    }
-
-    .notification-modal-header {
-        background: linear-gradient(135deg, var(--primary), var(--secondary));
-        color: white;
-        padding: 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 1.3rem;
-        font-weight: bold;
-    }
-
-    .notification-modal-close {
-        background: none;
-        border: none;
-        color: white;
-        font-size: 1.5rem;
-        cursor: pointer;
-        transition: var(--transition);
-    }
-
-    .notification-modal-close:hover {
-        transform: scale(1.2);
-    }
-
-    .notification-modal-content {
-        padding: 20px;
-    }
-
-    .notification-item {
-        background: #f8f9fa;
-        border-left: 4px solid var(--primary);
-        padding: 15px;
-        margin-bottom: 15px;
-        border-radius: 6px;
-        transition: var(--transition);
-    }
-
-    .notification-item:hover {
-        background: #e9ecef;
-        transform: translateX(5px);
-    }
-
-    .notification-greeting-header {
-        font-weight: 700;
-        color: var(--primary);
-        margin-bottom: 8px;
-        font-size: 1.1rem;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .notification-greeting-text {
-        color: #555;
-        line-height: 1.5;
-        margin-bottom: 8px;
-        font-size: 0.95rem;
-    }
-
-    .notification-footer {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.85rem;
-        color: #999;
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px solid #e0e0e0;
-    }
-
-    .notification-no-items {
-        text-align: center;
-        padding: 40px 20px;
-        color: #999;
-    }
-
-    .notification-no-items i {
-        font-size: 2.5rem;
-        margin-bottom: 10px;
-        opacity: 0.3;
     }
 
     /* Common Card Styles */
@@ -1209,137 +1060,6 @@
     .medium-priority {
         background: rgba(255, 193, 7, 0.1);
         color: #ffc107;
-    }
-
-    /* Birthday Greetings in Announcements */
-    .birthday-greeting-card {
-        background: linear-gradient(135deg, #fff8e1, #fff9c4);
-        border: 2px solid #ffc107;
-        border-radius: 12px;
-        padding: 18px;
-        margin-bottom: 15px;
-        box-shadow: 0 4px 12px rgba(255, 195, 0, 0.15);
-        transition: var(--transition);
-    }
-
-    .birthday-greeting-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 6px 16px rgba(255, 195, 0, 0.25);
-    }
-
-    .birthday-greeting-header-section {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 12px;
-    }
-
-    .birthday-emoji {
-        font-size: 2rem;
-    }
-
-    .birthday-greeting-info {
-        flex: 1;
-    }
-
-    .birthday-greeting-name {
-        font-weight: 700;
-        color: #f57f17;
-        font-size: 1.1rem;
-        margin: 0;
-    }
-
-    .birthday-greeting-role {
-        font-size: 0.85rem;
-        color: #e67e22;
-        margin: 3px 0 0 0;
-        font-weight: 500;
-    }
-
-    .birthday-greeting-message {
-        color: #555;
-        line-height: 1.6;
-        font-size: 0.95rem;
-        background: rgba(255, 255, 255, 0.7);
-        padding: 12px;
-        border-radius: 8px;
-        border-left: 3px solid #ff9800;
-    }
-
-    /* Upcoming Birthdays in Announcements */
-    .upcoming-birthdays-container {
-        background: white;
-        border-radius: 12px;
-        box-shadow: var(--shadow);
-        overflow: hidden;
-        margin-top: 20px;
-    }
-
-    .upcoming-birthdays-header {
-        background: linear-gradient(135deg, rgba(63, 81, 181, 0.1), rgba(103, 58, 183, 0.1));
-        padding: 15px 20px;
-        border-bottom: 2px solid #6735b7;
-    }
-
-    .upcoming-birthdays-header h3 {
-        margin: 0;
-        color: #3f51b5;
-        font-weight: 700;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .upcoming-birthday-list {
-        padding: 15px;
-    }
-
-    .upcoming-birthday-row {
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-        gap: 15px;
-        align-items: center;
-        padding: 12px;
-        border-bottom: 1px solid #f0f0f0;
-        transition: var(--transition);
-    }
-
-    .upcoming-birthday-row:last-child {
-        border-bottom: none;
-    }
-
-    .upcoming-birthday-row:hover {
-        background: #f8f9fa;
-    }
-
-    .upcoming-birthday-icon {
-        font-size: 24px;
-    }
-
-    .upcoming-birthday-details {
-        flex: 1;
-    }
-
-    .upcoming-birthday-name {
-        font-weight: 600;
-        color: #333;
-        margin: 0 0 4px 0;
-    }
-
-    .upcoming-birthday-info {
-        font-size: 0.85rem;
-        color: #777;
-        margin: 0;
-    }
-
-    .upcoming-birthday-days-badge {
-        background: linear-gradient(135deg, #3f51b5, #6735b7);
-        color: white;
-        padding: 6px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        white-space: nowrap;
     }
 
     /* Ministry Specific Styles */
@@ -3360,22 +3080,6 @@
             display: block;
         }
 
-        .content-header {
-            flex-direction: column;
-            align-items: flex-start;
-        }
-
-        .notification-btn {
-            align-self: flex-end;
-            margin-top: -10px;
-        }
-
-        .notification-modal {
-            width: 100%;
-            right: -100%;
-            border-radius: 0;
-        }
-
         .overlay.active {
             display: block;
         }
@@ -3949,8 +3653,8 @@
     .chat-container {
         display: flex;
         flex-direction: column;
-        height: calc(100vh - 400px);
-        background: white;
+        height: 100%;
+        background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
         border-radius: 12px;
         box-shadow: var(--shadow);
         overflow: hidden;
@@ -3960,18 +3664,18 @@
     .chat-messages {
         flex: 1;
         overflow-y: auto;
-        padding: 25px;
+        padding: 20px;
         display: flex;
         flex-direction: column;
-        gap: 15px;
-        background: #f9f9f9;
+        gap: 16px;
+        background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
     }
 
     .chat-message {
         display: flex;
         flex-direction: column;
         gap: 5px;
-        max-width: 75%;
+        max-width: 80%;
         animation: slideIn 0.3s ease;
     }
 
@@ -3995,8 +3699,8 @@
     }
 
     .message-content {
-        padding: 15px 18px;
-        border-radius: 12px;
+        padding: 12px 16px;
+        border-radius: 16px;
         line-height: 1.6;
         word-wrap: break-word;
     }
@@ -4005,13 +3709,15 @@
         background: linear-gradient(135deg, var(--primary), var(--secondary));
         color: white;
         border-bottom-right-radius: 4px;
+        box-shadow: 0 2px 8px rgba(146, 108, 21, 0.15);
     }
 
     .ai-message .message-content {
         background: #ffffff;
         color: var(--dark);
-        border: 1px solid #e0e0e0;
+        border: 1px solid #e8e8e8;
         border-bottom-left-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
     }
 
     .message-content p {
@@ -4020,7 +3726,7 @@
     }
 
     .message-content p:not(:last-child) {
-        margin-bottom: 10px;
+        margin-bottom: 8px;
     }
 
     .scripture-reference {
@@ -4049,26 +3755,28 @@
     }
 
     .chat-input-area {
-        padding: 20px;
-        background: white;
-        border-top: 2px solid #f0f0f0;
+        padding: 16px 20px 20px;
+        background: #ffffff;
+        border-top: 1px solid #e8e8e8;
     }
 
     .input-group {
         display: flex;
-        gap: 12px;
-        margin-bottom: 10px;
+        gap: 10px;
+        align-items: flex-end;
+        margin-bottom: 8px;
     }
 
     .chat-input {
         flex: 1;
-        padding: 12px 15px;
+        padding: 12px 16px;
         border: 2px solid #e0e0e0;
-        border-radius: 8px;
+        border-radius: 24px;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         font-size: 0.95rem;
         resize: none;
         transition: var(--transition);
+        max-height: 120px;
     }
 
     .chat-input:focus {
@@ -4078,22 +3786,25 @@
     }
 
     .send-button {
-        padding: 12px 25px;
+        padding: 10px 16px;
         background: linear-gradient(135deg, var(--primary), var(--secondary));
         color: white;
         border: none;
-        border-radius: 8px;
+        border-radius: 50%;
+        width: 44px;
+        height: 44px;
         font-weight: 600;
         cursor: pointer;
         transition: var(--transition);
         display: flex;
         align-items: center;
-        gap: 8px;
+        justify-content: center;
         white-space: nowrap;
+        flex-shrink: 0;
     }
 
     .send-button:hover:not(:disabled) {
-        transform: translateY(-2px);
+        transform: scale(1.05);
         box-shadow: 0 6px 20px rgba(146, 108, 21, 0.3);
     }
 
@@ -4103,11 +3814,11 @@
     }
 
     .send-button i {
-        font-size: 0.95rem;
+        font-size: 1rem;
     }
 
     .input-hint {
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         color: #999;
         padding: 0 5px;
     }
@@ -4148,24 +3859,692 @@
     /* Responsive Chat */
     @media (max-width: 768px) {
         .chat-container {
-            height: calc(100vh - 350px);
+            height: calc(100vh - 300px);
             min-height: 400px;
+            border-radius: 8px;
         }
 
         .chat-message {
-            max-width: 85%;
+            max-width: 90%;
         }
 
         .disclaimer-banner {
-            padding: 15px;
+            padding: 12px 15px;
+            margin: 0;
+            border-radius: 8px;
         }
 
         .chat-messages {
-            padding: 15px;
+            padding: 12px;
+            gap: 12px;
+        }
+
+        .message-content {
+            padding: 10px 14px;
+            font-size: 0.9rem;
         }
 
         .chat-input-area {
-            padding: 15px;
+            padding: 12px 12px 16px;
+        }
+
+        .input-group {
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .chat-input {
+            padding: 10px 14px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .send-button {
+            width: 40px;
+            height: 40px;
+            padding: 8px 12px;
+        }
+
+        .send-button i {
+            font-size: 0.9rem;
+        }
+
+        .input-hint {
+            font-size: 0.75rem;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .chat-container {
+            height: calc(100vh - 280px);
+            min-height: 350px;
+        }
+
+        .chat-message {
+            max-width: 95%;
+        }
+
+        .chat-messages {
+            padding: 10px;
+            gap: 10px;
+        }
+
+        .message-content {
+            padding: 9px 12px;
+            font-size: 0.85rem;
+        }
+
+        .message-time {
+            font-size: 0.7rem;
+        }
+
+        .chat-input-area {
+            padding: 10px 10px 14px;
+        }
+
+        .input-group {
+            gap: 6px;
+        }
+
+        .chat-input {
+            padding: 9px 12px;
+            font-size: 0.85rem;
+        }
+
+        .send-button {
+            width: 38px;
+            height: 38px;
+        }
+
+        .input-hint {
+            display: none;
+        }
+    }
+
+    /* Flowise-style Chatbot Button */
+    .flowise-button {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        border: none;
+        cursor: pointer;
+        z-index: 1500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(146, 108, 21, 0.3);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .flowise-button:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+    }
+
+    .flowise-button img {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+    }
+
+    /* Flowise Tooltip */
+    .flowise-tooltip {
+        position: fixed;
+        bottom: 90px;
+        right: 20px;
+        background: black;
+        color: white;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 1499;
+        transition: opacity 0.3s ease;
+        white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .flowise-tooltip::after {
+        content: '';
+        position: absolute;
+        bottom: -5px;
+        right: 15px;
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 5px solid black;
+    }
+
+    .flowise-button:hover + .flowise-tooltip,
+    .flowise-tooltip:hover {
+        opacity: 1;
+    }
+
+    /* Flowise Chat Window */
+    .flowise-chat-window {
+        position: fixed;
+        bottom: 90px;
+        right: 20px;
+        width: 400px;
+        height: 600px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+        z-index: 1500;
+        display: none;
+        flex-direction: column;
+        overflow: hidden;
+        animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .flowise-chat-window.open {
+        display: flex;
+    }
+
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* Chat Header */
+    .flowise-chat-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .flowise-chat-header-content {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .flowise-chat-header-content img {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 2px solid white;
+    }
+
+    .flowise-chat-header-text h3 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+    }
+
+    .flowise-chat-header-text p {
+        margin: 0;
+        font-size: 12px;
+        opacity: 0.9;
+    }
+
+    .flowise-close-btn {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 20px;
+        cursor: pointer;
+        padding: 0;
+        transition: transform 0.2s ease;
+    }
+
+    .flowise-close-btn:hover {
+        transform: scale(1.2);
+    }
+
+    /* Chat Messages */
+    .flowise-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        background: #f8f9fa;
+    }
+
+    .flowise-message {
+        display: flex;
+        gap: 8px;
+        animation: messageSlide 0.3s ease;
+    }
+
+    @keyframes messageSlide {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .flowise-message.user {
+        justify-content: flex-end;
+    }
+
+    .flowise-message-bubble {
+        max-width: 75%;
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.4;
+        word-wrap: break-word;
+    }
+
+    .flowise-message.ai .flowise-message-bubble {
+        background: #e8eef7;
+        color: #303235;
+    }
+
+    .flowise-message.user .flowise-message-bubble {
+        background: var(--primary);
+        color: white;
+    }
+
+    /* Chat Input */
+    .flowise-input-area {
+        padding: 12px;
+        border-top: 1px solid #e0e0e0;
+        display: flex;
+        gap: 8px;
+        background: white;
+    }
+
+    .flowise-input-area input {
+        flex: 1;
+        border: 1px solid #e0e0e0;
+        border-radius: 20px;
+        padding: 10px 16px;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s ease;
+    }
+
+    .flowise-input-area input:focus {
+        border-color: var(--primary);
+    }
+
+    .flowise-send-btn {
+        background: var(--primary);
+        border: none;
+        color: white;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+    }
+
+    .flowise-send-btn:hover {
+        background: var(--secondary);
+        transform: scale(1.05);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .flowise-chat-window {
+            width: 90vw;
+            height: 80vh;
+            max-width: 100%;
+            bottom: auto;
+            right: auto;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .flowise-button {
+            bottom: 20px;
+            right: 20px;
+        }
+
+        .flowise-tooltip {
+            display: none;
+        }
+    }
+
+    /* Floating Chatbot Widget */
+    .floating-chatbot {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 350px;
+        height: 500px;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        z-index: 1500;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .floating-chatbot.collapsed {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+    }
+
+    .floating-chatbot-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        padding: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        transition: padding 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-header {
+        padding: 8px;
+        border-radius: 50%;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .floating-chatbot-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        font-size: 0.95rem;
+    }
+
+    .floating-chatbot-title i {
+        font-size: 1.2rem;
+    }
+
+    .floating-chatbot-close {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 1.2rem;
+        cursor: pointer;
+        transition: transform 0.3s ease;
+    }
+
+    .floating-chatbot-close:hover {
+        transform: scale(1.2);
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-title,
+    .floating-chatbot.collapsed .floating-chatbot-close {
+        display: none;
+    }
+
+    .floating-chatbot-content {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        overflow: hidden;
+        transition: opacity 0.3s ease;
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-content {
+        display: none;
+    }
+
+    .floating-chatbot-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        background: #f8f9fa;
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-messages {
+        display: none;
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-input-area {
+        display: none;
+    }
+
+    .floating-chatbot-collapsed-content {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        transition: opacity 0.3s ease 0.05s;
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-collapsed-content {
+        display: flex;
+        opacity: 1;
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-header {
+        width: 100%;
+        height: 100%;
+        padding: 0;
+    }
+
+    .floating-chatbot-collapsed-content img {
+        width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 3px solid white;
+        transition: transform 0.3s ease;
+    }
+
+    .floating-chatbot.collapsed:hover .floating-chatbot-collapsed-content img {
+        transform: scale(1.05);
+    }
+
+    .floating-chatbot-collapsed-message {
+        font-size: 0.65rem;
+        text-align: center;
+        color: white;
+        line-height: 1.1;
+        font-weight: 600;
+        max-width: 70px;
+        opacity: 0;
+        transition: opacity 0.3s ease 0.1s;
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-collapsed-message {
+        opacity: 1;
+    }
+
+    .floating-chatbot-message {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        animation: slideIn 0.3s ease;
+    }
+
+    .floating-chatbot-message.user {
+        align-self: flex-end;
+        max-width: 80%;
+    }
+
+    .floating-chatbot-message.ai {
+        align-self: flex-start;
+        max-width: 80%;
+    }
+
+    .floating-chatbot-message-content {
+        padding: 9px 12px;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
+
+    .floating-chatbot-message.user .floating-chatbot-message-content {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border-bottom-right-radius: 2px;
+    }
+
+    .floating-chatbot-message.ai .floating-chatbot-message-content {
+        background: #e8e8e8;
+        color: #333;
+        border-bottom-left-radius: 2px;
+    }
+
+    .floating-chatbot-input-area {
+        padding: 12px;
+        background: white;
+        border-top: 1px solid #e0e0e0;
+        display: flex;
+        gap: 8px;
+    }
+
+    .floating-chatbot.collapsed .floating-chatbot-input-area {
+        display: none;
+    }
+
+    .floating-chatbot-input {
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 16px;
+        font-size: 0.85rem;
+        resize: none;
+        height: 36px;
+        font-family: inherit;
+    }
+
+    .floating-chatbot-input:focus {
+        outline: none;
+        border-color: var(--primary);
+    }
+
+    .floating-chatbot-send {
+        width: 36px;
+        height: 36px;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.3s ease;
+    }
+
+    .floating-chatbot-send:hover {
+        transform: scale(1.05);
+    }
+
+    .floating-chatbot-send:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .floating-chatbot-toggle-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 60px;
+        height: 60px;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        z-index: 1400;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        box-shadow: 0 4px 12px rgba(146, 108, 21, 0.3);
+        transition: all 0.3s ease;
+    }
+
+    .floating-chatbot-toggle-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 16px rgba(146, 108, 21, 0.4);
+    }
+
+    .floating-chatbot-toggle-btn.active {
+        display: flex;
+    }
+
+    /* Mobile Chatbot */
+    @media (max-width: 768px) {
+        .floating-chatbot {
+            width: 300px;
+            height: 450px;
+            bottom: 10px;
+            left: 10px;
+        }
+
+        .floating-chatbot-messages {
+            padding: 12px;
+            gap: 10px;
+        }
+
+        .floating-chatbot-message {
+            font-size: 0.8rem;
+        }
+
+        .floating-chatbot-message-content {
+            padding: 8px 10px;
+            font-size: 0.8rem;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .floating-chatbot {
+            width: 280px;
+            height: 400px;
+            bottom: 10px;
+            left: 10px;
+        }
+
+        .floating-chatbot-header {
+            padding: 12px;
+        }
+
+        .floating-chatbot-title {
+            font-size: 0.85rem;
+            gap: 8px;
+        }
+
+        .floating-chatbot-messages {
+            padding: 10px;
+        }
+
+        .floating-chatbot-message-content {
+            padding: 7px 9px;
+            font-size: 0.75rem;
+        }
+
+        .floating-chatbot-input {
+            font-size: 0.8rem;
         }
     }
 
@@ -4242,25 +4621,8 @@
         <!-- Main Content -->
         <main class="main-content">
             <div class="content-header">
-                <div class="content-header-text">
-                    <h1 id="pageTitle">Welcome to Your Ministry Portal</h1>
-                    <p id="pageSubtitle">Stay connected and inspired in your service</p>
-                </div>
-                <button class="notification-btn" onclick="toggleNotificationModal()" title="Birthday Notifications">
-                    <i class="fas fa-bell"></i>
-                    <div class="notification-badge" id="notificationBadge" style="display: none;">0</div>
-                </button>
-            </div>
-
-            <!-- Notification Modal -->
-            <div class="notification-modal" id="notificationModal">
-                <div class="notification-modal-header">
-                    <span><i class="fas fa-bell" style="margin-right: 10px;"></i>Birthday Greetings</span>
-                    <button class="notification-modal-close" onclick="toggleNotificationModal()">&times;</button>
-                </div>
-                <div class="notification-modal-content" id="notificationModalContent">
-                    <!-- Notification items will be populated here -->
-                </div>
+                <h1 id="pageTitle">Welcome to Your Ministry Portal</h1>
+                <p id="pageSubtitle">Stay connected and inspired in your service</p>
             </div>
 
             <!-- Verification Banner (shown only for unverified users) -->
@@ -4605,6 +4967,45 @@
                             <div class="modal-body" id="modalBody">
                                 <!-- Schedule details will be populated here -->
                             </div>
+                            
+                            <!-- YouTube Player with Lyrics -->
+                            <div id="youtubePlayerContainer" style="display: none; margin-top: 20px; border-top: 2px solid #e0e0e0; padding-top: 20px;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                    <!-- YouTube Player -->
+                                    <div>
+                                        <h4 style="margin-bottom: 10px; color: var(--primary); font-weight: 600;">
+                                            <i class="fab fa-youtube"></i> Song Preview
+                                        </h4>
+                                        <div id="youtubePlayer" style="width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 8px; overflow: hidden;">
+                                            <!-- YouTube iframe will be inserted here -->
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Lyrics Display -->
+                                    <div>
+                                        <h4 style="margin-bottom: 10px; color: var(--primary); font-weight: 600;">
+                                            <i class="fas fa-music"></i> Song Lyrics
+                                        </h4>
+                                        <div id="lyricsContainer" style="
+                                            background: #f8f9fa;
+                                            border-radius: 8px;
+                                            padding: 15px;
+                                            height: 100%;
+                                            max-height: 300px;
+                                            overflow-y: auto;
+                                            border-left: 4px solid var(--primary);
+                                            font-size: 0.9rem;
+                                            line-height: 1.6;
+                                            color: #333;
+                                        ">
+                                            <div style="text-align: center; color: #999;">
+                                                <i class="fas fa-music" style="font-size: 2rem; margin-bottom: 10px; display: block;"></i>
+                                                Loading lyrics...
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -4619,25 +5020,14 @@
 
             <!-- Announcements Section -->
             <section id="announcements" class="content-section">
-                <h2 class="section-title"><i class="fas fa-bullhorn"></i> Announcements & Birthday Greetings</h2>
+                <h2 class="section-title"><i class="fas fa-bullhorn"></i> Announcements</h2>
                 
-                <!-- Birthday Greetings -->
-                <div id="birthdayGreetingsContainer" style="margin-bottom: 30px;">
-                    <!-- Birthday greetings with names and ministries will be displayed here -->
-                </div>
-
-                <!-- General Announcements -->
-                <div class="announcements-container" id="announcementsContainer">
+                <div class="announcements-container">
                     
                 </div>
 
-                <!-- Upcoming Birthdays Section -->
-                <div id="upcomingBirthdaysContainer" style="margin-top: 30px;">
-                    <!-- Upcoming birthdays will be displayed here -->
-                </div>
-
                 <!-- Birthday Today Section -->
-                <div class="birthday-today-section" id="birthdayTodaySection" style="margin-top: 30px; display: none;">
+                <div class="birthday-today-section" id="birthdayTodaySection" style="margin-top: 30px;">
                     <div class="birthday-header">
                         <h2><i class="fas fa-birthday-cake"></i> Birthday Celebrants Today</h2>
                         <div class="birthday-greeting-box" id="birthdayGreetingBox"></div>
@@ -5237,9 +5627,9 @@
                                 id="userInput" 
                                 class="chat-input" 
                                 placeholder="Ask about your situation, concerns, or questions... (e.g., 'I'm struggling with anxiety' or 'How should I handle conflict?')"
-                                rows="3"></textarea>
-                            <button id="sendBtn" class="send-button" onclick="sendSpiritualQuestion()">
-                                <i class="fas fa-paper-plane"></i> Ask
+                                rows="2"></textarea>
+                            <button id="sendBtn" class="send-button" onclick="sendSpiritualQuestion()" title="Send message">
+                                <i class="fas fa-paper-plane"></i>
                             </button>
                         </div>
                         <div class="input-hint">💡 Tip: Be specific about your situation for more personalized biblical guidance</div>
@@ -5744,24 +6134,11 @@
                     console.log('✓ Found', todaysCelebrrants.length, 'celebrants today');
                     console.log('✓ Found', upcomingBirthdays.length, 'upcoming birthdays');
                     
-                    // Update notification badge
-                    updateNotificationBadge(todaysCelebrrants.length);
-                    
-                    // Populate notification modal
-                    populateNotificationModal(todaysCelebrrants);
-                    
-                    // Display birthday greetings in announcements section
-                    displayBirthdayGreetingsInAnnouncements(todaysCelebrrants, upcomingBirthdays);
-                    
-                    // Display upcoming birthdays in announcements section
-                    displayUpcomingBirthdaysInAnnouncements(upcomingBirthdays);
-                    
                     // Display birthdays
                     displayBirthdaySection(todaysCelebrrants, upcomingBirthdays);
                 } else {
                     console.error('Invalid response format:', result);
                     displayBirthdaySection([], []);
-                    updateNotificationBadge(0);
                 }
             } catch (error) {
                 console.error('Error fetching birthdays:', error);
@@ -5914,138 +6291,6 @@
                 { text: 'May you be blessed by the Lord, the Maker of heaven and earth.', reference: 'Psalm 115:15 (NIV)' }
             ];
             return birthdayVerses[Math.floor(Math.random() * birthdayVerses.length)];
-        }
-
-        // Notification Functions
-        let allBirthdayNotifications = [];
-
-        function toggleNotificationModal() {
-            const modal = document.getElementById('notificationModal');
-            modal.classList.toggle('active');
-        }
-
-        function updateNotificationBadge(count) {
-            const badge = document.getElementById('notificationBadge');
-            if (count > 0) {
-                badge.textContent = count;
-                badge.style.display = 'flex';
-            } else {
-                badge.style.display = 'none';
-            }
-        }
-
-        function populateNotificationModal(todaysCelebrrants) {
-            const modalContent = document.getElementById('notificationModalContent');
-            let html = '';
-
-            if (!todaysCelebrrants || todaysCelebrrants.length === 0) {
-                html = `
-                    <div class="notification-no-items">
-                        <div><i class="fas fa-gift"></i></div>
-                        <p>No birthday notifications today. Check back tomorrow!</p>
-                    </div>
-                `;
-            } else {
-                todaysCelebrrants.forEach(member => {
-                    const greeting = generateBirthdayWish(member);
-                    html += `
-                        <div class="notification-item">
-                            <div class="notification-greeting-header">
-                                <span style="font-size: 1.3rem;">🎉</span>
-                                <span>${member.fullName}</span>
-                            </div>
-                            <div style="margin-bottom: 8px; font-size: 0.85rem; color: var(--primary); font-weight: 600;">
-                                <i class="fas fa-briefcase" style="margin-right: 5px;"></i>${member.ministry || 'Ministry Member'}
-                            </div>
-                            <div class="notification-greeting-text">
-                                "${greeting}"
-                            </div>
-                            <div class="notification-footer">
-                                <span><i class="fas fa-calendar"></i> Today's Birthday</span>
-                            </div>
-                        </div>
-                    `;
-                });
-            }
-
-            modalContent.innerHTML = html;
-        }
-
-        function displayBirthdayGreetingsInAnnouncements(todaysCelebrrants, upcomingBirthdays) {
-            const greetingsContainer = document.getElementById('birthdayGreetingsContainer');
-            if (!greetingsContainer) return;
-
-            let html = '';
-
-            // Display today's birthday greetings
-            if (todaysCelebrrants && todaysCelebrrants.length > 0) {
-                todaysCelebrrants.forEach(member => {
-                    const greeting = generateBirthdayWish(member);
-                    html += `
-                        <div class="birthday-greeting-card">
-                            <div class="birthday-greeting-header-section">
-                                <div class="birthday-emoji">🎂</div>
-                                <div class="birthday-greeting-info">
-                                    <p class="birthday-greeting-name">${member.fullName}</p>
-                                    <p class="birthday-greeting-role">
-                                        <i class="fas fa-users"></i> ${member.ministry || 'Ministry Member'}
-                                    </p>
-                                </div>
-                            </div>
-                            <div class="birthday-greeting-message">
-                                <i class="fas fa-quote-left" style="margin-right: 5px; opacity: 0.5;"></i>${greeting}
-                            </div>
-                        </div>
-                    `;
-                });
-            }
-
-            greetingsContainer.innerHTML = html;
-        }
-
-        function displayUpcomingBirthdaysInAnnouncements(upcomingBirthdays) {
-            const container = document.getElementById('upcomingBirthdaysContainer');
-            if (!container) return;
-
-            let html = '';
-
-            if (upcomingBirthdays && upcomingBirthdays.length > 0) {
-                html = `
-                    <div class="upcoming-birthdays-container">
-                        <div class="upcoming-birthdays-header">
-                            <h3><i class="fas fa-calendar-check"></i> Upcoming Birthdays</h3>
-                        </div>
-                        <div class="upcoming-birthday-list">
-                `;
-
-                upcomingBirthdays.forEach(member => {
-                    const monthName = new Date(member.birthdayDate).toLocaleDateString('en-US', { month: 'short' });
-                    const dayNum = new Date(member.birthdayDate).getDate();
-                    const daysText = member.daysUntilBirthday === 1 ? '1 day away' : 'in ' + member.daysUntilBirthday + ' days';
-
-                    html += `
-                        <div class="upcoming-birthday-row">
-                            <div class="upcoming-birthday-icon">🎁</div>
-                            <div class="upcoming-birthday-details">
-                                <p class="upcoming-birthday-name">${member.fullName}</p>
-                                <p class="upcoming-birthday-info">
-                                    <i class="fas fa-calendar-day"></i> ${monthName} ${dayNum}
-                                </p>
-                            </div>
-                            <div class="upcoming-birthday-days-badge">
-                                ${daysText}
-                            </div>
-                        </div>
-                    `;
-                });
-
-                html += `
-                        </div>
-                    </div>
-                `;
-            }
-
-            container.innerHTML = html;
         }
 
         async function initializeDashboard() {
@@ -6570,15 +6815,244 @@ Create fresh, authentic affirmations that will actually inspire this ministry wo
             overlay.classList.toggle('active');
         }
 
-        // Close notification modal when clicking outside
-        document.addEventListener('click', function(event) {
-            const modal = document.getElementById('notificationModal');
-            const btn = document.querySelector('.notification-btn');
-            
-            if (modal && btn && !modal.contains(event.target) && !btn.contains(event.target)) {
-                modal.classList.remove('active');
+        // Floating Chatbot Functions
+        function toggleFlowiseChat() {
+            const chatWindow = document.getElementById('flowiseChatWindow');
+            chatWindow.classList.toggle('open');
+            if (chatWindow.classList.contains('open')) {
+                document.getElementById('flowiseInput').focus();
             }
-        });
+        }
+
+        function closeFlowiseChat() {
+            document.getElementById('flowiseChatWindow').classList.remove('open');
+        }
+
+        async function sendFlowiseMessage() {
+            const input = document.getElementById('flowiseInput');
+            const messagesContainer = document.getElementById('flowiseMessages');
+            const message = input.value.trim();
+
+            if (!message) return;
+
+            // Add user message
+            const userMsg = document.createElement('div');
+            userMsg.className = 'flowise-message user';
+            userMsg.innerHTML = `<div class="flowise-message-bubble">${escapeHtml(message)}</div>`;
+            messagesContainer.appendChild(userMsg);
+
+            input.value = '';
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            // Get AI response
+            try {
+                const response = await getFlowiseAIResponse(message);
+                const aiMsg = document.createElement('div');
+                aiMsg.className = 'flowise-message ai';
+                aiMsg.innerHTML = `<div class="flowise-message-bubble">${response}</div>`;
+                messagesContainer.appendChild(aiMsg);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            } catch (error) {
+                console.error('Error:', error);
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'flowise-message ai';
+                errorMsg.innerHTML = `<div class="flowise-message-bubble">I apologize, but I'm experiencing a connection issue. Please try again.</div>`;
+                messagesContainer.appendChild(errorMsg);
+            }
+        }
+
+        async function getFlowiseAIResponse(userMessage) {
+            try {
+                const response = await fetch(GROQ_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${GROQ_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'openai/gpt-oss-120b',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: `You are a spiritually-grounded Bible Assistant serving a church community with compassion and wisdom rooted in Christ. Your role is to:
+
+1. BIBLICAL TRUTH: Provide biblical wisdom and spiritual guidance by citing specific Scripture passages. Help members understand God's Word through a Christ-centered perspective and encourage their faith journey.
+
+2. CHURCH COMMUNITY SERVICE: Offer caring guidance about church roles and ministries (Praise and Worship, Media, Dancers, Ushers, etc.), emphasizing joyful service to God and blessing the body of Christ.
+
+3. SPIRITUAL ENCOURAGEMENT: Respond with pastoral warmth and spiritual depth. Point toward prayer, faith in God, and biblical principles. Use language that reflects God's love and grace.
+
+4. PASTORAL CARE: When facing deeper spiritual matters, encourage members to seek pastoral counsel. Respect everyone's spiritual journey while pointing toward God's truth.
+
+5. TONE: Be warm, uplifting, and spiritually encouraging. Reflect Christ's love in every response. Keep responses conversational but spiritually meaningful.
+
+Remember: You represent Christ's love and our church's heart. Bless, encourage, and guide toward God's truth.`
+                            },
+                            { role: 'user', content: userMessage }
+                        ],
+                        max_tokens: 300,
+                        temperature: 0.7
+                    })
+                });
+
+                const data = await response.json();
+                if (data.choices && data.choices.length > 0) {
+                    return formatBibleResponse(data.choices[0].message.content);
+                }
+                return 'I apologize, but I couldn\'t generate a response at this moment. Please try again.';
+            } catch (error) {
+                console.error('Chatbot API error:', error);
+                throw error;
+            }
+        }
+
+        function formatBibleResponse(text) {
+            // Convert markdown-like formatting to HTML
+            let formatted = text
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/\n/g, '<br>');
+            
+            return formatted;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function toggleChatbot() {
+            const chatbot = document.getElementById('floatingChatbot');
+            const toggleBtn = document.getElementById('chatbotToggleBtn');
+            
+            chatbot.classList.toggle('collapsed');
+            
+            if (chatbot.classList.contains('collapsed')) {
+                toggleBtn.classList.add('active');
+            } else {
+                toggleBtn.classList.remove('active');
+            }
+        }
+
+        function closeChatbot() {
+            const chatbot = document.getElementById('floatingChatbot');
+            const toggleBtn = document.getElementById('chatbotToggleBtn');
+            
+            chatbot.classList.add('collapsed');
+            toggleBtn.classList.add('active');
+        }
+
+        async function sendChatbotMessage() {
+            const input = document.getElementById('chatbotInput');
+            const messagesContainer = document.getElementById('chatbotMessages');
+            const sendBtn = document.getElementById('chatbotSendBtn');
+            
+            const userMessage = input.value.trim();
+            if (!userMessage) return;
+
+            // Disable send button
+            sendBtn.disabled = true;
+
+            // Add user message to chat
+            const userMsgDiv = document.createElement('div');
+            userMsgDiv.className = 'floating-chatbot-message user';
+            userMsgDiv.innerHTML = `<div class="floating-chatbot-message-content">${escapeHtml(userMessage)}</div>`;
+            messagesContainer.appendChild(userMsgDiv);
+
+            // Clear input
+            input.value = '';
+
+            // Scroll to bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            try {
+                // Show typing indicator
+                const typingDiv = document.createElement('div');
+                typingDiv.className = 'floating-chatbot-message ai';
+                typingDiv.id = 'typingIndicator';
+                typingDiv.innerHTML = `<div class="floating-chatbot-message-content">✍️ Thinking...</div>`;
+                messagesContainer.appendChild(typingDiv);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+                // Get AI response
+                const response = await getChatbotResponse(userMessage);
+
+                // Remove typing indicator
+                typingDiv.remove();
+
+                // Add AI response
+                const aiMsgDiv = document.createElement('div');
+                aiMsgDiv.className = 'floating-chatbot-message ai';
+                aiMsgDiv.innerHTML = `<div class="floating-chatbot-message-content">${formatBibleResponse(response)}</div>`;
+                messagesContainer.appendChild(aiMsgDiv);
+
+                // Scroll to bottom
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            } catch (error) {
+                console.error('Chatbot error:', error);
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'floating-chatbot-message ai';
+                errorDiv.innerHTML = `<div class="floating-chatbot-message-content">I'm having trouble responding. Please try again.</div>`;
+                messagesContainer.appendChild(errorDiv);
+            } finally {
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        async function getChatbotResponse(userMessage) {
+            try {
+                const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+                const response = await fetch(GROQ_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${GROQ_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'openai/gpt-oss-120b',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: `You are a spiritually-grounded Bible Assistant serving a church community with compassion and wisdom rooted in Christ. Your role is to:
+
+1. BIBLICAL TRUTH: Provide biblical wisdom and spiritual guidance by citing specific Scripture passages. Help members understand God's Word through a Christ-centered perspective and encourage their faith journey.
+
+2. CHURCH COMMUNITY SERVICE: Offer caring guidance about church roles and ministries (Praise and Worship, Media, Dancers, Ushers, etc.), emphasizing joyful service to God and blessing the body of Christ.
+
+3. SPIRITUAL ENCOURAGEMENT: Respond with pastoral warmth and spiritual depth. Point toward prayer, faith in God, and biblical principles. Use language that reflects God's love and grace.
+
+4. PASTORAL CARE: When facing deeper spiritual matters, encourage members to seek pastoral counsel. Respect everyone's spiritual journey while pointing toward God's truth.
+
+5. TONE: Be warm, uplifting, and spiritually encouraging. Reflect Christ's love in every response. Keep responses conversational but spiritually meaningful for our chat widget.
+
+Remember: You represent Christ's love and our church's heart. Bless, encourage, and guide toward God's truth.`
+                            },
+                            {
+                                role: 'user',
+                                content: userMessage
+                            }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 250
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('API error');
+                }
+
+                const data = await response.json();
+                return data.choices[0].message.content;
+
+            } catch (error) {
+                console.error('Error getting chatbot response:', error);
+                return 'I apologize, but I\'m unable to respond at the moment. Please try asking your question again.';
+            }
+        }
 
         function showSection(sectionId) {
         // Remove active class from all menu items and sections
@@ -8640,7 +9114,7 @@ Create fresh, authentic affirmations that will actually inspire this ministry wo
                                                 <div class="song-header">
                                                     <h6 class="song-title">${song.title}</h6>
                                                     <div class="song-actions">
-                                                        <button class="song-btn" onclick="toggleSongDetails('slow-${index}-${idx}')">
+                                                        <button class="song-btn" onclick="toggleSongDetails('slow-${index}-${idx}', '${escapeHtml(song.title)}', '${song.link || ''}')">
                                                             <i class="fas fa-info-circle"></i> Details
                                                         </button>
                                                     </div>
@@ -8679,7 +9153,7 @@ Create fresh, authentic affirmations that will actually inspire this ministry wo
                                                 <div class="song-header">
                                                     <h6 class="song-title">${song.title}</h6>
                                                     <div class="song-actions">
-                                                        <button class="song-btn" onclick="toggleSongDetails('fast-${index}-${idx}')">
+                                                        <button class="song-btn" onclick="toggleSongDetails('fast-${index}-${idx}', '${escapeHtml(song.title)}', '${song.link || ''}')">
                                                             <i class="fas fa-info-circle"></i> Details
                                                         </button>
                                                     </div>
@@ -9270,6 +9744,130 @@ Create fresh, authentic affirmations that will actually inspire this ministry wo
 
         function closeScheduleModal() {
             document.getElementById('scheduleModal').style.display = 'none';
+            document.getElementById('youtubePlayerContainer').style.display = 'none';
+        }
+
+        // YouTube Lyrics Feature - Fetch and display song lyrics using Groq AI
+        async function loadYoutubeLyricsForSong(songTitle, youtubeUrl = null) {
+            try {
+                const playerContainer = document.getElementById('youtubePlayerContainer');
+                const youtubePlayer = document.getElementById('youtubePlayer');
+                const lyricsContainer = document.getElementById('lyricsContainer');
+                
+                if (!playerContainer) return;
+                
+                // Show the player container
+                playerContainer.style.display = 'block';
+                
+                // Load YouTube player if URL provided
+                if (youtubeUrl) {
+                    const videoId = extractYoutubeVideoId(youtubeUrl);
+                    if (videoId) {
+                        youtubePlayer.innerHTML = `<iframe width="100%" height="100%" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                    }
+                }
+                
+                // Show loading state for lyrics
+                lyricsContainer.innerHTML = `
+                    <div style="text-align: center; color: #666;">
+                        <div style="font-size: 1.5rem; margin-bottom: 10px;">
+                            <i class="fas fa-spinner fa-spin"></i>
+                        </div>
+                        <p>Fetching lyrics for: <strong>${songTitle}</strong></p>
+                    </div>
+                `;
+                
+                // Fetch lyrics from Groq AI
+                const lyrics = await getLyricsFromGroqAI(songTitle);
+                
+                // Display lyrics
+                lyricsContainer.innerHTML = `
+                    <div style="padding: 10px 0;">
+                        <div style="font-weight: 600; color: var(--primary); margin-bottom: 10px;">
+                            ${songTitle}
+                        </div>
+                        <div style="white-space: pre-wrap; font-size: 0.85rem; line-height: 1.7; color: #444;">
+                            ${lyrics || 'Lyrics not available'}
+                        </div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('Error loading YouTube lyrics:', error);
+                document.getElementById('lyricsContainer').innerHTML = `
+                    <div style="text-align: center; color: #d9534f;">
+                        <i class="fas fa-exclamation-circle" style="font-size: 1.5rem; margin-bottom: 10px; display: block;"></i>
+                        <p>Unable to fetch lyrics</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Extract YouTube Video ID from various URL formats
+        function extractYoutubeVideoId(url) {
+            try {
+                // Handle youtu.be/VIDEO_ID
+                if (url.includes('youtu.be/')) {
+                    return url.split('youtu.be/')[1].split('?')[0];
+                }
+                // Handle youtube.com/watch?v=VIDEO_ID
+                if (url.includes('youtube.com/watch')) {
+                    const urlObj = new URL(url);
+                    return urlObj.searchParams.get('v');
+                }
+                // Handle youtube.com/embed/VIDEO_ID
+                if (url.includes('youtube.com/embed/')) {
+                    return url.split('youtube.com/embed/')[1].split('?')[0];
+                }
+                return null;
+            } catch (error) {
+                console.error('Error extracting YouTube video ID:', error);
+                return null;
+            }
+        }
+
+        // Get lyrics from Groq AI
+        async function getLyricsFromGroqAI(songTitle) {
+            try {
+                const response = await fetch(GROQ_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${GROQ_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'openai/gpt-oss-120b',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: `You are a music database AI assistant. Provide song lyrics accurately and completely. 
+
+Guidelines:
+1. Provide the chorus and main verses of the song
+2. Keep the lyrics authentic and in the correct order
+3. Format with line breaks between verses
+4. If you don't know the exact lyrics, provide what you can or indicate it's unavailable
+5. Do not make up lyrics for unknown songs`
+                            },
+                            {
+                                role: 'user',
+                                content: `Please provide the lyrics for the song: "${songTitle}". Give me the main verses and chorus.`
+                            }
+                        ],
+                        max_tokens: 1000,
+                        temperature: 0.5
+                    })
+                });
+
+                const data = await response.json();
+                if (data.choices && data.choices.length > 0) {
+                    return data.choices[0].message.content;
+                }
+                return 'Lyrics not available';
+            } catch (error) {
+                console.error('Error fetching lyrics from Groq:', error);
+                return 'Unable to fetch lyrics - connection error';
+            }
         }
 
         // Birthday celebrants display functions
@@ -9690,9 +10288,71 @@ Create fresh, authentic affirmations that will actually inspire this ministry wo
             document.getElementById('scheduleModal').style.display = 'none';
         }
 
-        function toggleSongDetails(songId) {
+        function toggleSongDetails(songId, songTitle, youtubeUrl) {
             const detailsElement = document.getElementById(songId);
+            const isActive = detailsElement.classList.contains('active');
+            
+            // Toggle details visibility
             detailsElement.classList.toggle('active');
+            
+            // If opening details and we have a YouTube URL, auto-load lyrics
+            if (!isActive && youtubeUrl && youtubeUrl.trim()) {
+                // Extract video ID and auto-load lyrics
+                const videoId = extractYoutubeVideoId(youtubeUrl);
+                if (videoId) {
+                    // Auto-load and display lyrics
+                    loadYoutubeLyricsAutomatically(songTitle, youtubeUrl, songId);
+                }
+            }
+        }
+        
+        // Auto-load lyrics when song details are opened
+        async function loadYoutubeLyricsAutomatically(songTitle, youtubeUrl, songId) {
+            try {
+                // Get the song details container
+                const detailsContainer = document.getElementById(songId);
+                if (!detailsContainer) return;
+                
+                // Create lyrics panel if it doesn't exist
+                let lyricsPanel = detailsContainer.querySelector('.auto-lyrics-panel');
+                if (!lyricsPanel) {
+                    lyricsPanel = document.createElement('div');
+                    lyricsPanel.className = 'auto-lyrics-panel';
+                    lyricsPanel.style.cssText = `
+                        margin-top: 15px;
+                        padding: 15px;
+                        background: linear-gradient(135deg, #f0f5ff, #fff0f5);
+                        border-radius: 8px;
+                        border-left: 4px solid var(--primary);
+                    `;
+                    detailsContainer.appendChild(lyricsPanel);
+                }
+                
+                // Show loading state
+                lyricsPanel.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 10px; color: #666;">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Fetching lyrics for "${escapeHtml(songTitle)}"...</span>
+                    </div>
+                `;
+                
+                // Fetch lyrics from Groq AI
+                const lyrics = await getLyricsFromGroqAI(songTitle);
+                
+                // Display lyrics
+                lyricsPanel.innerHTML = `
+                    <div style="margin-bottom: 10px;">
+                        <div style="font-weight: 600; color: var(--primary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                            <i class="fas fa-music"></i> Lyrics for "${escapeHtml(songTitle)}"
+                        </div>
+                        <div style="white-space: pre-wrap; font-size: 0.9rem; line-height: 1.8; color: #444; max-height: 300px; overflow-y: auto; padding: 10px; background: white; border-radius: 6px;">
+                            ${escapeHtml(lyrics)}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error auto-loading lyrics:', error);
+            }
         }
 
         function getSchedulesForDate(dateString) {
@@ -10326,5 +10986,45 @@ Keep responses compassionate, non-judgmental, and focused on God's love and grac
         });
 
     </script>
+
+    <!-- Flowise-style Chatbot -->
+    <button class="flowise-button" id="flowiseButton" onclick="toggleFlowiseChat()" title="Open Bible Assistant">
+        <img src="assets/LOGO.png" alt="Bible Assistant">
+    </button>
+
+    <div class="flowise-tooltip">Got questions? Ask me! 👋</div>
+
+    <div class="flowise-chat-window" id="flowiseChatWindow">
+        <div class="flowise-chat-header">
+            <div class="flowise-chat-header-content">
+                <img src="assets/LOGO.png" alt="Bible Assistant">
+                <div class="flowise-chat-header-text">
+                    <h3>Bible Assistant</h3>
+                    <p>Always here to help</p>
+                </div>
+            </div>
+            <button class="flowise-close-btn" onclick="closeFlowiseChat()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="flowise-messages" id="flowiseMessages">
+            <div class="flowise-message ai">
+                <div class="flowise-message-bubble">
+                    👋 Hi There! I'm your Bible Assistant. Ask me anything about Scripture, church roles, or spiritual guidance. How can I help you today?
+                </div>
+            </div>
+        </div>
+        <div class="flowise-input-area">
+            <input 
+                type="text" 
+                id="flowiseInput" 
+                placeholder="Type your question..."
+                onkeypress="if(event.key==='Enter') sendFlowiseMessage()">
+            <button class="flowise-send-btn" onclick="sendFlowiseMessage()">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+
 </body>
 </html>
