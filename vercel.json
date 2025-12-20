@@ -41,7 +41,7 @@
     },
     {
       "src": "/",
-      "dest": "/login.html"
+      "dest": "/dashboard.html"
     },
     {
       "src": "/(.*)",
