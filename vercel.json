@@ -28,7 +28,7 @@
       "dest": "/login.html"
     },
     {
-      "src": "/signup",
+      "src": "/signup", 
       "dest": "/signup.html"
     },
     {
@@ -36,8 +36,16 @@
       "dest": "/forgot-password.html"
     },
     {
-      "src": "/(.*)",
+      "src": "/dashboard",
       "dest": "/dashboard.html"
+    },
+    {
+      "src": "/",
+      "dest": "/login.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
     }
   ]
 }
