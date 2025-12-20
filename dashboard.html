@@ -3971,13 +3971,19 @@
         border-radius: 50%;
         background: linear-gradient(135deg, var(--primary), var(--secondary));
         border: none;
-        cursor: pointer;
+        cursor: grab;
         z-index: 1500;
         display: flex;
         align-items: center;
         justify-content: center;
         box-shadow: 0 4px 12px rgba(146, 108, 21, 0.3);
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        user-select: none;
+        touch-action: none;
+    }
+    
+    .flowise-button:active {
+        cursor: grabbing;
     }
 
     .flowise-button:hover {
@@ -4030,8 +4036,11 @@
     /* Flowise Chat Window */
     .flowise-chat-window {
         position: fixed;
-        bottom: 90px;
-        right: 20px;
+        bottom: auto;
+        right: auto;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
         width: 400px;
         height: 600px;
         background: white;
@@ -4042,6 +4051,7 @@
         flex-direction: column;
         overflow: hidden;
         animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        user-select: none;
     }
 
     .flowise-chat-window.open {
@@ -4067,12 +4077,16 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        cursor: move;
+        user-select: none;
+        touch-action: none;
     }
 
     .flowise-chat-header-content {
         display: flex;
         align-items: center;
         gap: 12px;
+        flex: 1;
     }
 
     .flowise-chat-header-content img {
@@ -4545,6 +4559,3279 @@
 
         .floating-chatbot-input {
             font-size: 0.8rem;
+        }
+    }
+
+    /* ===== DARK MODE STYLES ===== */
+    body.dark-mode {
+        background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .sidebar {
+        background: #1e1e1e;
+        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+    }
+
+    body.dark-mode .main-content {
+        background: #0f0f0f;
+    }
+
+    body.dark-mode .content-section {
+        background: #1a1a1a;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .menu-item {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .menu-item:hover {
+        background: #2a2a2a;
+        color: #ffffff;
+    }
+
+    body.dark-mode .menu-item.active {
+        background: var(--primary);
+        color: white;
+    }
+
+    body.dark-mode .form-control,
+    body.dark-mode textarea {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border-color: #404040;
+    }
+
+    body.dark-mode .form-control::placeholder {
+        color: #808080;
+    }
+
+    body.dark-mode .form-section {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .form-section h3 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .chat-container {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .chat-messages {
+        background: #0f0f0f;
+    }
+
+    body.dark-mode .chat-message {
+        background: #2a2a2a;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .chat-message.ai-message {
+        background: #1f3a3a;
+        color: #b0d4d4;
+    }
+
+    body.dark-mode .chat-message.user-message {
+        background: #1a2a3a;
+        color: #a0c0e0;
+    }
+
+    body.dark-mode .flowise-chat-window {
+        background: #1a1a1a;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.7);
+    }
+
+    body.dark-mode .flowise-chat-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+    }
+
+    body.dark-mode .flowise-messages {
+        background: #0f0f0f;
+    }
+
+    body.dark-mode .flowise-message {
+        background: #2a2a2a;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .flowise-message.user {
+        background: #1a3a4a;
+        color: #a0d0e0;
+    }
+
+    body.dark-mode .btn-primary {
+        background: var(--primary);
+        color: white;
+    }
+
+    body.dark-mode .btn-primary:hover {
+        background: #a67c1f;
+    }
+
+    body.dark-mode .btn-secondary {
+        background: #3a3a3a;
+        color: #e0e0e0;
+        border-color: #555;
+    }
+
+    body.dark-mode .btn-secondary:hover {
+        background: #4a4a4a;
+    }
+
+    body.dark-mode .profile-tab-content {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .profile-header {
+        background: linear-gradient(135deg, rgba(146, 108, 21, 0.2), rgba(201, 152, 11, 0.2));
+        border-color: #404040;
+    }
+
+    body.dark-mode .profile-tabs {
+        border-bottom-color: #404040;
+    }
+
+    body.dark-mode .tab-btn {
+        color: #b0b0b0;
+        border-color: #404040;
+    }
+
+    body.dark-mode .tab-btn.active {
+        color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    body.dark-mode .section-title {
+        color: #ffffff;
+    }
+
+    body.dark-mode .card,
+    body.dark-mode .worship-set,
+    body.dark-mode .media-task {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .status-circle {
+        background: #3a3a3a;
+    }
+
+    body.dark-mode .status-circle.verified {
+        background: #2a4a2a;
+    }
+
+    body.dark-mode .settings-toggle {
+        background: #3a3a3a;
+        border-color: #555;
+    }
+
+    body.dark-mode .settings-toggle input:checked + .toggle-slider {
+        background: var(--primary);
+    }
+
+    body.dark-mode label {
+        color: #e0e0e0;
+    }
+
+    /* Settings Toggle Switch Styles */
+    .settings-toggle {
+        position: relative;
+        display: inline-block;
+        width: 50px;
+        height: 24px;
+    }
+
+    .settings-toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        transition: 0.4s;
+        border-radius: 24px;
+    }
+
+    .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: 0.4s;
+        border-radius: 50%;
+    }
+
+    input:checked + .toggle-slider {
+        background-color: var(--primary);
+    }
+
+    input:checked + .toggle-slider:before {
+        transform: translateX(26px);
+    }
+
+    .settings-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px;
+        background: white;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        border: 1px solid #e0e0e0;
+        transition: var(--transition);
+    }
+
+    body.dark-mode .settings-row {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    .settings-row:hover {
+        box-shadow: var(--shadow);
+    }
+
+    body.dark-mode .settings-row:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .settings-label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .settings-label-title {
+        font-weight: 600;
+        font-size: 1rem;
+    }
+
+    .settings-label-desc {
+        font-size: 0.85rem;
+        color: #666;
+    }
+
+    body.dark-mode .settings-label-desc {
+        color: #999;
+    }
+
+    /* ===== COMPREHENSIVE DARK MODE STYLING ===== */
+
+    /* Text and Typography */
+    body.dark-mode {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode h1, body.dark-mode h2, body.dark-mode h3, body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 {
+        color: #ffffff;
+    }
+
+    body.dark-mode p, body.dark-mode span, body.dark-mode div {
+        color: #e0e0e0;
+    }
+
+    /* Input Fields and Form Elements */
+    body.dark-mode input[type="text"],
+    body.dark-mode input[type="email"],
+    body.dark-mode input[type="password"],
+    body.dark-mode input[type="number"],
+    body.dark-mode input[type="date"],
+    body.dark-mode input[type="time"],
+    body.dark-mode input[type="search"],
+    body.dark-mode textarea,
+    body.dark-mode select {
+        background-color: #2a2a2a;
+        color: #e0e0e0;
+        border-color: #404040;
+    }
+
+    body.dark-mode input::placeholder,
+    body.dark-mode textarea::placeholder {
+        color: #808080;
+    }
+
+    body.dark-mode input:focus,
+    body.dark-mode textarea:focus,
+    body.dark-mode select:focus {
+        background-color: #2a2a2a;
+        color: #e0e0e0;
+        border-color: var(--primary);
+        box-shadow: 0 0 5px rgba(146, 108, 21, 0.3);
+    }
+
+    body.dark-mode input:disabled,
+    body.dark-mode textarea:disabled,
+    body.dark-mode select:disabled {
+        background-color: #1a1a1a;
+        color: #666;
+        border-color: #333;
+        opacity: 0.6;
+    }
+
+    /* Buttons */
+    body.dark-mode .btn-primary {
+        background: var(--primary);
+        color: #ffffff;
+        border-color: var(--primary);
+    }
+
+    body.dark-mode .btn-primary:hover {
+        background: #a67c1f;
+        border-color: #a67c1f;
+    }
+
+    body.dark-mode .btn-primary:active {
+        background: #8a6218;
+    }
+
+    body.dark-mode .btn-secondary {
+        background: #3a3a3a;
+        color: #e0e0e0;
+        border-color: #555;
+    }
+
+    body.dark-mode .btn-secondary:hover {
+        background: #4a4a4a;
+        border-color: #666;
+    }
+
+    body.dark-mode .btn-success {
+        background: #28a745;
+        color: white;
+    }
+
+    body.dark-mode .btn-success:hover {
+        background: #218838;
+    }
+
+    body.dark-mode .btn-danger {
+        background: #dc3545;
+        color: white;
+    }
+
+    body.dark-mode .btn-danger:hover {
+        background: #c82333;
+    }
+
+    body.dark-mode .btn-warning {
+        background: #ffc107;
+        color: #333;
+    }
+
+    body.dark-mode .btn-warning:hover {
+        background: #ffb300;
+    }
+
+    body.dark-mode button {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Containers and Cards */
+    body.dark-mode .container,
+    body.dark-mode .card {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .card-header {
+        background: #1a1a1a;
+        border-bottom-color: #404040;
+        color: #ffffff;
+    }
+
+    body.dark-mode .card-body {
+        background: #252525;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .card-footer {
+        background: #1a1a1a;
+        border-top-color: #404040;
+        color: #e0e0e0;
+    }
+
+    /* Modals */
+    body.dark-mode .modal,
+    body.dark-mode .logout-modal,
+    body.dark-mode .calendar-modal {
+        background: rgba(0, 0, 0, 0.8);
+    }
+
+    body.dark-mode .modal-content,
+    body.dark-mode .logout-modal-content,
+    body.dark-mode .calendar-modal-content {
+        background: #1a1a1a;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .modal-header,
+    body.dark-mode .logout-modal-header,
+    body.dark-mode .calendar-modal-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        border-bottom-color: #404040;
+        color: #ffffff;
+    }
+
+    body.dark-mode .modal-body,
+    body.dark-mode .logout-modal-body,
+    body.dark-mode .calendar-modal-body {
+        background: #252525;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .modal-footer,
+    body.dark-mode {
+        background: #1a1a1a;
+        border-top-color: #404040;
+    }
+
+    body.dark-mode .close,
+    body.dark-mode .calendar-close-btn {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .close:hover,
+    body.dark-mode .calendar-close-btn:hover {
+        color: #ffffff;
+    }
+
+    /* Tables */
+    body.dark-mode table {
+        background: #252525;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode thead {
+        background: #1a1a1a;
+        color: #ffffff;
+    }
+
+    body.dark-mode tbody tr {
+        border-bottom-color: #404040;
+    }
+
+    body.dark-mode tbody tr:hover {
+        background: #2a2a2a;
+    }
+
+    body.dark-mode td, body.dark-mode th {
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    /* Lists and List Items */
+    body.dark-mode ul, body.dark-mode ol {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode li {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .list-group-item {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .list-group-item:hover {
+        background: #2a2a2a;
+    }
+
+    body.dark-mode .list-group-item.active {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: white;
+    }
+
+    /* Links */
+    body.dark-mode a {
+        color: var(--accent);
+    }
+
+    body.dark-mode a:hover {
+        color: var(--secondary);
+    }
+
+    body.dark-mode a:visited {
+        color: #d4a574;
+    }
+
+    /* Badges */
+    body.dark-mode .badge {
+        background: var(--primary);
+        color: white;
+    }
+
+    body.dark-mode .badge-secondary {
+        background: #3a3a3a;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .badge-success {
+        background: #28a745;
+        color: white;
+    }
+
+    body.dark-mode .badge-danger {
+        background: #dc3545;
+        color: white;
+    }
+
+    body.dark-mode .badge-warning {
+        background: #ffc107;
+        color: #333;
+    }
+
+    body.dark-mode .badge-info {
+        background: #17a2b8;
+        color: white;
+    }
+
+    /* Alerts */
+    body.dark-mode .alert {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .alert-success {
+        background: #1a3a1a;
+        border-color: #28a745;
+        color: #90ee90;
+    }
+
+    body.dark-mode .alert-danger {
+        background: #3a1a1a;
+        border-color: #dc3545;
+        color: #ff6b6b;
+    }
+
+    body.dark-mode .alert-warning {
+        background: #3a3a1a;
+        border-color: #ffc107;
+        color: #ffeb99;
+    }
+
+    body.dark-mode .alert-info {
+        background: #1a2a3a;
+        border-color: #17a2b8;
+        color: #64b5f6;
+    }
+
+    /* Dropdowns */
+    body.dark-mode .dropdown-menu {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .dropdown-item {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .dropdown-item:hover,
+    body.dark-mode .dropdown-item:focus {
+        background: #3a3a3a;
+        color: #ffffff;
+    }
+
+    body.dark-mode .dropdown-item.active {
+        background: var(--primary);
+        color: white;
+    }
+
+    body.dark-mode .dropdown-divider {
+        border-color: #404040;
+    }
+
+    /* Tabs */
+    body.dark-mode .nav-tabs {
+        border-bottom-color: #404040;
+    }
+
+    body.dark-mode .nav-tabs .nav-link {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .nav-tabs .nav-link:hover {
+        border-color: #404040;
+        color: #ffffff;
+    }
+
+    body.dark-mode .nav-tabs .nav-link.active {
+        background: #252525;
+        border-color: #404040 #404040 #252525 #404040;
+        color: var(--primary);
+    }
+
+    /* Pagination */
+    body.dark-mode .pagination .page-link {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .pagination .page-link:hover {
+        background: #3a3a3a;
+        border-color: #404040;
+        color: #ffffff;
+    }
+
+    body.dark-mode .pagination .page-item.active .page-link {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: white;
+    }
+
+    body.dark-mode .pagination .page-item.disabled .page-link {
+        background: #1a1a1a;
+        border-color: #404040;
+        color: #666;
+    }
+
+    /* Progress Bars */
+    body.dark-mode .progress {
+        background: #3a3a3a;
+    }
+
+    body.dark-mode .progress-bar {
+        background: var(--primary);
+    }
+
+    body.dark-mode .progress-bar-success {
+        background: #28a745;
+    }
+
+    body.dark-mode .progress-bar-danger {
+        background: #dc3545;
+    }
+
+    body.dark-mode .progress-bar-warning {
+        background: #ffc107;
+    }
+
+    body.dark-mode .progress-bar-info {
+        background: #17a2b8;
+    }
+
+    /* Navbar */
+    body.dark-mode .navbar {
+        background: #1a1a1a;
+        border-bottom-color: #404040;
+    }
+
+    body.dark-mode .navbar-brand {
+        color: #ffffff;
+    }
+
+    body.dark-mode .navbar-brand:hover {
+        color: var(--accent);
+    }
+
+    body.dark-mode .navbar-text {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .navbar-nav .nav-link {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .navbar-nav .nav-link:hover {
+        color: #ffffff;
+    }
+
+    body.dark-mode .navbar-nav .nav-link.active {
+        color: var(--primary);
+    }
+
+    /* Icons */
+    body.dark-mode i {
+        color: inherit;
+    }
+
+    body.dark-mode .fa-primary {
+        color: var(--primary);
+    }
+
+    body.dark-mode .fa-secondary {
+        color: var(--secondary);
+    }
+
+    body.dark-mode .fa-accent {
+        color: var(--accent);
+    }
+
+    body.dark-mode .fa-success {
+        color: #28a745;
+    }
+
+    body.dark-mode .fa-danger {
+        color: #dc3545;
+    }
+
+    body.dark-mode .fa-warning {
+        color: #ffc107;
+    }
+
+    body.dark-mode .fa-info {
+        color: #17a2b8;
+    }
+
+    /* Borders and Dividers */
+    body.dark-mode .border {
+        border-color: #404040;
+    }
+
+    body.dark-mode .border-primary {
+        border-color: var(--primary);
+    }
+
+    body.dark-mode .border-secondary {
+        border-color: var(--secondary);
+    }
+
+    body.dark-mode .border-danger {
+        border-color: #dc3545;
+    }
+
+    body.dark-mode .border-success {
+        border-color: #28a745;
+    }
+
+    body.dark-mode .border-warning {
+        border-color: #ffc107;
+    }
+
+    body.dark-mode .border-info {
+        border-color: #17a2b8;
+    }
+
+    body.dark-mode hr {
+        border-color: #404040;
+    }
+
+    /* Shadows */
+    body.dark-mode .shadow {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    body.dark-mode .shadow-sm {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    body.dark-mode .shadow-lg {
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Verification Banner */
+    body.dark-mode .verification-banner {
+        background: #1a2a2a;
+        border-left-color: #ffc107;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .verification-banner h3 {
+        color: #ffc107;
+    }
+
+    /* Content Sections */
+    body.dark-mode .content-section {
+        background: #0f0f0f;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .content-header {
+        background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(201, 152, 11, 0.1));
+        color: #ffffff;
+    }
+
+    body.dark-mode .content-header h1 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .content-header p {
+        color: #b0b0b0;
+    }
+
+    /* Stat Cards */
+    body.dark-mode .stat-card {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .stat-card:hover {
+        background: #2a2a2a;
+    }
+
+    body.dark-mode .stat-icon {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }
+
+    body.dark-mode .stat-value {
+        color: var(--primary);
+    }
+
+    body.dark-mode .stat-label {
+        color: #999;
+    }
+
+    /* Ministry Cards */
+    body.dark-mode .ministry-welcome {
+        background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(201, 152, 11, 0.1));
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .ministry-welcome h3 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .ministry-welcome p {
+        color: #b0b0b0;
+    }
+
+    /* Worship Sets and Media Tasks */
+    body.dark-mode .worship-set,
+    body.dark-mode .media-task {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .worship-set:hover,
+    body.dark-mode .media-task:hover {
+        background: #2a2a2a;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Schedule Items */
+    body.dark-mode .schedule-item {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .schedule-item:hover {
+        background: #2a2a2a;
+    }
+
+    /* Receipts */
+    body.dark-mode .receipt-container {
+        background: #252525;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .receipt-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }
+
+    body.dark-mode .receipt-content {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .receipt-section {
+        border-color: #404040;
+    }
+
+    body.dark-mode .receipt-list li {
+        color: #e0e0e0;
+    }
+
+    /* Calendar */
+    body.dark-mode .calendar-container {
+        background: #252525;
+    }
+
+    body.dark-mode .calendar-day {
+        background: #1a1a1a;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .calendar-day:hover {
+        background: #2a2a2a;
+    }
+
+    body.dark-mode .calendar-day.selected {
+        background: var(--primary);
+        color: white;
+    }
+
+    body.dark-mode .calendar-day.other-month {
+        color: #666;
+    }
+
+    /* Scrollbar */
+    body.dark-mode ::-webkit-scrollbar {
+        width: 10px;
+    }
+
+    body.dark-mode ::-webkit-scrollbar-track {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode ::-webkit-scrollbar-thumb {
+        background: #404040;
+        border-radius: 5px;
+    }
+
+    body.dark-mode ::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+
+    /* Tooltip */
+    body.dark-mode .tooltip {
+        background: #2a2a2a;
+    }
+
+    body.dark-mode .tooltip-inner {
+        background: #3a3a3a;
+        color: #e0e0e0;
+    }
+
+    /* Popover */
+    body.dark-mode .popover {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .popover-header {
+        background: #1a1a1a;
+        border-color: #404040;
+        color: #ffffff;
+    }
+
+    body.dark-mode .popover-body {
+        color: #e0e0e0;
+    }
+
+    /* Code and Pre */
+    body.dark-mode code {
+        background: #2a2a2a;
+        color: #b0d4d4;
+        padding: 2px 6px;
+        border-radius: 3px;
+    }
+
+    body.dark-mode pre {
+        background: #1a1a1a;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode pre code {
+        background: transparent;
+        color: #e0e0e0;
+        padding: 0;
+    }
+
+    /* Misc Utilities */
+    body.dark-mode .bg-light {
+        background: #1a1a1a !important;
+    }
+
+    body.dark-mode .bg-white {
+        background: #252525 !important;
+    }
+
+    body.dark-mode .text-muted {
+        color: #999 !important;
+    }
+
+    body.dark-mode .text-secondary {
+        color: #b0b0b0 !important;
+    }
+
+    body.dark-mode .text-danger {
+        color: #ff6b6b !important;
+    }
+
+    body.dark-mode .text-success {
+        color: #90ee90 !important;
+    }
+
+    body.dark-mode .text-warning {
+        color: #ffeb99 !important;
+    }
+
+    body.dark-mode .text-info {
+        color: #64b5f6 !important;
+    }
+
+    /* ===== COMPLETE DARK MODE FOR ALL CUSTOM ELEMENTS ===== */
+
+    /* Birthday Section */
+    body.dark-mode .birthday-today-section {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .birthday-card {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .birthday-today-section h3 {
+        color: var(--primary);
+    }
+
+    body.dark-mode .birthday-today-section p {
+        color: #e0e0e0;
+    }
+
+    /* Church Family Section */
+    body.dark-mode .church-family-section {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .church-family-section h3 {
+        color: var(--primary);
+    }
+
+    body.dark-mode .church-family-section p {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .family-member {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .family-member:hover {
+        background: #2a2a2a;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    body.dark-mode .family-member h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .family-member p {
+        color: #b0b0b0;
+    }
+
+    /* Bible Verse Container */
+    body.dark-mode .bible-verse-container {
+        background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(201, 152, 11, 0.1));
+        border-color: #404040;
+    }
+
+    body.dark-mode .bible-verse-container h3 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .bible-verse-container p {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .verse-text {
+        color: #b0d4d4;
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    body.dark-mode .verse-reference {
+        color: var(--accent);
+    }
+
+    /* Schedule Container */
+    body.dark-mode .schedule-container {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .schedule-day {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .schedule-day h3 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .schedule-day-content {
+        background: #1a1a1a;
+        border-color: #404040;
+    }
+
+    body.dark-mode .schedule-event {
+        background: #2a2a2a;
+        border-left-color: var(--primary);
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .schedule-event:hover {
+        background: #3a3a3a;
+    }
+
+    body.dark-mode .schedule-event-title {
+        color: #ffffff;
+    }
+
+    body.dark-mode .schedule-event-time {
+        color: #999;
+    }
+
+    /* Modal Related */
+    body.dark-mode .schedule-modal {
+        background: rgba(0, 0, 0, 0.8);
+    }
+
+    body.dark-mode .schedule-modal-content {
+        background: #1a1a1a;
+        border-color: #404040;
+    }
+
+    body.dark-mode .schedule-modal-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }
+
+    body.dark-mode .schedule-modal-close {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .schedule-modal-close:hover {
+        color: #ffffff;
+    }
+
+    /* Form Elements Advanced */
+    body.dark-mode .form-row {
+        background: transparent;
+    }
+
+    body.dark-mode .form-column {
+        background: transparent;
+    }
+
+    body.dark-mode .form-group label {
+        color: #ffffff;
+    }
+
+    body.dark-mode .form-group small {
+        color: #999;
+    }
+
+    body.dark-mode .form-text {
+        color: #999;
+    }
+
+    body.dark-mode input[type="checkbox"],
+    body.dark-mode input[type="radio"] {
+        accent-color: var(--primary);
+    }
+
+    /* Checkbox and Radio Custom */
+    body.dark-mode .custom-checkbox .custom-control-label {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .custom-radio .custom-control-label {
+        color: #e0e0e0;
+    }
+
+    /* Profile Container */
+    body.dark-mode .profile-container {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .profile-form {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .profile-info {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .profile-info h3 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .profile-info p {
+        color: #b0b0b0;
+    }
+
+    /* Avatar Styles */
+    body.dark-mode .avatar-large {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }
+
+    body.dark-mode .avatar {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }
+
+    /* Chart/Graph Elements */
+    body.dark-mode .chart-container {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode canvas {
+        filter: invert(0.8) hue-rotate(180deg);
+    }
+
+    /* Worship Set Specific */
+    body.dark-mode .worship-set-title {
+        color: #ffffff;
+    }
+
+    body.dark-mode .worship-set-date {
+        color: #999;
+    }
+
+    body.dark-mode .worship-set-stats {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    body.dark-mode .worship-set-stat {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .worship-set-stat-value {
+        color: var(--primary);
+    }
+
+    /* Media Task Specific */
+    body.dark-mode .media-task-title {
+        color: #ffffff;
+    }
+
+    body.dark-mode .media-task-status {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    body.dark-mode .media-task-status.completed {
+        background: rgba(40, 167, 69, 0.2);
+        color: #90ee90;
+    }
+
+    body.dark-mode .media-task-status.pending {
+        background: rgba(255, 193, 7, 0.2);
+        color: #ffeb99;
+    }
+
+    /* Receipt Modal Specific */
+    body.dark-mode .receipt-modal {
+        background: rgba(0, 0, 0, 0.8);
+    }
+
+    body.dark-mode .receipt-container {
+        background: #1a1a1a;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    }
+
+    body.dark-mode .receipt-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }
+
+    body.dark-mode .receipt-title, body.dark-mode .receipt-subtitle {
+        color: white;
+    }
+
+    body.dark-mode .receipt-section-title {
+        color: var(--accent);
+    }
+
+    body.dark-mode .receipt-info {
+        background: rgba(255, 255, 255, 0.05);
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .receipt-list {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .receipt-note {
+        background: rgba(146, 108, 21, 0.1);
+        border-color: #404040;
+    }
+
+    body.dark-mode .receipt-note-title {
+        color: var(--primary);
+    }
+
+    body.dark-mode .receipt-note-text {
+        color: #e0e0e0;
+    }
+
+    /* Receipt Buttons */
+    body.dark-mode .receipt-btn {
+        background: #3a3a3a;
+        color: #e0e0e0;
+        border-color: #555;
+    }
+
+    body.dark-mode .receipt-btn:hover {
+        background: #4a4a4a;
+        border-color: #666;
+    }
+
+    body.dark-mode .receipt-btn-primary,
+    body.dark-mode .receipt-btn-edit {
+        background: var(--primary);
+        color: white;
+        border-color: var(--primary);
+    }
+
+    body.dark-mode .receipt-btn-primary:hover,
+    body.dark-mode .receipt-btn-edit:hover {
+        background: #a67c1f;
+        border-color: #a67c1f;
+    }
+
+    body.dark-mode .receipt-btn-confirm {
+        background: #28a745;
+        color: white;
+        border-color: #28a745;
+    }
+
+    body.dark-mode .receipt-btn-confirm:hover {
+        background: #218838;
+        border-color: #218838;
+    }
+
+    body.dark-mode .receipt-btn-save {
+        background: var(--secondary);
+        color: white;
+        border-color: var(--secondary);
+    }
+
+    body.dark-mode .receipt-btn-save:hover {
+        background: #a67c1f;
+        border-color: #a67c1f;
+    }
+
+    /* Calendar Navigation */
+    body.dark-mode .calendar-navigation {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .calendar-nav-btn {
+        background: #3a3a3a;
+        color: #e0e0e0;
+        border-color: #555;
+    }
+
+    body.dark-mode .calendar-nav-btn:hover {
+        background: #4a4a4a;
+    }
+
+    body.dark-mode .calendar-current-month {
+        color: #ffffff;
+    }
+
+    /* Calendar Days */
+    body.dark-mode .calendar-day {
+        background: #2a2a2a;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .calendar-day:hover {
+        background: #3a3a3a;
+        cursor: pointer;
+    }
+
+    body.dark-mode .calendar-day.selected {
+        background: var(--primary);
+        color: white;
+    }
+
+    body.dark-mode .calendar-day.today {
+        border-color: var(--accent);
+        font-weight: bold;
+    }
+
+    body.dark-mode .calendar-day.other-month {
+        color: #666;
+        opacity: 0.5;
+    }
+
+    /* Disclaimer Banner */
+    body.dark-mode .disclaimer-banner {
+        background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 193, 7, 0.05));
+        border-left-color: #ffc107;
+        border-color: #404040;
+    }
+
+    body.dark-mode .disclaimer-banner p {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .disclaimer-header {
+        color: #ffeb99;
+    }
+
+    /* Chat Container Advanced */
+    body.dark-mode .chat-container {
+        background: #1a1a1a;
+        border-color: #404040;
+    }
+
+    body.dark-mode .chat-messages {
+        background: #0f0f0f;
+    }
+
+    body.dark-mode .chat-input-area {
+        background: #252525;
+        border-top-color: #404040;
+    }
+
+    body.dark-mode .chat-input-area textarea {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border-color: #404040;
+    }
+
+    body.dark-mode .chat-input-area textarea::placeholder {
+        color: #808080;
+    }
+
+    body.dark-mode .chat-input-area button {
+        background: var(--primary);
+        color: white;
+    }
+
+    body.dark-mode .chat-input-area button:hover {
+        background: #a67c1f;
+    }
+
+    /* Auto Lyrics Panel */
+    body.dark-mode .auto-lyrics-panel {
+        background: linear-gradient(135deg, rgba(146, 108, 21, 0.2), rgba(201, 152, 11, 0.2));
+        border-color: #404040;
+    }
+
+    body.dark-mode .auto-lyrics-panel h4 {
+        color: var(--accent);
+    }
+
+    body.dark-mode .auto-lyrics-panel p {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .lyrics-container {
+        background: rgba(255, 255, 255, 0.03);
+        border-color: #404040;
+    }
+
+    body.dark-mode .lyrics-text {
+        color: #e0e0e0;
+    }
+
+    /* Loading and Spinner */
+    body.dark-mode .spinner {
+        border-color: #404040;
+        border-top-color: var(--primary);
+    }
+
+    body.dark-mode .loader {
+        border-color: #404040;
+        border-top-color: var(--primary);
+    }
+
+    /* Empty State */
+    body.dark-mode .empty-state {
+        background: #252525;
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .empty-state-icon {
+        color: #3a3a3a;
+    }
+
+    /* Status Badges */
+    body.dark-mode .status-badge {
+        background: #3a3a3a;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .status-badge.verified {
+        background: rgba(40, 167, 69, 0.2);
+        color: #90ee90;
+        border-color: #28a745;
+    }
+
+    body.dark-mode .status-badge.unverified {
+        background: rgba(255, 193, 7, 0.2);
+        color: #ffeb99;
+        border-color: #ffc107;
+    }
+
+    body.dark-mode .status-badge.pending {
+        background: rgba(23, 162, 184, 0.2);
+        color: #64b5f6;
+        border-color: #17a2b8;
+    }
+
+    /* Network Status */
+    body.dark-mode .network-status {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .network-status.online {
+        background: linear-gradient(135deg, rgba(40, 167, 69, 0.2), rgba(40, 167, 69, 0.1));
+        color: #90ee90;
+    }
+
+    body.dark-mode .network-status.offline {
+        background: linear-gradient(135deg, rgba(220, 53, 69, 0.2), rgba(220, 53, 69, 0.1));
+        color: #ff6b6b;
+    }
+
+    /* Mobile Menu Toggle */
+    body.dark-mode .mobile-menu-toggle {
+        background: #3a3a3a;
+        color: #e0e0e0;
+        border-color: #555;
+    }
+
+    body.dark-mode .mobile-menu-toggle:hover {
+        background: #4a4a4a;
+    }
+
+    /* Overlay */
+    body.dark-mode .overlay {
+        background: rgba(0, 0, 0, 0.6);
+    }
+
+    /* Refresh Button */
+    body.dark-mode .refresh-btn {
+        background: var(--primary);
+        color: white;
+        border-color: var(--primary);
+    }
+
+    body.dark-mode .refresh-btn:hover {
+        background: #a67c1f;
+    }
+
+    /* Password Strength Indicator */
+    body.dark-mode .password-strength {
+        background: #2a2a2a;
+    }
+
+    body.dark-mode .strength-fill {
+        background: linear-gradient(90deg, #ffc107, var(--primary));
+    }
+
+    body.dark-mode .strength-text {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .password-requirements {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: #404040;
+    }
+
+    body.dark-mode .password-requirements li {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .password-requirements i {
+        color: #999;
+    }
+
+    body.dark-mode .password-requirements i.fa-check {
+        color: #90ee90;
+    }
+
+    body.dark-mode .password-toggle {
+        color: var(--primary);
+        cursor: pointer;
+    }
+
+    body.dark-mode .password-toggle:hover {
+        color: var(--accent);
+    }
+
+    /* Announcement Container */
+    body.dark-mode .announcements-container {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .announcement {
+        background: #252525;
+        border-left-color: var(--primary);
+        border-color: #404040;
+    }
+
+    body.dark-mode .announcement h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .announcement p {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .announcement-date {
+        color: #999;
+    }
+
+    /* Stats Container */
+    body.dark-mode .stats-container {
+        background: #1a1a1a;
+    }
+
+    /* Lineup Container */
+    body.dark-mode .lineup-container {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .lineup-form {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    /* Ministry Stats */
+    body.dark-mode .ministry-stats {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .stat-card {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .stat-card:hover {
+        background: #2a2a2a;
+    }
+
+    /* Rehearsal Schedule */
+    body.dark-mode .rehearsal-schedule {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .rehearsal-item {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .rehearsal-item:hover {
+        background: #2a2a2a;
+    }
+
+    /* Usher Assignments */
+    body.dark-mode .usher-assignments {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .usher-assignment-item {
+        background: #252525;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .usher-assignment-item:hover {
+        background: #2a2a2a;
+    }
+
+    /* Sidebar Additional Styles */
+    body.dark-mode .sidebar {
+        background: #1e1e1e;
+        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+    }
+
+    body.dark-mode .sidebar-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }
+
+    body.dark-mode .logout-btn {
+        background: #3a3a3a;
+        color: #e0e0e0;
+        border-color: #555;
+    }
+
+    body.dark-mode .logout-btn:hover {
+        background: #4a4a4a;
+        color: #ffffff;
+    }
+
+    /* Main Content */
+    body.dark-mode .main-content {
+        background: #0f0f0f;
+    }
+
+    /* Active Menu Item */
+    body.dark-mode .menu-item.active {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }
+
+    body.dark-mode .menu-item.active i {
+        color: white;
+    }
+
+    /* Focus States for Better Accessibility */
+    body.dark-mode input:focus-visible,
+    body.dark-mode textarea:focus-visible,
+    body.dark-mode select:focus-visible,
+    body.dark-mode button:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+    }
+
+    /* Schedule History Cards - Enhanced Dark Mode */
+    body.dark-mode .schedule-history-section {
+        background: #1a1a1a;
+        border-color: #404040;
+    }
+
+    body.dark-mode .schedule-history-title {
+        color: #ffffff;
+    }
+
+    body.dark-mode .schedule-history-cards {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .schedule-history-card {
+        background: linear-gradient(135deg, #252525, #2a2a2a);
+        border: 2px solid #404040;
+        color: #e0e0e0;
+        transition: all 0.3s ease;
+    }
+
+    body.dark-mode .schedule-history-card:hover {
+        background: linear-gradient(135deg, #2a2a2a, #303030);
+        border-color: var(--primary);
+        box-shadow: 0 4px 12px rgba(146, 108, 21, 0.3);
+        transform: translateY(-2px);
+    }
+
+    body.dark-mode .schedule-history-card h4 {
+        color: #ffffff;
+        font-weight: 600;
+    }
+
+    body.dark-mode .schedule-history-card p {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .schedule-history-card .date-badge {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border-radius: 20px;
+        padding: 4px 10px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    body.dark-mode .schedule-history-empty {
+        background: #1a1a1a;
+        border: 2px dashed #404040;
+        color: #888;
+        padding: 40px;
+        text-align: center;
+        border-radius: 8px;
+    }
+
+    body.dark-mode .schedule-history-empty i {
+        color: #555;
+    }
+
+    /* Upcoming Schedule Cards - Enhanced Dark Mode */
+    body.dark-mode .upcoming-schedule-cards {
+        display: grid;
+        gap: 15px;
+    }
+
+    body.dark-mode .upcoming-schedule-card {
+        background: linear-gradient(135deg, #252525, #2a2a2a);
+        border: 2px solid #404040;
+        padding: 15px;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+
+    body.dark-mode .upcoming-schedule-card:hover {
+        background: linear-gradient(135deg, #2a2a2a, #303030);
+        border-color: var(--accent);
+        box-shadow: 0 4px 12px rgba(255, 195, 0, 0.3);
+        transform: translateY(-2px);
+    }
+
+    body.dark-mode .upcoming-schedule-card h3 {
+        color: #ffffff;
+        margin-bottom: 10px;
+    }
+
+    body.dark-mode .upcoming-schedule-card p {
+        color: #b0b0b0;
+        margin: 5px 0;
+    }
+
+    body.dark-mode .schedule-time {
+        color: var(--accent);
+        font-weight: 600;
+    }
+
+    body.dark-mode .schedule-ministry {
+        color: var(--secondary);
+        font-weight: 500;
+    }
+
+    /* Spiritual Assistant Chat - Enhanced Dark Mode */
+    body.dark-mode .spiritual-assistant {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .disclaimer-banner {
+        background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 195, 0, 0.05));
+        border: 2px solid rgba(255, 195, 0, 0.3);
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+
+    body.dark-mode .disclaimer-header {
+        color: #ffeb99;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    body.dark-mode .disclaimer-banner p {
+        color: #d0d0d0;
+        margin: 5px 0;
+    }
+
+    /* Chat Container - Enhanced for Chat Interface */
+    body.dark-mode .chat-container {
+        background: #1a1a1a;
+        border: 2px solid #404040;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    body.dark-mode .chat-messages {
+        background: #0f0f0f;
+        height: 400px;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    /* Chat Message Styling */
+    body.dark-mode .chat-message {
+        padding: 12px 15px;
+        border-radius: 8px;
+        word-wrap: break-word;
+        max-width: 80%;
+        animation: slideIn 0.3s ease;
+    }
+
+    body.dark-mode .chat-message.ai-message {
+        background: linear-gradient(135deg, #1e3a3a, #1f4a4a);
+        color: #b0d4d4;
+        border-left: 4px solid var(--primary);
+        align-self: flex-start;
+    }
+
+    body.dark-mode .chat-message.ai-message p {
+        color: #b0d4d4;
+        margin: 0;
+    }
+
+    body.dark-mode .chat-message.user-message {
+        background: linear-gradient(135deg, #1a2a3a, #2a3a4a);
+        color: #a0c0e0;
+        border-right: 4px solid var(--secondary);
+        align-self: flex-end;
+        margin-left: auto;
+    }
+
+    body.dark-mode .chat-message.user-message p {
+        color: #a0c0e0;
+        margin: 0;
+    }
+
+    body.dark-mode .message-time {
+        color: #777;
+        font-size: 0.75rem;
+        margin-top: 5px;
+        display: block;
+    }
+
+    body.dark-mode .chat-message.ai-message .message-time {
+        color: #666;
+    }
+
+    /* Chat Input Area - Enhanced */
+    body.dark-mode .chat-input-area {
+        background: #252525;
+        border-top: 2px solid #404040;
+        padding: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    body.dark-mode .input-group {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+    }
+
+    body.dark-mode .chat-input {
+        flex: 1;
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border: 2px solid #404040;
+        border-radius: 6px;
+        padding: 12px;
+        font-family: inherit;
+        font-size: 0.95rem;
+        resize: none;
+        transition: all 0.3s ease;
+    }
+
+    body.dark-mode .chat-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        background: #303030;
+        box-shadow: 0 0 8px rgba(146, 108, 21, 0.3);
+    }
+
+    body.dark-mode .chat-input::placeholder {
+        color: #808080;
+    }
+
+    body.dark-mode .send-button {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 12px 20px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 50px;
+        height: 50px;
+    }
+
+    body.dark-mode .send-button:hover {
+        background: linear-gradient(135deg, #a67c1f, #b8860b);
+        box-shadow: 0 4px 12px rgba(146, 108, 21, 0.4);
+        transform: translateY(-2px);
+    }
+
+    body.dark-mode .send-button:active {
+        transform: translateY(0);
+    }
+
+    body.dark-mode .input-hint {
+        color: #888;
+        font-size: 0.85rem;
+        font-style: italic;
+    }
+
+    /* Schedule Container Enhancements */
+    body.dark-mode .schedule-container {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .schedule-header {
+        background: #252525;
+        border-bottom: 2px solid #404040;
+    }
+
+    body.dark-mode .week-navigation {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .week-navigation h3 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .schedule-actions {
+        gap: 10px;
+    }
+
+    body.dark-mode .action-btn {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border: 2px solid #404040;
+        padding: 8px 15px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-weight: 500;
+    }
+
+    body.dark-mode .action-btn:hover {
+        background: #353535;
+        border-color: var(--primary);
+        color: var(--accent);
+    }
+
+    body.dark-mode .action-btn.active {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border-color: var(--primary);
+    }
+
+    body.dark-mode .nav-btn {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border: 2px solid #404040;
+        padding: 8px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    body.dark-mode .nav-btn:hover {
+        background: #353535;
+        border-color: var(--primary);
+    }
+
+    /* Schedule Calendar */
+    body.dark-mode .schedule-calendar {
+        background: #1a1a1a;
+        border: 2px solid #404040;
+        border-radius: 8px;
+    }
+
+    body.dark-mode .schedule-day {
+        background: #252525;
+        border: 1px solid #404040;
+        color: #e0e0e0;
+        padding: 10px;
+        border-radius: 4px;
+        min-height: 60px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    body.dark-mode .schedule-day:hover {
+        background: #2a2a2a;
+        border-color: var(--primary);
+    }
+
+    body.dark-mode .schedule-day.has-event {
+        border-left: 4px solid var(--secondary);
+        background: linear-gradient(135deg, #252525, #2a2a2a);
+    }
+
+    body.dark-mode .schedule-event {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        padding: 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        margin: 2px 0;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Schedule Modal */
+    body.dark-mode .schedule-modal {
+        background: rgba(0, 0, 0, 0.7);
+    }
+
+    body.dark-mode .modal-content {
+        background: #1a1a1a;
+        border: 2px solid #404040;
+        border-radius: 12px;
+    }
+
+    body.dark-mode .modal-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border-bottom: 2px solid #404040;
+    }
+
+    body.dark-mode .modal-header h3 {
+        color: white;
+    }
+
+    body.dark-mode .close-btn {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    body.dark-mode .close-btn:hover {
+        background: rgba(255, 255, 255, 0.4);
+    }
+
+    body.dark-mode .modal-body {
+        background: #1a1a1a;
+        color: #e0e0e0;
+        padding: 20px;
+    }
+
+    body.dark-mode .modal-body p {
+        color: #d0d0d0;
+    }
+
+    /* YouTube Player & Lyrics Container */
+    body.dark-mode #youtubePlayer {
+        background: #0f0f0f;
+        border: 2px solid #404040;
+    }
+
+    body.dark-mode #lyricsContainer {
+        background: #252525;
+        border: 2px solid #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode #lyricsContainer .lyrics-text {
+        color: #e0e0e0;
+    }
+
+    /* Gathering Cards Dark Mode */
+    body.dark-mode .gathering-card,
+    body.dark-mode .event-card,
+    body.dark-mode .church-event-card {
+        background: #252525;
+        border: 2px solid #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .gathering-card h3,
+    body.dark-mode .event-card h3,
+    body.dark-mode .church-event-card h3 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .gathering-card p,
+    body.dark-mode .event-card p,
+    body.dark-mode .church-event-card p {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode .gathering-card .event-time,
+    body.dark-mode .event-card .event-time,
+    body.dark-mode .church-event-card .event-time {
+        color: #FFD235;
+    }
+
+    body.dark-mode .gathering-card .event-location,
+    body.dark-mode .event-card .event-location,
+    body.dark-mode .church-event-card .event-location {
+        color: #b0b0b0;
+    }
+
+    /* Pastor Description Dark Mode */
+    body.dark-mode .pastor-description,
+    body.dark-mode .pastor-bio {
+        background: #252525;
+        border-left: 4px solid var(--primary);
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .pastor-description p,
+    body.dark-mode .pastor-bio p {
+        color: #d0d0d0;
+        line-height: 1.6;
+    }
+
+    body.dark-mode .pastor-description h3,
+    body.dark-mode .pastor-bio h3,
+    body.dark-mode .pastor-description h4,
+    body.dark-mode .pastor-bio h4 {
+        color: #ffffff;
+    }
+
+    /* Message Contents Dark Mode */
+    body.dark-mode .message-content,
+    body.dark-mode .sermon-content,
+    body.dark-mode .message-body {
+        background: #1a1a1a;
+        border: 2px solid #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .message-content h2,
+    body.dark-mode .sermon-content h2,
+    body.dark-mode .message-body h2,
+    body.dark-mode .message-content h3,
+    body.dark-mode .sermon-content h3,
+    body.dark-mode .message-body h3 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .message-content p,
+    body.dark-mode .sermon-content p,
+    body.dark-mode .message-body p {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode .message-content li,
+    body.dark-mode .sermon-content li,
+    body.dark-mode .message-body li {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode .message-date,
+    body.dark-mode .sermon-date,
+    body.dark-mode .message-speaker {
+        color: #FFD235;
+    }
+
+    /* Profile Tabs Dark Mode */
+    body.dark-mode .profile-tabs {
+        background: #1a1a1a;
+        border-bottom: 2px solid #404040;
+    }
+
+    body.dark-mode .profile-tabs .tab-btn {
+        background: transparent;
+        color: #b0b0b0;
+        border-bottom: 3px solid transparent;
+    }
+
+    body.dark-mode .profile-tabs .tab-btn:hover {
+        color: #FFD235;
+        border-bottom-color: #FFD235;
+    }
+
+    body.dark-mode .profile-tabs .tab-btn.active {
+        color: #ffffff;
+        border-bottom-color: var(--primary);
+        background: rgba(146, 108, 21, 0.1);
+    }
+
+    body.dark-mode .tab-content,
+    body.dark-mode .profile-tab-content {
+        background: #1a1a1a;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .tab-content h3,
+    body.dark-mode .profile-tab-content h3,
+    body.dark-mode .tab-content h4,
+    body.dark-mode .profile-tab-content h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .tab-content p,
+    body.dark-mode .profile-tab-content p {
+        color: #d0d0d0;
+    }
+
+    /* "What to Expect" Section Dark Mode */
+    body.dark-mode [style*="background: white"] {
+        background: #252525 !important;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .expectation-box,
+    body.dark-mode [style*="background: white"] h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode [style*="background: white"] ul {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode [style*="background: white"] li {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode [style*="color: #6c757d"] {
+        color: #b0b0b0 !important;
+    }
+
+    /* Schedule Cards Container Dark Mode */
+    body.dark-mode .schedule-cards-container,
+    body.dark-mode .schedule-grid,
+    body.dark-mode .schedules-list {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .schedule-card,
+    body.dark-mode .schedule-item {
+        background: #252525;
+        border: 2px solid #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .schedule-card h3,
+    body.dark-mode .schedule-item h3,
+    body.dark-mode .schedule-card h4,
+    body.dark-mode .schedule-item h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .schedule-card p,
+    body.dark-mode .schedule-item p {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode .schedule-time {
+        color: #FFD235;
+        font-weight: 600;
+    }
+
+    body.dark-mode .schedule-status {
+        color: #51cf66;
+    }
+
+    /* History Card Contents Dark Mode */
+    body.dark-mode .history-card,
+    body.dark-mode .card-history,
+    body.dark-mode .activity-card {
+        background: #252525;
+        border: 2px solid #404040;
+        color: #e0e0e0;
+        margin-bottom: 12px;
+    }
+
+    body.dark-mode .history-card h4,
+    body.dark-mode .card-history h4,
+    body.dark-mode .activity-card h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .history-card p,
+    body.dark-mode .card-history p,
+    body.dark-mode .activity-card p {
+        color: #d0d0d0;
+        margin: 5px 0;
+    }
+
+    body.dark-mode .history-date,
+    body.dark-mode .card-date,
+    body.dark-mode .activity-date {
+        color: #FFD235;
+        font-size: 0.85rem;
+    }
+
+    body.dark-mode .history-details,
+    body.dark-mode .card-details,
+    body.dark-mode .activity-details {
+        color: #b0b0b0;
+    }
+
+    /* Schedule Card Body Dark Mode */
+    body.dark-mode .schedule-card-body,
+    body.dark-mode .card-body {
+        background: #1a1a1a;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .schedule-card-body h3,
+    body.dark-mode .card-body h3 {
+        color: #ffffff;
+        border-bottom: 2px solid #404040;
+        padding-bottom: 10px;
+    }
+
+    body.dark-mode .schedule-card-body p,
+    body.dark-mode .card-body p {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode .schedule-card-body .badge,
+    body.dark-mode .card-body .badge {
+        background: rgba(146, 108, 21, 0.3);
+        color: #FFD235;
+    }
+
+    body.dark-mode .schedule-card-body .icon,
+    body.dark-mode .card-body .icon {
+        color: var(--primary);
+    }
+
+    /* Upcoming Schedule Cards Dark Mode */
+    body.dark-mode .upcoming-schedule-cards,
+    body.dark-mode .upcoming-cards-section {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .upcoming-card {
+        background: #252525;
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        transition: var(--transition);
+        border-left: 5px solid var(--primary);
+        cursor: pointer;
+    }
+
+    body.dark-mode .upcoming-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+        border-left-color: var(--secondary);
+    }
+
+    body.dark-mode .upcoming-card-date {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        padding: 10px 12px;
+        text-align: center;
+        font-weight: 600;
+    }
+
+    body.dark-mode .upcoming-card-date-day {
+        font-size: 1.4rem;
+        font-weight: 700;
+        line-height: 1;
+        color: white;
+    }
+
+    body.dark-mode .upcoming-card-date-time {
+        font-size: 0.7rem;
+        opacity: 0.9;
+        color: white;
+    }
+
+    body.dark-mode .upcoming-card-content {
+        padding: 10px;
+        background: #252525;
+    }
+
+    body.dark-mode .upcoming-card-label {
+        font-size: 0.65rem;
+        color: #b0b0b0;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 3px;
+    }
+
+    body.dark-mode .upcoming-card-title {
+        font-size: 0.9rem;
+        color: #ffffff;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+
+    body.dark-mode .upcoming-card-item {
+        margin-bottom: 6px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #3a3a3a;
+    }
+
+    body.dark-mode .upcoming-card-item:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    body.dark-mode .upcoming-card-item-label {
+        font-size: 0.65rem;
+        color: #b0b0b0;
+        font-weight: 600;
+        margin-bottom: 2px;
+    }
+
+    body.dark-mode .upcoming-card-item-value {
+        font-size: 0.8rem;
+        color: #d0d0d0;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    body.dark-mode .schedule-cards-container {
+        background: #1a1a1a;
+    }
+
+    /* Pastor Description Dark Mode */
+    body.dark-mode .pastor-description-section,
+    body.dark-mode .pastor-section {
+        background: #1a1a1a;
+    }
+
+    body.dark-mode .pastor-description-section h2,
+    body.dark-mode .pastor-section h2 {
+        color: #ffffff;
+        border-bottom: 2px solid #404040;
+    }
+
+    body.dark-mode .pastor-description-section p,
+    body.dark-mode .pastor-section p,
+    body.dark-mode .pastor-intro {
+        color: #d0d0d0;
+        line-height: 1.6;
+    }
+
+    
+    body.dark-mode .pastor-card h3,
+    body.dark-mode .pastor-card h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .pastor-card p {
+        color: #d0d0d0;
+    }
+
+    /* Text Color Overrides for Dark Mode */
+    body.dark-mode p {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode span {
+        color: inherit;
+    }
+
+    body.dark-mode div[style*="color: var(--primary)"] {
+        color: #FFD235 !important;
+    }
+
+    body.dark-mode div[style*="color: #6c757d"] {
+        color: #b0b0b0 !important;
+    }
+
+    body.dark-mode [style*="color: white"] {
+        color: #ffffff !important;
+    }
+
+    body.dark-mode [style*="background: white"] {
+        background: #252525 !important;
+        color: #e0e0e0 !important;
+    }
+
+    /* Inline Style Text Fixes */
+    body.dark-mode [style*="color: #333"] {
+        color: #e0e0e0 !important;
+    }
+
+    body.dark-mode [style*="color: #666"] {
+        color: #b0b0b0 !important;
+    }
+
+    body.dark-mode [style*="color: #999"] {
+        color: #808080 !important;
+    }
+
+    body.dark-mode [style*="color: #333333"] {
+        color: #e0e0e0 !important;
+    }
+
+    /* Bible Reader - Light Mode */
+    .bible-reader-container {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .bible-controls {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .bible-version-selector,
+    .bible-book-selector,
+    .bible-chapter-selector {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .bible-controls label {
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 8px;
+        font-size: 0.9rem;
+    }
+
+    .bible-controls select {
+        padding: 10px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        background: white;
+        color: #333;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .bible-controls select:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 5px rgba(146, 108, 21, 0.2);
+    }
+
+    .bible-content {
+        background: white;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 30px;
+        min-height: 400px;
+        box-shadow: var(--shadow);
+    }
+
+    .bible-header {
+        border-bottom: 2px solid #e0e0e0;
+        padding-bottom: 15px;
+        margin-bottom: 20px;
+    }
+
+    .bible-header h3 {
+        color: var(--primary);
+        margin: 0 0 5px 0;
+        font-size: 1.3rem;
+    }
+
+    .bible-version-label {
+        color: #999;
+        font-size: 0.85rem;
+        margin: 0;
+    }
+
+    .bible-text {
+        line-height: 1.8;
+        color: #333;
+        font-size: 0.95rem;
+        user-select: text;
+    }
+
+    .bible-text p {
+        margin-bottom: 12px;
+    }
+
+    .bible-verse {
+        margin-bottom: 15px;
+        padding: 10px;
+        border-left: 3px solid #e0e0e0;
+        transition: all 0.2s ease;
+    }
+
+    .bible-verse:hover {
+        border-left-color: var(--primary);
+        background: #f8f9fa;
+    }
+
+    .bible-verse-ref {
+        font-weight: 600;
+        color: var(--primary);
+        font-size: 0.85rem;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .bible-verse-text {
+        color: #333;
+        line-height: 1.6;
+    }
+
+    .bible-ai-assistant {
+        background: #f8f9fa;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 20px;
+        margin-top: 20px;
+    }
+
+    .bible-ai-assistant h4 {
+        color: var(--primary);
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 1rem;
+    }
+
+    .bible-question-input {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        margin-bottom: 10px;
+        box-sizing: border-box;
+        transition: all 0.3s ease;
+    }
+
+    .bible-question-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 5px rgba(146, 108, 21, 0.2);
+    }
+
+    .bible-ask-btn {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 100%;
+    }
+
+    .bible-ask-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(146, 108, 21, 0.3);
+    }
+
+    .bible-ai-response {
+        background: white;
+        border-left: 4px solid var(--primary);
+        padding: 15px;
+        border-radius: 6px;
+        color: #333;
+        line-height: 1.6;
+    }
+
+    /* Bible Reader - Dark Mode */
+    body.dark-mode .bible-controls {
+        background: #1a1a1a;
+        border: 2px solid #404040;
+    }
+
+    body.dark-mode .bible-controls label {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .bible-controls select {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border-color: #404040;
+    }
+
+    body.dark-mode .bible-controls select:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 5px rgba(146, 108, 21, 0.3);
+    }
+
+    /* Daily Quote - Light Mode */
+    .quote-container {
+        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+        border-radius: 12px;
+        padding: 30px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    .quote-card {
+        text-align: center;
+        position: relative;
+        padding: 30px 20px;
+    }
+
+    .quote-mark-open, .quote-mark-close {
+        font-size: 4rem;
+        color: #926C15;
+        opacity: 0.3;
+        line-height: 0.5;
+    }
+
+    .quote-mark-open {
+        display: block;
+        text-align: left;
+        margin-bottom: -20px;
+    }
+
+    .quote-mark-close {
+        display: block;
+        text-align: right;
+        margin-top: -20px;
+    }
+
+    .quote-text {
+        font-size: 1.3rem;
+        font-style: italic;
+        color: #333;
+        margin: 20px 0;
+        line-height: 1.8;
+        font-weight: 500;
+    }
+
+    .quote-author {
+        font-size: 1rem;
+        color: #666;
+        margin-top: 20px;
+        font-weight: 600;
+    }
+
+    .quote-controls {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-top: 25px;
+        flex-wrap: wrap;
+    }
+
+    .quote-controls .btn-primary,
+    .quote-controls .btn-secondary {
+        padding: 10px 20px;
+        font-size: 0.95rem;
+        min-width: 150px;
+    }
+
+    .quote-metadata {
+        color: #666;
+        font-size: 0.85rem;
+    }
+
+    /* Daily Quote - Dark Mode */
+    body.dark-mode .quote-container {
+        background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    }
+
+    body.dark-mode .quote-mark-open,
+    body.dark-mode .quote-mark-close {
+        color: #FFD235;
+    }
+
+    body.dark-mode .quote-text {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .quote-author {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .quote-metadata {
+        color: #808080;
+    }
+
+    /* Mobile Responsive - Daily Quote */
+    @media (max-width: 768px) {
+        .quote-container {
+            padding: 20px;
+        }
+
+        .quote-card {
+            padding: 20px 15px;
+        }
+
+        .quote-mark-open, .quote-mark-close {
+            font-size: 2.5rem;
+        }
+
+        .quote-text {
+            font-size: 1.1rem;
+        }
+
+        .quote-controls {
+            gap: 8px;
+        }
+
+        .quote-controls .btn-primary,
+        .quote-controls .btn-secondary {
+            min-width: 130px;
+            padding: 8px 15px;
+            font-size: 0.85rem;
+        }
+    }
+
+    body.dark-mode .bible-content {
+        background: #252525;
+        border-color: #404040;
+    }
+
+    body.dark-mode .bible-header {
+        border-bottom-color: #404040;
+    }
+
+    body.dark-mode .bible-header h3 {
+        color: #FFD235;
+    }
+
+    body.dark-mode .bible-version-label {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .bible-text {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode .bible-verse {
+        border-left-color: #3a3a3a;
+    }
+
+    body.dark-mode .bible-verse:hover {
+        border-left-color: var(--primary);
+        background: #2a2a2a;
+    }
+
+    body.dark-mode .bible-verse-ref {
+        color: #FFD235;
+    }
+
+    body.dark-mode .bible-verse-text {
+        color: #d0d0d0;
+    }
+
+    body.dark-mode .bible-ai-assistant {
+        background: #1a1a1a;
+        border-color: #404040;
+    }
+
+    body.dark-mode .bible-ai-assistant h4 {
+        color: #FFD235;
+    }
+
+    body.dark-mode .bible-ai-assistant p {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .bible-question-input {
+        background: #2a2a2a;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .bible-question-input::placeholder {
+        color: #808080;
+    }
+
+    body.dark-mode .bible-question-input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 5px rgba(146, 108, 21, 0.3);
+    }
+
+    body.dark-mode .bible-ai-response {
+        background: #2a2a2a;
+        border-left-color: var(--primary);
+        color: #d0d0d0;
+    }
+
+    /* Mobile Responsive Bible Reader */
+    @media (max-width: 768px) {
+        .bible-controls {
+            grid-template-columns: 1fr !important;
+            padding: 15px !important;
+        }
+
+        .bible-content {
+            padding: 15px !important;
+            min-height: 300px !important;
+        }
+
+        .bible-text {
+            font-size: 0.9rem !important;
+        }
+    }
+
+    /* Responsive Dark Mode */
+    /* Change Password Form - Dark Mode */
+    body.dark-mode .change-password-form,
+    body.dark-mode .password-form {
+        background: #1a1a1a;
+        border: 2px solid #404040;
+        border-radius: 8px;
+        padding: 20px;
+    }
+
+    body.dark-mode .change-password-form h3,
+    body.dark-mode .password-form h3 {
+        color: #ffffff;
+        border-bottom-color: #404040;
+    }
+
+    body.dark-mode .change-password-form .form-group label,
+    body.dark-mode .password-form .form-group label {
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .change-password-form .form-control,
+    body.dark-mode .password-form .form-control {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border-color: #404040;
+    }
+
+    body.dark-mode .change-password-form .form-control:focus,
+    body.dark-mode .password-form .form-control:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 8px rgba(146, 108, 21, 0.3);
+    }
+
+    body.dark-mode .change-password-form .form-control::placeholder,
+    body.dark-mode .password-form .form-control::placeholder {
+        color: #808080;
+    }
+
+    /* Personal Information Form - Dark Mode */
+    body.dark-mode .personal-info-form,
+    body.dark-mode .info-form {
+        background: #1a1a1a;
+        border: 2px solid #404040;
+        border-radius: 8px;
+        padding: 20px;
+    }
+
+    body.dark-mode .personal-info-form h3,
+    body.dark-mode .info-form h3 {
+        color: #ffffff;
+        border-bottom-color: #404040;
+        margin-bottom: 20px;
+    }
+
+    body.dark-mode .personal-info-form .form-group label,
+    body.dark-mode .info-form .form-group label {
+        color: #e0e0e0;
+        font-weight: 600;
+    }
+
+    body.dark-mode .personal-info-form .form-control,
+    body.dark-mode .info-form .form-control,
+    body.dark-mode .personal-info-form .form-select,
+    body.dark-mode .info-form .form-select {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border: 2px solid #404040;
+        border-radius: 6px;
+        padding: 12px;
+    }
+
+    body.dark-mode .personal-info-form .form-control:focus,
+    body.dark-mode .info-form .form-control:focus,
+    body.dark-mode .personal-info-form .form-select:focus,
+    body.dark-mode .info-form .form-select:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 8px rgba(146, 108, 21, 0.3);
+    }
+
+    body.dark-mode .personal-info-form .form-control::placeholder,
+    body.dark-mode .info-form .form-control::placeholder {
+        color: #888;
+    }
+
+    body.dark-mode .personal-info-form option,
+    body.dark-mode .info-form option {
+        background: #2a2a2a;
+        color: #e0e0e0;
+    }
+
+    /* Form Buttons - All Variants Dark Mode */
+    body.dark-mode .btn,
+    body.dark-mode button[type="submit"],
+    body.dark-mode button[type="button"] {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 12px 24px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    body.dark-mode .btn:hover,
+    body.dark-mode button[type="submit"]:hover,
+    body.dark-mode button[type="button"]:hover {
+        background: linear-gradient(135deg, #a67c1f, #b8860b);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(146, 108, 21, 0.4);
+    }
+
+    body.dark-mode .btn-primary {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+    }
+
+    body.dark-mode .btn-primary:hover {
+        background: linear-gradient(135deg, #a67c1f, #b8860b);
+    }
+
+    body.dark-mode .btn-secondary {
+        background: #3a3a3a;
+        color: #e0e0e0;
+        border: 2px solid #404040;
+    }
+
+    body.dark-mode .btn-secondary:hover {
+        background: #454545;
+        border-color: var(--primary);
+    }
+
+    body.dark-mode .btn-danger {
+        background: #dc3545;
+    }
+
+    body.dark-mode .btn-danger:hover {
+        background: #c82333;
+    }
+
+    body.dark-mode .btn-success {
+        background: #28a745;
+    }
+
+    body.dark-mode .btn-success:hover {
+        background: #218838;
+    }
+
+    /* Form Sections and Divs */
+    body.dark-mode .form-section {
+        background: #1a1a1a;
+        border: 2px solid #404040;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    body.dark-mode .form-section h2,
+    body.dark-mode .form-section h3,
+    body.dark-mode .form-section h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .form-section p {
+        color: #b0b0b0;
+    }
+
+    body.dark-mode .info-box,
+    body.dark-mode .info-card {
+        background: #252525;
+        border: 2px solid #404040;
+        border-radius: 8px;
+        padding: 15px;
+    }
+
+    body.dark-mode .info-box h4,
+    body.dark-mode .info-card h4 {
+        color: #ffffff;
+    }
+
+    body.dark-mode .info-box p,
+    body.dark-mode .info-card p {
+        color: #d0d0d0;
+    }
+
+    /* Save/Cancel Buttons */
+    body.dark-mode .btn-save {
+        background: linear-gradient(135deg, #28a745, #20c997);
+    }
+
+    body.dark-mode .btn-save:hover {
+        background: linear-gradient(135deg, #218838, #1aa179);
+    }
+
+    body.dark-mode .btn-cancel {
+        background: #3a3a3a;
+        color: #e0e0e0;
+    }
+
+    body.dark-mode .btn-cancel:hover {
+        background: #454545;
+    }
+
+    body.dark-mode .btn-edit {
+        background: linear-gradient(135deg, #007bff, #0056b3);
+    }
+
+    body.dark-mode .btn-edit:hover {
+        background: linear-gradient(135deg, #0056b3, #003d82);
+    }
+
+    body.dark-mode .btn-delete {
+        background: #dc3545;
+    }
+
+    body.dark-mode .btn-delete:hover {
+        background: #c82333;
+    }
+
+    /* Input Groups and Wrappers */
+    body.dark-mode .input-group {
+        background: #2a2a2a;
+        border: 2px solid #404040;
+        border-radius: 6px;
+    }
+
+    body.dark-mode .input-group-text {
+        background: #252525;
+        border-color: #404040;
+        color: var(--primary);
+    }
+
+    /* Form Validation Feedback */
+    body.dark-mode .invalid-feedback,
+    body.dark-mode .valid-feedback {
+        color: #888;
+    }
+
+    body.dark-mode .form-control.is-invalid {
+        border-color: #ff6b6b;
+    }
+
+    body.dark-mode .form-control.is-valid {
+        border-color: #51cf66;
+    }
+
+    /* Responsive Dark Mode */
+    @media (max-width: 768px) {
+        body.dark-mode .sidebar {
+            background: #1e1e1e;
+        }
+
+        body.dark-mode .main-content {
+            background: #0f0f0f;
+        }
+
+        body.dark-mode .content-section {
+            background: #0f0f0f;
+        }
+
+        body.dark-mode .chat-messages {
+            height: 300px;
+        }
+
+        body.dark-mode .chat-message {
+            max-width: 95%;
+        }
+
+        body.dark-mode .schedule-history-card {
+            font-size: 0.9rem;
+        }
+
+        body.dark-mode .upcoming-schedule-card {
+            padding: 12px;
+        }
+
+        body.dark-mode .form-section,
+        body.dark-mode .change-password-form,
+        body.dark-mode .personal-info-form {
+            padding: 15px;
+        }
+
+        body.dark-mode .btn,
+        body.dark-mode button[type="submit"] {
+            padding: 10px 20px;
+            font-size: 0.9rem;
         }
     }
 
@@ -5427,6 +8714,9 @@
                         <button class="tab-btn" onclick="openProfileTab('change-password')">
                             <i class="fas fa-lock"></i> Change Password
                         </button>
+                        <button class="tab-btn" onclick="openProfileTab('preferences')">
+                            <i class="fas fa-sliders-h"></i> Preferences
+                        </button>
                     </div>
 
                     <!-- Personal Information Tab Content -->
@@ -5596,10 +8886,229 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Preferences Tab Content -->
+                    <div id="preferences" class="profile-tab-content">
+                        <div class="profile-form">
+                            <div class="form-section">
+                                <h3><i class="fas fa-paint-brush"></i> Appearance Settings</h3>
+                                
+                                <div class="settings-row">
+                                    <div class="settings-label">
+                                        <span class="settings-label-title">Dark Mode</span>
+                                        <span class="settings-label-desc">Enable dark theme for easier viewing at night</span>
+                                    </div>
+                                    <label class="settings-toggle">
+                                        <input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <h3><i class="fas fa-comments"></i> Chatbot Settings</h3>
+                                
+                                <div class="settings-row">
+                                    <div class="settings-label">
+                                        <span class="settings-label-title">Enable Chatbot</span>
+                                        <span class="settings-label-desc">Enable or disable the floating spiritual assistant chatbot</span>
+                                    </div>
+                                    <label class="settings-toggle">
+                                        <input type="checkbox" id="chatbotToggle" onchange="toggleChatbot()" checked>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-section" style="background: #f0f8ff; border-left: 4px solid #4169E1;">
+                                <p style="font-size: 0.9rem; color: #333; margin: 0;">
+                                    <i class="fas fa-info-circle" style="color: #4169E1; margin-right: 8px;"></i>
+                                    Changes are saved automatically to your account preferences.
+                                </p>
+                            </div>
+
+                            <style>
+                                body.dark-mode .form-section[style*="#f0f8ff"] {
+                                    background: #1a3a4a !important;
+                                    border-left-color: #6a9fb0 !important;
+                                }
+                                
+                                body.dark-mode .form-section[style*="#f0f8ff"] p {
+                                    color: #b0d4d4 !important;
+                                }
+                                
+                                body.dark-mode .form-section[style*="#f0f8ff"] i {
+                                    color: #6a9fb0 !important;
+                                }
+                            </style>
+                        </div>
+                    </div>
                 </div>
             </section>
 
             <!-- Spiritual Assistant Section -->
+            <!-- Bible Reader Section -->
+            <section id="bible-reader" class="content-section">
+                <h2 class="section-title"><i class="fas fa-book"></i> Bible Reader</h2>
+                
+                <div class="bible-reader-container">
+                    <!-- Bible Version and Book Selection -->
+                    <div class="bible-controls">
+                        <div class="bible-version-selector">
+                            <label>Bible Version:</label>
+                            <select id="bibleVersion" onchange="changeBibleReaderVersion(this.value)">
+                                <option value="niv">NIV - New International Version</option>
+                                <option value="kjv">KJV - King James Version</option>
+                                <option value="nkjv">NKJV - New King James Version</option>
+                                <option value="nasb">NASB - New American Standard Bible</option>
+                                <option value="cev">CEV - Contemporary English Version</option>
+                            </select>
+                        </div>
+                        
+                        <div class="bible-book-selector">
+                            <label>Book:</label>
+                            <select id="bibleBook" onchange="loadBibleChapter(this.value)">
+                                <option value="">Select a Book...</option>
+                                <!-- Old Testament -->
+                                <optgroup label="Old Testament">
+                                    <option value="Genesis">Genesis</option>
+                                    <option value="Exodus">Exodus</option>
+                                    <option value="Leviticus">Leviticus</option>
+                                    <option value="Numbers">Numbers</option>
+                                    <option value="Deuteronomy">Deuteronomy</option>
+                                    <option value="Joshua">Joshua</option>
+                                    <option value="Judges">Judges</option>
+                                    <option value="Ruth">Ruth</option>
+                                    <option value="1 Samuel">1 Samuel</option>
+                                    <option value="2 Samuel">2 Samuel</option>
+                                    <option value="1 Kings">1 Kings</option>
+                                    <option value="2 Kings">2 Kings</option>
+                                    <option value="1 Chronicles">1 Chronicles</option>
+                                    <option value="2 Chronicles">2 Chronicles</option>
+                                    <option value="Ezra">Ezra</option>
+                                    <option value="Nehemiah">Nehemiah</option>
+                                    <option value="Esther">Esther</option>
+                                    <option value="Job">Job</option>
+                                    <option value="Psalm">Psalm</option>
+                                    <option value="Proverbs">Proverbs</option>
+                                    <option value="Ecclesiastes">Ecclesiastes</option>
+                                    <option value="Song of Solomon">Song of Solomon</option>
+                                    <option value="Isaiah">Isaiah</option>
+                                    <option value="Jeremiah">Jeremiah</option>
+                                    <option value="Lamentations">Lamentations</option>
+                                    <option value="Ezekiel">Ezekiel</option>
+                                    <option value="Daniel">Daniel</option>
+                                    <option value="Hosea">Hosea</option>
+                                    <option value="Joel">Joel</option>
+                                    <option value="Amos">Amos</option>
+                                    <option value="Obadiah">Obadiah</option>
+                                    <option value="Jonah">Jonah</option>
+                                    <option value="Micah">Micah</option>
+                                    <option value="Nahum">Nahum</option>
+                                    <option value="Habakkuk">Habakkuk</option>
+                                    <option value="Zephaniah">Zephaniah</option>
+                                    <option value="Haggai">Haggai</option>
+                                    <option value="Zechariah">Zechariah</option>
+                                    <option value="Malachi">Malachi</option>
+                                </optgroup>
+                                <!-- New Testament -->
+                                <optgroup label="New Testament">
+                                    <option value="Matthew">Matthew</option>
+                                    <option value="Mark">Mark</option>
+                                    <option value="Luke">Luke</option>
+                                    <option value="John">John</option>
+                                    <option value="Acts">Acts</option>
+                                    <option value="Romans">Romans</option>
+                                    <option value="1 Corinthians">1 Corinthians</option>
+                                    <option value="2 Corinthians">2 Corinthians</option>
+                                    <option value="Galatians">Galatians</option>
+                                    <option value="Ephesians">Ephesians</option>
+                                    <option value="Philippians">Philippians</option>
+                                    <option value="Colossians">Colossians</option>
+                                    <option value="1 Thessalonians">1 Thessalonians</option>
+                                    <option value="2 Thessalonians">2 Thessalonians</option>
+                                    <option value="1 Timothy">1 Timothy</option>
+                                    <option value="2 Timothy">2 Timothy</option>
+                                    <option value="Titus">Titus</option>
+                                    <option value="Philemon">Philemon</option>
+                                    <option value="Hebrews">Hebrews</option>
+                                    <option value="James">James</option>
+                                    <option value="1 Peter">1 Peter</option>
+                                    <option value="2 Peter">2 Peter</option>
+                                    <option value="1 John">1 John</option>
+                                    <option value="2 John">2 John</option>
+                                    <option value="3 John">3 John</option>
+                                    <option value="Jude">Jude</option>
+                                    <option value="Revelation">Revelation</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        
+                        <div class="bible-chapter-selector">
+                            <label>Chapter:</label>
+                            <select id="bibleChapter" onchange="loadBibleVerse()">
+                                <option value="">Select Chapter...</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Bible Content Display -->
+                    <div class="bible-content">
+                        <div class="bible-header">
+                            <h3 id="bibleTitle">Select a Book to Read</h3>
+                            <p id="bibleVersion" class="bible-version-label"></p>
+                        </div>
+                        
+                        <div class="bible-text" id="bibleText">
+                            <p style="color: #999; text-align: center; padding: 40px 20px;">
+                                <i class="fas fa-book-open"></i><br>
+                                Select a book and chapter to start reading.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <!-- AI Assistant for Selected Text -->
+                    <div class="bible-ai-assistant">
+                        <h4><i class="fas fa-lightbulb"></i> Ask AI About Selection</h4>
+                        <p style="font-size: 0.9rem; color: #666; margin-bottom: 10px;">Highlight any word or phrase and ask the AI assistant for insights.</p>
+                        <div class="bible-selection-display" id="bibleSelectionDisplay" style="display: none;">
+                            <p><strong>Selected Text:</strong></p>
+                            <p id="selectedText" style="background: #f0f0f0; padding: 10px; border-radius: 6px; border-left: 3px solid var(--primary); margin-bottom: 10px;"></p>
+                        </div>
+                        <input type="text" id="bibleQuestion" placeholder="Ask the AI about the highlighted text..." class="bible-question-input">
+                        <button onclick="askBibleQuestion()" class="bible-ask-btn"><i class="fas fa-paper-plane"></i> Ask AI</button>
+                        <div class="bible-ai-response" id="bibleAIResponse" style="display: none; margin-top: 15px;"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Daily Quote Section -->
+            <section id="daily-quote" class="content-section">
+                <h2 class="section-title"><i class="fas fa-lightbulb"></i> Daily Quote</h2>
+                
+                <div class="quote-container">
+                    <div class="quote-card">
+                        <div class="quote-mark-open">"</div>
+                        <p class="quote-text" id="quoteText">Click "Get Daily Quote" to receive an inspirational quote...</p>
+                        <p class="quote-author" id="quoteAuthor">-</p>
+                        <div class="quote-mark-close">"</div>
+                    </div>
+                    
+                    <div class="quote-controls">
+                        <button onclick="fetchDailyQuote()" class="btn-primary" title="Get new quote">
+                            <i class="fas fa-sync-alt"></i> Get Daily Quote
+                        </button>
+                        <button onclick="shareQuote()" class="btn-secondary" title="Share quote">
+                            <i class="fas fa-share-alt"></i> Share Quote
+                        </button>
+                    </div>
+                    
+                    <div class="quote-metadata" id="quoteMetadata" style="display: none; margin-top: 15px; font-size: 0.9rem; color: #666; text-align: center;">
+                        Quote loaded at: <span id="quoteTime"></span>
+                    </div>
+                </div>
+            </section>
+
             <section id="spiritual-assistant" class="content-section">
                 <h2 class="section-title"><i class="fas fa-heart"></i> Spiritual Assistant</h2>
                 
@@ -5795,6 +9304,8 @@
             window.location.href = 'login.html';
         } else {
             initializeDashboard();
+            // Initialize user preferences (dark mode, chatbot settings)
+            setTimeout(initializeUserPreferences, 100);
         }
 
         // Menu items configuration
@@ -5804,6 +9315,8 @@
                 { id: 'weekly-schedule', icon: 'fas fa-calendar-alt', label: 'Weekly Schedule' },
                 { id: 'attendance', icon: 'fas fa-check-circle', label: 'Attendance' },
                 { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements' },
+                { id: 'bible-reader', icon: 'fas fa-book', label: 'Bible' },
+                { id: 'daily-quote', icon: 'fas fa-lightbulb', label: 'Daily Quote' },
                 { id: 'spiritual-assistant', icon: 'fas fa-comments', label: 'Spiritual Assistant' },
                 { id: 'my-profile', icon: 'fas fa-user-circle', label: 'My Profile' }
             ],
@@ -6094,6 +9607,245 @@
             }
         }
 
+        /* ===== BIBLE READER FUNCTIONS ===== */
+        let currentBibleBook = '';
+        let currentBibleChapter = 1;
+        let currentBibleSelectedVersion = 'niv';
+
+        // Sample Bible verses for demonstration
+        const bibleBooks = {
+            'Genesis': 50,
+            'Exodus': 40,
+            'Matthew': 28,
+            'Mark': 16,
+            'Luke': 24,
+            'John': 21,
+            'Romans': 16,
+            'Revelation': 22
+        };
+
+        // Extended Bible verse cache with multiple versions
+        const extendedBibleCache = {
+            'John 1:1': {
+                'niv': 'In the beginning was the Word, and the Word was with God, and the Word was God.',
+                'kjv': 'In the beginning was the Word, and the Word was with God, and the Word was God.',
+                'nkjv': 'In the beginning was the Word, and the Word was with God, and the Word was God.',
+                'nasb': 'In the beginning was the Word, and the Word was with God, and the Word was God.',
+                'cev': 'In the beginning was the one who is called the Word. The Word was with God and was truly God.'
+            },
+            'John 3:16': {
+                'niv': 'For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.',
+                'kjv': 'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.',
+                'nkjv': 'For God so loved the world that He gave His only begotten Son, that whoever believes in Him should not perish but have everlasting life.',
+                'nasb': 'For God so loved the world, that He gave His only begotten Son, that whoever believes in Him shall not perish, but have eternal life.',
+                'cev': 'God loved the people of this world so much that he gave his only Son. Anyone who has faith in him will have eternal life and will never really die.'
+            },
+            'Romans 8:28': {
+                'niv': 'And we know that in all things God works for the good of those who love him, who have been called according to his purpose.',
+                'kjv': 'And we know that all things work together for good to them that love God, to them who are the called according to his purpose.',
+                'nkjv': 'And we know that all things work together for good to those who love God, to those who are the called according to His purpose.',
+                'nasb': 'And we know that God causes all things to work together for good to those who love God, to those who are called according to His purpose.',
+                'cev': 'We know that God is always at work for the good of everyone who loves him. They are the ones God chose for his purpose,'
+            }
+        };
+
+        function loadBibleChapter(book) {
+            if (!book) return;
+            
+            currentBibleBook = book;
+            const chapterSelect = document.getElementById('bibleChapter');
+            chapterSelect.innerHTML = '<option value="">Select Chapter...</option>';
+            
+            const chapters = bibleBooks[book] || 1;
+            for (let i = 1; i <= chapters; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `Chapter ${i}`;
+                chapterSelect.appendChild(option);
+            }
+        }
+
+        function loadBibleVerse() {
+            const chapterSelect = document.getElementById('bibleChapter');
+            const chapter = chapterSelect.value;
+            
+            if (!currentBibleBook || !chapter) return;
+            
+            currentBibleChapter = chapter;
+            const version = document.getElementById('bibleVersion').value;
+            currentBibleSelectedVersion = version;
+            
+            // Update header
+            const titleEl = document.querySelector('.bible-header h3');
+            const versionEl = document.querySelector('.bible-version-label');
+            
+            titleEl.textContent = `${currentBibleBook} ${chapter}`;
+            versionEl.textContent = `Showing ${getVersionName(version)}`;
+            
+            // Display sample verses
+            const bibleContent = document.getElementById('bibleText');
+            let html = '';
+            
+            for (let verse = 1; verse <= 5; verse++) {
+                const verseRef = `${currentBibleBook} ${chapter}:${verse}`;
+                let verseText = `This is ${currentBibleBook} ${chapter}, verse ${verse}. (Full content would load from Bible API)`;
+                
+                // Check if we have the verse in our cache
+                if (extendedBibleCache[verseRef] && extendedBibleCache[verseRef][version]) {
+                    verseText = extendedBibleCache[verseRef][version];
+                }
+                
+                html += `
+                    <div class="bible-verse">
+                        <span class="bible-verse-ref">${verseRef}</span>
+                        <div class="bible-verse-text" onmouseup="handleBibleTextSelection()">${verseText}</div>
+                    </div>
+                `;
+            }
+            
+            bibleContent.innerHTML = html;
+        }
+
+        function changeBibleReaderVersion(version) {
+            currentBibleSelectedVersion = version;
+            if (currentBibleBook && currentBibleChapter) {
+                loadBibleVerse();
+            }
+        }
+
+        function getVersionName(code) {
+            const versions = {
+                'niv': 'NIV - New International Version',
+                'kjv': 'KJV - King James Version',
+                'nkjv': 'NKJV - New King James Version',
+                'nasb': 'NASB - New American Standard Bible',
+                'cev': 'CEV - Contemporary English Version'
+            };
+            return versions[code] || 'Bible';
+        }
+
+        function handleBibleTextSelection() {
+            const selectedText = window.getSelection().toString().trim();
+            if (selectedText.length > 0) {
+                document.getElementById('selectedText').textContent = selectedText;
+                document.getElementById('bibleSelectionDisplay').style.display = 'block';
+                document.getElementById('bibleQuestion').focus();
+            }
+        }
+
+        // Daily Quote Feature
+        const APIVERVE_KEY = 'b6002bf5-3261-4a7a-8f0e-eda25133dd82';
+
+        async function fetchDailyQuote() {
+            try {
+                const response = await fetch('https://api.apiverve.com/v1/randomquote', {
+                    method: 'GET',
+                    headers: {
+                        'x-api-key': APIVERVE_KEY,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.data && data.data.quote && data.data.author) {
+                    document.getElementById('quoteText').textContent = data.data.quote;
+                    document.getElementById('quoteAuthor').textContent = `— ${data.data.author}`;
+                    
+                    // Update timestamp
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                    document.getElementById('quoteTime').textContent = timeString;
+                    document.getElementById('quoteMetadata').style.display = 'block';
+                } else {
+                    throw new Error('Invalid API response format');
+                }
+            } catch (error) {
+                console.error('Error fetching quote:', error);
+                document.getElementById('quoteText').textContent = 'Unable to load quote. Please try again.';
+                document.getElementById('quoteAuthor').textContent = '- Error';
+                document.getElementById('quoteMetadata').style.display = 'none';
+            }
+        }
+
+        function shareQuote() {
+            const quoteText = document.getElementById('quoteText').textContent;
+            const quoteAuthor = document.getElementById('quoteAuthor').textContent;
+            const shareText = `${quoteText} ${quoteAuthor}`;
+
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Daily Quote',
+                    text: shareText
+                }).catch(err => console.log('Share cancelled:', err));
+            } else {
+                // Fallback: Copy to clipboard
+                navigator.clipboard.writeText(shareText).then(() => {
+                    alert('Quote copied to clipboard!');
+                }).catch(err => {
+                    console.error('Copy failed:', err);
+                    alert('Unable to share. Please copy manually.');
+                });
+            }
+        }
+
+        async function askBibleQuestion() {
+            const selectedText = document.getElementById('selectedText').textContent;
+            const question = document.getElementById('bibleQuestion').value.trim();
+            
+            if (!selectedText || !question) {
+                showAlert('Please select text and ask a question', 'warning');
+                return;
+            }
+            
+            try {
+                const responseEl = document.getElementById('bibleAIResponse');
+                responseEl.innerHTML = '<p style="text-align: center;"><i class="fas fa-spinner fa-spin"></i> Asking AI...</p>';
+                responseEl.style.display = 'block';
+                
+                const prompt = `Based on the Bible text: "${selectedText}"\n\nUser Question: ${question}\n\nPlease provide biblical insight and wisdom in response to their question.`;
+                
+                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer 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`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: 'mixtral-8x7b-32768',
+                        messages: [{
+                            role: 'user',
+                            content: prompt
+                        }],
+                        max_tokens: 500,
+                        temperature: 0.7
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('AI response failed');
+                }
+                
+                const data = await response.json();
+                const aiAnswer = data.choices[0].message.content;
+                
+                responseEl.innerHTML = `
+                    <p><strong><i class="fas fa-lightbulb"></i> AI Insight:</strong></p>
+                    <p>${aiAnswer}</p>
+                    <p style="font-size: 0.85rem; color: #999; margin-top: 10px;"><em>Note: Always consult scripture and pastoral guidance for spiritual matters.</em></p>
+                `;
+            } catch (error) {
+                console.error('Error asking Bible question:', error);
+                document.getElementById('bibleAIResponse').innerHTML = `
+                    <p style="color: #dc3545;"><strong>Error:</strong> Could not get AI response. Please try again.</p>
+                `;
+            }
+        }
+
         // Fetch birthdays from AppScript
         async function fetchAndDisplayBirthdays() {
             try {
@@ -6325,6 +10077,24 @@
             
             // Initialize all sections
             initializeAllSections();
+        }
+
+        // Initialize user preferences (dark mode, chatbot settings)
+        function initializeUserPreferences() {
+            // Load dark mode preference
+            const darkModeEnabled = localStorage.getItem('darkModeEnabled') === 'true';
+            if (darkModeEnabled) {
+                document.body.classList.add('dark-mode');
+            }
+            
+            // Load chatbot preference
+            const chatbotEnabled = localStorage.getItem('chatbotEnabled') !== 'false';
+            const chatbotButton = document.querySelector('.flowise-button');
+            
+            if (!chatbotEnabled && chatbotButton) {
+                chatbotButton.style.display = 'none';
+                console.log('Chatbot disabled by user preference');
+            }
         }
 
         async function fetchAndSetUserStatus(isFirstLogin) {
@@ -6817,11 +10587,103 @@ Create fresh, authentic affirmations that will actually inspire this ministry wo
 
         // Floating Chatbot Functions
         function toggleFlowiseChat() {
+            // Check if chatbot is enabled
+            const chatbotEnabled = localStorage.getItem('chatbotEnabled') !== 'false';
+            if (!chatbotEnabled) {
+                showAlert('💬 Chatbot is disabled. Enable it in your preferences.', 'warning');
+                return;
+            }
+            
             const chatWindow = document.getElementById('flowiseChatWindow');
             chatWindow.classList.toggle('open');
             if (chatWindow.classList.contains('open')) {
                 document.getElementById('flowiseInput').focus();
+                initializeChatbotDrag();
             }
+        }
+        
+        // Chatbot Drag Functionality
+        let isDraggingChatbot = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+        
+        // Detect if device is mobile
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+                || window.innerWidth <= 768;
+        }
+        
+        function initializeChatbotDrag() {
+            // Skip drag functionality on mobile devices
+            if (isMobileDevice()) {
+                console.log('Mobile device detected - drag functionality disabled');
+                return;
+            }
+            
+            const chatWindow = document.getElementById('flowiseChatWindow');
+            const chatHeader = chatWindow.querySelector('.flowise-chat-header');
+            
+            if (!chatHeader) return;
+            
+            chatHeader.addEventListener('mousedown', startDragChatbot);
+        }
+        
+        function startDragChatbot(e) {
+            isDraggingChatbot = true;
+            const chatWindow = document.getElementById('flowiseChatWindow');
+            
+            // Get current position
+            const rect = chatWindow.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            
+            chatWindow.classList.add('dragging');
+            
+            document.addEventListener('mousemove', dragChatbot);
+            document.addEventListener('mouseup', stopDragChatbot);
+            
+            e.preventDefault();
+        }
+        
+        function dragChatbot(e) {
+            if (!isDraggingChatbot) return;
+            
+            const chatWindow = document.getElementById('flowiseChatWindow');
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+            
+            if (!clientX || !clientY) return;
+            
+            // Calculate new position
+            let newX = clientX - dragOffsetX;
+            let newY = clientY - dragOffsetY;
+            
+            // Keep within viewport bounds
+            const minX = -chatWindow.offsetWidth / 2 + 50;
+            const maxX = window.innerWidth - chatWindow.offsetWidth / 2 - 50;
+            const minY = 0;
+            const maxY = window.innerHeight - 60;
+            
+            newX = Math.max(minX, Math.min(maxX, newX));
+            newY = Math.max(minY, Math.min(maxY, newY));
+            
+            // Update position without transform
+            chatWindow.style.left = (newX + chatWindow.offsetWidth / 2) + 'px';
+            chatWindow.style.top = (newY + chatWindow.offsetHeight / 2) + 'px';
+            chatWindow.style.transform = 'translate(-50%, -50%)';
+            
+            e.preventDefault();
+        }
+        
+        function stopDragChatbot(e) {
+            if (!isDraggingChatbot) return;
+            
+            isDraggingChatbot = false;
+            const chatWindow = document.getElementById('flowiseChatWindow');
+            chatWindow.classList.remove('dragging');
+            
+            document.removeEventListener('mousemove', dragChatbot);
+            document.removeEventListener('mouseup', stopDragChatbot);
         }
 
         function closeFlowiseChat() {
@@ -8371,6 +12233,65 @@ Remember: You represent Christ's love and our church's heart. Bless, encourage, 
             // Initialize password validation if changing to password tab
             if (tabName === 'change-password') {
                 setTimeout(initializePasswordValidation, 100);
+            }
+            
+            // Initialize preference settings if changing to preferences tab
+            if (tabName === 'preferences') {
+                setTimeout(initializePreferences, 100);
+            }
+        }
+
+        // Initialize preferences - load saved settings
+        function initializePreferences() {
+            const darkModeEnabled = localStorage.getItem('darkModeEnabled') === 'true';
+            const chatbotEnabled = localStorage.getItem('chatbotEnabled') !== 'false'; // Default to true
+            
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const chatbotToggle = document.getElementById('chatbotToggle');
+            
+            if (darkModeToggle) {
+                darkModeToggle.checked = darkModeEnabled;
+            }
+            
+            if (chatbotToggle) {
+                chatbotToggle.checked = chatbotEnabled;
+            }
+        }
+
+        // Toggle dark mode
+        function toggleDarkMode() {
+            const isDarkMode = document.getElementById('darkModeToggle').checked;
+            
+            if (isDarkMode) {
+                document.body.classList.add('dark-mode');
+            } else {
+                document.body.classList.remove('dark-mode');
+            }
+            
+            // Save preference
+            localStorage.setItem('darkModeEnabled', isDarkMode);
+            showAlert(isDarkMode ? '🌙 Dark mode enabled' : '☀️ Light mode enabled', 'success');
+        }
+
+        // Toggle chatbot visibility
+        function toggleChatbot() {
+            const isChatbotEnabled = document.getElementById('chatbotToggle').checked;
+            const chatbotButton = document.querySelector('.flowise-button');
+            const chatbotWindow = document.getElementById('flowiseChatWindow');
+            
+            // Save preference
+            localStorage.setItem('chatbotEnabled', isChatbotEnabled);
+            
+            if (isChatbotEnabled) {
+                // Show chatbot
+                if (chatbotButton) chatbotButton.style.display = 'block';
+                if (chatbotWindow) chatbotWindow.style.display = 'none';
+                showAlert('💬 Chatbot enabled', 'success');
+            } else {
+                // Hide chatbot
+                if (chatbotButton) chatbotButton.style.display = 'none';
+                if (chatbotWindow) chatbotWindow.style.display = 'none';
+                showAlert('🔇 Chatbot disabled', 'success');
             }
         }
 

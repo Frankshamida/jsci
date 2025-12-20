@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Joyful Sound Church International</title>
     <style>
+        :root {
+            --primary: #926C15;
+            --secondary: #C9980B;
+            --accent: #FFC300;
+        }
+        
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
@@ -14,6 +20,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
+            transition: all 0.3s ease;
         }
         
         .container {
@@ -34,11 +41,13 @@
         h1 {
             color: #926C15;
             margin-bottom: 10px;
+            transition: all 0.3s ease;
         }
         
         p {
             color: #6c757d;
             margin-bottom: 30px;
+            transition: all 0.3s ease;
         }
         
         .btn {
@@ -59,9 +68,78 @@
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
         }
+
+        /* Dark Mode Toggle Button */
+        .dark-mode-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #926C15, #C9980B);
+            color: white;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            border: none;
+            cursor: pointer;
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.3rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(146, 108, 21, 0.3);
+        }
+
+        .dark-mode-toggle:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(146, 108, 21, 0.4);
+        }
+
+        .dark-mode-toggle:active {
+            transform: scale(0.95);
+        }
+
+        /* Dark Mode Styles */
+        body.dark-mode {
+            background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
+        }
+
+        body.dark-mode h1 {
+            color: #ffffff;
+        }
+
+        body.dark-mode p {
+            color: #b0b0b0;
+        }
+
+        body.dark-mode .btn {
+            background: linear-gradient(135deg, #926C15, #C9980B);
+            color: white;
+        }
+
+        body.dark-mode .dark-mode-toggle {
+            background: linear-gradient(135deg, #ffb300, #ffc300);
+            color: #333;
+        }
+
+        body.dark-mode .dark-mode-toggle:hover {
+            box-shadow: 0 6px 20px rgba(255, 195, 0, 0.4);
+        }
+
+        /* Responsive Dark Mode Toggle */
+        @media (max-width: 480px) {
+            .dark-mode-toggle {
+                width: 45px;
+                height: 45px;
+                font-size: 1.1rem;
+            }
+        }
     </style>
 </head>
 <body>
+    <button class="dark-mode-toggle" id="darkModeToggleIndex" title="Toggle Dark Mode">
+        <i class="fas fa-moon"></i>
+    </button>
     <div class="container">
         <div class="logo"></div>
         <h1>Joyful Sound Church International</h1>
@@ -71,6 +149,48 @@
     </div>
 
     <script>
+        // Font Awesome for icons
+        if (!document.querySelector('link[href*="font-awesome"]')) {
+            const fontAwesome = document.createElement('link');
+            fontAwesome.rel = 'stylesheet';
+            fontAwesome.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css';
+            document.head.appendChild(fontAwesome);
+        }
+
+        // Initialize dark mode on page load
+        function initializeDarkMode() {
+            const darkModeEnabled = localStorage.getItem('darkModeEnabled') === 'true';
+            const toggle = document.getElementById('darkModeToggleIndex');
+            
+            if (darkModeEnabled) {
+                document.body.classList.add('dark-mode');
+                if (toggle) {
+                    toggle.innerHTML = '<i class="fas fa-sun"></i>';
+                }
+            } else {
+                document.body.classList.remove('dark-mode');
+                if (toggle) {
+                    toggle.innerHTML = '<i class="fas fa-moon"></i>';
+                }
+            }
+        }
+
+        // Dark mode toggle event listener
+        document.addEventListener('DOMContentLoaded', function() {
+            const darkModeToggle = document.getElementById('darkModeToggleIndex');
+            if (darkModeToggle) {
+                darkModeToggle.addEventListener('click', function() {
+                    document.body.classList.toggle('dark-mode');
+                    const isDarkMode = document.body.classList.contains('dark-mode');
+                    localStorage.setItem('darkModeEnabled', isDarkMode);
+                    this.innerHTML = isDarkMode ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+                });
+            }
+            
+            // Initialize dark mode on load
+            initializeDarkMode();
+        });
+
         // Check if user is already logged in
         function checkLoginStatus() {
             const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
