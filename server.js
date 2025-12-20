@@ -17,11 +17,19 @@ app.use(cors({
 // Parse JSON bodies
 app.use(express.json());
 
-// Serve static files (your HTML, CSS, JS)
+// Serve static files but exclude dashboard.html from direct access
+app.use((req, res, next) => {
+    // Redirect dashboard.html requests to root
+    if (req.path === '/dashboard.html' || req.path === '/dashboard.html/') {
+        return res.redirect('/');
+    }
+    next();
+});
+
 app.use(express.static(path.join(__dirname, '.')));
 
 // Your Google Apps Script URL
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyQi9AT6tQhngPy3ljF3Hz50XcmWPmLzs7kHZn1EsyNs9rFKgw4Px4ipOLMD9crJWybXQ/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwXQOBKCBiRhFqI-tU440N6xysaQFjhR8Ktq5ti9Xfh8UeWRN_6yqDMUmyEccviLh8lYA/exec';
 
 // Proxy endpoint for all Google Apps Script requests
 app.post('/api/proxy', async (req, res) => {
@@ -81,7 +89,7 @@ app.get('/api/proxy-get', async (req, res) => {
 
 // Serve your main HTML files
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'login.html'));
+    res.sendFile(path.join(__dirname, 'dashboard.html'));
 });
 
 app.get('/login', (req, res) => {
@@ -97,7 +105,7 @@ app.get('/forgot-password', (req, res) => {
 });
 
 app.get('/dashboard', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dashboard.html'));
+    res.redirect('/');
 });
 
 app.listen(PORT, () => {

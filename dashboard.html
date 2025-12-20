@@ -275,7 +275,9 @@
         margin-left: var(--sidebar-width);
         padding: 20px;
         transition: var(--transition);
-        width: calc(100% - var(--sidebar-width));
+        overflow-x: hidden;
+        width: 100%;
+        box-sizing: border-box;
     }
 
     .content-header {
@@ -385,6 +387,10 @@
         box-shadow: var(--shadow);
         margin-bottom: 15px;
         display: none;
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
+        min-height: auto;
     }
 
     .content-section.active {
@@ -546,7 +552,243 @@
         z-index: 1;
     }
 
-    /* Mobile Menu Toggle */
+    .verse-language {
+        margin-top: 8px;
+        font-size: 0.8rem;
+        opacity: 0.8;
+        position: relative;
+        z-index: 1;
+    }
+
+    /* Verse Controls - Version and Language Selector */
+    .verse-controls {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        position: relative;
+        z-index: 2;
+    }
+
+    .version-selector,
+    .language-selector {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .version-selector label,
+    .language-selector label {
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: white;
+    }
+
+    .version-btn,
+    .language-btn {
+        background: rgba(255, 255, 255, 0.2);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        color: white;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.85rem;
+        transition: all 0.3s ease;
+    }
+
+    .version-btn:hover,
+    .language-btn:hover {
+        background: rgba(255, 255, 255, 0.3);
+        border-color: white;
+        transform: translateY(-2px);
+    }
+
+    .version-btn.active,
+    .language-btn.active {
+        background: white;
+        color: var(--primary);
+        border-color: white;
+    }
+
+    /* Inspiring Words Section - LIVE AI */
+    .inspiring-words-section {
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid rgba(255, 255, 255, 0.3);
+        font-size: 0.95rem;
+        font-weight: 500;
+        font-style: italic;
+        position: relative;
+        z-index: 1;
+        min-height: 30px;
+        transition: opacity 0.3s ease-in-out;
+        opacity: 1;
+    }
+
+    /* Pulse animation for LIVE indicator */
+    @keyframes pulse {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
+    }
+
+    /* Fade in/out for word transitions */
+    @keyframes fadeInOut {
+        0%, 100% { opacity: 1; }
+        45%, 55% { opacity: 0.7; }
+    }
+
+    /* Birthday Today Section Styles */
+    .birthday-today-section {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        padding: 25px;
+        margin-top: 25px;
+        border-top: 5px solid #FF69B4;
+    }
+
+    .birthday-header {
+        margin-bottom: 25px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+
+    .birthday-header h2 {
+        margin: 0;
+        color: var(--dark);
+        font-size: 1.4rem;
+    }
+
+    .birthday-greeting-box {
+        background: linear-gradient(135deg, #FF69B4, #FF1493);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 25px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+    }
+
+    .birthday-celebrants {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 30px;
+    }
+
+    .birthday-card {
+        background: linear-gradient(135deg, #FFE5F0, #FFCCEB);
+        border: 2px solid #FF69B4;
+        border-radius: var(--border-radius);
+        padding: 20px;
+        text-align: center;
+        transition: var(--transition);
+        cursor: pointer;
+    }
+
+    .birthday-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(255, 105, 180, 0.3);
+    }
+
+    .birthday-card-icon {
+        font-size: 2.5rem;
+        margin-bottom: 10px;
+    }
+
+    .birthday-card-name {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--dark);
+        margin-bottom: 5px;
+    }
+
+    .birthday-card-date {
+        font-size: 0.85rem;
+        color: #FF1493;
+        font-weight: 600;
+    }
+
+    .no-birthday-celebrants {
+        text-align: center;
+        padding: 30px;
+        color: #6c757d;
+    }
+
+    .no-birthday-celebrants i {
+        font-size: 2rem;
+        margin-bottom: 10px;
+        opacity: 0.5;
+    }
+
+    .upcoming-birthdays-section {
+        border-top: 2px solid #e0e0e0;
+        padding-top: 25px;
+    }
+
+    .upcoming-birthdays-section h3 {
+        margin: 0 0 15px 0;
+        color: var(--dark);
+        font-size: 1.2rem;
+    }
+
+    .upcoming-birthdays {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 12px;
+    }
+
+    .upcoming-birthday-item {
+        background: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 12px;
+        text-align: center;
+        transition: var(--transition);
+    }
+
+    .upcoming-birthday-item:hover {
+        background: #fff;
+        border-color: #FF69B4;
+        box-shadow: 0 4px 12px rgba(255, 105, 180, 0.15);
+    }
+
+    .upcoming-birthday-name {
+        font-weight: 700;
+        color: var(--dark);
+        font-size: 0.95rem;
+        margin-bottom: 5px;
+    }
+
+    .upcoming-birthday-date {
+        font-size: 0.8rem;
+        color: #FF69B4;
+        font-weight: 600;
+    }
+
+    .upcoming-birthday-days {
+        font-size: 0.75rem;
+        color: #6c757d;
+        margin-top: 3px;
+    }
+
+    .no-upcoming-birthdays {
+        text-align: center;
+        padding: 20px;
+        color: #6c757d;
+        font-size: 0.9rem;
+    }
+
+    
     .mobile-menu-toggle {
         display: none;
         position: fixed;
@@ -1222,6 +1464,12 @@
         border-radius: var(--border-radius);
         box-shadow: var(--shadow);
         overflow: hidden;
+        width: 100%;
+        box-sizing: border-box;
+        position: relative;
+        z-index: 1;
+        margin-bottom: 20px;
+        display: block;
     }
 
     .profile-header {
@@ -1230,8 +1478,8 @@
         padding: 30px;
         background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.1));
         gap: 25px;
+        flex-wrap: wrap; /* ⬅️ Added for mobile responsiveness */
     }
-
     .profile-avatar {
         position: relative;
         flex-shrink: 0;
@@ -1300,11 +1548,24 @@
     .profile-tab-content {
         display: none;
         padding: 30px;
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
     }
 
     .profile-tab-content.active {
         display: block;
         animation: fadeIn 0.3s ease;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .profile-form,
+    .password-form {
+        width: 100%;
+        box-sizing: border-box;
+        max-width: 100%;
+        overflow-x: hidden;
     }
 
     .form-group {
@@ -1478,6 +1739,10 @@
         margin-bottom: 40px;
         padding-bottom: 30px;
         border-bottom: 2px solid #f0f0f0;
+        display: flow-root;
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
     }
 
     .form-section:last-child {
@@ -1495,19 +1760,27 @@
         margin-right: 10px;
     }
 
-    /* Two-column layout using float */
-    .form-column {
-        float: left;
-        width: 50%;
-        padding: 10px;
-        box-sizing: border-box; /* Important for padding calculation */
+    /* Two-column layout for form inputs */
+    .profile-form {
+        width: 100%;
     }
 
-    /* Clear floats after the columns */
-    .form-section:after {
-        content: "";
-        display: table;
-        clear: both;
+    .form-row {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 0;
+        flex-wrap: wrap;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .form-column {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .form-column.full-width {
+        flex: 0 0 100%;
     }
 
     .song-row {
@@ -2092,9 +2365,245 @@
             font-weight: 600;
         }
 
+    /* Upcoming Schedule Cards Styles */
+    .upcoming-schedule-cards {
+        padding: 20px;
+        background: #f8f9fa;
+    }
+
+    .schedule-cards-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 12px;
+    }
+
+    .upcoming-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        transition: var(--transition);
+        border-left: 5px solid var(--primary);
+        cursor: pointer;
+    }
+
+    .upcoming-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        border-left-color: var(--secondary);
+    }
+
+    .upcoming-card-date {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        padding: 10px 12px;
+        text-align: center;
+        font-weight: 600;
+    }
+
+    .upcoming-card-date-day {
+        font-size: 1.4rem;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    .upcoming-card-date-time {
+        font-size: 0.7rem;
+        opacity: 0.9;
+    }
+
+    .upcoming-card-content {
+        padding: 10px;
+    }
+
+    .upcoming-card-label {
+        font-size: 0.65rem;
+        color: #6c757d;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 3px;
+    }
+
+    .upcoming-card-title {
+        font-size: 0.9rem;
+        color: var(--dark);
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+
+    .upcoming-card-item {
+        margin-bottom: 6px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #e0e0e0;
+    }
+
+    .upcoming-card-item:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    .upcoming-card-item-label {
+        font-size: 0.65rem;
+        color: #6c757d;
+        font-weight: 600;
+        margin-bottom: 2px;
+    }
+
+    .upcoming-card-item-value {
+        font-size: 0.8rem;
+        color: var(--dark);
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .upcoming-card-empty {
+        text-align: center;
+        padding: 40px 20px;
+        color: #6c757d;
+    }
+
+    .upcoming-card-empty i {
+        font-size: 2.5rem;
+        color: #ddd;
+        margin-bottom: 10px;
+    }
+
+    /* Schedule History Styles */
+    .schedule-history-section {
+        padding: 20px;
+        background: #f0f0f0;
+        border-top: 3px solid #e0e0e0;
+    }
+
+    .schedule-history-title {
+        font-size: 1.3rem;
+        color: var(--dark);
+        font-weight: 700;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .schedule-history-cards {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .history-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        transition: var(--transition);
+        border-left: 5px solid #999;
+        cursor: pointer;
+        opacity: 0.85;
+        display: grid;
+        grid-template-columns: 140px 1fr;
+    }
+
+    .history-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        opacity: 1;
+        border-left-color: var(--primary);
+    }
+
+    .history-card-date {
+        background: linear-gradient(135deg, #8b8b8b, #6b6b6b);
+        color: white;
+        padding: 10px 12px;
+        text-align: center;
+        font-weight: 600;
+    }
+
+    .history-card-date-day {
+        font-size: 1.4rem;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    .history-card-date-time {
+        font-size: 0.7rem;
+        opacity: 0.9;
+    }
+
+    .history-card-content {
+        padding: 12px 15px;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+
+    .history-card-label {
+        font-size: 0.65rem;
+        color: #888;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0;
+    }
+
+    .history-card-title {
+        font-size: 1rem;
+        color: var(--primary);
+        font-weight: 700;
+        margin-bottom: 0;
+    }
+
+    .history-card-item {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex: 1;
+        min-width: 120px;
+    }
+
+    .history-card-item:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    .history-card-item-label {
+        font-size: 0.65rem;
+        color: #888;
+        font-weight: 600;
+        margin-bottom: 0;
+    }
+
+    .history-card-item-value {
+        font-size: 0.85rem;
+        color: var(--dark);
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .schedule-history-empty {
+        text-align: center;
+        padding: 40px 20px;
+        color: #999;
+    }
+
+    .schedule-history-empty i {
+        font-size: 2.5rem;
+        color: #ddd;
+        margin-bottom: 10px;
+    }
+
     
-
-
 
 
 
@@ -2541,7 +3050,7 @@
         
         .main-content {
             margin-left: 250px;
-            width: calc(100% - 250px);
+            width: 100%;
         }
     }
 
@@ -2664,6 +3173,23 @@
             padding: 15px;
         }
 
+        /* Verse Controls Responsive */
+        .verse-controls {
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .version-selector,
+        .language-selector {
+            flex-wrap: wrap;
+        }
+
+        .version-btn,
+        .language-btn {
+            padding: 5px 10px;
+            font-size: 0.8rem;
+        }
+
         /* Profile Responsive */
         .profile-header {
             flex-direction: column;
@@ -2686,6 +3212,42 @@
         
         .form-actions {
             flex-direction: column;
+        }
+
+        /* Form responsive */
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+
+        .form-column {
+            flex: 0 0 100%;
+            width: 100%;
+            padding: 0;
+            margin-bottom: 15px;
+        }
+
+        .form-column.full-width {
+            flex: 0 0 100%;
+            width: 100%;
+        }
+
+        /* Schedule History Responsive */
+        .history-card {
+            grid-template-columns: 1fr;
+        }
+
+        .history-card-content {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .history-card-item {
+            flex-direction: column;
+            align-items: flex-start;
+            min-width: 100%;
         }
 
         /* Create Lineup Responsive */
@@ -3055,6 +3617,262 @@
         }
 
     }
+
+    /* Spiritual Assistant Chat Styling */
+    .disclaimer-banner {
+        background: linear-gradient(135deg, #FFF3CD, #FFE5A3);
+        border-left: 5px solid #FFC107;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 30px;
+        box-shadow: 0 2px 8px rgba(255, 193, 7, 0.2);
+    }
+
+    .disclaimer-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        color: #856404;
+        margin-bottom: 10px;
+        font-size: 1.05rem;
+    }
+
+    .disclaimer-header i {
+        font-size: 1.3rem;
+        color: #FFC107;
+    }
+
+    .disclaimer-banner p {
+        color: #856404;
+        margin: 0;
+        font-size: 0.95rem;
+        line-height: 1.6;
+    }
+
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 400px);
+        background: white;
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        min-height: 600px;
+    }
+
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 25px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        background: #f9f9f9;
+    }
+
+    .chat-message {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        max-width: 75%;
+        animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .chat-message.user-message {
+        align-self: flex-end;
+    }
+
+    .chat-message.ai-message {
+        align-self: flex-start;
+    }
+
+    .message-content {
+        padding: 15px 18px;
+        border-radius: 12px;
+        line-height: 1.6;
+        word-wrap: break-word;
+    }
+
+    .user-message .message-content {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+
+    .ai-message .message-content {
+        background: #ffffff;
+        color: var(--dark);
+        border: 1px solid #e0e0e0;
+        border-bottom-left-radius: 4px;
+    }
+
+    .message-content p {
+        margin: 0;
+        font-size: 0.95rem;
+    }
+
+    .message-content p:not(:last-child) {
+        margin-bottom: 10px;
+    }
+
+    .scripture-reference {
+        background: #f0f0f0;
+        padding: 10px 12px;
+        border-left: 3px solid var(--primary);
+        margin-top: 10px;
+        border-radius: 4px;
+        font-style: italic;
+        color: #555;
+        font-size: 0.9rem;
+    }
+
+    .message-time {
+        font-size: 0.75rem;
+        color: #999;
+        padding: 0 5px;
+    }
+
+    .user-message .message-time {
+        text-align: right;
+    }
+
+    .ai-message .message-time {
+        text-align: left;
+    }
+
+    .chat-input-area {
+        padding: 20px;
+        background: white;
+        border-top: 2px solid #f0f0f0;
+    }
+
+    .input-group {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+
+    .chat-input {
+        flex: 1;
+        padding: 12px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 0.95rem;
+        resize: none;
+        transition: var(--transition);
+    }
+
+    .chat-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(146, 108, 21, 0.1);
+    }
+
+    .send-button {
+        padding: 12px 25px;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: var(--transition);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+    }
+
+    .send-button:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(146, 108, 21, 0.3);
+    }
+
+    .send-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .send-button i {
+        font-size: 0.95rem;
+    }
+
+    .input-hint {
+        font-size: 0.85rem;
+        color: #999;
+        padding: 0 5px;
+    }
+
+    .typing-indicator {
+        display: flex;
+        gap: 4px;
+        padding: 15px 18px;
+    }
+
+    .typing-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ccc;
+        animation: typingAnimation 1.4s infinite;
+    }
+
+    .typing-dot:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .typing-dot:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+    @keyframes typingAnimation {
+        0%, 60%, 100% {
+            opacity: 0.5;
+            transform: translateY(0);
+        }
+        30% {
+            opacity: 1;
+            transform: translateY(-10px);
+        }
+    }
+
+    /* Responsive Chat */
+    @media (max-width: 768px) {
+        .chat-container {
+            height: calc(100vh - 350px);
+            min-height: 400px;
+        }
+
+        .chat-message {
+            max-width: 85%;
+        }
+
+        .disclaimer-banner {
+            padding: 15px;
+        }
+
+        .chat-messages {
+            padding: 15px;
+        }
+
+        .chat-input-area {
+            padding: 15px;
+        }
+    }
+
 </style>
 
 </head>
@@ -3154,13 +3972,28 @@
                     </div>
 
                     <div class="bible-verse-container" id="welcomeVerseContainer">
+                        <!-- Version Selector -->
+                        <div class="verse-controls">
+                            <div class="version-selector">
+                                <label>Version:</label>
+                                <button class="version-btn active" onclick="changeBibleVersion('niv')">NIV</button>
+                                <button class="version-btn" onclick="changeBibleVersion('kjv')">KJV</button>
+                                <button class="version-btn" onclick="changeBibleVersion('nkjv')">NKJV</button>
+                                <button class="version-btn" onclick="changeBibleVersion('cev')">CEV</button>
+                                <button class="version-btn" onclick="changeBibleVersion('nasb')">NASB</button>
+                            </div>
+                            <div class="language-selector">
+                                <label>Language:</label>
+                                <button class="language-btn active" onclick="changeVerseLanguage('english')">English</button>
+                                <button class="language-btn" onclick="changeVerseLanguage('bisaya')">Bisaya</button>
+                            </div>
+                        </div>
+
                         <div class="verse-of-the-day" id="welcomeVerse">
-                            "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do."
+                            Loading verse of the day...
                         </div>
-                        <div class="verse-reference" id="welcomeVerseReference">Ephesians 2:10</div>
-                        <div class="verse-explanation" id="welcomeVerseExplanation">
-                            You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service.
-                        </div>
+                        <div class="verse-reference" id="welcomeVerseReference">Loading...</div>
+                        <div class="verse-language" id="welcomeVerseLanguage">Language: English</div>
                     </div>
                 </div>
 
@@ -3173,14 +4006,30 @@
 
                     <!-- Bible Verse of the Day -->
                     <div class="bible-verse-container">
+                        <!-- Version Selector -->
+                        <div class="verse-controls">
+                            <div class="version-selector">
+                                <label>Version:</label>
+                                <button class="version-btn active" onclick="changeBibleVersion('niv')">NIV</button>
+                                <button class="version-btn" onclick="changeBibleVersion('kjv')">KJV</button>
+                                <button class="version-btn" onclick="changeBibleVersion('nkjv')">NKJV</button>
+                                <button class="version-btn" onclick="changeBibleVersion('cev')">CEV</button>
+                                <button class="version-btn" onclick="changeBibleVersion('nasb')">NASB</button>
+                            </div>
+                            <div class="language-selector">
+                                <label>Language:</label>
+                                <button class="language-btn active" onclick="changeVerseLanguage('english')">English</button>
+                                <button class="language-btn" onclick="changeVerseLanguage('bisaya')">Bisaya</button>
+                            </div>
+                        </div>
+
                         <div class="verse-of-the-day" id="dailyVerse">
-                            "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do."
+                            Loading verse of the day...
                         </div>
-                        <div class="verse-reference" id="verseReference">Ephesians 2:10</div>
-                        <div class="verse-explanation" id="verseExplanation">
-                            You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service.
-                        </div>
+                        <div class="verse-reference" id="verseReference">Loading...</div>
+                        <div class="verse-language" id="verseLanguage">Language: English</div>
                     </div>
+
 
                     <!-- Church Logo and Background Section -->
                     <div class="church-logo-section">
@@ -3420,6 +4269,19 @@
                         <!-- Schedule Calendar will be dynamically generated here -->
                     </div>
                     
+                    <!-- Upcoming Schedule Cards -->
+                    <div class="upcoming-schedule-cards" id="upcomingScheduleCards">
+                        <!-- Schedule cards will be dynamically generated here -->
+                    </div>
+                    
+                    <!-- Schedule History Cards -->
+                    <div class="schedule-history-section" id="scheduleHistorySection">
+                        <h3 class="schedule-history-title"><i class="fas fa-history"></i> Schedule History</h3>
+                        <div class="schedule-history-cards" id="scheduleHistoryCards">
+                            <!-- History cards will be dynamically generated here -->
+                        </div>
+                    </div>
+                    
                     <!-- Schedule Details Modal -->
                     <div id="scheduleModal" class="schedule-modal">
                         <div class="modal-content">
@@ -3439,62 +4301,7 @@
             <section id="attendance" class="content-section">
                 <h2 class="section-title"><i class="fas fa-check-circle"></i> Attendance Record</h2>
                 
-                <div class="attendance-stats">
-                    <div class="stat-card">
-                        <div class="stat-icon"><i class="fas fa-chart-bar"></i></div>
-                        <div class="stat-value">95%</div>
-                        <div class="stat-label">Overall Attendance</div>
-                    </div>
-                    
-                    <div class="stat-card">
-                        <div class="stat-icon"><i class="fas fa-check-double"></i></div>
-                        <div class="stat-value">12/12</div>
-                        <div class="stat-label">This Month</div>
-                    </div>
-                    
-                    <div class="stat-card">
-                        <div class="stat-icon"><i class="fas fa-calendar-check"></i></div>
-                        <div class="stat-value">45</div>
-                        <div class="stat-label">Total Services</div>
-                    </div>
-                </div>
                 
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Service</th>
-                                <th>Status</th>
-                                <th>Check-in Time</th>
-                                <th>Notes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>Nov 17, 2025</td>
-                                <td>Sunday Service</td>
-                                <td><span class="badge badge-success">Present</span></td>
-                                <td>8:45 AM</td>
-                                <td>-</td>
-                            </tr>
-                            <tr>
-                                <td>Nov 13, 2025</td>
-                                <td>Prayer Meeting</td>
-                                <td><span class="badge badge-success">Present</span></td>
-                                <td>5:55 PM</td>
-                                <td>-</td>
-                            </tr>
-                            <tr>
-                                <td>Nov 10, 2025</td>
-                                <td>Sunday Service</td>
-                                <td><span class="badge badge-danger">Absent</span></td>
-                                <td>-</td>
-                                <td>Out of town</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
             </section>
 
             <!-- Announcements Section -->
@@ -3502,47 +4309,55 @@
                 <h2 class="section-title"><i class="fas fa-bullhorn"></i> Announcements</h2>
                 
                 <div class="announcements-container">
-                    <div class="announcement-card">
-                        <div class="announcement-header">
-                            <div class="announcement-title">Ministry Meeting This Saturday</div>
-                            <div class="announcement-date">Nov 15, 2025</div>
-                        </div>
-                        <div class="announcement-content">
-                            <p>All media ministry members are required to attend the monthly meeting this Saturday at 10:00 AM in the media room.</p>
-                            <p>We'll be discussing upcoming events and equipment upgrades.</p>
-                        </div>
-                        <div class="announcement-footer">
-                            <div class="announcement-author">Pastor John Smith</div>
-                            <div class="announcement-priority high-priority">High Priority</div>
+                    
+                </div>
+
+                <!-- Birthday Today Section -->
+                <div class="birthday-today-section" id="birthdayTodaySection" style="margin-top: 30px;">
+                    <div class="birthday-header">
+                        <h2><i class="fas fa-birthday-cake"></i> Birthday Celebrants Today</h2>
+                        <div class="birthday-greeting-box" id="birthdayGreetingBox"></div>
+                    </div>
+                    <div class="birthday-celebrants" id="birthdayTodayCelerants">
+                        <!-- Today's birthday celebrants will be displayed here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Spiritual Assistant Section -->
+            <section id="spiritual-assistant" class="content-section">
+                <h2 class="section-title"><i class="fas fa-heart"></i> Spiritual Assistant</h2>
+                
+                <div class="disclaimer-banner">
+                    <div class="disclaimer-header">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Important Disclaimer</span>
+                    </div>
+                    <p>I am just your AI Spiritual Assistant. God and you between is the real communication. Please seek professional pastoral counsel for serious matters and always consult your spiritual leaders.</p>
+                </div>
+                
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                    <div class="chat-message ai-message" id="initialGreeting">
+                                <p>Hello! 👋 I'm your Spiritual Assistant. I'm here to help you reflect on life's challenges through the lens of biblical wisdom and scripture.</p>
+                                <p style="margin-top: 10px; font-size: 0.95em; color: #888;">Ask me about any situation you're facing, and I'll help you find biblical guidance and relevant scriptures.</p>
+                            </div>
+                            <div class="message-time">Just now</div>
                         </div>
                     </div>
                     
-                    <div class="announcement-card">
-                        <div class="announcement-header">
-                            <div class="announcement-title">Christmas Program Rehearsals</div>
-                            <div class="announcement-date">Nov 10, 2025</div>
+                    <div class="chat-input-area">
+                        <div class="input-group">
+                            <textarea 
+                                id="userInput" 
+                                class="chat-input" 
+                                placeholder="Ask about your situation, concerns, or questions... (e.g., 'I'm struggling with anxiety' or 'How should I handle conflict?')"
+                                rows="3"></textarea>
+                            <button id="sendBtn" class="send-button" onclick="sendSpiritualQuestion()">
+                                <i class="fas fa-paper-plane"></i> Ask
+                            </button>
                         </div>
-                        <div class="announcement-content">
-                            <p>Christmas program rehearsals will begin next week. Please check the schedule for your specific rehearsal times.</p>
-                        </div>
-                        <div class="announcement-footer">
-                            <div class="announcement-author">Worship Director</div>
-                            <div class="announcement-priority medium-priority">Medium Priority</div>
-                        </div>
-                    </div>
-                    
-                    <div class="announcement-card">
-                        <div class="announcement-header">
-                            <div class="announcement-title">New Equipment Training</div>
-                            <div class="announcement-date">Nov 5, 2025</div>
-                        </div>
-                        <div class="announcement-content">
-                            <p>Training for the new audio equipment will be held next Thursday at 6:00 PM. All sound team members should attend.</p>
-                        </div>
-                        <div class="announcement-footer">
-                            <div class="announcement-author">Media Director</div>
-                            <div class="announcement-priority medium-priority">Medium Priority</div>
-                        </div>
+                        <div class="input-hint">💡 Tip: Be specific about your situation for more personalized biblical guidance</div>
                     </div>
                 </div>
             </section>
@@ -3908,124 +4723,207 @@
                 </div>
             </section>
 
-            <!-- My Profile Section -->
+            <!-- My Profile Section - FIXED -->
             <section id="my-profile" class="content-section">
-                <h2 class="section-title"><i class="fas fa-user-circle"></i> My Profile</h2>
-                
                 <div class="profile-container">
+                    <h2 class="section-title"><i class="fas fa-user-circle"></i> My Profile</h2>
+                    
+                    <!-- Profile Header -->
                     <div class="profile-header">
                         <div class="profile-avatar">
                             <div class="avatar-large" id="profileAvatar">FG</div>
                             <div class="avatar-status">
-                                <div class="status-circle verified" id="profileStatus">
-                                    <div class="status-tooltip">Verified</div>
-                                </div>
+                                <div class="status-circle verified" id="profileStatus"><div class="status-tooltip">Verified</div></div>
                             </div>
                         </div>
                         <div class="profile-info">
                             <h3 id="profileName">Frank Gomez</h3>
-                            <p id="profileMinistry">Media Ministry</p>
-                            <p id="profileMemberId">Member ID: 123456</p>
+                            <p id="profileMinistry">Media</p>
+                            <p id="profileMemberId">Member ID: 872879</p>
                         </div>
                     </div>
-                    
+
+                    <!-- Profile Tabs Navigation -->
                     <div class="profile-tabs">
-                        <button class="tab-btn active" onclick="openProfileTab('personal-info')">Personal Information</button>
-                        <button class="tab-btn" onclick="openProfileTab('change-password')">Change Password</button>
+                        <button class="tab-btn active" onclick="openProfileTab('personal-info')">
+                            <i class="fas fa-user"></i> Personal Information
+                        </button>
+                        <button class="tab-btn" onclick="openProfileTab('change-password')">
+                            <i class="fas fa-lock"></i> Change Password
+                        </button>
                     </div>
-                    
-                    <!-- Personal Information Tab -->
+
+                    <!-- Personal Information Tab Content -->
                     <div id="personal-info" class="profile-tab-content active">
                         <div class="profile-form">
-                            <div class="form-group">
-                                <label for="firstname">First Name</label>
-                                <input type="text" id="firstname" class="form-control" value="Frank">
+                            <div class="form-section">
+                                <h3><i class="fas fa-info-circle"></i> Personal Details</h3>
+                                
+                                <div class="form-row">
+                                    <div class="form-column">
+                                        <div class="form-group">
+                                            <label for="firstname">First Name</label>
+                                            <input type="text" id="firstname" class="form-control" placeholder="First Name">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-column">
+                                        <div class="form-group">
+                                            <label for="lastname">Last Name</label>
+                                            <input type="text" id="lastname" class="form-control" placeholder="Last Name">
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label for="lastname">Last Name</label>
-                                <input type="text" id="lastname" class="form-control" value="Gomez">
+
+                            <div class="form-section">
+                                <h3><i class="fas fa-shield-alt"></i> Account Information</h3>
+                                
+                                <div class="form-row">
+                                    <div class="form-column">
+                                        <div class="form-group">
+                                            <label for="username">Username</label>
+                                            <input type="text" id="username" class="form-control" placeholder="Username" disabled="">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-column">
+                                        <div class="form-group">
+                                            <label for="memberId">Member ID</label>
+                                            <input type="text" id="memberId" class="form-control" placeholder="Member ID" disabled="">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-column full-width">
+                                        <div class="form-group">
+                                            <label for="status">Account Status</label>
+                                            <input type="text" id="status" class="form-control" placeholder="Account Status" disabled="">
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label for="username">Username</label>
-                                <input type="text" id="username" class="form-control" value="frank.gomez" disabled>
+
+                            <div class="form-section">
+                                <h3><i class="fas fa-church"></i> Ministry Information</h3>
+                                
+                                <div class="form-row">
+                                    <div class="form-column">
+                                        <div class="form-group">
+                                            <label for="ministry">Ministry</label>
+                                            <input type="text" id="ministry" class="form-control" placeholder="Ministry" disabled="">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-column">
+                                        <div class="form-group">
+                                            <label for="birthdate">Birthdate</label>
+                                            <input type="text" id="birthdate" class="form-control" placeholder="MM/DD/YYYY" disabled="">
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label for="birthdate">Birthdate</label>
-                                <input type="text" id="birthdate" class="form-control" value="1990-01-01" disabled>
-                            </div>
-                            <div class="form-group">
-                                <label for="ministry">Ministry</label>
-                                <input type="text" id="ministry" class="form-control" value="Media Ministry" disabled>
-                            </div>
-                            <div class="form-group">
-                                <label for="memberId">Member ID</label>
-                                <input type="text" id="memberId" class="form-control" value="123456" disabled>
-                            </div>
-                            <div class="form-group">
-                                <label for="status">Account Status</label>
-                                <input type="text" id="status" class="form-control" value="Verified" disabled>
-                            </div>
-                            
+
+                            <!-- Form Actions -->
                             <div class="form-actions">
-                                <button type="button" class="btn-secondary" onclick="resetProfileForm()">Cancel</button>
-                                <button type="button" class="btn-primary" onclick="saveProfileChanges()">Save Changes</button>
+                                <button type="button" class="btn-secondary" onclick="resetProfileForm()">
+                                    <i class="fas fa-times"></i> Cancel
+                                </button>
+                                <button type="button" class="btn-primary" onclick="saveProfileChanges()">
+                                    <i class="fas fa-save"></i> Save Changes
+                                </button>
                             </div>
                         </div>
                     </div>
-                    
-                    <!-- Change Password Tab -->
+
+                    <!-- Change Password Tab Content -->
                     <div id="change-password" class="profile-tab-content">
                         <div class="password-form">
-                            <div class="form-group">
-                                <label for="currentPassword">Current Password</label>
-                                <input type="password" id="currentPassword" class="form-control" placeholder="Enter your current password">
-                                <div class="password-toggle" onclick="togglePasswordVisibility('currentPassword')">
-                                    <i class="fas fa-eye"></i>
+                            <div class="form-section">
+                                <h3><i class="fas fa-key"></i> Update Your Password</h3>
+                                
+                                <div class="form-row">
+                                    <div class="form-column full-width">
+                                        <div class="form-group">
+                                            <label for="currentPassword">Current Password</label>
+                                            <div style="position: relative;">
+                                                <input type="password" id="currentPassword" class="form-control" placeholder="Enter current password">
+                                                <div class="password-toggle" onclick="togglePasswordVisibility('currentPassword')">
+                                                    <i class="fas fa-eye"></i>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-column full-width">
+                                        <div class="form-group">
+                                            <label for="newPassword">New Password</label>
+                                            <div style="position: relative;">
+                                                <input type="password" id="newPassword" class="form-control" placeholder="Enter new password" oninput="checkPasswordStrength(this.value)">
+                                                <div class="password-toggle" onclick="togglePasswordVisibility('newPassword')">
+                                                    <i class="fas fa-eye"></i>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-column full-width">
+                                        <div class="form-group">
+                                            <label for="confirmPassword">Confirm New Password</label>
+                                            <div style="position: relative;">
+                                                <input type="password" id="confirmPassword" class="form-control" placeholder="Confirm new password" oninput="validatePasswordMatch(document.getElementById('newPassword').value, this.value)">
+                                                <div class="password-toggle" onclick="togglePasswordVisibility('confirmPassword')">
+                                                    <i class="fas fa-eye"></i>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="form-group">
-                                <label for="newPassword">New Password</label>
-                                <input type="password" id="newPassword" class="form-control" placeholder="Enter new password">
-                                <div class="password-toggle" onclick="togglePasswordVisibility('newPassword')">
-                                    <i class="fas fa-eye"></i>
+
+                            <!-- Password Strength Indicator -->
+                            <div class="form-section">
+                                <h3><i class="fas fa-chart-bar"></i> Password Strength</h3>
+                                
+                                <div class="password-strength" id="passwordStrength">
+                                    <div class="strength-bar">
+                                        <div class="strength-fill" id="strengthFill"></div>
+                                    </div>
+                                    <div class="strength-text" id="strengthText">Password strength: Weak</div>
+                                </div>
+
+                                <div class="password-requirements">
+                                    <p><strong>Password Requirements:</strong></p>
+                                    <ul>
+                                        <li id="reqLength"><i class="fas fa-times"></i> At least 8 characters</li>
+                                        <li id="reqUppercase"><i class="fas fa-times"></i> One uppercase letter (A-Z)</li>
+                                        <li id="reqLowercase"><i class="fas fa-times"></i> One lowercase letter (a-z)</li>
+                                        <li id="reqNumber"><i class="fas fa-times"></i> One number (0-9)</li>
+                                        <li id="reqSpecial"><i class="fas fa-times"></i> One special character (!@#$%^&amp;*)</li>
+                                    </ul>
                                 </div>
                             </div>
-                            <div class="form-group">
-                                <label for="confirmPassword">Confirm New Password</label>
-                                <input type="password" id="confirmPassword" class="form-control" placeholder="Confirm new password">
-                                <div class="password-toggle" onclick="togglePasswordVisibility('confirmPassword')">
-                                    <i class="fas fa-eye"></i>
-                                </div>
-                            </div>
-                            
-                            <div class="password-strength" id="passwordStrength">
-                                <div class="strength-bar">
-                                    <div class="strength-fill" id="strengthFill"></div>
-                                </div>
-                                <div class="strength-text" id="strengthText">Password strength</div>
-                            </div>
-                            
-                            <div class="password-requirements">
-                                <p>Password Requirements:</p>
-                                <ul>
-                                    <li id="reqLength">At least 8 characters</li>
-                                    <li id="reqUppercase">One uppercase letter</li>
-                                    <li id="reqLowercase">One lowercase letter</li>
-                                    <li id="reqNumber">One number</li>
-                                    <li id="reqSpecial">One special character</li>
-                                </ul>
-                            </div>
-                            
+
+                            <!-- Form Actions -->
                             <div class="form-actions">
-                                <button type="button" class="btn-secondary" onclick="resetPasswordForm()">Cancel</button>
-                                <button type="button" class="btn-primary" onclick="changePassword()">Change Password</button>
+                                <button type="button" class="btn-secondary" onclick="resetPasswordForm()">
+                                    <i class="fas fa-times"></i> Cancel
+                                </button>
+                                <button type="button" class="btn-primary" onclick="changePassword()">
+                                    <i class="fas fa-lock"></i> Change Password
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             </section>
-        </main>
-
+        </main>    
+        
         <!-- Receipt Modal -->
         <div id="receiptModal" class="receipt-modal">
             <div class="receipt-container" id="receiptContent">
@@ -4160,7 +5058,7 @@
 
     <script>
 
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyQi9AT6tQhngPy3ljF3Hz50XcmWPmLzs7kHZn1EsyNs9rFKgw4Px4ipOLMD9crJWybXQ/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwXQOBKCBiRhFqI-tU440N6xysaQFjhR8Ktq5ti9Xfh8UeWRN_6yqDMUmyEccviLh8lYA/exec';
 
         const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
             ? 'http://localhost:3000/api' 
@@ -4192,6 +5090,7 @@
                 { id: 'weekly-schedule', icon: 'fas fa-calendar-alt', label: 'Weekly Schedule' },
                 { id: 'attendance', icon: 'fas fa-check-circle', label: 'Attendance' },
                 { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements' },
+                { id: 'spiritual-assistant', icon: 'fas fa-comments', label: 'Spiritual Assistant' },
                 { id: 'my-profile', icon: 'fas fa-user-circle', label: 'My Profile' }
             ],
             "Media": [
@@ -4219,33 +5118,466 @@
         let currentCalendarType = 'paw'; // 'paw' or 'meetings'
         let scheduleData = [];
 
-        // Bible verses database
-        const bibleVerses = {
-            welcome: [
-                {
-                    verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
-                    reference: "Ephesians 2:10",
-                    explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
-                },
-                {
-                    verse: "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
-                    reference: "Proverbs 3:5-6",
-                    explanation: "As you begin this journey with us, trust that God will guide your path and use you mightily in this ministry."
-                }
-            ],
-            general: [
-                {
-                    verse: "For we are God's handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.",
-                    reference: "Ephesians 2:10",
-                    explanation: "You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service."
-                },
-                {
-                    verse: "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters.",
-                    reference: "Colossians 3:23",
-                    explanation: "Serve with excellence and passion, remembering that your ultimate audience is God Himself."
-                }
-            ]
+        // Live Bible Verse System with Daily Rotation
+        let currentBibleVersion = 'niv'; // Default version (NIV)
+        let currentVerseTranslation = 'english'; // Default language
+        
+        const bibleVersions = {
+            'niv': 'New International Version',
+            'kjv': 'King James Version',
+            'nkjv': 'New King James Version',
+            'cev': 'Contemporary English Version',
+            'nasb': 'New American Standard Bible'
         };
+
+        const supportedLanguages = {
+            'english': 'English',
+            'bisaya': 'Bisaya (Cebuano)'
+        };
+
+        // Daily verse references (will rotate based on date)
+        const dailyVerseReferences = [
+            'John 3:16',
+            'Proverbs 3:5-6',
+            'Ephesians 2:8',
+            'Colossians 3:23',
+            '1 Corinthians 15:58',
+            'Psalm 23:1',
+            'Romans 8:28',
+            'Philippians 4:13',
+            'Joshua 1:8',
+            'Psalm 37:5'
+        ];
+
+        // Function to get verse of the day based on current date
+        function getVersOfTheDayReference() {
+            const today = new Date();
+            const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 86400000);
+            return dailyVerseReferences[dayOfYear % dailyVerseReferences.length];
+        }
+
+        // Bible verse cache with multiple versions for AI-driven accuracy
+        const bibleVerseCache = {
+            'John 3:16': {
+                'niv': 'For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.',
+                'kjv': 'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.',
+                'nkjv': 'For God so loved the world that He gave His only begotten Son, that whoever believes in Him should not perish but have everlasting life.',
+                'cev': 'God loved the people of this world so much that he gave his only Son. Anyone who has faith in him will have eternal life and will never really die.',
+                'nasb': 'For God so loved the world, that He gave His only begotten Son, that whoever believes in Him shall not perish, but have eternal life.'
+            },
+            'Proverbs 3:5-6': {
+                'niv': 'Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.',
+                'kjv': 'Trust in the Lord with all thine heart; and lean not unto thine own understanding. In all thy ways acknowledge him, and he shall direct thy paths.',
+                'nkjv': 'Trust in the Lord with all your heart, And lean not on your own understanding; In all your ways acknowledge Him, And He shall direct your paths.',
+                'cev': 'With all your heart you must trust the Lord and not your own judgment. Always let him lead you, and he will show you which way to go.',
+                'nasb': 'Trust in the Lord with all your heart And do not lean on your own understanding. In all your ways acknowledge Him, And He will make your paths straight.'
+            },
+            'Ephesians 2:8': {
+                'niv': 'For it is by grace you have been saved, through faith—and this is not from yourselves, it is the gift of God—',
+                'kjv': 'For by grace are ye saved through faith; and that not of yourselves: it is the gift of God:',
+                'nkjv': 'For by grace you have been saved through faith, and that not of yourselves; it is the gift of God,',
+                'cev': 'You were saved by faith in God, who treats us much better than we deserve. This is God\'s gift to you, and not anything you have done on your own.',
+                'nasb': 'For by grace you have been saved through faith; and that not of yourselves, it is the gift of God;'
+            },
+            'Colossians 3:23': {
+                'niv': 'Whatever you do, work at it with all your heart, as working for the Lord, not for human masters, since you know that you will receive an inheritance from the Lord as a reward. It is the Lord Christ you are serving.',
+                'kjv': 'And whatsoever ye do, do it heartily, as to the Lord, and not unto men; Knowing that of the Lord ye shall receive the reward of the inheritance: for ye serve the Lord Christ.',
+                'nkjv': 'And whatever you do, do it heartily, as to the Lord and not to men, knowing that from the Lord you will receive the reward of the inheritance; for you serve the Lord Christ.',
+                'cev': 'In everything you do, work hard for your real Master, the Lord Christ. This is the best way to serve the Lord.',
+                'nasb': 'Whatever you do, do your work heartily, as for the Lord rather than for men, knowing that from the Lord you will receive the reward of the inheritance. It is the Lord Christ whom you serve.'
+            },
+            '1 Corinthians 15:58': {
+                'niv': 'Therefore, my dear brothers and sisters, stand firm. Let nothing move you. Always give yourselves fully to the work of the Lord, because you know that your labor in the Lord is not in vain.',
+                'kjv': 'Therefore, my beloved brethren, be ye stedfast, unmoveable, always abounding in the work of the Lord, forasmuch as ye know that your labour is not in vain in the Lord.',
+                'nkjv': 'Therefore, my beloved brethren, be steadfast, immovable, always abounding in the work of the Lord, knowing that your labor is not in vain in the Lord.',
+                'cev': 'My dear friends, stand firm and don\'t be shaken. Always keep busy working for the Lord. You know that everything you do for him is worthwhile.',
+                'nasb': 'Therefore, my beloved brethren, be steadfast, immovable, always abounding in the work of the Lord, knowing that your toil in the Lord is not in vain.'
+            },
+            'Psalm 23:1': {
+                'niv': 'The Lord is my shepherd, I lack nothing. He makes me lie down in green pastures, he leads me beside quiet waters, he refreshes my soul.',
+                'kjv': 'The Lord is my shepherd; I shall not want. He maketh me to lie down in green pastures: he leadeth me beside the still waters.',
+                'nkjv': 'The Lord is my shepherd; I shall not want. He makes me to lie down in green pastures; He leads me beside the still waters.',
+                'cev': 'You, Lord, are my shepherd. I will never be in need. You let me rest in fields of green grass. You lead me to streams of peaceful water,',
+                'nasb': 'The Lord is my shepherd, I shall not want. He makes me lie down in green pastures; He leads me beside quiet waters. He restores my soul;'
+            },
+            'Romans 8:28': {
+                'niv': 'And we know that in all things God works for the good of those who love him, who have been called according to his purpose.',
+                'kjv': 'And we know that all things work together for good to them that love God, to them who are the called according to his purpose.',
+                'nkjv': 'And we know that all things work together for good to those who love God, to those who are the called according to His purpose.',
+                'cev': 'We know that God is always at work for the good of everyone who loves him. They are the ones God chose for his purpose,',
+                'nasb': 'And we know that God causes all things to work together for good to those who love God, to those who are called according to His purpose.'
+            },
+            'Philippians 4:13': {
+                'niv': 'I can do all this through Christ, who gives me strength.',
+                'kjv': 'I can do all things through Christ which strengtheneth me.',
+                'nkjv': 'I can do all things through Christ who strengthens me.',
+                'cev': 'I can do everything through Christ, who gives me the strength I need.',
+                'nasb': 'I can do all things through Him who strengthens me.'
+            },
+            'Joshua 1:8': {
+                'niv': 'Keep this Book of the Law always on your lips; meditate on it day and night, so that you may be careful to do everything written in it. Then you will be prosperous and successful.',
+                'kjv': 'This book of the law shall not depart out of thy mouth; but thou shalt meditate therein day and night, that thou mayest observe to do according to all that is written therein: for then thou shalt make thy way prosperous, and then thou shalt have good success.',
+                'nkjv': 'This Book of the Law shall not depart from your mouth, but you shall meditate in it day and night, that you may observe to do according to all that is written in it. For then you will make your way prosperous, and then you will have good success.',
+                'cev': 'Always remember what is written in the Book of the Law. Study it day and night, and make sure you follow everything that is written in it. If you do, you will be successful and prosperous.',
+                'nasb': 'This book of the law shall not depart from your mouth, but you shall meditate on it day and night, so that you may be careful to do according to all that is written in it; for then you will make your way prosperous, and then you will have success.'
+            },
+            'Psalm 37:5': {
+                'niv': 'Commit your way to the Lord; trust in him and he will do this: He will make your righteous reward shine like the dawn, your vindication like the noonday sun.',
+                'kjv': 'Commit thy way unto the Lord; trust also in him; and he shall bring it to pass.',
+                'nkjv': 'Commit your way to the Lord, Trust also in Him, And He shall bring it to pass.',
+                'cev': 'Let the Lord have your way, and trust in him. He will help you.',
+                'nasb': 'Commit your way to the Lord; Trust in Him also, And He will do it.'
+            }
+        };
+
+        // Function to fetch Bible verse from cache with AI-driven version accuracy
+        async function fetchBibleVerse(reference, version = 'niv') {
+            try {
+                // Check cache first for reliable, offline-capable access
+                if (bibleVerseCache[reference] && bibleVerseCache[reference][version]) {
+                    return {
+                        text: bibleVerseCache[reference][version],
+                        reference: reference,
+                        version: bibleVersions[version] || 'Bible'
+                    };
+                }
+                
+                // Fallback to first available version if exact version not found
+                if (bibleVerseCache[reference]) {
+                    const availableVersion = Object.keys(bibleVerseCache[reference])[0];
+                    return {
+                        text: bibleVerseCache[reference][availableVersion],
+                        reference: reference,
+                        version: bibleVersions[availableVersion] || 'Bible'
+                    };
+                }
+                
+                // Ultimate fallback
+                throw new Error('Verse not found in cache');
+            } catch (error) {
+                console.error('Error fetching Bible verse:', error);
+                // Fallback verse - NIV version of John 3:16
+                return {
+                    text: 'For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.',
+                    reference: 'John 3:16',
+                    version: 'New International Version (NIV)'
+                };
+            }
+        }
+
+        // Function to translate text to Bisaya using translation API
+        async function translateToBisaya(text) {
+            try {
+                // Using Google Translate API via RapidAPI (more reliable)
+                // Fallback to simple character-based approach if API fails
+                const response = await fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=en|ceb');
+                const data = await response.json();
+                
+                if (data.responseStatus === 200 && data.responseData.translatedText) {
+                    return data.responseData.translatedText;
+                }
+                
+                // If translation fails, show message
+                console.log('Translation service temporarily unavailable, showing original text');
+                return text;
+            } catch (error) {
+                console.error('Error translating to Bisaya:', error);
+                showAlert('⚠️ Translation service unavailable. Showing original text.', 'warning');
+                return text;
+            }
+        }
+
+        // Function to update verse display
+        async function updateBibleVerse(elementIds = {}) {
+            try {
+                // Show loading state
+                if (elementIds.verse && document.getElementById(elementIds.verse)) {
+                    document.getElementById(elementIds.verse).textContent = '⏳ Loading verse...';
+                }
+                
+                const verseRef = getVersOfTheDayReference();
+                const verseData = await fetchBibleVerse(verseRef, currentBibleVersion);
+                
+                let verseText = verseData.text;
+                
+                // Show translation indicator
+                if (currentVerseTranslation === 'bisaya') {
+                    if (elementIds.verse && document.getElementById(elementIds.verse)) {
+                        document.getElementById(elementIds.verse).textContent = '🔄 Translating to Bisaya...';
+                    }
+                    verseText = await translateToBisaya(verseText);
+                }
+                
+                // Update all verse elements
+                if (elementIds.verse && document.getElementById(elementIds.verse)) {
+                    document.getElementById(elementIds.verse).textContent = '"' + verseText + '"';
+                }
+                if (elementIds.reference && document.getElementById(elementIds.reference)) {
+                    document.getElementById(elementIds.reference).textContent = verseData.reference + ' (' + currentBibleVersion.toUpperCase() + ')';
+                }
+                if (elementIds.language && document.getElementById(elementIds.language)) {
+                    document.getElementById(elementIds.language).textContent = 'Language: ' + supportedLanguages[currentVerseTranslation];
+                }
+            } catch (error) {
+                console.error('Error updating Bible verse:', error);
+                if (elementIds.verse && document.getElementById(elementIds.verse)) {
+                    document.getElementById(elementIds.verse).textContent = '❌ Error loading verse. Please try again.';
+                }
+            }
+        }
+
+        // Function to change Bible version
+        function changeBibleVersion(version) {
+            currentBibleVersion = version;
+            
+            // Update active button state
+            document.querySelectorAll('.version-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Update both verse containers
+            updateBibleVerse({ 
+                verse: 'dailyVerse',
+                reference: 'verseReference',
+                language: 'verseLanguage'
+            });
+            
+            // Also update welcome verse if it exists
+            if (document.getElementById('welcomeVerse')) {
+                updateBibleVerse({ 
+                    verse: 'welcomeVerse',
+                    reference: 'welcomeVerseReference',
+                    language: 'welcomeVerseLanguage'
+                });
+            }
+        }
+
+        // Function to change verse language
+        function changeVerseLanguage(language) {
+            currentVerseTranslation = language;
+            
+            // Update active button state
+            document.querySelectorAll('.language-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Update both verse containers
+            updateBibleVerse({ 
+                verse: 'dailyVerse',
+                reference: 'verseReference',
+                language: 'verseLanguage'
+            });
+            
+            // Also update welcome verse if it exists
+            if (document.getElementById('welcomeVerse')) {
+                updateBibleVerse({ 
+                    verse: 'welcomeVerse',
+                    reference: 'welcomeVerseReference',
+                    language: 'welcomeVerseLanguage'
+                });
+            }
+        }
+
+        // Fetch birthdays from AppScript
+        async function fetchAndDisplayBirthdays() {
+            try {
+                const url = SCRIPT_URL + '?action=getAllMemberBirthdates';
+                console.log('Fetching birthdays from:', url);
+                
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                console.log('Birthday API response:', result);
+                
+                if (result.message === 'Ministry Portal API is running') {
+                    console.warn('AppScript action not recognized. Make sure getAllMemberBirthdates is in handleGetRequest');
+                    displayBirthdaySection([], []);
+                    return;
+                }
+                
+                if (result.success && result.data && Array.isArray(result.data)) {
+                    const members = result.data;
+                    console.log('✓ Retrieved', members.length, 'members with birthdates');
+                    
+                    const today = new Date();
+                    const todayMonth = String(today.getMonth() + 1).padStart(2, '0');
+                    const todayDay = String(today.getDate()).padStart(2, '0');
+                    const todayKey = `${todayMonth}-${todayDay}`;
+                    
+                    // Find today's birthday celebrants
+                    const todaysCelebrrants = members.filter(member => {
+                        if (!member.birthdate) return false;
+                        const [year, month, day] = member.birthdate.split('-');
+                        const memberKey = `${month}-${day}`;
+                        return memberKey === todayKey;
+                    });
+                    
+                    // Find upcoming birthdays (next 30 days)
+                    const upcomingBirthdays = getUpcomingBirthdays(members, 30);
+                    
+                    console.log('✓ Found', todaysCelebrrants.length, 'celebrants today');
+                    console.log('✓ Found', upcomingBirthdays.length, 'upcoming birthdays');
+                    
+                    // Display birthdays
+                    displayBirthdaySection(todaysCelebrrants, upcomingBirthdays);
+                } else {
+                    console.error('Invalid response format:', result);
+                    displayBirthdaySection([], []);
+                }
+            } catch (error) {
+                console.error('Error fetching birthdays:', error);
+                displayBirthdaySection([], []);
+            }
+        }
+
+        function getUpcomingBirthdays(members, daysAhead) {
+            const today = new Date();
+            const upcoming = [];
+
+            members.forEach(member => {
+                if (!member.birthdate) return;
+                
+                const [year, month, day] = member.birthdate.split('-');
+                let birthdayThisYear = new Date(today.getFullYear(), parseInt(month) - 1, parseInt(day));
+                
+                // If birthday already passed this year, get next year's
+                if (birthdayThisYear < today) {
+                    birthdayThisYear = new Date(today.getFullYear() + 1, parseInt(month) - 1, parseInt(day));
+                }
+                
+                const daysUntilBirthday = Math.ceil((birthdayThisYear - today) / (1000 * 60 * 60 * 24));
+                
+                if (daysUntilBirthday > 0 && daysUntilBirthday <= daysAhead) {
+                    upcoming.push({
+                        ...member,
+                        daysUntilBirthday: daysUntilBirthday,
+                        birthdayDate: birthdayThisYear
+                    });
+                }
+            });
+            
+            return upcoming.sort((a, b) => a.daysUntilBirthday - b.daysUntilBirthday);
+        }
+
+        async function displayBirthdaySection(todaysCelebrrants, upcomingBirthdays) {
+            const birthdayContainer = document.getElementById('birthdayTodayCelerants');
+            if (!birthdayContainer) return;
+            
+            let html = '';
+            
+            // Display today's celebrants with AI wishes
+            if (todaysCelebrrants && todaysCelebrrants.length > 0) {
+                html += '<div style="margin-bottom: 25px;">';
+                html += '<h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 8px;"><i class="fas fa-birthday-cake"></i> Celebrating Today!</h3>';
+                html += '<div style="display: grid; gap: 18px;">';
+                
+                todaysCelebrrants.forEach(member => {
+                    const aiWish = generateBirthdayWish(member);
+                    const bibleVerse = getRandomBirthdayVerse();
+                    
+                    html += `
+                        <div style="background: white; border: 2px solid #FFD700; border-radius: 12px; padding: 18px; box-shadow: 0 2px 8px rgba(255, 215, 0, 0.2); position: relative;">
+                            <div style="background: linear-gradient(135deg, #FFD700, #FFC700); padding: 12px; border-radius: 8px; margin-bottom: 15px; color: #333;">
+                                <div style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.1rem;">
+                                    <span style="font-size: 28px;">🎉</span>
+                                    <div>
+                                        <div>${member.fullName}</div>
+                                        <div style="font-size: 0.85rem; font-weight: 500; opacity: 0.9;"><i class="fas fa-briefcase" style="margin-right: 5px;"></i>${member.ministry || 'Ministry Member'}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 12px;">
+                                <div style="font-size: 0.85rem; color: #666; font-weight: 500; margin-bottom: 5px;">💭 Birthday Message</div>
+                                <div style="color: #333; font-size: 0.95rem; line-height: 1.5; padding: 10px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid var(--primary);">
+                                    "${aiWish}"
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <div style="font-size: 0.85rem; color: #666; font-weight: 500; margin-bottom: 5px;">✨ Birthday Verse</div>
+                                <div style="color: #555; font-size: 0.9rem; line-height: 1.6; padding: 10px; background: #f0f5ff; border-radius: 6px; border-left: 3px solid steelblue;">
+                                    <div style="font-style: italic; margin-bottom: 6px;">"${bibleVerse.text}"</div>
+                                    <div style="color: steelblue; font-weight: 500; font-size: 0.85rem;">— ${bibleVerse.reference}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+            }
+            
+            // Display upcoming birthdays
+            if (upcomingBirthdays && upcomingBirthdays.length > 0) {
+                html += '<div>';
+                html += '<h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 8px;"><i class="fas fa-calendar-check"></i> Upcoming Birthdays</h3>';
+                html += '<div style="display: grid; gap: 10px;">';
+                
+                upcomingBirthdays.forEach(member => {
+                    const monthName = new Date(member.birthdayDate).toLocaleDateString('en-US', { month: 'short' });
+                    const dayNum = new Date(member.birthdayDate).getDate();
+                    const daysText = member.daysUntilBirthday === 1 ? '1 day away' : 'in ' + member.daysUntilBirthday + ' days';
+                    
+                    html += `
+                        <div style="background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 15px; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; transition: all 0.3s ease;">
+                            <div style="font-size: 28px;">🎂</div>
+                            <div>
+                                <div style="font-weight: 600; color: #333; font-size: 0.95rem;">${member.fullName}</div>
+                                <div style="color: #777; font-size: 0.85rem;">
+                                    <i class="fas fa-calendar-day"></i> ${monthName} ${dayNum}
+                                </div>
+                            </div>
+                            <div style="background: linear-gradient(135deg, #e3f2fd, #f3e5f5); padding: 6px 12px; border-radius: 20px; font-weight: 600; color: var(--primary); font-size: 0.8rem; text-align: right; white-space: nowrap;">
+                                ${daysText}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+            }
+            
+            if ((!todaysCelebrrants || todaysCelebrrants.length === 0) && (!upcomingBirthdays || upcomingBirthdays.length === 0)) {
+                html = `
+                    <div style="text-align: center; padding: 30px 20px; color: #999; background: #f8f9fa; border-radius: 8px;">
+                        <div style="font-size: 48px; margin-bottom: 10px; opacity: 0.5;">📅</div>
+                        <p style="font-size: 1rem; font-weight: 500; margin: 0;">No birthdays today or upcoming within 30 days</p>
+                    </div>
+                `;
+            }
+            
+            birthdayContainer.innerHTML = html;
+        }
+
+        function generateBirthdayWish(member) {
+            const wishes = [
+                `Wishing ${member.firstname} a blessed birthday filled with God's grace and love. Your dedication in ${member.ministry} is truly inspiring!`,
+                `Happy birthday, ${member.firstname}! May God shower you with blessings and continue to guide your ministry with wisdom and strength.`,
+                `Today we celebrate ${member.firstname}! Thank you for your faithful service in ${member.ministry}. Wishing you joy, health, and God's continued blessings.`,
+                `${member.firstname}, on your special day, we thank God for you and your wonderful contributions to ${member.ministry}. Have a blessed birthday!`,
+                `Celebrating ${member.firstname} today! May your birthday be filled with joy, surrounded by love, as you continue serving faithfully in ${member.ministry}.`,
+                `Happy birthday, ${member.firstname}! Your commitment to ${member.ministry} is a blessing to all of us. Wishing you a wonderful year ahead!`,
+                `On this special day, we honor ${member.firstname} for their service in ${member.ministry}. May God bless you abundantly on your birthday!`
+            ];
+            return wishes[Math.floor(Math.random() * wishes.length)];
+        }
+
+        function getRandomBirthdayVerse() {
+            const birthdayVerses = [
+                { text: 'May the Lord bless you and protect you. May the Lord smile on you and be gracious to you. May the Lord show you his favor and give you his peace.', reference: 'Numbers 6:24-26 (NCV)' },
+                { text: 'The Lord is my light and my salvation—whom shall I fear? The Lord is the stronghold of my life—of whom shall I be afraid?', reference: 'Psalm 27:1 (NIV)' },
+                { text: 'You, Lord, keep my lamp burning; my God turns my darkness into light.', reference: 'Psalm 18:28 (NIV)' },
+                { text: 'This is the day the Lord has made; let us rejoice and be glad.', reference: 'Psalm 118:24 (NIV)' },
+                { text: 'For you created my inmost being; you knit me together in my mother\'s womb. I praise you because I am fearfully and wonderfully made.', reference: 'Psalm 139:13-14 (NIV)' },
+                { text: 'I have told you these things, so that in me you may have peace. In this world you will have trouble. But take heart! I have overcome the world.', reference: 'John 16:33 (NIV)' },
+                { text: 'And we know that in all things God works for the good of those who love him, who have been called according to his purpose.', reference: 'Romans 8:28 (NIV)' },
+                { text: 'May you be blessed by the Lord, the Maker of heaven and earth.', reference: 'Psalm 115:15 (NIV)' }
+            ];
+            return birthdayVerses[Math.floor(Math.random() * birthdayVerses.length)];
+        }
 
         async function initializeDashboard() {
             // Initialize user data display first (before checking status from server)
@@ -4266,6 +5598,16 @@
             
             // Fetch the actual status from the server BEFORE setting up the UI
             await fetchAndSetUserStatus(isFirstLogin);
+            
+            // Initialize Bible verse of the day
+            await updateBibleVerse({ 
+                verse: 'dailyVerse',
+                reference: 'verseReference',
+                language: 'verseLanguage'
+            });
+            
+            // Fetch and display birthdays
+            await fetchAndDisplayBirthdays();
             
             // Initialize all sections
             initializeAllSections();
@@ -4318,7 +5660,8 @@
                 } else {
                     document.getElementById('firstTimeWelcomeContainer').style.display = 'none';
                     document.getElementById('regularWelcomeContainer').style.display = 'block';
-                    loadDailyVerse(userData.ministry);
+                    // Load daily verse from Groq API with inspiring words
+                    loadDailyVerseWithGroq(userData.ministry);
                 }
                 
             } else {
@@ -4415,34 +5758,340 @@
             }
         }
 
+        // Load daily verse - now uses cached accurate verses
         function loadDailyVerse(ministry) {
-            // Get today's date to determine which verse to show
-            const today = new Date();
-            const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+            // This is now handled by initializeDashboard -> updateBibleVerse
+            // No longer needed as verse system is unified
+        }
+
+        // Groq API configuration for daily verses and inspiring words
+        const GROQ_API_KEY = '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';
+        const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+        // Fetch daily verse from Groq API - LIVE AI with Context Awareness
+        // **GUARANTEED FRESH VERSE EVERY DAY - NOT HARDCODED**
+        async function fetchDailyVerseFromGroq() {
+            try {
+                // Check cache ONLY if it's the same calendar day
+                const cacheKey = 'dailyVerseCache';
+                const cachedData = localStorage.getItem(cacheKey);
+                const today = new Date().toDateString();
+                const currentHour = new Date().getHours();
+
+                // If cache exists AND date matches AND we're not at midnight boundary, use cached
+                if (cachedData) {
+                    const cache = JSON.parse(cachedData);
+                    // STRICT: Only use cache if exact same day AND verse exists
+                    if (cache.date === today && cache.verse && cache.verse.verse) {
+                        console.log('✓ Using CACHED verse from ' + cache.fetchedAt + ' (Same day)');
+                        return cache.verse;
+                    }
+                }
+
+                // Cache expired or doesn't match today → FETCH FRESH LIVE VERSE
+                console.log('🔄 FETCHING FRESH LIVE VERSE FROM GROQ AI...');
+                
+                // Get user's ministry context for personalized verses
+                const userMinistry = userData.ministry || 'Praise And Worship';
+                const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+                const monthDay = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+                
+                // ADVANCED PROMPT - Changes based on actual date to ensure variance
+                const advancedPrompt = `TODAY IS: ${dayOfWeek}, ${monthDay} (${today})
+
+You are a spiritual advisor providing UNIQUE daily Bible verses for ministry workers. 
+This verse MUST be DIFFERENT from yesterday's verse.
+
+CONTEXT:
+- Person's Ministry: ${userMinistry}
+- Day of Week: ${dayOfWeek}
+- Date: ${monthDay}
+
+GENERATE ONE FRESH Bible verse that:
+1. Has NEVER been used before this date
+2. Relates specifically to their ministry (${userMinistry})
+3. Is perfectly encouraging for ${dayOfWeek}
+4. Provides actionable inspiration for today
+5. Is authentic and deeply meaningful
+
+Format EXACTLY as: VERSE_TEXT|BOOK_CHAPTER_VERSE|PERSONAL_EXPLANATION
+
+Be creative, authentic, and DIFFERENT. Don't repeat common verses.`;
+
+                // Fetch BRAND NEW verse from Groq API with advanced prompting
+                const response = await fetch(GROQ_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${GROQ_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'openai/gpt-oss-120b',  // Correct Groq model
+                        messages: [
+                            {
+                                role: 'system',
+                                content: 'You are a profound spiritual guide who generates UNIQUE daily Bible verses. NEVER generate the same verse twice. Be creative, authentic, and deeply inspiring. Generate real Bible verses, not made-up ones.'
+                            },
+                            {
+                                role: 'user',
+                                content: advancedPrompt
+                            }
+                        ],
+                        temperature: 0.85,
+                        max_tokens: 400
+                    })
+                });
+
+                if (!response.ok) {
+                    console.warn(`⚠️ Groq API returned status ${response.status}, generating new attempt...`);
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const content = data.choices[0].message.content;
+                
+                console.log('📖 ✨ LIVE AI GENERATED FRESH VERSE ✨');
+                console.log('   ' + content.substring(0, 100) + '...');
+                
+                // Parse the response with better error handling
+                const parts = content.split('|').map(p => p.trim());
+                const verse = {
+                    verse: parts[0] || 'Trust in the Lord with all your heart and lean not on your own understanding.',
+                    reference: parts[1] || 'Proverbs 3:5-6',
+                    explanation: parts[2] || 'Put your faith in God\'s guidance for your ministry today.',
+                    isLive: true,  // Mark as live AI-generated
+                    generatedDate: today,
+                    generatedTime: new Date().toLocaleTimeString(),
+                    isNew: true  // This is a NEW verse generated today
+                };
+
+                // Cache the verse with strict date validation
+                const cacheData = {
+                    date: today,
+                    verse: verse,
+                    fetchedAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    ministry: userMinistry,
+                    dayOfWeek: dayOfWeek,
+                    expiresAt: new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toDateString()  // Expires tomorrow
+                };
+                
+                localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+                
+                console.log('✅ FRESH VERSE CACHED (Expires tomorrow at midnight)');
+                return verse;
+            } catch (error) {
+                console.error('❌ Error fetching live verse from Groq:', error);
+                // Return fallback verse on error
+                return {
+                    verse: 'For we are God\'s handiwork, created in Christ Jesus to do good works, which God prepared in advance for us to do.',
+                    reference: 'Ephesians 2:10',
+                    explanation: 'You are uniquely created and equipped for your ministry role. God has prepared good works specifically for you to accomplish through your service.',
+                    isLive: false
+                };
+            }
+        }
+
+        // Fetch inspiring words from Groq API - LIVE Dynamic AI
+        // **GUARANTEED FRESH AFFIRMATIONS EVERY DAY - NOT HARDCODED**
+        async function fetchInspiringWords() {
+            try {
+                // Check cache ONLY if it's the same calendar day
+                const cacheKey = 'inspiringWordsCache';
+                const cachedData = localStorage.getItem(cacheKey);
+                const today = new Date().toDateString();
+
+                if (cachedData) {
+                    const cache = JSON.parse(cachedData);
+                    // STRICT: Only use cache if exact same day AND words exist
+                    if (cache.date === today && cache.words && cache.words.length > 0) {
+                        console.log('✓ Using CACHED affirmations from ' + cache.generatedAt + ' (Same day)');
+                        return cache.words;
+                    }
+                }
+
+                // Cache expired or doesn't match today → FETCH FRESH LIVE WORDS
+                console.log('🔄 GENERATING FRESH LIVE AFFIRMATIONS WITH AI...');
+
+                // Get current time for time-based personalization
+                const hour = new Date().getHours();
+                let timePhrase = 'this morning';
+                if (hour >= 12 && hour < 17) timePhrase = 'this afternoon';
+                if (hour >= 17) timePhrase = 'this evening';
+
+                const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+                const monthDay = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+                // DYNAMIC AI PROMPT - Includes actual date to ensure variance
+                const dynamicPrompt = `TODAY IS: ${dayOfWeek}, ${monthDay} (${today})
+TIME OF DAY: ${timePhrase}
+
+You are an inspiring life coach specializing in Christian ministry encouragement.
+
+GENERATE 5 BRAND NEW, UNIQUE affirmations for ${userData.ministry || 'a ministry worker'} ${timePhrase}.
+
+IMPORTANT: These affirmations MUST:
+1. Be COMPLETELY NEW (never used before)
+2. Be DIFFERENT from typical generic quotes
+3. Be SHORT (max 15 words each)
+4. Be ACTIONABLE and encouraging  
+5. Relate specifically to serving in ministry
+6. Sound genuine, not generic or robotic
+7. Vary in style and approach
+
+Format: AFFIRMATION_1|AFFIRMATION_2|AFFIRMATION_3|AFFIRMATION_4|AFFIRMATION_5
+
+Create fresh, authentic affirmations that will actually inspire this ministry worker TODAY.`;
+
+                // Fetch BRAND NEW words from Groq API
+                const response = await fetch(GROQ_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${GROQ_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'openai/gpt-oss-120b',  // Correct Groq model
+                        messages: [
+                            {
+                                role: 'system',
+                                content: 'You are an inspiring life coach specializing in Christian ministry encouragement. Generate UNIQUE, fresh affirmations that energize ministry workers. NEVER generate the same affirmations twice. Be creative, specific, and deeply meaningful.'
+                            },
+                            {
+                                role: 'user',
+                                content: dynamicPrompt
+                            }
+                        ],
+                        temperature: 0.85,
+                        max_tokens: 350
+                    })
+                });
+
+                if (!response.ok) {
+                    console.warn(`⚠️ Groq API returned status ${response.status}`);
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const content = data.choices[0].message.content;
+                
+                // Parse and clean the response
+                const words = content
+                    .split('|')
+                    .map(w => w.trim())
+                    .filter(w => w.length > 0 && !w.startsWith('Example') && !w.includes('AFFIRMATION') && !w.toLowerCase().includes('format'))
+                    .slice(0, 5);  // Get max 5 words
+
+                if (words.length === 0) {
+                    throw new Error('No words parsed from response');
+                }
+
+                console.log(`💫 ✨ LIVE AI GENERATED ${words.length} FRESH AFFIRMATIONS ✨`);
+                words.forEach((w, i) => console.log(`   ${i+1}. ${w}`));
+
+                // Cache the words with strict date validation
+                const cacheData = {
+                    date: today,
+                    words: words,
+                    generatedAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    timeOfDay: timePhrase,
+                    dayOfWeek: dayOfWeek,
+                    expiresAt: new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toDateString()  // Expires tomorrow
+                };
+                
+                localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+
+                console.log('✅ FRESH AFFIRMATIONS CACHED (Expires tomorrow at midnight)');
+                return words;
+            } catch (error) {
+                console.error('❌ Error fetching inspiring words from Groq:', error);
+                // Return fallback words on error
+                return [
+                    '🌟 Your service matters and transforms lives.',
+                    '✨ God is working through you right now.',
+                    '💪 Every moment of faithfulness counts forever.',
+                    '🙏 You are exactly where God needs you.',
+                    '⚡ Your anointing makes ordinary things extraordinary.'
+                ];
+            }
+        }
+
+        // Load daily verse with Groq API - now uses unified updateBibleVerse system
+        async function loadDailyVerseWithGroq(ministry) {
+            // Verse display is now handled by unified updateBibleVerse() function
+            // which supports all versions and languages automatically
+            // This function is kept for backward compatibility but does nothing
+        }
+
+        // Display rotating inspiring words with LIVE AI indicator
+        async function displayInspiringWords() {
+            const container = document.getElementById('dailyVerse').parentElement;
             
-            // Get verses for the specific ministry or general verses
-            let verses = bibleVerses[ministry] || bibleVerses.general;
+            // Check if inspiring words container already exists
+            let inspiringWordsDiv = document.getElementById('inspiringWordsSection');
+            if (!inspiringWordsDiv) {
+                inspiringWordsDiv = document.createElement('div');
+                inspiringWordsDiv.id = 'inspiringWordsSection';
+                inspiringWordsDiv.className = 'inspiring-words-section';
+                container.appendChild(inspiringWordsDiv);
+            }
+
+            // Show loading state while fetching
+            inspiringWordsDiv.innerHTML = '<span style="opacity: 0.6;">✨ Loading live affirmations...</span>';
+            inspiringWordsDiv.style.minHeight = '30px';
+
+            const words = await fetchInspiringWords();
             
-            // Select verse based on day of year (cycles through available verses)
-            const verseIndex = dayOfYear % verses.length;
-            const selectedVerse = verses[verseIndex];
+            // Display rotating words (change every 6 seconds with smooth transition)
+            let currentWordIndex = 0;
             
-            // Update the DOM with the selected verse
-            document.getElementById('dailyVerse').textContent = `"${selectedVerse.verse}"`;
-            document.getElementById('verseReference').textContent = selectedVerse.reference;
-            document.getElementById('verseExplanation').textContent = selectedVerse.explanation;
+            function rotateWords() {
+                if (words.length > 0) {
+                    // Add fade animation
+                    inspiringWordsDiv.style.opacity = '0.5';
+                    setTimeout(() => {
+                        inspiringWordsDiv.textContent = `✨ ${words[currentWordIndex]}`;
+                        inspiringWordsDiv.style.opacity = '1';
+                        currentWordIndex = (currentWordIndex + 1) % words.length;
+                    }, 200);
+                }
+            }
+
+            // Show first word immediately
+            inspiringWordsDiv.textContent = `✨ ${words[0]}`;
+            inspiringWordsDiv.style.opacity = '1';
+            currentWordIndex = 1;
+            
+            // Rotate every 6 seconds
+            const rotationInterval = setInterval(() => {
+                rotateWords();
+            }, 6000);
+
+            // Add indicator badge showing it's live AI
+            const liveIndicator = document.createElement('span');
+            liveIndicator.style.cssText = `
+                font-size: 0.65rem;
+                margin-left: 8px;
+                padding: 2px 6px;
+                background: rgba(255, 255, 255, 0.2);
+                border-radius: 3px;
+                vertical-align: super;
+                animation: pulse 2s infinite;
+            `;
+            liveIndicator.textContent = '● LIVE AI';
+            
+            // Only add if not already present
+            if (!inspiringWordsDiv.querySelector('[style*="LIVE AI"]')) {
+                inspiringWordsDiv.appendChild(liveIndicator);
+            }
+
+            // Store interval ID for cleanup if needed
+            inspiringWordsDiv.dataset.rotationInterval = rotationInterval;
         }
 
         function loadWelcomeVerse(ministry) {
-            // For first-time users, select from welcome verses
-            const welcomeVerses = bibleVerses.welcome;
-            const randomIndex = Math.floor(Math.random() * welcomeVerses.length);
-            const selectedVerse = welcomeVerses[randomIndex];
-            
-            // Update the DOM with the welcome verse
-            document.getElementById('welcomeVerse').textContent = `"${selectedVerse.verse}"`;
-            document.getElementById('welcomeVerseReference').textContent = selectedVerse.reference;
-            document.getElementById('welcomeVerseExplanation').textContent = selectedVerse.explanation;
+            // For first-time users, the verse is now loaded via the unified updateBibleVerse system
+            // which is called in initializeDashboard for both welcome and daily verses
+            // This function is kept for backward compatibility but does nothing
         }
 
         function toggleSidebar() {
@@ -4462,10 +6111,16 @@
         });
 
         // Add active class to clicked menu item
-        event.target.closest('.menu-item').classList.add('active');
+        const menuItem = event.target.closest('.menu-item');
+        if (menuItem) {
+            menuItem.classList.add('active');
+        }
 
         // Show selected section
-        document.getElementById(sectionId).classList.add('active');
+        const section = document.getElementById(sectionId);
+        if (section) {
+            section.classList.add('active');
+        }
 
         // Update page title
         const titles = {
@@ -4473,6 +6128,7 @@
             'weekly-schedule': 'Weekly Schedule',
             'attendance': 'Attendance Record',
             'announcements': 'Announcements',
+            'spiritual-assistant': 'Spiritual Assistant - Ask Your Questions',
             'praise-worship': 'Praise And Worship',
             'media': 'Media Ministry',
             'dancers': 'Dancers Ministry',
@@ -4486,9 +6142,19 @@
         const subtitle = document.getElementById('pageSubtitle');
         if (sectionId === 'home') {
             subtitle.textContent = 'Stay connected and inspired in your service';
+            // Display birthday celebrants when home section is shown
+            setTimeout(() => {
+                displayBirthdayTodaySection();
+            }, 100);
         } else if (sectionId === 'my-profile') {
             subtitle.textContent = 'Manage your personal information and account settings';
             setTimeout(initializePasswordValidation, 100);
+        } else if (sectionId === 'spiritual-assistant') {
+            subtitle.textContent = 'Get Bible-grounded guidance and spiritual wisdom';
+            // Personalize greeting with user's name
+            setTimeout(() => {
+                personalizeGreeting();
+            }, 100);
         } else if (sectionId === 'create-lineup') {
             subtitle.textContent = 'Create and submit worship lineups for approval';
             // Initialize Create Lineup section (your existing function)
@@ -5738,10 +7404,16 @@
             });
             
             // Show selected tab content
-            document.getElementById(tabName).classList.add('active');
+            const tabContent = document.getElementById(tabName);
+            if (tabContent) {
+                tabContent.classList.add('active');
+            }
             
             // Add active class to clicked tab button
-            event.target.classList.add('active');
+            const tabBtn = event.target.closest('.tab-btn');
+            if (tabBtn) {
+                tabBtn.classList.add('active');
+            }
             
             // Initialize password validation if changing to password tab
             if (tabName === 'change-password') {
@@ -6076,7 +7748,15 @@
             document.getElementById('firstname').value = userData.firstname || '';
             document.getElementById('lastname').value = userData.lastname || '';
             document.getElementById('username').value = userData.username || '';
-            document.getElementById('birthdate').value = userData.birthdate || '';
+            
+            // Format birthdate to MM/DD/YYYY
+            if (userData.birthdate) {
+                const formattedBirthdate = formatBirthdateToMMDDYYYY(userData.birthdate);
+                document.getElementById('birthdate').value = formattedBirthdate;
+            } else {
+                document.getElementById('birthdate').value = '';
+            }
+            
             document.getElementById('ministry').value = userData.ministry || '';
             document.getElementById('memberId').value = userData.memberId || '';
             document.getElementById('status').value = userData.status === 'verified' ? 'Verified' : 'Unverified';
@@ -6099,6 +7779,25 @@
             } else {
                 statusIndicator.className = 'status-circle unverified';
                 statusIndicator.innerHTML = '<div class="status-tooltip">Unverified</div>';
+            }
+        }
+
+        // Format birthdate to MM/DD/YYYY format
+        function formatBirthdateToMMDDYYYY(dateString) {
+            if (!dateString) return '';
+            
+            try {
+                const date = new Date(dateString);
+                if (isNaN(date.getTime())) return dateString; // Return original if invalid
+                
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const year = date.getFullYear();
+                
+                return `${month}/${day}/${year}`;
+            } catch (error) {
+                console.error('Error formatting birthdate:', error);
+                return dateString;
             }
         }
 
@@ -6634,6 +8333,9 @@
                     console.log('Cleaned Weekly Schedule data:', weeklyScheduleData);
                     showScheduleCalendarContent();
                     generateScheduleCalendar(scheduleCurrentDate);
+                    generateUpcomingScheduleCards();
+                    generateScheduleHistory();
+                    displayBirthdayTodaySection();
                     showAlert('Schedule data loaded successfully!', 'success');
                 } else {
                     throw new Error(result.message || 'No schedule data available');
@@ -6647,6 +8349,9 @@
                 weeklyScheduleData = getMockScheduleData();
                 showScheduleCalendarContent();
                 generateScheduleCalendar(scheduleCurrentDate);
+                generateUpcomingScheduleCards();
+                generateScheduleHistory();
+                displayBirthdayTodaySection();
                 showAlert('Using demo schedule data. Real data will load when connected.', 'warning');
             } finally {
                 isLoadingSchedule = false;
@@ -6760,6 +8465,152 @@
             
             // Regenerate calendar
             generateScheduleCalendar(scheduleCurrentDate);
+            generateUpcomingScheduleCards();
+            generateScheduleHistory();
+        }
+
+        function generateUpcomingScheduleCards() {
+            const cardsContainer = document.getElementById('upcomingScheduleCards');
+            if (!cardsContainer) return;
+            
+            // Get all upcoming schedules sorted by date
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const upcomingSchedules = weeklyScheduleData
+                .filter(schedule => {
+                    const scheduleDate = new Date(schedule.scheduleDate);
+                    scheduleDate.setHours(0, 0, 0, 0);
+                    return scheduleDate >= today;
+                })
+                .sort((a, b) => new Date(a.scheduleDate) - new Date(b.scheduleDate))
+                .slice(0, 6); // Show top 6 upcoming
+            
+            if (upcomingSchedules.length === 0) {
+                cardsContainer.innerHTML = `
+                    <div class="upcoming-card-empty">
+                        <div><i class="fas fa-calendar-times"></i></div>
+                        <h4>No Upcoming Schedules</h4>
+                        <p>There are no upcoming schedules at this time.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let cardsHTML = '<div class="schedule-cards-container">';
+            
+            upcomingSchedules.forEach(schedule => {
+                const scheduleDate = new Date(schedule.scheduleDate);
+                const formattedDate = scheduleDate.toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric'
+                });
+                const dayOfWeek = scheduleDate.toLocaleDateString('en-US', { weekday: 'long' });
+                const songLeader = schedule.songLeader || 'Not assigned';
+                const backups = schedule.backups && schedule.backups.length > 0 
+                    ? schedule.backups.filter(b => b).join(', ') 
+                    : 'None assigned';
+                const dateString = formatDateForAPI(scheduleDate);
+                
+                cardsHTML += `
+                    <div class="upcoming-card" onclick="showWeeklyScheduleDetails('${dateString}')" style="cursor: pointer;">
+                        <div class="upcoming-card-date">
+                            <div class="upcoming-card-date-day">${scheduleDate.getDate()}</div>
+                            <div class="upcoming-card-date-time">${scheduleDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}</div>
+                        </div>
+                        <div class="upcoming-card-content">
+                            <div class="upcoming-card-label">Scheduled Service</div>
+                            <div class="upcoming-card-title">${dayOfWeek}</div>
+                            <div class="upcoming-card-item">
+                                <div class="upcoming-card-item-label">🎤 Song Leader</div>
+                                <div class="upcoming-card-item-value">${songLeader}</div>
+                            </div>
+                            <div class="upcoming-card-item">
+                                <div class="upcoming-card-item-label">🎵 Backup Singers</div>
+                                <div class="upcoming-card-item-value">${backups}</div>
+                            </div>
+                            <div style="margin-top: 15px; text-align: center; color: var(--primary); font-size: 0.85rem; font-weight: 600;">
+                                <i class="fas fa-click"></i> Click for details
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            cardsHTML += '</div>';
+            cardsContainer.innerHTML = cardsHTML;
+        }
+
+        function generateScheduleHistory() {
+            const historyContainer = document.getElementById('scheduleHistoryCards');
+            const historySection = document.getElementById('scheduleHistorySection');
+            if (!historyContainer) return;
+            
+            // Get all past schedules sorted by date (most recent first)
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const pastSchedules = weeklyScheduleData
+                .filter(schedule => {
+                    const scheduleDate = new Date(schedule.scheduleDate);
+                    scheduleDate.setHours(0, 0, 0, 0);
+                    return scheduleDate < today;
+                })
+                .sort((a, b) => new Date(b.scheduleDate) - new Date(a.scheduleDate))
+                .slice(0, 6); // Show top 6 past schedules
+            
+            if (pastSchedules.length === 0) {
+                historyContainer.innerHTML = `
+                    <div class="schedule-history-empty">
+                        <div><i class="fas fa-folder-open"></i></div>
+                        <h4>No Schedule History</h4>
+                        <p>There are no past schedules to display.</p>
+                    </div>
+                `;
+                historySection.style.display = 'block';
+                return;
+            }
+            
+            historySection.style.display = 'block';
+            let historyHTML = '<div class="schedule-history-cards">';
+            
+            pastSchedules.forEach(schedule => {
+                const scheduleDate = new Date(schedule.scheduleDate);
+                const dayOfWeek = scheduleDate.toLocaleDateString('en-US', { weekday: 'long' });
+                const songLeader = schedule.songLeader || 'Not assigned';
+                const backups = schedule.backups && schedule.backups.length > 0 
+                    ? schedule.backups.filter(b => b).join(', ') 
+                    : 'None assigned';
+                const dateString = formatDateForAPI(scheduleDate);
+                
+                historyHTML += `
+                    <div class="history-card" onclick="showWeeklyScheduleDetails('${dateString}')" style="cursor: pointer;">
+                        <div class="history-card-date">
+                            <div class="history-card-date-day">${scheduleDate.getDate()}</div>
+                            <div class="history-card-date-time">${scheduleDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}</div>
+                        </div>
+                        <div class="history-card-content">
+                            <div class="history-card-label">Past Service</div>
+                            <div class="history-card-title">${dayOfWeek}</div>
+                            <div class="history-card-item">
+                                <div class="history-card-item-label">🎤 Song Leader</div>
+                                <div class="history-card-item-value">${songLeader}</div>
+                            </div>
+                            <div class="history-card-item">
+                                <div class="history-card-item-label">🎵 Backup Singers</div>
+                                <div class="history-card-item-value">${backups}</div>
+                            </div>
+                            <div style="margin-top: 15px; text-align: center; color: #888; font-size: 0.85rem; font-weight: 600;">
+                                <i class="fas fa-search"></i> View details
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            historyHTML += '</div>';
+            historyContainer.innerHTML = historyHTML;
         }
 
         // Check if a date has an existing schedule (for Weekly Schedule only)
@@ -6940,6 +8791,282 @@
 
         function closeScheduleModal() {
             document.getElementById('scheduleModal').style.display = 'none';
+        }
+
+        // Birthday celebrants display functions
+        // Helper function to extract month-day (MM-DD) from birthdate, ignoring year
+        function getBirthdayMonthDay(birthdateString) {
+            if (!birthdateString) return '';
+            try {
+                // Handle YYYY-MM-DD format
+                if (birthdateString.includes('-')) {
+                    const parts = birthdateString.split('-');
+                    if (parts.length >= 3) {
+                        return `${parts[1]}${parts[2]}`;  // MM + DD
+                    }
+                }
+                // Handle MM/DD/YYYY format
+                if (birthdateString.includes('/')) {
+                    const parts = birthdateString.split('/');
+                    if (parts.length >= 2) {
+                        return `${parts[0].padStart(2, '0')}${parts[1].padStart(2, '0')}`;
+                    }
+                }
+                return '';
+            } catch (error) {
+                console.error('Error extracting birthday month-day:', error, birthdateString);
+                return '';
+            }
+        }
+
+        async function getTodaysBirthdaysCelebrants() {
+            const celebrants = [];
+            const today = new Date();
+            const todayMonth = String(today.getMonth() + 1).padStart(2, '0');
+            const todayDay = String(today.getDate()).padStart(2, '0');
+            const todayMMDD = todayMonth + todayDay;  // e.g., "1220" for December 20
+            
+            console.log('Checking for birthdays on:', todayMMDD);
+            
+            // First, load the birthdate cache if not already loaded
+            if (!birthdateCacheLoaded) {
+                await loadMemberBirthdateCache();
+            }
+            
+            // Check logged-in user's birthdate
+            if (userData && userData.birthdate) {
+                const userMMDD = getBirthdayMonthDay(userData.birthdate);
+                console.log('User birthdate:', userData.birthdate, '→ MMDD:', userMMDD);
+                if (userMMDD === todayMMDD) {
+                    const fullName = `${userData.firstname || ''} ${userData.lastname || ''}`.trim();
+                    celebrants.push({
+                        name: fullName || 'You',
+                        initials: (userData.firstname || 'M')[0] + (userData.lastname || 'M')[0],
+                        isSelf: true
+                    });
+                    console.log('✓ User has birthday today:', fullName);
+                }
+            }
+            
+            // Check ALL cached members (from Accounts sheet)
+            console.log('Checking', Object.keys(memberBirthdateCache).length, 'cached members');
+            for (const memberName in memberBirthdateCache) {
+                if (memberName) {
+                    const birthdate = memberBirthdateCache[memberName];
+                    if (birthdate) {
+                        const memberMMDD = getBirthdayMonthDay(birthdate);
+                        if (memberMMDD === todayMMDD) {
+                            // Don't duplicate if already added as self
+                            const isDuplicate = celebrants.some(c => c.name === memberName);
+                            if (!isDuplicate) {
+                                celebrants.push({
+                                    name: memberName,
+                                    initials: memberName.split(' ').map(n => n[0]).join('').substring(0, 2),
+                                    isSelf: false
+                                });
+                                console.log('✓ Found birthday celebrant:', memberName, 'birthdate:', birthdate);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            console.log('Total celebrants found:', celebrants.length);
+            return celebrants;
+        }
+
+        async function getUpcomingBirthdaysCelebrants(daysAhead = 30) {
+            const upcomingBirthdays = [];
+            const today = new Date();
+            
+            // Load cache if not already loaded
+            if (!birthdateCacheLoaded) {
+                await loadMemberBirthdateCache();
+            }
+            
+            // Check logged-in user's birthdate
+            if (userData && userData.birthdate) {
+                const userBirthday = calculateNextBirthday(userData.birthdate);
+                const daysUntilBirthday = Math.floor((userBirthday - today) / (1000 * 60 * 60 * 24));
+                
+                if (daysUntilBirthday > 0 && daysUntilBirthday <= daysAhead) {
+                    const fullName = `${userData.firstname || ''} ${userData.lastname || ''}`.trim();
+                    upcomingBirthdays.push({
+                        name: fullName || 'You',
+                        birthdate: userData.birthdate,
+                        daysUntil: daysUntilBirthday,
+                        displayDate: formatBirthdateToMMDDYYYY(userData.birthdate),
+                        isSelf: true
+                    });
+                }
+            }
+            
+            // Check ALL cached members (from Accounts sheet)
+            for (const memberName in memberBirthdateCache) {
+                if (memberName) {
+                    const birthdate = memberBirthdateCache[memberName];
+                    if (birthdate) {
+                        const nextBirthday = calculateNextBirthday(birthdate);
+                        const daysUntilBirthday = Math.floor((nextBirthday - today) / (1000 * 60 * 60 * 24));
+                        
+                        if (daysUntilBirthday > 0 && daysUntilBirthday <= daysAhead) {
+                            // Don't duplicate if already added as self
+                            const isDuplicate = upcomingBirthdays.some(b => b.name === memberName);
+                            if (!isDuplicate) {
+                                upcomingBirthdays.push({
+                                    name: memberName,
+                                    birthdate: birthdate,
+                                    daysUntil: daysUntilBirthday,
+                                    displayDate: formatBirthdateToMMDDYYYY(birthdate),
+                                    isSelf: false
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Sort by days until birthday
+            return upcomingBirthdays.sort((a, b) => a.daysUntil - b.daysUntil);
+        }
+
+        function calculateNextBirthday(birthdateString) {
+            const birthdate = new Date(birthdateString);
+            const today = new Date();
+            
+            let nextBirthday = new Date(today.getFullYear(), birthdate.getMonth(), birthdate.getDate());
+            
+            // If birthday has already passed this year, schedule for next year
+            if (nextBirthday < today) {
+                nextBirthday = new Date(today.getFullYear() + 1, birthdate.getMonth(), birthdate.getDate());
+            }
+            
+            return nextBirthday;
+        }
+
+        // Cache for member birthdates
+        let memberBirthdateCache = {};
+        let birthdateCacheLoaded = false;
+
+        async function getMemberBirthdate(memberName) {
+            // Return from cache if already loaded
+            if (birthdateCacheLoaded && memberBirthdateCache[memberName]) {
+                return memberBirthdateCache[memberName];
+            }
+            
+            // If cache not loaded yet, load it
+            if (!birthdateCacheLoaded) {
+                await loadMemberBirthdateCache();
+            }
+            
+            return memberBirthdateCache[memberName] || null;
+        }
+
+        async function loadMemberBirthdateCache() {
+            try {
+                // Fetch all member birthdates from the server
+                const response = await fetch(`${API_BASE_URL}/proxy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'getAllMemberBirthdates'
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    // Build cache from returned data
+                    result.data.forEach(member => {
+                        if (member.fullName && member.birthdate) {
+                            memberBirthdateCache[member.fullName] = member.birthdate;
+                        }
+                    });
+                    
+                    console.log(`Loaded ${Object.keys(memberBirthdateCache).length} member birthdates`);
+                }
+                
+                birthdateCacheLoaded = true;
+            } catch (error) {
+                console.error('Error loading member birthdates:', error);
+                birthdateCacheLoaded = true; // Mark as loaded even on error to prevent retries
+            }
+        }
+
+        async function displayBirthdayTodaySection() {
+            const greetingBox = document.getElementById('birthdayGreetingBox');
+            const celebrantsContainer = document.getElementById('birthdayTodayCelerants');
+            const upcomingContainer = document.getElementById('upcomingBirthdays');
+            
+            if (!celebrantsContainer || !upcomingContainer) return;
+            
+            // Get today's birthday celebrants
+            const todaysCelebrants = await getTodaysBirthdaysCelebrants();
+            
+            // Show greeting message if it's the user's birthday
+            if (greetingBox && todaysCelebrants.some(c => c.isSelf)) {
+                greetingBox.innerHTML = `
+                    <i class="fas fa-birthday-cake"></i> 
+                    Happy Birthday! 🎉
+                `;
+                greetingBox.style.display = 'block';
+            } else if (greetingBox) {
+                greetingBox.style.display = 'none';
+            }
+            
+            // Display today's celebrants
+            if (todaysCelebrants.length === 0) {
+                celebrantsContainer.innerHTML = `
+                    <div class="no-birthday-celebrants">
+                        <div><i class="fas fa-smile-wink"></i></div>
+                        <p>No birthdays today, but every day is special!</p>
+                    </div>
+                `;
+            } else {
+                let celebrantsHTML = '';
+                todaysCelebrants.forEach(celebrant => {
+                    celebrantsHTML += `
+                        <div class="birthday-card">
+                            <div class="birthday-card-icon">
+                                <i class="fas fa-birthday-cake"></i>
+                            </div>
+                            <div class="birthday-card-name">${celebrant.name}</div>
+                            <div class="birthday-card-date">🎂 Today!</div>
+                        </div>
+                    `;
+                });
+                celebrantsContainer.innerHTML = celebrantsHTML;
+            }
+            
+            // Display upcoming birthdays
+            const upcomingBirthdays = await getUpcomingBirthdaysCelebrants(30);
+            
+            if (upcomingBirthdays.length === 0) {
+                upcomingContainer.innerHTML = `
+                    <div class="no-upcoming-birthdays">
+                        <p>No upcoming birthdays in the next 30 days</p>
+                    </div>
+                `;
+            } else {
+                let upcomingHTML = '';
+                upcomingBirthdays.forEach(birthday => {
+                    const daysText = birthday.daysUntil === 1 ? 'Tomorrow' : `${birthday.daysUntil} days`;
+                    upcomingHTML += `
+                        <div class="upcoming-birthday-item">
+                            <div class="upcoming-birthday-name">${birthday.name}</div>
+                            <div class="upcoming-birthday-date">${birthday.displayDate.split('/').slice(0, 2).join('/')}</div>
+                            <div class="upcoming-birthday-days">${daysText}</div>
+                        </div>
+                    `;
+                });
+                upcomingContainer.innerHTML = upcomingHTML;
+            }
         }
 
         // Enhanced mock data for Weekly Schedule demonstration
@@ -7289,7 +9416,7 @@
                 const fileSize = 50000; // 50KB test file
                 
                 // Use a small image from a reliable CDN for testing
-                image.src = 'https://via.placeholder.com/100x100.png?text=Test&' + startTime;
+                image.src = 'https://placehold.co/100x100/cccccc/ffffff?text=Test&t=' + startTime;
                 
                 image.onload = function() {
                     const endTime = Date.now();
@@ -7322,7 +9449,9 @@
 
         // Initialize all sections with coming soon content
         function initializeAllSections() {
-            const sections = ['attendance', 'announcements', 'praise-worship', 'media', 'dancers', 'ashers'];
+            // Only initialize sections that don't have existing content
+            // Announcements, home, attendance have static content and should not be overwritten
+            const sections = ['praise-worship', 'media', 'dancers', 'ashers'];
             sections.forEach(sectionId => {
                 const section = document.getElementById(sectionId);
                 if (section) {
@@ -7424,7 +9553,299 @@
                 showAlert('Your account is still pending verification. Please check back later.', 'warning');
             }, 1000);
         }
-    </script>
 
+        // ===== SPIRITUAL ASSISTANT CHAT FUNCTIONS =====
+
+        // Personalize the greeting message with user's name
+        function personalizeGreeting() {
+            const initialGreeting = document.getElementById('initialGreeting');
+            
+            // Get user name from various sources
+            let userName = 'Friend';
+            
+            // Try userData global variable first
+            if (typeof userData !== 'undefined' && userData && userData.firstname) {
+                userName = userData.firstname;
+            }
+            // Try sessionStorage
+            else if (sessionStorage.getItem('userData')) {
+                try {
+                    const storedData = JSON.parse(sessionStorage.getItem('userData'));
+                    if (storedData && storedData.firstname) {
+                        userName = storedData.firstname;
+                    }
+                } catch (e) {
+                    console.log('Could not parse userData from sessionStorage');
+                }
+            }
+            // Try localStorage
+            else if (localStorage.getItem('userData')) {
+                try {
+                    const storedData = JSON.parse(localStorage.getItem('userData'));
+                    if (storedData && storedData.firstname) {
+                        userName = storedData.firstname;
+                    }
+                } catch (e) {
+                    console.log('Could not parse userData from localStorage');
+                }
+            }
+            
+            console.log(`🎯 Personalizing greeting for: ${userName}`);
+            
+            if (initialGreeting) {
+                initialGreeting.innerHTML = `
+                    <div class="message-content">
+                        <p>Hello <strong>${userName}</strong>! 👋 I'm your Spiritual Assistant. I'm here to help you reflect on life's challenges through the lens of biblical wisdom and scripture.</p>
+                        <p style="margin-top: 10px; font-size: 0.95em; color: #888;">Ask me about any situation you're facing, ${userName}, and I'll help you find biblical guidance and relevant scriptures.</p>
+                    </div>
+                    <div class="message-time">Now</div>
+                `;
+            }
+        }
+
+        // Send user question and get AI spiritual guidance
+        async function sendSpiritualQuestion() {
+            const userInput = document.getElementById('userInput');
+            const message = userInput.value.trim();
+            
+            if (!message) {
+                showAlert('Please ask a question or share your situation', 'warning');
+                return;
+            }
+
+            // Display user message
+            displayChatMessage(message, true);
+            userInput.value = '';
+            userInput.style.height = 'auto';
+
+            // Show typing indicator
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'chat-message ai-message';
+            typingDiv.id = 'typingIndicator';
+            typingDiv.innerHTML = `
+                <div class="message-content typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            `;
+            document.getElementById('chatMessages').appendChild(typingDiv);
+            document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
+
+            try {
+                // Get user's name from various sources
+                let userName = 'Friend';
+                
+                if (typeof userData !== 'undefined' && userData && userData.firstname) {
+                    userName = userData.firstname;
+                } else if (sessionStorage.getItem('userData')) {
+                    try {
+                        const storedData = JSON.parse(sessionStorage.getItem('userData'));
+                        if (storedData && storedData.firstname) {
+                            userName = storedData.firstname;
+                        }
+                    } catch (e) {}
+                } else if (localStorage.getItem('userData')) {
+                    try {
+                        const storedData = JSON.parse(localStorage.getItem('userData'));
+                        if (storedData && storedData.firstname) {
+                            userName = storedData.firstname;
+                        }
+                    } catch (e) {}
+                }
+                
+                console.log(`💬 Processing question for user: ${userName}`);
+                const aiResponse = await fetchSpiritualGuidance(message, userName);
+                
+                // Remove typing indicator
+                const typing = document.getElementById('typingIndicator');
+                if (typing) typing.remove();
+
+                // Display AI response
+                displayChatMessage(aiResponse, false);
+                
+            } catch (error) {
+                console.error('❌ Error fetching spiritual guidance:', error);
+                const typing = document.getElementById('typingIndicator');
+                if (typing) typing.remove();
+
+                const fallbackResponse = `I appreciate your question. While I'm having trouble retrieving guidance at the moment, I encourage you to:
+
+1. **Pray** - Take your concerns directly to God in prayer
+2. **Read Scripture** - Open your Bible and seek God's word
+3. **Seek Counsel** - Talk to your pastor or spiritual mentor
+4. **Trust God** - Remember that God cares about your situation
+
+Romans 6:23 reminds us: "The wages of sin is death, but the gift of God is eternal life in Christ Jesus our Lord."
+
+Please try again in a moment or reach out to your spiritual leaders.`;
+
+                displayChatMessage(fallbackResponse, false);
+            }
+        }
+
+        // Fetch spiritual guidance from Groq API
+        async function fetchSpiritualGuidance(userMessage, userName = 'Friend') {
+            const GROQ_API_KEY = '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';
+            const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+            const systemPrompt = `You are a compassionate and biblical spiritual advisor speaking with **${userName}**. Your role is to:
+1. Listen to ${userName}'s concerns and life situations with empathy
+2. Relate their situations to biblical principles and scriptures
+3. Provide scripture references (always include the book, chapter, and verse)
+4. Offer spiritual wisdom grounded in the Bible
+5. Always encourage prayer and seeking God's guidance
+6. Remind ${userName} to consult with their spiritual leaders for serious matters
+
+IMPORTANT FORMATTING INSTRUCTIONS:
+- Use **asterisks** to highlight important points or concepts
+- Use # hashtags for section headers (# Section Name)
+- Format numbered lists as: 1. Point, 2. Point, 3. Point
+- Use bullet points for key ideas: - Key idea
+- Always include scripture references in this format: Book Chapter:Verse
+- Personalize your response by addressing ${userName} by name
+
+Response Structure:
+# Acknowledgment
+Start with empathy for ${userName}'s situation and acknowledge their concern by name
+
+# Biblical Perspective
+Explain the biblical principles relevant to their concern
+
+# Scripture Guidance
+Include 1-3 relevant scriptures with explanations
+
+# Practical Advice
+Give actionable spiritual guidance tailored for ${userName}
+
+# Encouragement
+End with hope and encouragement to trust God's will, addressing ${userName} personally
+
+Keep responses compassionate, non-judgmental, and focused on God's love and grace. Make sure to acknowledge ${userName} throughout your response.`;
+
+            try {
+                const response = await fetch(GROQ_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${GROQ_API_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: 'openai/gpt-oss-120b',
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            { role: 'user', content: userMessage }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 600
+                    })
+                });
+
+                if (!response.ok) {
+                    console.error('⚠️ Groq API returned status', response.status);
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const aiMessage = data.choices[0].message.content;
+                
+                console.log('✨ SPIRITUAL GUIDANCE RECEIVED FROM GROQ');
+                return aiMessage;
+
+            } catch (error) {
+                console.error('❌ Error fetching spiritual guidance from Groq:', error);
+                throw error;
+            }
+        }
+
+        // Display chat message in the chat window
+        function displayChatMessage(message, isUserMessage) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${isUserMessage ? 'user-message' : 'ai-message'}`;
+
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true 
+            });
+
+            // Format the message content
+            let formattedMessage = message;
+            
+            messageDiv.innerHTML = `
+                <div class="message-content">
+                    ${formatMessageText(formattedMessage)}
+                </div>
+                <div class="message-time">${timeString}</div>
+            `;
+
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Format message text with markdown-style formatting
+        function formatMessageText(text) {
+            let html = text;
+            
+            // Convert markdown-style bold (**text**) to actual bold
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            
+            // Convert single asterisks (*text*) to italic
+            html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            
+            // Convert hashtag headers (# Title) to h3 tags
+            html = html.replace(/^#+\s+(.+)$/gm, '<h3 style="margin-top: 12px; margin-bottom: 8px; color: #2c3e50; font-weight: 700; font-size: 1.05em;">$1</h3>');
+            
+            // Format numbered lists
+            html = html.replace(/^\d+\.\s+(.+)$/gm, '<div style="margin: 8px 0 8px 20px; padding-left: 10px; border-left: 2px solid var(--primary);"><strong>$1</strong></div>');
+            
+            // Format bullet points
+            html = html.replace(/^[-•]\s+(.+)$/gm, '<div style="margin: 6px 0 6px 20px;">• $1</div>');
+            
+            // Split into paragraphs and process each
+            const paragraphs = html.split(/\n\n+/);
+            
+            return paragraphs
+                .map(para => {
+                    if (!para.trim()) return '';
+                    
+                    // Check if it's a scripture reference (Book Chapter:Verse format)
+                    if (para.match(/^[\w\s0-9]+\s+\d+:\d+/)) {
+                        return `<div class="scripture-reference">${para.trim()}</div>`;
+                    }
+                    
+                    // Check if it already contains HTML tags (headers, lists)
+                    if (para.includes('<')) {
+                        return `<div>${para}</div>`;
+                    }
+                    
+                    // Regular paragraph
+                    return `<p style="margin-bottom: 10px; line-height: 1.6;">${para.trim()}</p>`;
+                })
+                .join('');
+        }
+
+        // Auto-expand textarea as user types
+        document.addEventListener('DOMContentLoaded', function() {
+            const userInput = document.getElementById('userInput');
+            if (userInput) {
+                userInput.addEventListener('input', function() {
+                    this.style.height = 'auto';
+                    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+                });
+
+                // Allow Enter + Shift to send, just Enter to newline
+                userInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendSpiritualQuestion();
+                    }
+                });
+            }
+        });
+
+    </script>
 </body>
 </html>

@@ -459,7 +459,7 @@
     <script>
 
         // Replace this line in all your HTML files:
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyQi9AT6tQhngPy3ljF3Hz50XcmWPmLzs7kHZn1EsyNs9rFKgw4Px4ipOLMD9crJWybXQ/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxeTKBDWCEq-dmbyDi4sLquvi2P2x7a9S4AcHuxetvxeMrUqh7jt0yERU21iApXvFU7fQ/exec';
 
         // With this:
         //const API_BASE_URL = 'http://localhost:3000/api';
@@ -473,7 +473,7 @@
             
             if (userData.firstname) {
                 // User is already logged in, redirect to dashboard immediately
-                window.location.replace('dashboard.html');
+                window.location.replace('/');
             }
         });
         // Password visibility toggle
@@ -559,7 +559,7 @@
                 
                 // Redirect to dashboard
                 setTimeout(() => {
-                    window.location.href = 'dashboard.html';
+                    window.location.href = '/';
                 }, 1000);
 
             } else {
