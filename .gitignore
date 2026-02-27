@@ -1,2 +1,24 @@
+# Dependencies
+node_modules/
+
+# Next.js build
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# Vercel
 .vercel
-node_modules
+
+# Debug logs
+npm-debug.log*
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Scripts with credentials
+scripts/seed-admins.js
