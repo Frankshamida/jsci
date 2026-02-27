@@ -1,0 +1,187 @@
+/* ============================================ */
+/* Global Styles - Ministry Portal              */
+/* Joyful Sound Church International            */
+/* ============================================ */
+
+:root {
+  --primary: #926C15;
+  --secondary: #C9980B;
+  --accent: #FFC300;
+  --light-yellow: #FFD235;
+  --bright-yellow: #FFE169;
+  --light: #f8f9fa;
+  --dark: #343a40;
+  --success: #28a745;
+  --danger: #dc3545;
+  --border-radius: 12px;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --transition: all 0.3s ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  min-height: 100vh;
+  transition: all 0.3s ease;
+}
+
+/* ============================================ */
+/* Common Form Styles                           */
+/* ============================================ */
+/* Auth Pages Form Styles (login, signup, forgot-password) */
+/* Scoped with auth-page parent selectors only  */
+/* ============================================ */
+.login-page .form-control,
+.login-page .form-select,
+.signup-page .form-control,
+.signup-page .form-select,
+.forgot-page .form-control,
+.forgot-page .form-select {
+  width: 100%;
+  padding: 12px 45px 12px 45px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  transition: var(--transition);
+  font-family: 'Montserrat', sans-serif;
+}
+
+.login-page .form-control:focus,
+.login-page .form-select:focus,
+.signup-page .form-control:focus,
+.signup-page .form-select:focus,
+.forgot-page .form-control:focus,
+.forgot-page .form-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(146, 108, 21, 0.1);
+}
+
+/* ============================================ */
+/* Alert Styles                                 */
+/* ============================================ */
+.alert {
+  padding: 12px 15px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  display: none;
+  animation: shake 0.5s ease;
+  border-left: 4px solid var(--primary);
+  background: linear-gradient(135deg, rgba(255, 195, 0, 0.1), rgba(146, 108, 21, 0.1));
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.alert.show {
+  display: block;
+}
+
+.alert-danger {
+  background: linear-gradient(135deg, rgba(255, 195, 0, 0.15), rgba(146, 108, 21, 0.15));
+  color: var(--primary);
+  border-left: 4px solid var(--primary);
+}
+
+.alert-success {
+  background: linear-gradient(135deg, rgba(255, 195, 0, 0.15), rgba(146, 108, 21, 0.15));
+  color: var(--primary);
+  border-left: 4px solid var(--primary);
+}
+
+/* ============================================ */
+/* Animations                                   */
+/* ============================================ */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10px); }
+  75% { transform: translateX(10px); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================ */
+/* Dark Mode Toggle Button                      */
+/* ============================================ */
+.dark-mode-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  cursor: pointer;
+  font-size: 1.3rem;
+  box-shadow: 0 4px 12px rgba(146, 108, 21, 0.3);
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dark-mode-toggle:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(146, 108, 21, 0.5);
+}
+
+/* ============================================ */
+/* Spinner                                      */
+/* ============================================ */
+.spinner {
+  display: none;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto;
+}
+
+/* ============================================ */
+/* Dark Mode Global Overrides                   */
+/* ============================================ */
+body.dark-mode {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  color: #e0e0e0;
+}
+
+body.dark-mode .dark-mode-toggle {
+  background: linear-gradient(135deg, #ffb300, #ffc300);
+  color: #1a1a1a;
+  box-shadow: 0 4px 12px rgba(255, 195, 0, 0.4);
+}
+
+body.dark-mode .dark-mode-toggle:hover {
+  box-shadow: 0 6px 16px rgba(255, 195, 0, 0.6);
+}
+
+@media (max-width: 480px) {
+  .dark-mode-toggle {
+    width: 45px;
+    height: 45px;
+    font-size: 1.1rem;
+    top: 15px;
+    right: 15px;
+  }
+}

@@ -1,16 +1,28 @@
 {
   "name": "ministry-portal",
-  "version": "1.0.0",
-  "description": "Ministry Portal for Joyful Sound Church",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Ministry Portal for Joyful Sound Church International - Next.js + Supabase",
   "scripts": {
-    "dev": "node server.js"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "node-fetch": "^2.6.7"
+    "@supabase/supabase-js": "^2.45.0",
+    "bcryptjs": "^2.4.3",
+    "html2canvas": "^1.4.1",
+    "next": "^14.2.0",
+    "pdf-parse": "^2.4.5",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.0"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=18.0.0"
   }
 }
