@@ -183,6 +183,7 @@ export default function HomePage() {
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('activities'); }}>Activities</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>News</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
           <a href="/login" className="hp-btn-login"><i className="fas fa-sign-in-alt"></i> Login</a>
         </div>
       </nav>
@@ -403,6 +404,51 @@ export default function HomePage() {
         </section>
       </div>
 
+      {/* ---- VISIT US / MAP ---- */}
+      <section id="location" className="hp-section">
+        <div className="hp-section-header hp-animate">
+          <div className="hp-divider"></div>
+          <h2>Visit Us</h2>
+          <p>Come and experience worship with us — here&apos;s where you can find our church</p>
+        </div>
+
+        <div className="hp-map-wrapper hp-animate">
+          <div className="hp-map-info">
+            <div className="hp-map-info-icon">
+              <i className="fas fa-map-marker-alt"></i>
+            </div>
+            <h3>Joyful Sound Church International</h3>
+            <p>Join us for Sunday Worship Service every week. Everyone is welcome!</p>
+            <div className="hp-map-details">
+              <div className="hp-map-detail-item">
+                <i className="fas fa-clock"></i>
+                <span>Sunday Worship: 9:00 AM</span>
+              </div>
+              <div className="hp-map-detail-item">
+                <i className="fas fa-book-bible"></i>
+                <span>Friday Bible Study: 7:00 PM</span>
+              </div>
+              <div className="hp-map-detail-item">
+                <i className="fas fa-phone"></i>
+                <span>Contact us for more info</span>
+              </div>
+            </div>
+          </div>
+          <div className="hp-map-embed">
+            <iframe
+              src="https://www.google.com/maps/embed?pb=!4v1772207931266!6m8!1m7!1sdo9Akv3QAW6kJETCDEd_HQ!2m2!1d10.31957253395332!2d123.8994709106599!3f236.24502041751504!4f2.753458141938296!5f0.7820865974627469"
+              width="100%"
+              height="100%"
+              style={{ border: 0 }}
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              title="Joyful Sound Church International Location"
+            ></iframe>
+          </div>
+        </div>
+      </section>
+
       {/* ---- CTA BANNER ---- */}
       <section className="hp-cta">
         <h2>Join Our Church Family Today</h2>
@@ -447,6 +493,7 @@ export default function HomePage() {
               <li><a href="#activities"><i className="fas fa-chevron-right"></i> Activities</a></li>
               <li><a href="#news"><i className="fas fa-chevron-right"></i> News & Events</a></li>
               <li><a href="#pastors"><i className="fas fa-chevron-right"></i> Our Pastors</a></li>
+              <li><a href="#location"><i className="fas fa-chevron-right"></i> Visit Us</a></li>
             </ul>
           </div>
 

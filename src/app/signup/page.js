@@ -237,7 +237,7 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              <div className="form-group">
+              <div className="form-group full-width">
                 <div className="checkbox-group">
                   <input type="checkbox" id="terms" name="terms" required checked={form.terms} onChange={handleChange} />
                   <label htmlFor="terms">I agree to the Terms and Conditions <span className="required">*</span></label>

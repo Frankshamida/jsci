@@ -13,20 +13,20 @@
   box-shadow: var(--shadow);
   overflow: hidden;
   width: 100%;
-  max-width: 450px;
+  max-width: 740px;
   animation: slideIn 0.5s ease;
 }
 
 .signup-header {
   background: linear-gradient(135deg, var(--accent), var(--primary));
   color: white;
-  padding: 25px 20px;
+  padding: 18px 20px;
   text-align: center;
 }
 
 .signup-header .logo {
-  width: 120px;
-  height: 120px;
+  width: 90px;
+  height: 90px;
   background-image: url('/assets/LOGO.png');
   background-size: contain;
   background-repeat: no-repeat;
@@ -55,14 +55,25 @@
   padding: 25px;
 }
 
+.signup-body form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 15px;
+  grid-column: 1 / -1;
 }
 
 .form-group {
-  margin-bottom: 18px;
+  margin-bottom: 14px;
+}
+
+.form-group.full-width {
+  grid-column: 1 / -1;
 }
 
 .form-group label {
@@ -157,6 +168,7 @@
 }
 
 .btn-signup {
+  grid-column: 1 / -1;
   width: 100%;
   padding: 14px;
   background: linear-gradient(135deg, var(--primary), var(--secondary));
@@ -167,7 +179,7 @@
   font-weight: 600;
   cursor: pointer;
   transition: var(--transition);
-  margin-top: 10px;
+  margin-top: 6px;
   min-height: 48px;
 }
 
@@ -224,7 +236,11 @@ body.dark-mode .signup-footer p { color: #b0b0b0; }
 body.dark-mode .signup-footer a { color: var(--accent); }
 
 @media (max-width: 768px) {
+  .signup-container { max-width: 450px; }
+  .signup-body form { grid-template-columns: 1fr; }
   .form-row { grid-template-columns: 1fr; }
+  .form-group.full-width { grid-column: 1; }
+  .btn-signup { grid-column: 1; }
 }
 
 @media (max-width: 480px) {
