@@ -165,11 +165,6 @@ export default function HomePage() {
   // ============================================
   return (
     <>
-      {/* ---- DARK MODE TOGGLE ---- */}
-      <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode" style={{ zIndex: 1001 }}>
-        <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
-      </button>
-
       {/* ---- NAVBAR ---- */}
       <nav className="hp-navbar">
         <a className="hp-navbar-brand" href="/">
@@ -180,9 +175,14 @@ export default function HomePage() {
           </div>
         </a>
 
-        <button className="hp-nav-toggle" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
-          <i className={`fas ${mobileNavOpen ? 'fa-times' : 'fa-bars'}`}></i>
-        </button>
+        <div className="hp-navbar-actions">
+          <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode">
+            <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
+          </button>
+          <button className="hp-nav-toggle" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
+            <i className={`fas ${mobileNavOpen ? 'fa-times' : 'fa-bars'}`}></i>
+          </button>
+        </div>
 
         <div className={`hp-navbar-links ${mobileNavOpen ? 'open' : ''}`}>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('about'); }}>About</a>
@@ -192,6 +192,7 @@ export default function HomePage() {
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
           <a href="/login" className="hp-btn-login"><i className="fas fa-sign-in-alt"></i> Login</a>
+          <a href="/signup" className="hp-btn-signup"><i className="fas fa-user-plus"></i> Sign Up</a>
         </div>
       </nav>
 
@@ -450,6 +451,7 @@ export default function HomePage() {
               allowFullScreen
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
+              allow="accelerometer; gyroscope; magnetometer; fullscreen"
               title="Joyful Sound Church International Location"
             ></iframe>
           </div>

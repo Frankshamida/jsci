@@ -12,12 +12,12 @@
   z-index: 1000;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 12px 40px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
   transition: all 0.3s ease;
+  gap: 16px;
 }
 
 body.dark-mode .hp-navbar {
@@ -69,6 +69,7 @@ body.dark-mode .hp-navbar-title span {
   align-items: center;
   gap: 8px;
   list-style: none;
+  margin-left: auto;
 }
 
 .hp-navbar-links a {
@@ -108,6 +109,40 @@ body.dark-mode .hp-navbar-links a:hover {
   transform: translateY(-1px);
   box-shadow: 0 5px 18px rgba(146, 108, 21, 0.4);
   background: linear-gradient(135deg, var(--secondary), var(--primary));
+}
+
+.hp-navbar-links .hp-btn-signup {
+  background: transparent;
+  color: var(--primary) !important;
+  padding: 8px 22px;
+  border-radius: 25px;
+  border: 2px solid var(--primary);
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.hp-navbar-links .hp-btn-signup:hover {
+  background: var(--primary);
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 18px rgba(146, 108, 21, 0.3);
+}
+
+body.dark-mode .hp-navbar-links .hp-btn-signup {
+  color: var(--accent) !important;
+  border-color: var(--accent);
+}
+
+body.dark-mode .hp-navbar-links .hp-btn-signup:hover {
+  background: var(--accent);
+  color: #1e1e1e !important;
+}
+
+.hp-navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .hp-nav-toggle {
@@ -1166,19 +1201,96 @@ body.dark-mode .hp-footer {
     flex-direction: column;
     padding: 15px 20px;
     box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-    gap: 5px;
+    gap: 0;
+    border-top: 1px solid rgba(146, 108, 21, 0.1);
+    animation: mobileNavSlide 0.3s ease;
+  }
+
+  @keyframes mobileNavSlide {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   body.dark-mode .hp-navbar-links {
     background: #1e1e1e;
+    border-top-color: rgba(255, 195, 0, 0.15);
   }
 
   .hp-navbar-links.open {
     display: flex;
   }
 
+  .hp-navbar-links a {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 0.92rem;
+    text-align: left;
+    transition: all 0.2s ease;
+  }
+
+  .hp-navbar-links a:hover {
+    background: rgba(146, 108, 21, 0.08);
+    padding-left: 20px;
+  }
+
+  body.dark-mode .hp-navbar-links a:hover {
+    background: rgba(255, 195, 0, 0.08);
+  }
+
+  .hp-navbar-links .hp-btn-login {
+    margin-top: 10px;
+    text-align: center;
+    padding: 12px 22px !important;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .hp-navbar-links .hp-btn-signup {
+    margin-top: 8px;
+    text-align: center;
+    padding: 12px 22px !important;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .hp-navbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .hp-nav-toggle {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    transition: all 0.2s ease;
+    background: rgba(146, 108, 21, 0.08);
+  }
+
+  .hp-nav-toggle:hover {
+    background: rgba(146, 108, 21, 0.15);
+  }
+
+  body.dark-mode .hp-nav-toggle {
+    background: rgba(255, 195, 0, 0.1);
+  }
+
+  body.dark-mode .hp-nav-toggle:hover {
+    background: rgba(255, 195, 0, 0.2);
   }
 
   .hp-hero-heading {

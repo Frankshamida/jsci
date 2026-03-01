@@ -2610,3 +2610,276 @@ body.dark-mode .btn-small.btn-info {
   color: #64b5f6;
   border-color: rgba(33, 150, 243, 0.35);
 }
+
+/* ============================================
+   WELCOME MODAL
+   ============================================ */
+@keyframes welcomeFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes welcomeSlideUp {
+  from { opacity: 0; transform: translateY(40px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes welcomeGlow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+@keyframes welcomeWave {
+  0% { transform: rotate(0deg); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-8deg); }
+  40% { transform: rotate(14deg); }
+  50% { transform: rotate(-4deg); }
+  60% { transform: rotate(10deg); }
+  70% { transform: rotate(0deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes verseGlow {
+  0%, 100% { box-shadow: 0 0 20px rgba(146, 108, 21, 0.1); }
+  50% { box-shadow: 0 0 30px rgba(146, 108, 21, 0.25); }
+}
+
+.welcome-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: welcomeFadeIn 0.4s ease;
+}
+
+.welcome-modal {
+  background: #fff;
+  border-radius: 24px;
+  width: 100%;
+  max-width: 460px;
+  overflow: hidden;
+  position: relative;
+  animation: welcomeSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3), 0 0 80px rgba(146, 108, 21, 0.15);
+}
+
+.welcome-modal-glow {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 195, 0, 0.4) 0%, transparent 70%);
+  animation: welcomeGlow 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.welcome-modal-header {
+  text-align: center;
+  padding: 40px 30px 25px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 50%, var(--accent) 100%);
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.welcome-modal-header::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.welcome-modal-cross {
+  font-size: 2.8rem;
+  margin-bottom: 10px;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2));
+  line-height: 1;
+}
+
+.welcome-modal-header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.welcome-modal-subtitle {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  opacity: 0.9;
+  font-weight: 400;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.welcome-modal-body {
+  padding: 30px;
+  text-align: center;
+}
+
+.welcome-modal-greeting {
+  margin-bottom: 24px;
+}
+
+.welcome-wave {
+  display: inline-block;
+  font-size: 2rem;
+  animation: welcomeWave 2s ease-in-out infinite;
+  transform-origin: 70% 70%;
+}
+
+.welcome-modal-greeting h3 {
+  margin: 8px 0 6px;
+  font-size: 1.3rem;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.welcome-modal-greeting p {
+  margin: 0;
+  color: #666;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.welcome-modal-verse {
+  background: linear-gradient(135deg, #fdf8ec 0%, #fef9f0 100%);
+  border: 1px solid rgba(146, 108, 21, 0.15);
+  border-radius: 16px;
+  padding: 24px 20px;
+  margin-bottom: 24px;
+  position: relative;
+  animation: verseGlow 4s ease-in-out infinite;
+}
+
+.verse-icon {
+  font-size: 1.6rem;
+  margin-bottom: 10px;
+}
+
+.welcome-modal-verse blockquote {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: #4a3b10;
+  font-style: italic;
+  font-weight: 500;
+}
+
+.welcome-modal-verse cite {
+  display: block;
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--primary);
+  font-weight: 600;
+  font-style: normal;
+}
+
+.welcome-modal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 36px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: #fff;
+  border: none;
+  border-radius: 50px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(146, 108, 21, 0.35);
+  letter-spacing: 0.3px;
+}
+
+.welcome-modal-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(146, 108, 21, 0.45);
+  background: linear-gradient(135deg, var(--secondary), var(--accent));
+}
+
+.welcome-modal-btn:active {
+  transform: translateY(0);
+}
+
+.welcome-modal-footer {
+  text-align: center;
+  padding: 16px 20px;
+  background: #faf8f3;
+  border-top: 1px solid rgba(146, 108, 21, 0.1);
+  font-size: 0.78rem;
+  color: #8a7340;
+  font-style: italic;
+}
+
+/* Dark mode */
+body.dark-mode .welcome-modal {
+  background: #1e1e2f;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 80px rgba(146, 108, 21, 0.1);
+}
+
+body.dark-mode .welcome-modal-greeting h3 {
+  color: var(--accent);
+}
+
+body.dark-mode .welcome-modal-greeting p {
+  color: #aaa;
+}
+
+body.dark-mode .welcome-modal-verse {
+  background: linear-gradient(135deg, #2a2518 0%, #262230 100%);
+  border-color: rgba(146, 108, 21, 0.25);
+}
+
+body.dark-mode .welcome-modal-verse blockquote {
+  color: #e8d5a3;
+}
+
+body.dark-mode .welcome-modal-verse cite {
+  color: var(--accent);
+}
+
+body.dark-mode .welcome-modal-footer {
+  background: #1a1a2a;
+  border-color: rgba(146, 108, 21, 0.15);
+  color: #8a7340;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .welcome-modal {
+    max-width: 100%;
+    border-radius: 20px;
+  }
+  .welcome-modal-header {
+    padding: 30px 20px 20px;
+  }
+  .welcome-modal-header h2 {
+    font-size: 1.2rem;
+  }
+  .welcome-modal-cross {
+    font-size: 2.2rem;
+  }
+  .welcome-modal-body {
+    padding: 24px 20px;
+  }
+  .welcome-modal-verse blockquote {
+    font-size: 0.92rem;
+  }
+  .welcome-modal-btn {
+    padding: 12px 28px;
+    font-size: 0.9rem;
+  }
+}

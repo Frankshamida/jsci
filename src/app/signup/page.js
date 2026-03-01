@@ -151,105 +151,121 @@ export default function SignupPage() {
         <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
       </button>
 
+      <a href="/" className="signup-back-link">
+        <i className="fas fa-arrow-left"></i> Home
+      </a>
+
       <div className="signup-page">
         <div className="signup-container">
-          <div className="signup-header">
-            <div className="logo"></div>
-            <h1>JOYFUL SOUND CHURCH</h1>
-            <p>INTERNATIONAL</p>
+          {/* ---- LEFT PANEL ---- */}
+          <div className="signup-panel-left">
+            <div className="signup-panel-brand">
+              <img src="/assets/LOGO.png" alt="JSCI Logo" />
+              <div className="signup-panel-brand-text">
+                Joyful Sound Church
+                <span>International</span>
+              </div>
+            </div>
+
+            <div className="signup-panel-message">
+              <h2>Begin your<br /><em>journey of faith</em></h2>
+              <div className="signup-panel-message-sub">
+                <p>Join a vibrant community of believers growing together in worship, fellowship, and purpose.</p>
+              </div>
+            </div>
+
+            <div className="signup-panel-footer">
+              &copy; {new Date().getFullYear()} JSCI &mdash; All Rights Reserved
+            </div>
           </div>
 
-          <div className="signup-body">
+          {/* ---- RIGHT PANEL (Form) ---- */}
+          <div className="signup-panel-right">
+            <h1>Create Account</h1>
+
             {alert.message && (
-              <div className={`alert alert-${alert.type} show`}>{alert.message}</div>
+              <div className={`signup-alert signup-alert-${alert.type}`}>{alert.message}</div>
             )}
 
             <form onSubmit={handleSubmit}>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>First Name <span className="required">*</span></label>
-                  <div className="input-wrapper">
-                    <span className="input-icon"><i className="fa-solid fa-user"></i></span>
-                    <input type="text" name="firstname" className="form-control" placeholder="John" required value={form.firstname} onChange={handleChange} />
+              {/* First & Last Name */}
+              <div className="signup-field-row">
+                <div className="signup-field">
+                  <label className="signup-field-label">First Name</label>
+                  <input type="text" name="firstname" className="signup-field-input" placeholder="John" required value={form.firstname} onChange={handleChange} />
+                </div>
+                <div className="signup-field">
+                  <label className="signup-field-label">Last Name</label>
+                  <input type="text" name="lastname" className="signup-field-input" placeholder="Doe" required value={form.lastname} onChange={handleChange} />
+                </div>
+              </div>
+
+              {/* Birthdate & Email */}
+              <div className="signup-field-row">
+                <div className="signup-field">
+                  <label className="signup-field-label">Birthdate</label>
+                  <input type="date" name="birthdate" className="signup-field-input" required value={form.birthdate} onChange={handleChange} />
+                </div>
+                <div className="signup-field">
+                  <label className="signup-field-label">Email Address</label>
+                  <input type="email" name="email" className="signup-field-input" placeholder="john@example.com" required value={form.email} onChange={handleChange} />
+                </div>
+              </div>
+
+              {/* Password & Confirm Password */}
+              <div className="signup-field-row">
+                <div className="signup-field">
+                  <label className="signup-field-label">Password</label>
+                  <div className="signup-field-input-wrap">
+                    <input type={showPassword ? 'text' : 'password'} name="password" className="signup-field-input" placeholder="Create password" required value={form.password} onChange={handleChange} />
+                    <button type="button" className="signup-field-toggle" onClick={() => setShowPassword(!showPassword)}>
+                      <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                    </button>
                   </div>
+                  {form.password && (
+                    <>
+                      <div className="signup-strength-bar">
+                        <div className={`signup-strength-fill strength-${passwordStrength.level}`}></div>
+                      </div>
+                      <div className="signup-strength-text" style={{ color: passwordStrength.level === 'weak' ? '#dc3545' : passwordStrength.level === 'medium' ? 'var(--secondary)' : '#28a745' }}>
+                        {passwordStrength.text}
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div className="form-group">
-                  <label>Last Name <span className="required">*</span></label>
-                  <div className="input-wrapper">
-                    <span className="input-icon"><i className="fa-solid fa-user"></i></span>
-                    <input type="text" name="lastname" className="form-control" placeholder="Doe" required value={form.lastname} onChange={handleChange} />
+                <div className="signup-field">
+                  <label className="signup-field-label">Confirm Password</label>
+                  <div className="signup-field-input-wrap">
+                    <input type={showConfirmPassword ? 'text' : 'password'} name="confirmPassword" className="signup-field-input" placeholder="Confirm password" required value={form.confirmPassword} onChange={handleChange} />
+                    <button type="button" className="signup-field-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
+                      <i className={`fa-solid ${showConfirmPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                    </button>
                   </div>
+                  {confirmError && <div className="signup-error-text">{confirmError}</div>}
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>Birthdate <span className="required">*</span></label>
-                <div className="input-wrapper">
-                  <span className="input-icon"><i className="fa-solid fa-calendar"></i></span>
-                  <input type="date" name="birthdate" className="form-control" required value={form.birthdate} onChange={handleChange} />
-                </div>
+              {/* Terms */}
+              <div className="signup-terms">
+                <input type="checkbox" id="terms" name="terms" required checked={form.terms} onChange={handleChange} />
+                <label htmlFor="terms">I agree to the <a href="#">Terms and Conditions</a></label>
               </div>
 
-              <div className="form-group">
-                <label>Email Address <span className="required">*</span></label>
-                <div className="input-wrapper">
-                  <span className="input-icon"><i className="fa-solid fa-envelope"></i></span>
-                  <input type="email" name="email" className="form-control" placeholder="john@example.com" required value={form.email} onChange={handleChange} />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Password <span className="required">*</span></label>
-                <div className="input-wrapper">
-                  <span className="input-icon"><i className="fa-solid fa-lock"></i></span>
-                  <input type={showPassword ? 'text' : 'password'} name="password" className="form-control" placeholder="Enter password" required value={form.password} onChange={handleChange} />
-                  <span className="password-toggle" onClick={() => setShowPassword(!showPassword)}>
-                    <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-                  </span>
-                </div>
-                {form.password && (
-                  <>
-                    <div className="password-strength">
-                      <div className={`password-strength-bar strength-${passwordStrength.level}`}></div>
-                    </div>
-                    <div className="password-strength-text" style={{ color: passwordStrength.level === 'weak' ? 'var(--primary)' : passwordStrength.level === 'medium' ? 'var(--secondary)' : 'var(--accent)' }}>
-                      {passwordStrength.text}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="form-group">
-                <label>Confirm Password <span className="required">*</span></label>
-                <div className="input-wrapper">
-                  <span className="input-icon"><i className="fa-solid fa-lock"></i></span>
-                  <input type={showConfirmPassword ? 'text' : 'password'} name="confirmPassword" className="form-control" placeholder="Confirm password" required value={form.confirmPassword} onChange={handleChange} />
-                  <span className="password-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
-                    <i className={`fa-solid ${showConfirmPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-                  </span>
-                </div>
-                {confirmError && <div className="error-text" style={{ display: 'block' }}>{confirmError}</div>}
-              </div>
-
-              <div className="form-group full-width">
-                <div className="checkbox-group">
-                  <input type="checkbox" id="terms" name="terms" required checked={form.terms} onChange={handleChange} />
-                  <label htmlFor="terms">I agree to the Terms and Conditions <span className="required">*</span></label>
-                </div>
-              </div>
-
+              {/* Submit */}
               <button type="submit" className="btn-signup" disabled={loading}>
-                {loading ? <div className="spinner" style={{ display: 'block' }}></div> : <span>Create Account</span>}
+                {loading ? <i className="fas fa-spinner fa-spin"></i> : 'Create Account'}
               </button>
             </form>
 
-            <div className="divider">
+            {/* Divider */}
+            <div className="signup-divider">
               <span>or</span>
             </div>
 
+            {/* Google */}
             <button className="btn-google" onClick={handleGoogleSignup} disabled={googleLoading}>
               {googleLoading ? (
-                <div className="spinner" style={{ display: 'block' }}></div>
+                <i className="fas fa-spinner fa-spin"></i>
               ) : (
                 <>
                   <svg className="google-icon" viewBox="0 0 24 24" width="20" height="20">
@@ -263,16 +279,9 @@ export default function SignupPage() {
               )}
             </button>
 
+            {/* Footer */}
             <div className="signup-footer">
-              <p>Already have an account? <a href="/login">Login</a></p>
-              <p style={{ marginTop: '12px' }}>
-                <a href="/" style={{ fontSize: '0.9rem', color: 'var(--primary)', fontWeight: '600', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <i className="fas fa-arrow-left" style={{ fontSize: '0.8rem' }}></i> Back to Homepage
-                </a>
-              </p>
-              <p style={{ marginTop: '10px', fontSize: '0.8rem', color: '#999' }}>
-                &copy; {new Date().getFullYear()} Joyful Sound Church International. All rights reserved.
-              </p>
+              <p>Already have an account? <a href="/login">Sign In</a></p>
             </div>
           </div>
         </div>

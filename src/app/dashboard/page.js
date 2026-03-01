@@ -310,6 +310,10 @@ export default function DashboardPage() {
   // Logout
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
+  // Welcome Modal (for new users)
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [welcomeVerse, setWelcomeVerse] = useState({ verse: '', reference: '' });
+
   // ============================================
   // INITIALIZATION
   // ============================================
@@ -345,6 +349,26 @@ export default function DashboardPage() {
       }
     } catch { /* silent */ }
     setChatMemoryLoaded(true);
+
+    // Welcome modal for new/first-time users
+    const welcomeKey = `welcomed_${stored.email || stored.id}`;
+    if (!localStorage.getItem(welcomeKey)) {
+      const WELCOME_VERSES = [
+        { verse: 'For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, plans to give you hope and a future.', reference: 'Jeremiah 29:11' },
+        { verse: 'The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace.', reference: 'Numbers 6:24-26' },
+        { verse: 'Therefore, if anyone is in Christ, the new creation has come: The old has gone, the new is here!', reference: '2 Corinthians 5:17' },
+        { verse: 'Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.', reference: 'Proverbs 3:5-6' },
+        { verse: 'Be strong and courageous. Do not be afraid; do not be discouraged, for the Lord your God will be with you wherever you go.', reference: 'Joshua 1:9' },
+        { verse: 'I can do all this through him who gives me strength.', reference: 'Philippians 4:13' },
+        { verse: 'Come to me, all you who are weary and burdened, and I will give you rest.', reference: 'Matthew 11:28' },
+        { verse: 'But those who hope in the Lord will renew their strength. They will soar on wings like eagles; they will run and not grow weary, they will walk and not be faint.', reference: 'Isaiah 40:31' },
+        { verse: 'And we know that in all things God works for the good of those who love him, who have been called according to his purpose.', reference: 'Romans 8:28' },
+        { verse: 'The Lord is my shepherd, I lack nothing. He makes me lie down in green pastures, he leads me beside quiet waters, he refreshes my soul.', reference: 'Psalm 23:1-3' },
+      ];
+      const randomVerse = WELCOME_VERSES[Math.floor(Math.random() * WELCOME_VERSES.length)];
+      setWelcomeVerse(randomVerse);
+      setShowWelcomeModal(true);
+    }
 
     fetchDailyVerse(stored.ministry);
     loadScheduleData();
@@ -1275,6 +1299,46 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
     <div className="dashboard-wrapper">
       {/* Toast */}
       {toastMessage && <div className={`toast-notification toast-${toastMessage.type}`}>{toastMessage.message}</div>}
+
+      {/* Welcome Modal */}
+      {showWelcomeModal && (
+        <div className="welcome-modal-overlay" onClick={() => {
+          const welcomeKey = `welcomed_${userData?.email || userData?.id}`;
+          localStorage.setItem(welcomeKey, 'true');
+          setShowWelcomeModal(false);
+        }}>
+          <div className="welcome-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="welcome-modal-glow"></div>
+            <div className="welcome-modal-header">
+              <div className="welcome-modal-cross">✝</div>
+              <h2>Welcome to Joyful Sound Church</h2>
+              <p className="welcome-modal-subtitle">International Ministry Portal</p>
+            </div>
+            <div className="welcome-modal-body">
+              <div className="welcome-modal-greeting">
+                <span className="welcome-wave">👋</span>
+                <h3>Hello, {userData?.firstname || 'Beloved'}!</h3>
+                <p>We&apos;re so glad you&apos;re here. God has a wonderful plan for you.</p>
+              </div>
+              <div className="welcome-modal-verse">
+                <div className="verse-icon">📖</div>
+                <blockquote>&ldquo;{welcomeVerse.verse}&rdquo;</blockquote>
+                <cite>— {welcomeVerse.reference}</cite>
+              </div>
+              <button className="welcome-modal-btn" onClick={() => {
+                const welcomeKey = `welcomed_${userData?.email || userData?.id}`;
+                localStorage.setItem(welcomeKey, 'true');
+                setShowWelcomeModal(false);
+              }}>
+                <i className="fas fa-dove"></i> Begin My Journey
+              </button>
+            </div>
+            <div className="welcome-modal-footer">
+              <span>🕊️ The joy of the Lord is your strength — Nehemiah 8:10</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Logout Modal */}
       {showLogoutModal && (
