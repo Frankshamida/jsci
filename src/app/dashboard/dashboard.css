@@ -1490,12 +1490,22 @@ input:checked + .slider:before { transform: translateX(24px); }
   border-radius: 12px; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: #333;
   position: relative; transition: all 0.2s; background: #fafafa;
 }
-.lineup-cal-day:hover:not(.empty):not(.past):not(.taken) { background: var(--primary); color: #fff; transform: scale(1.05); }
+.lineup-cal-day:hover:not(.empty):not(.past):not(.taken):not(.admin-taken) { background: var(--primary); color: #fff; transform: scale(1.05); }
 .lineup-cal-day.empty { background: transparent; cursor: default; }
 .lineup-cal-day.past { color: #ccc; cursor: not-allowed; background: transparent; }
-.lineup-cal-day.taken { background: #e8f5e9; color: #2e7d32; cursor: not-allowed; }
+.lineup-cal-day.taken { background: #e8f5e9; color: #2e7d32; cursor: pointer; }
+.lineup-cal-day.admin-taken {
+  background: #e9e9e9; color: #999; cursor: not-allowed; opacity: 0.7;
+}
+.lineup-cal-day.admin-taken:hover { transform: none; background: #e9e9e9; color: #999; }
 .lineup-cal-day.today { border: 2px solid var(--primary); background: #fff8e1; }
 .lineup-cal-dot { width: 6px; height: 6px; border-radius: 50%; background: #4caf50; position: absolute; bottom: 6px; }
+.lineup-cal-day-num { font-size: 0.9rem; font-weight: 700; line-height: 1; }
+.lineup-cal-leader-name {
+  font-size: 0.55rem; font-weight: 600; line-height: 1;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin-top: 1px; opacity: 0.85; padding: 0 2px;
+}
 .lineup-cal-legend {
   display: flex; gap: 18px; justify-content: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid #f0f0f0;
 }
@@ -1504,6 +1514,112 @@ input:checked + .slider:before { transform: translateX(24px); }
 .legend-dot.available { background: var(--primary); }
 .legend-dot.taken { background: #4caf50; }
 .legend-dot.past { background: #ddd; }
+
+/* Assigned date (Song Leader's view) */
+.lineup-cal-day.assigned { background: linear-gradient(135deg, rgba(146,108,21,0.12), rgba(255,195,0,0.18)); color: var(--primary); border: 2px solid var(--secondary); cursor: pointer; }
+.lineup-cal-day.assigned:hover { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; transform: scale(1.05); }
+.lineup-cal-day.assigned .lineup-cal-dot { background: var(--accent); }
+.lineup-cal-day.taken.assigned { cursor: pointer; }
+
+/* Admin Song Leader dropdown */
+.lineup-leader-select {
+  width: 100%; padding: 10px 14px; border-radius: 10px; border: 1.5px solid #e0e0e0;
+  font-size: 0.92rem; font-weight: 500; color: #333; background: #fafafa;
+  transition: border-color 0.2s, box-shadow 0.2s; appearance: auto;
+}
+.lineup-leader-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(146,108,21,0.12); outline: none; }
+
+/* Backup singers readonly chips (Song Leader view) */
+.lineup-backup-readonly {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;
+}
+.backup-singer-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: linear-gradient(135deg, rgba(146,108,21,0.08), rgba(255,195,0,0.1));
+  color: var(--primary); border: 1px solid rgba(146,108,21,0.2);
+  padding: 8px 14px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;
+}
+.backup-singer-chip i { font-size: 0.78rem; opacity: 0.7; }
+
+/* Submitted by text on My Lineups cards (Admin) */
+.submitted-by-text {
+  font-size: 0.78rem !important; color: var(--secondary) !important;
+  font-style: italic; margin-top: 2px !important;
+}
+
+/* Assigned-past date (Song Leader — past assigned dates) */
+.lineup-cal-day.assigned-past {
+  background: rgba(146,108,21,0.06); color: #bbb; cursor: not-allowed;
+  border: 1.5px dashed rgba(146,108,21,0.3);
+}
+.lineup-cal-day.assigned-past .lineup-cal-dot { background: #ccc; }
+
+/* Viewable date (Song Leader can click to see details) */
+.lineup-cal-day.viewable { cursor: pointer; }
+.lineup-cal-day.viewable:hover { background: #e3f2fd; color: #1565c0; transform: scale(1.03); }
+
+/* Detail Popup Modal */
+.lineup-detail-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000; animation: fadeIn 0.2s ease;
+}
+.lineup-detail-modal {
+  background: #fff; border-radius: 20px; padding: 32px; width: 90%; max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15); position: relative;
+  animation: slideUp 0.3s ease;
+}
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.lineup-detail-close {
+  position: absolute; top: 16px; right: 16px; background: #f5f5f5;
+  border: none; border-radius: 50%; width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: #888; font-size: 0.9rem; transition: all 0.2s;
+}
+.lineup-detail-close:hover { background: #e0e0e0; color: #333; }
+.lineup-detail-modal-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
+  padding-bottom: 16px; border-bottom: 1px solid #f0f0f0;
+}
+.lineup-detail-modal-header i { font-size: 1.4rem; color: var(--primary); }
+.lineup-detail-modal-header h3 { font-size: 1.15rem; font-weight: 700; color: #333; margin: 0; }
+.lineup-detail-modal-body { display: flex; flex-direction: column; gap: 16px; }
+.lineup-detail-row {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 14px 16px; background: #fafafa; border-radius: 12px;
+}
+.lineup-detail-row i { font-size: 1.1rem; margin-top: 2px; }
+.lineup-detail-label { display: block; font-size: 0.75rem; color: #999; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.lineup-detail-value { display: block; font-size: 0.95rem; color: #333; font-weight: 600; margin-top: 2px; }
+.lineup-detail-songs { margin-top: 4px; }
+.lineup-detail-song-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px; font-size: 0.82rem;
+  font-weight: 500; margin: 3px 4px;
+}
+.lineup-detail-song-pill.slow { background: rgba(103,58,183,0.08); color: #673ab7; }
+.lineup-detail-song-pill.fast { background: rgba(255,152,0,0.08); color: #f57c00; }
+
+/* Assignment Info Block (Song Leader's form view) */
+.lineup-assignment-info {
+  background: linear-gradient(135deg, rgba(146,108,21,0.05), rgba(255,195,0,0.08));
+  border: 1px solid rgba(146,108,21,0.15); border-radius: 16px;
+  padding: 20px; margin-bottom: 20px;
+}
+.lineup-assignment-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+.lineup-assignment-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px; background: rgba(255,255,255,0.7); border-radius: 12px;
+}
+.lineup-assignment-item i { font-size: 1.1rem; margin-top: 2px; }
+.lineup-assignment-label { display: block; font-size: 0.72rem; color: #999; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.lineup-assignment-value { display: block; font-size: 0.92rem; color: #333; font-weight: 600; margin-top: 2px; }
+@media (max-width: 600px) {
+  .lineup-assignment-row { grid-template-columns: 1fr; }
+}
 
 /* Success View */
 .lineup-success-container {
@@ -2151,8 +2267,30 @@ body.dark-mode .lineup-song-card { background: #2d2d44; border-color: #3a3a5c; }
 body.dark-mode .lineup-song-card .form-control { background: #1e1e35; border-color: #3a3a5c; color: #e0e0e0; }
 body.dark-mode .lineup-cal-day { background: #2d2d44; color: #e0e0e0; }
 body.dark-mode .lineup-cal-day.taken { background: #1b3a1b; color: #66bb6a; }
+body.dark-mode .lineup-cal-day.admin-taken { background: #2a2a3a; color: #666; opacity: 0.6; }
+body.dark-mode .lineup-cal-day.admin-taken:hover { background: #2a2a3a; color: #666; }
 body.dark-mode .lineup-cal-day.today { border-color: var(--primary); background: #3a3520; }
 body.dark-mode .lineup-cal-day.past { color: #555; background: transparent; }
+body.dark-mode .lineup-cal-day.assigned { background: rgba(146,108,21,0.25); color: var(--accent); border-color: var(--primary); }
+body.dark-mode .lineup-cal-day.assigned:hover { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; }
+body.dark-mode .lineup-leader-select { background: #2d2d44; color: #e0e0e0; border-color: #3a3a5c; }
+body.dark-mode .lineup-leader-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(146,108,21,0.25); }
+body.dark-mode .backup-singer-chip { background: rgba(146,108,21,0.2); border-color: rgba(146,108,21,0.35); color: var(--accent); }
+body.dark-mode .submitted-by-text { color: var(--accent) !important; }
+body.dark-mode .lineup-cal-day.assigned-past { background: rgba(146,108,21,0.1); color: #555; border-color: rgba(146,108,21,0.2); }
+body.dark-mode .lineup-cal-day.viewable:hover { background: #1a2540; color: #64b5f6; }
+body.dark-mode .lineup-detail-modal { background: #1e1e35; }
+body.dark-mode .lineup-detail-close { background: #2d2d44; color: #aaa; }
+body.dark-mode .lineup-detail-close:hover { background: #3a3a5c; color: #fff; }
+body.dark-mode .lineup-detail-modal-header { border-color: #3a3a5c; }
+body.dark-mode .lineup-detail-modal-header h3 { color: #e0e0e0; }
+body.dark-mode .lineup-detail-row { background: #2d2d44; }
+body.dark-mode .lineup-detail-value { color: #e0e0e0; }
+body.dark-mode .lineup-detail-song-pill.slow { background: rgba(103,58,183,0.2); color: #b39ddb; }
+body.dark-mode .lineup-detail-song-pill.fast { background: rgba(255,152,0,0.2); color: #ffb74d; }
+body.dark-mode .lineup-assignment-info { background: rgba(146,108,21,0.1); border-color: rgba(146,108,21,0.25); }
+body.dark-mode .lineup-assignment-item { background: rgba(30,30,53,0.7); }
+body.dark-mode .lineup-assignment-value { color: #e0e0e0; }
 body.dark-mode .lineup-calendar-info { background: #3a3520; border-color: #4a4530; color: #d4a836; }
 body.dark-mode .song-pill { background: #3a3a5c; color: #ccc; }
 body.dark-mode .my-lineup-actions { background: #1e1e35; border-color: #3a3a5c; }

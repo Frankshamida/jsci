@@ -255,6 +255,8 @@ export const ROLE_PERMISSIONS = {
     MODULES.UPDATE_ANNOUNCEMENTS, MODULES.DELETE_ANNOUNCEMENTS,
     // Attendance Management
     MODULES.VIEW_ATTENDANCE, MODULES.MARK_ATTENDANCE, MODULES.UPDATE_ATTENDANCE, MODULES.DELETE_ATTENDANCE,
+    // Song Lineup Management (Admin can create/manage all lineups)
+    MODULES.CREATE_SONG_LIST, MODULES.ADD_REMOVE_SONGS, MODULES.UPDATE_SONG_LINEUP, MODULES.ASSIGN_SINGERS,
     // Reports, Communication & Profile
     MODULES.GENERATE_REPORTS, MODULES.VIEW_PERSONAL_REPORTS, MODULES.EXPORT_REPORTS,
     MODULES.SEND_BROADCASTS, MODULES.VIEW_MESSAGES, MODULES.SEND_MESSAGES,
@@ -343,6 +345,8 @@ export function getSidebarMenu(role) {
       { id: 'home', icon: 'fas fa-tachometer-alt', label: 'Dashboard', section: 'home' },
       { id: 'users', icon: 'fas fa-users-cog', label: 'User Management', section: 'user-management' },
       { id: 'ministries', icon: 'fas fa-church', label: 'Ministry Management', section: 'ministry-management' },
+      { id: 'lineup', icon: 'fas fa-music', label: 'Assign Lineup', section: 'create-lineup' },
+      { id: 'my-lineups', icon: 'fas fa-list-ol', label: 'All Assignments', section: 'my-lineups' },
       { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events-management' },
       { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements-management' },
       { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },

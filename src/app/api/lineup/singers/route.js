@@ -1,22 +1,26 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-// GET - Fetch users who can be backup singers
-// Returns users from "Praise And Worship" ministry with sub_role "Singers"
-// OR users with role "Song Leader" (they can also sing backup)
+// GET - Fetch users who can be backup singers OR song leaders
+// type=song-leaders -> Ministry: Praise And Worship, Sub Role: Song Leaders
+// type=backupers -> Ministry: Praise And Worship, Sub Role: Song Leader Backupers
+// type=all-paw -> All Praise And Worship ministry members
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type') || 'singers'; // 'singers' | 'all-paw'
+    const type = searchParams.get('type') || 'all-paw';
 
     let query = supabase.from('users')
-      .select('id, firstname, lastname, ministry, sub_role, role')
+      .select('id, firstname, lastname, email, ministry, sub_role, role')
       .eq('is_active', true)
       .eq('status', 'Verified');
 
-    if (type === 'singers') {
-      // Get users with Praise And Worship ministry who are Singers, or Song Leaders
-      query = query.or('sub_role.eq.Singers,role.eq.Song Leader');
+    if (type === 'song-leaders') {
+      // Get users with ministry Praise And Worship AND sub_role Song Leaders
+      query = query.eq('ministry', 'Praise And Worship').eq('sub_role', 'Song Leaders');
+    } else if (type === 'backupers') {
+      // Get users with ministry Praise And Worship AND sub_role Song Leader Backupers
+      query = query.eq('ministry', 'Praise And Worship').eq('sub_role', 'Song Leader Backupers');
     } else {
       // Get all Praise And Worship ministry members
       query = query.eq('ministry', 'Praise And Worship');
@@ -31,6 +35,7 @@ export async function GET(request) {
     const singers = (data || []).map(u => ({
       id: u.id,
       name: `${u.firstname} ${u.lastname}`,
+      email: u.email,
       ministry: u.ministry,
       sub_role: u.sub_role,
       role: u.role,

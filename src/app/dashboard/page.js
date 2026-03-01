@@ -16,7 +16,7 @@ const ALL_MINISTRIES = ['Praise And Worship', 'Media', 'Dancers', 'Ashers', 'Pas
 
 // Ministry → Sub-Role mapping (Admin picks ministry, then sub-role dropdown shows these)
 const MINISTRY_SUB_ROLES = {
-  'Praise And Worship': ['Singers', 'Instrumentalists', 'Dancers'],
+  'Praise And Worship': ['Song Leaders', 'Song Leader Backupers', 'Instrumentalists', 'Dancers'],
   'Media': ['Lyrics', 'Multimedia'],
   'Dancers': ['Choreographer', 'Dancer'],
   'Ashers': ['Head Usher', 'Usher'],
@@ -210,6 +210,12 @@ export default function DashboardPage() {
 
   // Backup Singers (fetched from DB)
   const [backupSingerOptions, setBackupSingerOptions] = useState([]);
+
+  // Song Leader options (for admin to pick from)
+  const [songLeaderOptions, setSongLeaderOptions] = useState([]);
+
+  // Detail popup for Song Leader viewing other dates
+  const [lineupDetailPopup, setLineupDetailPopup] = useState(null); // { songLeader, backupSingers, date }
 
   // Profile
   const [profileTab, setProfileTab] = useState('personal');
@@ -433,6 +439,8 @@ export default function DashboardPage() {
     if (sectionId === 'roles-permissions') loadRoles();
     if (sectionId === 'audit-logs') loadAuditLogs();
     if (sectionId === 'system-config') loadSystemSettings();
+    if (sectionId === 'create-lineup') { loadScheduleData(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
+    if (sectionId === 'my-lineups') loadScheduleData();
     if (sectionId === 'spiritual-assistant' && chatMessages.length === 0) {
       setChatMessages([{ role: 'assistant', content: `Hello ${userData?.firstname || 'friend'}! 🙏 I'm your Spiritual AI Assistant. How can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
     }
@@ -767,11 +775,21 @@ export default function DashboardPage() {
   // ============================================
   const loadBackupSingers = async () => {
     try {
-      const res = await fetch('/api/lineup/singers');
+      const res = await fetch('/api/lineup/singers?type=backupers');
       const data = await res.json();
       if (data.success) setBackupSingerOptions(data.data || []);
     } catch (e) { console.error('Failed to load backup singers:', e); }
   };
+
+  const loadSongLeaders = async () => {
+    try {
+      const res = await fetch('/api/lineup/singers?type=song-leaders');
+      const data = await res.json();
+      if (data.success) setSongLeaderOptions(data.data || []);
+    } catch (e) { console.error('Failed to load song leaders:', e); }
+  };
+
+  const isAdmin = userRole === 'Admin' || userRole === 'Super Admin';
 
   const handleLineupChange = (field, value) => setLineupForm((prev) => ({ ...prev, [field]: value }));
   const handleBackupChange = (i, v) => { const b = [...lineupForm.backupSingers]; b[i] = v; setLineupForm((p) => ({ ...p, backupSingers: b })); };
@@ -918,29 +936,68 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
     setLineupView('calendar');
     setEditingLineup(null);
     setSongScanResults({});
+    setLineupDetailPopup(null);
   };
 
   const handleLineupDateSelect = (dateStr) => {
-    // Check if lineup already exists for this date
-    const existing = scheduleData.find(s => s.scheduleDate === dateStr);
-    if (existing) {
-      showToast('A lineup already exists for this date. Go to My Lineups to edit it.', 'warning');
-      return;
+    if (isAdmin) {
+      // Admin: check if lineup already exists for this date
+      const existing = scheduleData.find(s => s.scheduleDate === dateStr);
+      if (existing) {
+        showToast('A lineup already exists for this date. Go to All Lineups to edit it.', 'warning');
+        return;
+      }
+      setLineupSelectedDate(dateStr);
+      setLineupForm(prev => ({ ...prev, scheduleDate: dateStr, songLeader: '', backupSingers: [''] }));
+      setLineupView('form');
+      loadBackupSingers();
+      loadSongLeaders();
+    } else {
+      // Song Leader: can only click their assigned dates
+      const existing = scheduleData.find(s => s.scheduleDate === dateStr);
+      if (!existing) return;
+      const myName = userData ? `${userData.firstname} ${userData.lastname}` : '';
+      if (existing.songLeader !== myName) {
+        // Show detail popup for this date
+        setLineupDetailPopup({ songLeader: existing.songLeader, backupSingers: existing.backupSingers || [], date: dateStr, slowSongs: existing.slowSongs || [], fastSongs: existing.fastSongs || [] });
+        return;
+      }
+      // This is their assigned date — open form to add/edit songs
+      setLineupSelectedDate(dateStr);
+      setEditingLineup(existing);
+      setLineupForm({
+        scheduleDate: existing.scheduleDate,
+        practiceDate: existing.practiceDate || '',
+        songLeader: existing.songLeader,
+        backupSingers: existing.backupSingers?.length ? existing.backupSingers : [''],
+        slowSongs: existing.slowSongs?.length ? existing.slowSongs : [{ title: '', link: '', lyrics: '', instructions: '' }],
+        fastSongs: existing.fastSongs?.length ? existing.fastSongs : [{ title: '', link: '', lyrics: '', instructions: '' }],
+      });
+      setLineupView('form');
     }
-    setLineupSelectedDate(dateStr);
-    // Auto-fill song leader with current user's name
-    const autoLeader = userData ? `${userData.firstname} ${userData.lastname}` : '';
-    setLineupForm(prev => ({ ...prev, scheduleDate: dateStr, songLeader: autoLeader }));
-    setLineupView('form');
-    loadBackupSingers();
   };
 
   const submitLineup = async () => {
     if (!lineupForm.scheduleDate) { showToast('Schedule date is required', 'warning'); return; }
-    if (!lineupForm.slowSongs.some(s => s.title) && !lineupForm.fastSongs.some(s => s.title)) { showToast('Please add at least one song', 'warning'); return; }
-    // Ensure song leader is set (auto-fill fallback)
+
+    // Admin only assigns — no songs required
+    if (isAdmin) {
+      if (!lineupForm.songLeader) { showToast('Please select a Song Leader', 'warning'); return; }
+    } else {
+      // Song Leader must add at least one song
+      if (!lineupForm.slowSongs.some(s => s.title) && !lineupForm.fastSongs.some(s => s.title)) { showToast('Please add at least one song', 'warning'); return; }
+    }
+
     const songLeaderName = lineupForm.songLeader || (userData ? `${userData.firstname} ${userData.lastname}` : '');
-    if (!songLeaderName) { showToast('Song leader could not be determined', 'warning'); return; }
+    if (!songLeaderName) { showToast('Please select a Song Leader', 'warning'); return; }
+
+    // Find song leader's ID for notifications (admin created lineups)
+    let songLeaderId = null;
+    if (isAdmin) {
+      const leaderMatch = songLeaderOptions.find(sl => sl.name === songLeaderName);
+      if (leaderMatch) songLeaderId = leaderMatch.id;
+    }
+
     setLineupLoading(true);
     try {
       const isEditing = !!editingLineup;
@@ -953,6 +1010,8 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
           practiceDate: lineupForm.practiceDate || null, backupSingers: lineupForm.backupSingers.filter(Boolean),
           slowSongs: lineupForm.slowSongs.filter((s) => s.title), fastSongs: lineupForm.fastSongs.filter((s) => s.title),
           submittedBy: userData?.email,
+          songLeaderId: songLeaderId,
+          notifyLeader: isAdmin && songLeaderId ? true : false,
         }),
       });
       const data = await res.json();
@@ -983,12 +1042,28 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
     });
     setLineupView('form');
     setActiveSection('create-lineup');
-    loadBackupSingers();
+    if (isAdmin) { loadBackupSingers(); loadSongLeaders(); }
   };
 
-  // Get lineups filtered by current user
+  // Get lineups: admin sees all, song leader sees own
   const getMyLineups = () => {
-    return scheduleData.filter(s => s.submittedBy === userData?.email).sort((a, b) => new Date(b.scheduleDate) - new Date(a.scheduleDate));
+    if (isAdmin) {
+      return scheduleData.sort((a, b) => new Date(b.scheduleDate) - new Date(a.scheduleDate));
+    }
+    return scheduleData.filter(s => s.submittedBy === userData?.email || s.songLeader === `${userData?.firstname} ${userData?.lastname}`).sort((a, b) => new Date(b.scheduleDate) - new Date(a.scheduleDate));
+  };
+
+  // Get dates where current user is assigned as Song Leader (for calendar highlight)
+  const getAssignedDates = () => {
+    if (!userData) return [];
+    const myName = `${userData.firstname} ${userData.lastname}`;
+    return scheduleData.filter(s => s.songLeader === myName).map(s => s.scheduleDate);
+  };
+
+  // Get backup singers for a date where current user is assigned as Song Leader
+  const getAssignedBackups = (dateStr) => {
+    const schedule = scheduleData.find(s => s.scheduleDate === dateStr);
+    return schedule?.backupSingers || [];
   };
 
   // Lineup calendar helpers
@@ -2424,15 +2499,15 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
           {/* ========== CREATE LINEUP (Song Leader) ========== */}
           {canManage(MODULES.CREATE_SONG_LIST) && (
             <section className={`content-section ${activeSection === 'create-lineup' ? 'active' : ''}`}>
-              <h2 className="section-title"><i className="fas fa-music"></i> {editingLineup ? 'Edit Lineup' : 'Create Lineup'}</h2>
+              <h2 className="section-title"><i className="fas fa-music"></i> {isAdmin ? (editingLineup ? 'Edit Assignment' : 'Assign Lineup') : (editingLineup ? 'Edit Songs' : 'Create Lineup')}</h2>
 
               {/* SUCCESS VIEW */}
               {lineupView === 'success' && (
                 <div className="lineup-success-container">
                   <div className="lineup-success-icon"><i className="fas fa-check-circle"></i></div>
-                  <h3>{editingLineup ? 'Lineup Updated Successfully!' : 'Lineup Created Successfully!'}</h3>
-                  <p>Your worship lineup for <strong>{formatDate(lineupForm.scheduleDate)}</strong> has been {editingLineup ? 'updated' : 'saved'}.</p>
-                  <button className="btn-primary" onClick={resetLineupForm} style={{ marginTop: 20, padding: '12px 30px' }}><i className="fas fa-plus"></i> Create Another Lineup</button>
+                  <h3>{isAdmin ? (editingLineup ? 'Assignment Updated!' : 'Lineup Assigned!') : (editingLineup ? 'Songs Updated!' : 'Songs Submitted!')}</h3>
+                  <p>{isAdmin ? <>Song Leader and Backupers have been {editingLineup ? 'updated' : 'assigned'} for <strong>{formatDate(lineupForm.scheduleDate)}</strong>. The Song Leader will be notified.</> : <>Your songs for <strong>{formatDate(lineupForm.scheduleDate)}</strong> have been {editingLineup ? 'updated' : 'saved'}.</>}</p>
+                  <button className="btn-primary" onClick={resetLineupForm} style={{ marginTop: 20, padding: '12px 30px' }}><i className="fas fa-plus"></i> {isAdmin ? 'Assign Another' : 'Back to Calendar'}</button>
                 </div>
               )}
 
@@ -2441,8 +2516,28 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
                 <div className="lineup-calendar-container">
                   <div className="lineup-calendar-info">
                     <i className="fas fa-info-circle"></i>
-                    <span>Select a date on the calendar to create a new lineup</span>
+                    <span>{isAdmin ? 'Select a date to assign a Song Leader and Backupers' : 'Tap your assigned date to add songs. Tap other dates to view details.'}</span>
                   </div>
+
+                  {/* Song Leader: show assigned dates info */}
+                  {!isAdmin && getAssignedDates().length > 0 && (
+                    <div className="lineup-assigned-info" style={{ background: 'rgba(146,108,21,0.08)', border: '1px solid rgba(146,108,21,0.2)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+                      <h4 style={{ margin: '0 0 10px', fontSize: '0.95rem', color: 'var(--primary)' }}><i className="fas fa-star" style={{ marginRight: 8 }}></i>Your Assigned Dates</h4>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {getAssignedDates().map(dateStr => {
+                          const backups = getAssignedBackups(dateStr);
+                          const isPast = new Date(dateStr + 'T00:00:00') < new Date(new Date().toDateString());
+                          return (
+                            <div key={dateStr} style={{ background: isPast ? '#ccc' : 'linear-gradient(135deg, var(--primary), var(--secondary))', color: isPast ? '#666' : '#fff', padding: '8px 14px', borderRadius: 8, fontSize: '0.82rem', fontWeight: 600, opacity: isPast ? 0.6 : 1 }}>
+                              <div>{formatDate(dateStr)} {isPast && '(Past)'}</div>
+                              {backups.length > 0 && <div style={{ fontSize: '0.75rem', opacity: 0.85, marginTop: 2 }}><i className="fas fa-users" style={{ marginRight: 4 }}></i>{backups.join(', ')}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="lineup-calendar-card">
                     <div className="lineup-cal-header">
                       <button onClick={() => setLineupCalendarMonth(new Date(lineupCalendarMonth.getFullYear(), lineupCalendarMonth.getMonth() - 1))}><i className="fas fa-chevron-left"></i></button>
@@ -2458,22 +2553,80 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
                         const past = isLineupDatePast(day);
                         const today = day && new Date().getDate() === day && new Date().getMonth() === lineupCalendarMonth.getMonth() && new Date().getFullYear() === lineupCalendarMonth.getFullYear();
                         const dateStr = day ? `${lineupCalendarMonth.getFullYear()}-${String(lineupCalendarMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : '';
+                        const schedule = day && taken ? scheduleData.find(s => s.scheduleDate === dateStr) : null;
+                        const leaderName = schedule ? schedule.songLeader : '';
+                        const leaderFirstName = leaderName ? leaderName.split(' ')[0] : '';
+                        const assigned = !isAdmin && day && getAssignedDates().includes(dateStr);
+                        const assignedAndPast = assigned && past;
+                        const assignedAndFuture = assigned && !past;
+                        const slViewable = !isAdmin && day && taken && !assigned;
                         return (
-                          <div key={i} className={`lineup-cal-day${!day ? ' empty' : ''}${taken ? ' taken' : ''}${past ? ' past' : ''}${today ? ' today' : ''}`}
-                            onClick={() => day && !past && !taken ? handleLineupDateSelect(dateStr) : null}
-                            title={taken ? 'Lineup exists' : past ? 'Past date' : day ? 'Click to create lineup' : ''}>
-                            {day && <span>{day}</span>}
-                            {taken && day && <div className="lineup-cal-dot"></div>}
+                          <div key={i} className={`lineup-cal-day${!day ? ' empty' : ''}${isAdmin && taken ? ' admin-taken' : (!isAdmin && taken && !assigned ? ' taken' : '')}${past ? ' past' : ''}${today ? ' today' : ''}${assignedAndFuture ? ' assigned' : ''}${assignedAndPast ? ' assigned-past' : ''}${slViewable ? ' viewable' : ''}`}
+                            onClick={() => {
+                              if (!day) return;
+                              if (isAdmin) {
+                                if (past || taken) return; // Grayed out — no click
+                                handleLineupDateSelect(dateStr);
+                              } else {
+                                // Song Leader
+                                if (assignedAndPast) { showToast('This date has already passed. You cannot edit past lineups.', 'warning'); return; }
+                                if (taken) {
+                                  handleLineupDateSelect(dateStr);
+                                  return;
+                                }
+                              }
+                            }}
+                            title={isAdmin ? (taken ? `Assigned to ${leaderName}` : past ? 'Past date' : 'Click to assign') : (assignedAndFuture ? 'Your assigned date — click to add songs' : assignedAndPast ? 'Past assigned date' : slViewable ? `Assigned to ${leaderName} — click to view` : past ? 'Past date' : '')}>
+                            {day && <span className="lineup-cal-day-num">{day}</span>}
+                            {taken && day && leaderFirstName && <span className="lineup-cal-leader-name">{leaderFirstName}</span>}
+                            {assignedAndFuture && day && <div className="lineup-cal-dot" style={{ background: 'var(--accent)' }}></div>}
                           </div>
                         );
                       })}
                     </div>
                     <div className="lineup-cal-legend">
-                      <span><span className="legend-dot available"></span> Available</span>
-                      <span><span className="legend-dot taken"></span> Has Lineup</span>
+                      {isAdmin && <span><span className="legend-dot available"></span> Available</span>}
+                      <span><span className="legend-dot" style={{ background: '#bbb' }}></span> Assigned</span>
+                      {!isAdmin && <span><span className="legend-dot" style={{ background: 'var(--accent)' }}></span> You&apos;re Assigned</span>}
                       <span><span className="legend-dot past"></span> Past Date</span>
                     </div>
                   </div>
+
+                  {/* Detail Popup — Song Leader viewing another date's assignment */}
+                  {lineupDetailPopup && (
+                    <div className="lineup-detail-overlay" onClick={() => setLineupDetailPopup(null)}>
+                      <div className="lineup-detail-modal" onClick={(e) => e.stopPropagation()}>
+                        <button className="lineup-detail-close" onClick={() => setLineupDetailPopup(null)}><i className="fas fa-times"></i></button>
+                        <div className="lineup-detail-modal-header">
+                          <i className="fas fa-calendar-day"></i>
+                          <h3>{formatDate(lineupDetailPopup.date)}</h3>
+                        </div>
+                        <div className="lineup-detail-modal-body">
+                          <div className="lineup-detail-row">
+                            <i className="fas fa-microphone" style={{ color: 'var(--primary)' }}></i>
+                            <div>
+                              <span className="lineup-detail-label">Song Leader</span>
+                              <span className="lineup-detail-value">{lineupDetailPopup.songLeader}</span>
+                            </div>
+                          </div>
+                          <div className="lineup-detail-row">
+                            <i className="fas fa-users" style={{ color: 'var(--secondary)' }}></i>
+                            <div>
+                              <span className="lineup-detail-label">Backupers</span>
+                              <span className="lineup-detail-value">{lineupDetailPopup.backupSingers.length > 0 ? lineupDetailPopup.backupSingers.join(', ') : 'No backupers assigned'}</span>
+                            </div>
+                          </div>
+                          {(lineupDetailPopup.slowSongs.length > 0 || lineupDetailPopup.fastSongs.length > 0) && (
+                            <div className="lineup-detail-songs">
+                              <span className="lineup-detail-label" style={{ marginBottom: 8, display: 'block' }}>Songs</span>
+                              {lineupDetailPopup.slowSongs.map((s, i) => <div key={`s-${i}`} className="lineup-detail-song-pill slow"><i className="fas fa-music"></i> {s.title}</div>)}
+                              {lineupDetailPopup.fastSongs.map((s, i) => <div key={`f-${i}`} className="lineup-detail-song-pill fast"><i className="fas fa-bolt"></i> {s.title}</div>)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2489,126 +2642,174 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
                         <span className="lineup-date-value">{formatDate(lineupForm.scheduleDate)}</span>
                       </div>
                     </div>
-                    {!editingLineup && <button className="btn-change-date" onClick={() => { setLineupView('calendar'); setLineupSelectedDate(null); }}><i className="fas fa-pen"></i> Change</button>}
+                    {!editingLineup && isAdmin && <button className="btn-change-date" onClick={() => { setLineupView('calendar'); setLineupSelectedDate(null); }}><i className="fas fa-pen"></i> Change</button>}
+                    {!isAdmin && <button className="btn-change-date" onClick={() => { resetLineupForm(); }}><i className="fas fa-arrow-left"></i> Back</button>}
                   </div>
 
-                  {/* Details Row */}
-                  <div className="lineup-details-row">
-                    <div className="lineup-detail-card">
-                      <label><i className="fas fa-calendar-alt"></i> Practice Date</label>
-                      <input type="date" className="form-control" value={lineupForm.practiceDate} onChange={(e) => handleLineupChange('practiceDate', e.target.value)} />
-                    </div>
-                    <div className="lineup-detail-card">
-                      <label><i className="fas fa-microphone"></i> Song Leader</label>
-                      <div className="song-leader-display">
-                        <i className="fas fa-user-circle"></i>
-                        <span>{lineupForm.songLeader || 'You'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Backup Singers */}
-                  <div className="lineup-backup-section">
-                    <label><i className="fas fa-users"></i> Backup Singers</label>
-                    {backupSingerOptions.length === 0 && (
-                      <p style={{ color: '#aaa', fontSize: '0.85rem', margin: '6px 0' }}>
-                        <i className="fas fa-info-circle"></i> No backup singers found. Ask your Admin to assign users with ministry &quot;Praise And Worship&quot; and role &quot;Singers&quot;.
-                      </p>
-                    )}
-                    <div className="lineup-backup-list">
-                      {lineupForm.backupSingers.map((singer, i) => (
-                        <div key={i} className="lineup-backup-item">
-                          <select className="form-select" value={singer} onChange={(e) => handleBackupChange(i, e.target.value)}>
-                            <option value="">Select singer</option>
-                            {backupSingerOptions.map((bo) => <option key={bo.id} value={bo.name}>{bo.name}{bo.sub_role ? ` (${bo.sub_role})` : ''}</option>)}
+                  {isAdmin ? (
+                    <>
+                      {/* ===== ADMIN FORM: Assign Song Leader + Backupers only ===== */}
+                      <div className="lineup-details-row">
+                        <div className="lineup-detail-card" style={{ flex: '1 1 100%' }}>
+                          <label><i className="fas fa-microphone"></i> Assign Song Leader</label>
+                          <select className="form-select lineup-leader-select" value={lineupForm.songLeader} onChange={(e) => handleLineupChange('songLeader', e.target.value)}>
+                            <option value="">-- Select Song Leader --</option>
+                            {songLeaderOptions.map((sl) => (
+                              <option key={sl.id} value={sl.name}>{sl.name}</option>
+                            ))}
                           </select>
-                          {lineupForm.backupSingers.length > 1 && <button className="btn-remove-sm" onClick={() => removeBackupSinger(i)}><i className="fas fa-times"></i></button>}
+                          {songLeaderOptions.length === 0 && (
+                            <p style={{ color: '#aaa', fontSize: '0.82rem', margin: '8px 0 0' }}>
+                              <i className="fas fa-info-circle"></i> No Song Leaders found. Assign users with Ministry: Praise And Worship, Sub Role: Song Leaders.
+                            </p>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                    {lineupForm.backupSingers.length < 5 && <button className="btn-add-subtle" onClick={addBackupSinger}><i className="fas fa-plus"></i> Add Backup Singer</button>}
-                  </div>
-
-                  {/* Two-Column Songs: Slow & Fast side by side */}
-                  <div className="lineup-songs-grid">
-                    {['slowSongs', 'fastSongs'].map((type) => (
-                      <div key={type} className="lineup-song-column">
-                        <div className={`lineup-song-column-header ${type}`}>
-                          <i className={`fas fa-${type === 'slowSongs' ? 'music' : 'bolt'}`}></i>
-                          <span>{type === 'slowSongs' ? 'Slow Songs' : 'Fast Songs'}</span>
-                          <span className="song-count-badge">{lineupForm[type].filter(s => s.title).length}</span>
-                        </div>
-                        <div className="lineup-song-list">
-                          {lineupForm[type].map((song, i) => {
-                            const scanKey = `${type}-${i}`;
-                            const scan = songScanResults[scanKey];
-                            return (
-                            <div key={i} className={`lineup-song-card${song.title ? ' has-title' : ''}${scan?.status === 'explicit' ? ' scan-explicit' : scan?.status === 'warning' ? ' scan-warning' : scan?.status === 'safe' ? ' scan-safe' : ''}`}>
-                              <div className="lineup-song-card-header">
-                                <span className="lineup-song-num">{type === 'slowSongs' ? '🎵' : '⚡'} Song {i + 1}</span>
-                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                  {(song.title || song.link) && <button className="btn-scan-song" onClick={() => rescanSong(type, i)} title="Scan with AI"><i className="fas fa-shield-alt"></i></button>}
-                                  {lineupForm[type].length > 1 && <button className="btn-remove-sm" onClick={() => removeSong(type, i)}><i className="fas fa-trash-alt"></i></button>}
-                                </div>
-                              </div>
-
-                              {/* AI Scan Result Badge */}
-                              {scan && (
-                                <div className={`song-scan-badge scan-${scan.status}`}>
-                                  <div className="song-scan-icon">
-                                    {scan.status === 'scanning' && <div className="scan-spinner"></div>}
-                                    {scan.status === 'safe' && <i className="fas fa-check-circle"></i>}
-                                    {scan.status === 'explicit' && <i className="fas fa-exclamation-triangle"></i>}
-                                    {scan.status === 'warning' && <i className="fas fa-exclamation-circle"></i>}
-                                    {scan.status === 'error' && <i className="fas fa-question-circle"></i>}
-                                  </div>
-                                  <div className="song-scan-text">
-                                    <span className="song-scan-label">{scan.message}</span>
-                                    {scan.details && <span className="song-scan-details">{scan.details}</span>}
-                                  </div>
-                                </div>
-                              )}
-
-                              <input className="form-control" placeholder="Song title *" value={song.title} onChange={(e) => handleSongChange(type, i, 'title', e.target.value)} />
-                              <input className="form-control" placeholder="YouTube link (optional)" value={song.link} onChange={(e) => handleSongChange(type, i, 'link', e.target.value)} />
-                              {song.link && extractYouTubeId(song.link) && <div className="youtube-preview"><iframe src={`https://www.youtube.com/embed/${extractYouTubeId(song.link)}`} allowFullScreen title={song.title}></iframe></div>}
-                              <textarea className="form-control" placeholder="Lyrics (optional)" rows={2} value={song.lyrics} onChange={(e) => handleSongChange(type, i, 'lyrics', e.target.value)}></textarea>
-                              <input className="form-control" placeholder="Instructions (optional)" value={song.instructions} onChange={(e) => handleSongChange(type, i, 'instructions', e.target.value)} />
-                            </div>
-                            );
-                          })}
-                        </div>
-                        {lineupForm[type].length < 5 && <button className="btn-add-song" onClick={() => addSong(type)}><i className="fas fa-plus-circle"></i> Add {type === 'slowSongs' ? 'Slow' : 'Fast'} Song</button>}
                       </div>
-                    ))}
-                  </div>
 
-                  {/* Submit */}
-                  <div className="lineup-submit-row">
-                    <button className="btn-secondary" onClick={resetLineupForm}><i className="fas fa-arrow-left"></i> Cancel</button>
-                    <button className="btn-primary btn-submit-lineup" onClick={submitLineup} disabled={lineupLoading}>
-                      {lineupLoading ? <><div className="spinner" style={{ display: 'inline-block', width: 18, height: 18, marginRight: 8 }}></div> Saving...</> : <><i className="fas fa-paper-plane"></i> {editingLineup ? 'Update Lineup' : 'Submit Lineup'}</>}
-                    </button>
-                  </div>
+                      <div className="lineup-backup-section">
+                        <label><i className="fas fa-users"></i> Assign Backupers</label>
+                        {backupSingerOptions.length === 0 && (
+                          <p style={{ color: '#aaa', fontSize: '0.85rem', margin: '6px 0' }}>
+                            <i className="fas fa-info-circle"></i> No Backupers found. Assign users with Ministry: Praise And Worship, Sub Role: Song Leader Backupers.
+                          </p>
+                        )}
+                        <div className="lineup-backup-list">
+                          {lineupForm.backupSingers.map((singer, i) => (
+                            <div key={i} className="lineup-backup-item">
+                              <select className="form-select" value={singer} onChange={(e) => handleBackupChange(i, e.target.value)}>
+                                <option value="">Select backuper</option>
+                                {backupSingerOptions.map((bo) => <option key={bo.id} value={bo.name}>{bo.name}</option>)}
+                              </select>
+                              {lineupForm.backupSingers.length > 1 && <button className="btn-remove-sm" onClick={() => removeBackupSinger(i)}><i className="fas fa-times"></i></button>}
+                            </div>
+                          ))}
+                        </div>
+                        {lineupForm.backupSingers.length < 5 && <button className="btn-add-subtle" onClick={addBackupSinger}><i className="fas fa-plus"></i> Add Backuper</button>}
+                      </div>
+
+                      {/* Submit (Admin) */}
+                      <div className="lineup-submit-row">
+                        <button className="btn-secondary" onClick={resetLineupForm}><i className="fas fa-arrow-left"></i> Cancel</button>
+                        <button className="btn-primary btn-submit-lineup" onClick={submitLineup} disabled={lineupLoading}>
+                          {lineupLoading ? <><div className="spinner" style={{ display: 'inline-block', width: 18, height: 18, marginRight: 8 }}></div> Saving...</> : <><i className="fas fa-user-check"></i> {editingLineup ? 'Update Assignment' : 'Assign Lineup'}</>}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* ===== SONG LEADER FORM: View assignment + add songs ===== */}
+                      {/* Assignment Info (read-only) */}
+                      <div className="lineup-assignment-info">
+                        <div className="lineup-assignment-row">
+                          <div className="lineup-assignment-item">
+                            <i className="fas fa-microphone" style={{ color: 'var(--primary)' }}></i>
+                            <div>
+                              <span className="lineup-assignment-label">Song Leader</span>
+                              <span className="lineup-assignment-value">{lineupForm.songLeader}</span>
+                            </div>
+                          </div>
+                          <div className="lineup-assignment-item">
+                            <i className="fas fa-users" style={{ color: 'var(--secondary)' }}></i>
+                            <div>
+                              <span className="lineup-assignment-label">Backupers</span>
+                              <span className="lineup-assignment-value">{lineupForm.backupSingers.filter(s => s).length > 0 ? lineupForm.backupSingers.filter(s => s).join(', ') : 'None assigned'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Practice Date */}
+                      <div className="lineup-details-row">
+                        <div className="lineup-detail-card" style={{ flex: '1 1 100%' }}>
+                          <label><i className="fas fa-calendar-alt"></i> Practice Date</label>
+                          <input type="date" className="form-control" value={lineupForm.practiceDate} onChange={(e) => handleLineupChange('practiceDate', e.target.value)} />
+                        </div>
+                      </div>
+
+                      {/* Two-Column Songs: Slow & Fast side by side */}
+                      <div className="lineup-songs-grid">
+                        {['slowSongs', 'fastSongs'].map((type) => (
+                          <div key={type} className="lineup-song-column">
+                            <div className={`lineup-song-column-header ${type}`}>
+                              <i className={`fas fa-${type === 'slowSongs' ? 'music' : 'bolt'}`}></i>
+                              <span>{type === 'slowSongs' ? 'Slow Songs' : 'Fast Songs'}</span>
+                              <span className="song-count-badge">{lineupForm[type].filter(s => s.title).length}</span>
+                            </div>
+                            <div className="lineup-song-list">
+                              {lineupForm[type].map((song, i) => {
+                                const scanKey = `${type}-${i}`;
+                                const scan = songScanResults[scanKey];
+                                return (
+                                <div key={i} className={`lineup-song-card${song.title ? ' has-title' : ''}${scan?.status === 'explicit' ? ' scan-explicit' : scan?.status === 'warning' ? ' scan-warning' : scan?.status === 'safe' ? ' scan-safe' : ''}`}>
+                                  <div className="lineup-song-card-header">
+                                    <span className="lineup-song-num">{type === 'slowSongs' ? '🎵' : '⚡'} Song {i + 1}</span>
+                                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                      {(song.title || song.link) && <button className="btn-scan-song" onClick={() => rescanSong(type, i)} title="Scan with AI"><i className="fas fa-shield-alt"></i></button>}
+                                      {lineupForm[type].length > 1 && <button className="btn-remove-sm" onClick={() => removeSong(type, i)}><i className="fas fa-trash-alt"></i></button>}
+                                    </div>
+                                  </div>
+
+                                  {/* AI Scan Result Badge */}
+                                  {scan && (
+                                    <div className={`song-scan-badge scan-${scan.status}`}>
+                                      <div className="song-scan-icon">
+                                        {scan.status === 'scanning' && <div className="scan-spinner"></div>}
+                                        {scan.status === 'safe' && <i className="fas fa-check-circle"></i>}
+                                        {scan.status === 'explicit' && <i className="fas fa-exclamation-triangle"></i>}
+                                        {scan.status === 'warning' && <i className="fas fa-exclamation-circle"></i>}
+                                        {scan.status === 'error' && <i className="fas fa-question-circle"></i>}
+                                      </div>
+                                      <div className="song-scan-text">
+                                        <span className="song-scan-label">{scan.message}</span>
+                                        {scan.details && <span className="song-scan-details">{scan.details}</span>}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <input className="form-control" placeholder="Song title *" value={song.title} onChange={(e) => handleSongChange(type, i, 'title', e.target.value)} />
+                                  <input className="form-control" placeholder="YouTube link (optional)" value={song.link} onChange={(e) => handleSongChange(type, i, 'link', e.target.value)} />
+                                  {song.link && extractYouTubeId(song.link) && <div className="youtube-preview"><iframe src={`https://www.youtube.com/embed/${extractYouTubeId(song.link)}`} allowFullScreen title={song.title}></iframe></div>}
+                                  <textarea className="form-control" placeholder="Lyrics (optional)" rows={2} value={song.lyrics} onChange={(e) => handleSongChange(type, i, 'lyrics', e.target.value)}></textarea>
+                                  <input className="form-control" placeholder="Instructions (optional)" value={song.instructions} onChange={(e) => handleSongChange(type, i, 'instructions', e.target.value)} />
+                                </div>
+                                );
+                              })}
+                            </div>
+                            {lineupForm[type].length < 5 && <button className="btn-add-song" onClick={() => addSong(type)}><i className="fas fa-plus-circle"></i> Add {type === 'slowSongs' ? 'Slow' : 'Fast'} Song</button>}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Submit (Song Leader) */}
+                      <div className="lineup-submit-row">
+                        <button className="btn-secondary" onClick={resetLineupForm}><i className="fas fa-arrow-left"></i> Cancel</button>
+                        <button className="btn-primary btn-submit-lineup" onClick={submitLineup} disabled={lineupLoading}>
+                          {lineupLoading ? <><div className="spinner" style={{ display: 'inline-block', width: 18, height: 18, marginRight: 8 }}></div> Saving...</> : <><i className="fas fa-paper-plane"></i> {editingLineup ? 'Update Songs' : 'Submit Songs'}</>}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </section>
           )}
 
-          {/* ========== MY LINEUPS (Song Leader) ========== */}
+          {/* ========== MY LINEUPS / ALL ASSIGNMENTS ========== */}
           {canManage(MODULES.CREATE_SONG_LIST) && (
             <section className={`content-section ${activeSection === 'my-lineups' ? 'active' : ''}`}>
-              <h2 className="section-title"><i className="fas fa-list"></i> My Lineups</h2>
+              <h2 className="section-title"><i className="fas fa-list"></i> {isAdmin ? 'All Assignments' : 'My Lineups'}</h2>
               {getMyLineups().length === 0 ? (
                 <div className="lineup-empty-state">
                   <i className="fas fa-music"></i>
-                  <h3>No Lineups Yet</h3>
-                  <p>You haven&apos;t created any lineups yet. Start by creating one!</p>
-                  <button className="btn-primary" onClick={() => { resetLineupForm(); setActiveSection('create-lineup'); }} style={{ marginTop: 15, padding: '12px 25px' }}><i className="fas fa-plus"></i> Create Lineup</button>
+                  <h3>{isAdmin ? 'No Assignments Yet' : 'No Lineups Yet'}</h3>
+                  <p>{isAdmin ? 'No Song Leaders have been assigned yet. Start by creating an assignment!' : 'You have no assigned dates yet. Your Admin will assign you.'}</p>
+                  {isAdmin && <button className="btn-primary" onClick={() => { resetLineupForm(); setActiveSection('create-lineup'); }} style={{ marginTop: 15, padding: '12px 25px' }}><i className="fas fa-plus"></i> Assign Lineup</button>}
                 </div>
               ) : (
                 <div className="my-lineups-grid">
-                  {getMyLineups().map((lineup) => (
+                  {getMyLineups().map((lineup) => {
+                    const hasSongs = (lineup.slowSongs?.length > 0 && lineup.slowSongs.some(s => s.title)) || (lineup.fastSongs?.length > 0 && lineup.fastSongs.some(s => s.title));
+                    return (
                     <div key={lineup.scheduleId} className="my-lineup-card">
                       <div className="my-lineup-card-header">
                         <div className="my-lineup-date-badge">
@@ -2621,32 +2822,47 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
                           <p><i className="fas fa-microphone"></i> {lineup.songLeader}</p>
                           {lineup.backupSingers?.length > 0 && <p className="backup-text"><i className="fas fa-users"></i> {lineup.backupSingers.join(', ')}</p>}
                           {lineup.practiceDate && <p className="practice-text"><i className="fas fa-calendar-alt"></i> Practice: {formatDate(lineup.practiceDate)}</p>}
+                          {isAdmin && lineup.submittedBy && (
+                            <p className="submitted-by-text"><i className="fas fa-user-edit"></i> Created by: {lineup.submittedBy}</p>
+                          )}
+                          {!isAdmin && !hasSongs && (
+                            <p style={{ color: 'var(--accent)', fontSize: '0.8rem', marginTop: 4 }}><i className="fas fa-exclamation-circle"></i> Songs not yet added</p>
+                          )}
                         </div>
                       </div>
-                      <div className="my-lineup-songs-row">
-                        <div className="my-lineup-song-group slow">
-                          <span className="song-group-label"><i className="fas fa-music"></i> Slow</span>
-                          {lineup.slowSongs?.length > 0 ? lineup.slowSongs.map((s, i) => <span key={i} className="song-pill">{s.title}</span>) : <span className="no-songs">None</span>}
-                        </div>
-                        <div className="my-lineup-song-group fast">
-                          <span className="song-group-label"><i className="fas fa-bolt"></i> Fast</span>
-                          {lineup.fastSongs?.length > 0 ? lineup.fastSongs.map((s, i) => <span key={i} className="song-pill">{s.title}</span>) : <span className="no-songs">None</span>}
-                        </div>
-                      </div>
-                      <div className="my-lineup-actions">
-                        <button className="btn-edit-lineup" onClick={() => startEditLineup(lineup)}><i className="fas fa-edit"></i> Edit</button>
-                        {deleteConfirmId === lineup.scheduleId ? (
-                          <div className="delete-confirm-inline">
-                            <span>Delete?</span>
-                            <button className="btn-confirm-yes" onClick={() => deleteLineup(lineup.scheduleId)}><i className="fas fa-check"></i> Yes</button>
-                            <button className="btn-confirm-no" onClick={() => setDeleteConfirmId(null)}><i className="fas fa-times"></i> No</button>
+                      {hasSongs && (
+                        <div className="my-lineup-songs-row">
+                          <div className="my-lineup-song-group slow">
+                            <span className="song-group-label"><i className="fas fa-music"></i> Slow</span>
+                            {lineup.slowSongs?.length > 0 && lineup.slowSongs.some(s => s.title) ? lineup.slowSongs.filter(s => s.title).map((s, i) => <span key={i} className="song-pill">{s.title}</span>) : <span className="no-songs">None</span>}
                           </div>
+                          <div className="my-lineup-song-group fast">
+                            <span className="song-group-label"><i className="fas fa-bolt"></i> Fast</span>
+                            {lineup.fastSongs?.length > 0 && lineup.fastSongs.some(s => s.title) ? lineup.fastSongs.filter(s => s.title).map((s, i) => <span key={i} className="song-pill">{s.title}</span>) : <span className="no-songs">None</span>}
+                          </div>
+                        </div>
+                      )}
+                      <div className="my-lineup-actions">
+                        {isAdmin ? (
+                          <>
+                            <button className="btn-edit-lineup" onClick={() => startEditLineup(lineup)}><i className="fas fa-edit"></i> Edit Assignment</button>
+                            {deleteConfirmId === lineup.scheduleId ? (
+                              <div className="delete-confirm-inline">
+                                <span>Delete?</span>
+                                <button className="btn-confirm-yes" onClick={() => deleteLineup(lineup.scheduleId)}><i className="fas fa-check"></i> Yes</button>
+                                <button className="btn-confirm-no" onClick={() => setDeleteConfirmId(null)}><i className="fas fa-times"></i> No</button>
+                              </div>
+                            ) : (
+                              <button className="btn-delete-lineup" onClick={() => setDeleteConfirmId(lineup.scheduleId)}><i className="fas fa-trash-alt"></i> Delete</button>
+                            )}
+                          </>
                         ) : (
-                          <button className="btn-delete-lineup" onClick={() => setDeleteConfirmId(lineup.scheduleId)}><i className="fas fa-trash-alt"></i> Delete</button>
+                          <button className="btn-edit-lineup" onClick={() => startEditLineup(lineup)}><i className="fas fa-edit"></i> {hasSongs ? 'Edit Songs' : 'Add Songs'}</button>
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>

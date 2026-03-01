@@ -37,7 +37,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { songLeader, backupSingers, scheduleDate, practiceDate, slowSongs, fastSongs, submittedBy } = body;
+    const { songLeader, backupSingers, scheduleDate, practiceDate, slowSongs, fastSongs, submittedBy, songLeaderId } = body;
 
     if (!songLeader || !scheduleDate) {
       return NextResponse.json({ success: false, message: 'Song leader and schedule date are required' }, { status: 400 });
@@ -74,6 +74,22 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'Error creating schedule: ' + error.message }, { status: 500 });
     }
 
+    // Send notification to the assigned Song Leader (if created by admin for someone else)
+    if (songLeaderId) {
+      try {
+        const dateFormatted = new Date(scheduleDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        await supabase.from('notifications').insert({
+          user_id: songLeaderId,
+          title: '🎵 You have been assigned as Song Leader!',
+          message: `You are assigned as Song Leader on ${dateFormatted}. ${backupSingers?.length ? `Backup singers: ${backupSingers.join(', ')}.` : ''} Please prepare your songs.`,
+          type: 'lineup',
+          link: '/dashboard?section=create-lineup',
+        });
+      } catch (notifErr) {
+        console.error('Failed to send notification:', notifErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Lineup created successfully!',
@@ -92,7 +108,7 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { scheduleId, songLeader, backupSingers, scheduleDate, practiceDate, slowSongs, fastSongs } = body;
+    const { scheduleId, songLeader, backupSingers, scheduleDate, practiceDate, slowSongs, fastSongs, songLeaderId, notifyLeader } = body;
 
     if (!scheduleId) {
       return NextResponse.json({ success: false, message: 'Schedule ID is required' }, { status: 400 });
@@ -112,6 +128,22 @@ export async function PUT(request) {
 
     if (error) {
       return NextResponse.json({ success: false, message: 'Error updating schedule: ' + error.message }, { status: 500 });
+    }
+
+    // Notify the song leader if reassigned
+    if (notifyLeader && songLeaderId) {
+      try {
+        const dateFormatted = new Date(scheduleDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        await supabase.from('notifications').insert({
+          user_id: songLeaderId,
+          title: '🎵 Lineup Updated — You are Song Leader!',
+          message: `Your lineup for ${dateFormatted} has been updated. ${backupSingers?.length ? `Backup singers: ${backupSingers.join(', ')}.` : ''} Please review your songs.`,
+          type: 'lineup',
+          link: '/dashboard?section=create-lineup',
+        });
+      } catch (notifErr) {
+        console.error('Failed to send notification:', notifErr);
+      }
     }
 
     return NextResponse.json({ success: true, message: 'Lineup updated successfully!' });
