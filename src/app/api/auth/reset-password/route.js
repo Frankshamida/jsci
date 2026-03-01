@@ -4,10 +4,10 @@ import bcrypt from 'bcryptjs';
 
 export async function POST(request) {
   try {
-    const { username, newPassword } = await request.json();
+    const { email, newPassword } = await request.json();
 
-    if (!username || !newPassword) {
-      return NextResponse.json({ success: false, message: 'Username and new password are required' }, { status: 400 });
+    if (!email || !newPassword) {
+      return NextResponse.json({ success: false, message: 'Email and new password are required' }, { status: 400 });
     }
 
     if (newPassword.length < 8) {
@@ -19,11 +19,14 @@ export async function POST(request) {
     const { error } = await supabase
       .from('users')
       .update({ password: hashedPassword })
-      .eq('username', username.trim());
+      .eq('email', email.trim().toLowerCase());
 
     if (error) {
       return NextResponse.json({ success: false, message: 'Error resetting password' }, { status: 500 });
     }
+
+    // Clean up OTP records
+    await supabase.from('password_resets').delete().eq('email', email.trim().toLowerCase());
 
     return NextResponse.json({ success: true, message: 'Password reset successfully!' });
   } catch (error) {

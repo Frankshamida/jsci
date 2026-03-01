@@ -5,6 +5,7 @@
 // ============================================
 
 export const ROLES = {
+  GUEST: 'Guest',
   MEMBER: 'Member',
   SONG_LEADER: 'Song Leader',
   LEADER: 'Leader',
@@ -138,6 +139,22 @@ export const MODULES = {
 
 // Role → Module access mapping (from Appendix R)
 export const ROLE_PERMISSIONS = {
+  [ROLES.GUEST]: [
+    // Public Access
+    MODULES.VIEW_HOMEPAGE, MODULES.VIEW_BIBLE_VERSE, MODULES.VIEW_PUBLIC_ANNOUNCEMENTS,
+    MODULES.VIEW_PUBLIC_EVENTS, MODULES.VIEW_PUBLIC_COMMUNITY, MODULES.LOGIN,
+    // Limited Dashboard
+    MODULES.VIEW_MINISTRY_DASHBOARD,
+    // Profile Management
+    MODULES.VIEW_PROFILE, MODULES.UPDATE_PROFILE, MODULES.CHANGE_PASSWORD,
+    // Events (view & RSVP)
+    MODULES.VIEW_EVENTS, MODULES.RSVP_EVENT,
+    // Community Hub
+    MODULES.VIEW_COMMUNITY_POSTS, MODULES.CREATE_POSTS, MODULES.LIKE_COMMENT_POSTS,
+    // Logout
+    MODULES.LOGOUT,
+  ],
+
   [ROLES.MEMBER]: [
     // Public Access
     MODULES.VIEW_HOMEPAGE, MODULES.VIEW_BIBLE_VERSE, MODULES.VIEW_PUBLIC_ANNOUNCEMENTS,
@@ -290,6 +307,7 @@ export function getDashboardType(role) {
     case ROLES.SUPER_ADMIN: return 'super-admin';
     case ROLES.ADMIN: return 'admin';
     case ROLES.PASTOR: return 'pastor';
+    case ROLES.GUEST: return 'guest';
     default: return 'ministry'; // Member, Song Leader, Leader
   }
 }
@@ -351,15 +369,26 @@ export function getSidebarMenu(role) {
     ];
   }
 
+  if (dashboardType === 'guest') {
+    return [
+      { id: 'home', icon: 'fas fa-home', label: 'Home', section: 'home' },
+      { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events' },
+      { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
+      { id: 'assistant', icon: 'fas fa-robot', label: 'Spiritual Assistant', section: 'spiritual-assistant' },
+      { id: 'profile', icon: 'fas fa-user', label: 'My Profile', section: 'my-profile' },
+    ];
+  }
+
   // Ministry dashboard (Member, Song Leader, Leader)
   const menu = [
     { id: 'home', icon: 'fas fa-home', label: 'Home', section: 'home' },
     { id: 'schedule', icon: 'fas fa-calendar-week', label: 'Weekly Schedule', section: 'weekly-schedule' },
   ];
 
-  // Song Leader gets Create Lineup
+  // Song Leader gets Create Lineup + My Lineups
   if (role === ROLES.SONG_LEADER) {
     menu.push({ id: 'lineup', icon: 'fas fa-music', label: 'Create Lineup', section: 'create-lineup' });
+    menu.push({ id: 'my-lineups', icon: 'fas fa-list-ol', label: 'My Lineups', section: 'my-lineups' });
   }
 
   // Song Leader & Leader get Ministry Meetings create

@@ -13,11 +13,12 @@ export default function SignupPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState({ level: '', text: '' });
   const [confirmError, setConfirmError] = useState('');
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const [form, setForm] = useState({
-    firstname: '', lastname: '', birthdate: '', ministry: '',
-    username: '', password: '', confirmPassword: '',
-    securityQuestion: '', securityAnswer: '', terms: false,
+    firstname: '', lastname: '', birthdate: '',
+    email: '', password: '', confirmPassword: '',
+    terms: false,
   });
 
   useEffect(() => {
@@ -54,8 +55,12 @@ export default function SignupPage() {
   };
 
   const validateForm = () => {
-    if (!form.firstname || !form.lastname || !form.username || !form.password || !form.securityQuestion || !form.securityAnswer) {
+    if (!form.firstname || !form.lastname || !form.email || !form.password) {
       setAlert({ message: 'Please fill all required fields', type: 'danger' });
+      return false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      setAlert({ message: 'Please enter a valid email address', type: 'danger' });
       return false;
     }
     if (form.password.length < 8) {
@@ -82,6 +87,33 @@ export default function SignupPage() {
       }
     }
     return true;
+  };
+
+  const handleGoogleSignup = async () => {
+    if (!form.terms) {
+      setAlert({ message: 'You must agree to the terms and conditions before signing up with Google', type: 'danger' });
+      return;
+    }
+    setGoogleLoading(true);
+    setAlert({ message: '', type: '' });
+    try {
+      const response = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'signup' }),
+      });
+      const result = await response.json();
+      if (result.success && result.url) {
+        window.location.href = result.url;
+      } else {
+        setAlert({ message: result.message || 'Failed to initiate Google sign-up', type: 'danger' });
+        setGoogleLoading(false);
+      }
+    } catch (error) {
+      console.error('Google signup error:', error);
+      setAlert({ message: 'An error occurred. Please try again.', type: 'danger' });
+      setGoogleLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -159,24 +191,10 @@ export default function SignupPage() {
               </div>
 
               <div className="form-group">
-                <label>Ministry <span className="required">*</span></label>
+                <label>Email Address <span className="required">*</span></label>
                 <div className="input-wrapper">
-                  <span className="input-icon"><i className="fa-solid fa-hands-praying"></i></span>
-                  <select name="ministry" className="form-select" required value={form.ministry} onChange={handleChange}>
-                    <option value="">Select your ministry</option>
-                    <option value="Media">Media</option>
-                    <option value="Praise And Worship">Praise And Worship</option>
-                    <option value="Dancers">Dancers</option>
-                    <option value="Ashers">Ashers</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Username <span className="required">*</span></label>
-                <div className="input-wrapper">
-                  <span className="input-icon"><i className="fa-solid fa-user"></i></span>
-                  <input type="text" name="username" className="form-control" placeholder="johndoe123" required value={form.username} onChange={handleChange} />
+                  <span className="input-icon"><i className="fa-solid fa-envelope"></i></span>
+                  <input type="email" name="email" className="form-control" placeholder="john@example.com" required value={form.email} onChange={handleChange} />
                 </div>
               </div>
 
@@ -213,30 +231,6 @@ export default function SignupPage() {
                 {confirmError && <div className="error-text" style={{ display: 'block' }}>{confirmError}</div>}
               </div>
 
-              <div className="form-group">
-                <label>Security Question <span className="required">*</span></label>
-                <div className="input-wrapper">
-                  <span className="input-icon"><i className="fa-solid fa-shield"></i></span>
-                  <select name="securityQuestion" className="form-select" required value={form.securityQuestion} onChange={handleChange}>
-                    <option value="">Select a security question</option>
-                    <option value="What was your childhood nickname?">What was your childhood nickname?</option>
-                    <option value="What city were you born in?">What city were you born in?</option>
-                    <option value="What is your mother's maiden name?">What is your mother&apos;s maiden name?</option>
-                    <option value="What was the name of your first pet?">What was the name of your first pet?</option>
-                    <option value="What elementary school did you attend?">What elementary school did you attend?</option>
-                    <option value="What is your favorite Bible verse?">What is your favorite Bible verse?</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Security Answer <span className="required">*</span></label>
-                <div className="input-wrapper">
-                  <span className="input-icon"><i className="fa-solid fa-key"></i></span>
-                  <input type="text" name="securityAnswer" className="form-control" placeholder="Your answer" required value={form.securityAnswer} onChange={handleChange} />
-                </div>
-              </div>
-
               <div className="form-group full-width">
                 <div className="checkbox-group">
                   <input type="checkbox" id="terms" name="terms" required checked={form.terms} onChange={handleChange} />
@@ -248,6 +242,26 @@ export default function SignupPage() {
                 {loading ? <div className="spinner" style={{ display: 'block' }}></div> : <span>Create Account</span>}
               </button>
             </form>
+
+            <div className="divider">
+              <span>or</span>
+            </div>
+
+            <button className="btn-google" onClick={handleGoogleSignup} disabled={googleLoading}>
+              {googleLoading ? (
+                <div className="spinner" style={{ display: 'block' }}></div>
+              ) : (
+                <>
+                  <svg className="google-icon" viewBox="0 0 24 24" width="20" height="20">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                  </svg>
+                  <span>Sign up with Google</span>
+                </>
+              )}
+            </button>
 
             <div className="signup-footer">
               <p>Already have an account? <a href="/login">Login</a></p>

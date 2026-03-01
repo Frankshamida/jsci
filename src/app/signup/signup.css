@@ -211,6 +211,65 @@
 
 .signup-footer a:hover { color: var(--secondary); }
 
+/* Divider */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0;
+  gap: 12px;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #d0d0d0;
+}
+
+.divider span {
+  color: #999;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Google Button */
+.btn-google {
+  width: 100%;
+  padding: 12px 16px;
+  background: white;
+  color: #3c4043;
+  border: 1.5px solid #dadce0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  font-family: 'Poppins', sans-serif;
+}
+
+.btn-google:hover {
+  background: #f8f9fa;
+  border-color: #c0c0c0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.btn-google:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-google .google-icon {
+  flex-shrink: 0;
+}
+
 /* Dark Mode */
 body.dark-mode .signup-page {
   background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
@@ -234,6 +293,26 @@ body.dark-mode .form-select {
 body.dark-mode .signup-footer { border-top-color: #404040; }
 body.dark-mode .signup-footer p { color: #b0b0b0; }
 body.dark-mode .signup-footer a { color: var(--accent); }
+
+body.dark-mode .divider::before,
+body.dark-mode .divider::after {
+  background: #404040;
+}
+
+body.dark-mode .divider span {
+  color: #888;
+}
+
+body.dark-mode .btn-google {
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border-color: #404040;
+}
+
+body.dark-mode .btn-google:hover {
+  background: #333;
+  border-color: #555;
+}
 
 @media (max-width: 768px) {
   .signup-container { max-width: 450px; }

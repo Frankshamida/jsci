@@ -3,10 +3,10 @@ import { supabase } from '@/lib/supabase';
 
 export async function POST(request) {
   try {
-    const { username, firstname, lastname } = await request.json();
+    const { email, firstname, lastname } = await request.json();
 
-    if (!username) {
-      return NextResponse.json({ success: false, message: 'Username is required' }, { status: 400 });
+    if (!email) {
+      return NextResponse.json({ success: false, message: 'Email is required' }, { status: 400 });
     }
 
     const updateData = {};
@@ -16,7 +16,7 @@ export async function POST(request) {
     const { data, error } = await supabase
       .from('users')
       .update(updateData)
-      .eq('username', username.trim())
+      .eq('email', email.trim().toLowerCase())
       .select()
       .single();
 

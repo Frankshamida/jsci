@@ -11,8 +11,11 @@ export async function GET(request) {
     const status = searchParams.get('status');
 
     let query = supabase.from('users')
-      .select('id, member_id, firstname, lastname, username, birthdate, ministry, role, status, is_active, last_login, created_at')
+      .select('id, member_id, firstname, lastname, email, birthdate, ministry, sub_role, role, status, is_active, last_login, created_at')
       .order('created_at', { ascending: false });
+
+    const subRole = searchParams.get('sub_role');
+    if (subRole) query = query.eq('sub_role', subRole);
 
     if (role) query = query.eq('role', role);
     if (ministry) query = query.eq('ministry', ministry);
@@ -30,28 +33,26 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { firstname, lastname, username, password, ministry, role, securityQuestion, securityAnswer } = body;
+    const { firstname, lastname, email, password, ministry, sub_role, role } = body;
 
-    if (!firstname || !lastname || !username || !password) {
+    if (!firstname || !lastname || !email || !password) {
       return NextResponse.json({ success: false, message: 'Required fields missing' }, { status: 400 });
     }
 
-    const { data: existing } = await supabase.from('users').select('id').eq('username', username.trim()).single();
+    const { data: existing } = await supabase.from('users').select('id').eq('email', email.trim().toLowerCase()).single();
     if (existing) {
-      return NextResponse.json({ success: false, message: 'Username already exists' }, { status: 409 });
+      return NextResponse.json({ success: false, message: 'Email already exists' }, { status: 409 });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
-    const hashedAnswer = securityAnswer ? await bcrypt.hash(securityAnswer.trim().toLowerCase(), 12) : await bcrypt.hash('default', 12);
 
     const { data, error } = await supabase.from('users').insert({
       firstname: firstname.trim(), lastname: lastname.trim(),
-      username: username.trim(), password: hashedPassword,
-      ministry: ministry || 'Media', role: role || 'Member',
-      security_question: securityQuestion || 'Default question',
-      security_answer: hashedAnswer,
+      email: email.trim().toLowerCase(), password: hashedPassword,
+      ministry: ministry || null, sub_role: sub_role || null, role: role || 'Guest',
+      security_question: 'Set by admin', security_answer: 'admin',
       status: 'Verified', is_active: true,
-    }).select('id, member_id, firstname, lastname, username, ministry, role, status, is_active, created_at').single();
+    }).select('id, member_id, firstname, lastname, email, ministry, sub_role, role, status, is_active, created_at').single();
 
     if (error) throw error;
     return NextResponse.json({ success: true, data, message: 'User created successfully' });
@@ -105,12 +106,13 @@ export async function PUT(request) {
     const updateData = {};
     if (updates.firstname) updateData.firstname = updates.firstname;
     if (updates.lastname) updateData.lastname = updates.lastname;
-    if (updates.ministry) updateData.ministry = updates.ministry;
+    if (updates.ministry !== undefined) updateData.ministry = updates.ministry || null;
+    if (updates.sub_role !== undefined) updateData.sub_role = updates.sub_role || null;
     if (updates.role) updateData.role = updates.role;
     if (updates.status) updateData.status = updates.status;
 
     const { data, error } = await supabase.from('users').update(updateData).eq('id', id)
-      .select('id, member_id, firstname, lastname, username, ministry, role, status, is_active').single();
+      .select('id, member_id, firstname, lastname, email, ministry, sub_role, role, status, is_active').single();
     if (error) throw error;
 
     return NextResponse.json({ success: true, data, message: 'User updated' });

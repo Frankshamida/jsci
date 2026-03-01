@@ -63,7 +63,7 @@ export default function HomePage() {
   // ---- Check logged in ----
   useEffect(() => {
     const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
-    if (userData && userData.firstname && userData.username) {
+    if (userData && userData.firstname && userData.email) {
       router.replace('/dashboard');
       return;
     }

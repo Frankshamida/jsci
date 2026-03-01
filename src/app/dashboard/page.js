@@ -11,10 +11,137 @@ import './dashboard.css';
 const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-const SONG_LEADERS = ['Psalm Gambe', 'Geneveve España', 'Cathy Martinez', 'Tiffany Dañal'];
-const BACKUP_OPTIONS = ['Psalm Gambe', 'Cathy Martinez', 'Tiffany Dañal', 'Geneveve España', 'Merianne Gomez', 'Ezra Gomez', 'Julie Hato', 'Jewel Gomez', 'Abby Danessa', 'Myka Dañal'];
-const ALL_ROLES = ['Member', 'Song Leader', 'Leader', 'Pastor', 'Admin', 'Super Admin'];
-const ALL_MINISTRIES = ['Media', 'Praise And Worship', 'Dancers', 'Ashers'];
+const ALL_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor', 'Admin', 'Super Admin'];
+const ALL_MINISTRIES = ['Praise And Worship', 'Media', 'Dancers', 'Ashers', 'Pastors', 'Teachers'];
+
+// Ministry → Sub-Role mapping (Admin picks ministry, then sub-role dropdown shows these)
+const MINISTRY_SUB_ROLES = {
+  'Praise And Worship': ['Singers', 'Instrumentalists', 'Dancers'],
+  'Media': ['Lyrics', 'Multimedia'],
+  'Dancers': ['Choreographer', 'Dancer'],
+  'Ashers': ['Head Usher', 'Usher'],
+  'Pastors': ['Senior Pastor', 'Associate Pastor', 'Youth Pastor'],
+  'Teachers': ['Sunday School', 'Bible Study', 'ISOM'],
+};
+
+// Bible version options
+const BIBLE_VERSIONS = [
+  { value: 'NIV', label: 'NIV', fullName: 'New International Version' },
+  { value: 'NKJV', label: 'NKJV', fullName: 'New King James Version' },
+  { value: 'AMP', label: 'AMP', fullName: 'Amplified Bible' },
+  { value: 'CEV', label: 'CEV', fullName: 'Contemporary English Version' },
+  { value: 'CEBUANO', label: 'Cebuano', fullName: 'Cebuano (Ang Biblia)' },
+  { value: 'TAGALOG', label: 'Tagalog', fullName: 'Tagalog (Ang Bibliya)' },
+];
+
+// Bible book -> chapter count mapping
+const BIBLE_BOOKS = {
+  'Genesis':50,'Exodus':40,'Leviticus':27,'Numbers':36,'Deuteronomy':34,'Joshua':24,'Judges':21,'Ruth':4,
+  '1 Samuel':31,'2 Samuel':24,'1 Kings':22,'2 Kings':25,'1 Chronicles':29,'2 Chronicles':36,'Ezra':10,
+  'Nehemiah':13,'Esther':10,'Job':42,'Psalms':150,'Proverbs':31,'Ecclesiastes':12,'Song of Solomon':8,
+  'Isaiah':66,'Jeremiah':52,'Lamentations':5,'Ezekiel':48,'Daniel':12,'Hosea':14,'Joel':3,'Amos':9,
+  'Obadiah':1,'Jonah':4,'Micah':7,'Nahum':3,'Habakkuk':3,'Zephaniah':3,'Haggai':2,'Zechariah':14,'Malachi':4,
+  'Matthew':28,'Mark':16,'Luke':24,'John':21,'Acts':28,'Romans':16,'1 Corinthians':16,'2 Corinthians':13,
+  'Galatians':6,'Ephesians':6,'Philippians':4,'Colossians':4,'1 Thessalonians':5,'2 Thessalonians':3,
+  '1 Timothy':6,'2 Timothy':4,'Titus':3,'Philemon':1,'Hebrews':13,'James':5,'1 Peter':5,'2 Peter':3,
+  '1 John':5,'2 John':1,'3 John':1,'Jude':1,'Revelation':22,
+};
+
+// Verse count per chapter for each book (accurate per KJV canon)
+const VERSES_PER_CHAPTER = {
+  'Genesis':[31,25,24,26,32,22,24,22,29,32,32,20,18,24,21,16,27,33,38,18,34,24,20,67,34,35,46,22,35,43,55,32,20,31,29,43,36,30,23,23,57,38,34,34,28,34,31,22,33,26],
+  'Exodus':[22,25,22,31,23,30,25,32,35,29,10,51,22,31,27,36,16,27,25,26,36,31,33,18,40,37,21,43,46,38,18,35,23,35,35,38,29,31,43,38],
+  'Leviticus':[17,16,17,35,19,30,38,36,24,20,47,8,59,57,33,34,16,30,37,27,24,33,44,23,55,46,34],
+  'Numbers':[54,34,51,49,31,27,89,26,23,36,35,16,33,45,41,50,13,32,22,29,35,41,30,25,18,65,23,31,40,16,54,42,56,29,34,13],
+  'Deuteronomy':[46,37,29,49,33,25,26,20,29,22,32,32,18,29,23,22,20,22,21,20,23,30,25,22,19,19,26,68,29,20,30,52,29,12],
+  'Joshua':[18,24,17,24,15,27,26,35,27,43,23,24,33,15,63,10,18,28,51,9,45,34,16,33],
+  'Judges':[36,23,31,24,31,40,25,35,57,18,40,15,25,20,20,31,13,31,30,48,25],
+  'Ruth':[22,23,18,22],
+  '1 Samuel':[28,36,21,22,12,21,17,22,27,27,15,25,23,52,35,23,58,30,24,43,15,23,28,18,34,40,44,13,22],
+  '2 Samuel':[27,32,39,12,25,23,29,18,13,19,27,31,39,33,37,23,29,33,43,26,22,51,39,25],
+  '1 Kings':[53,46,28,34,18,38,51,66,28,29,43,33,34,31,34,34,24,46,21,43,29,53],
+  '2 Kings':[18,25,27,44,27,33,20,29,37,36,21,21,25,29,38,20,41,37,37,21,26,20,37,20,30],
+  '1 Chronicles':[54,55,24,43,26,81,40,40,44,14,47,40,14,17,29,43,27,17,19,8,30,19,32,31,31,32,34,21,30],
+  '2 Chronicles':[17,18,17,22,14,42,22,18,31,19,23,16,22,15,19,14,19,34,11,37,20,12,21,27,28,23,9,27,36,27,21,33,25,33,27,23],
+  'Ezra':[11,70,13,24,17,22,28,36,15,44],
+  'Nehemiah':[11,20,32,23,19,19,73,18,38,39,36,47,31],
+  'Esther':[22,23,15,17,14,14,10,17,32,3],
+  'Job':[22,13,26,21,27,30,21,22,35,22,20,25,28,22,35,22,16,21,29,29,34,30,17,25,6,14,23,28,25,31,40,22,33,37,16,33,24,41,30,24,34,17],
+  'Psalms':[6,12,8,8,12,10,17,9,20,18,7,8,6,7,5,11,15,50,14,9,13,31,6,10,22,12,14,9,11,12,24,11,22,22,28,12,40,22,13,17,13,11,5,26,17,11,9,14,20,23,19,9,6,7,23,13,11,11,17,12,8,12,11,10,13,20,7,35,36,5,24,20,28,23,10,12,20,72,13,19,16,8,18,12,13,17,7,18,52,17,16,15,5,23,11,13,12,9,9,5,8,28,22,35,45,48,43,13,31,7,10,10,9,8,18,19,2,29,176,7,8,9,4,8,5,6,5,6,8,8,3,18,3,3,21,26,9,8,24,13,10,7,12,15,21,10,20,14,9,6],
+  'Proverbs':[33,22,35,27,23,35,27,36,18,32,31,28,25,35,33,33,28,24,29,30,31],
+  'Ecclesiastes':[18,26,22,16,20,12,29,17,18,20,10,14],
+  'Song of Solomon':[17,17,11,16,16,13,13,14],
+  'Isaiah':[31,22,26,6,30,13,25,22,21,34,16,6,22,32,9,14,14,7,25,6,17,25,18,23,12,21,13,29,24,33,9,20,24,17,10,22,38,22,8,31,29,25,28,28,25,13,15,22,26,11,23,15,12,17,13,12,21,14,21,22,11,12,19,12,25,24],
+  'Jeremiah':[19,37,25,31,31,30,34,22,26,25,23,17,27,22,21,21,27,23,15,18,14,30,40,10,38,24,22,17,32,24,40,44,26,22,19,32,21,28,18,16,18,22,13,30,5,28,7,47,39,46,64,34],
+  'Lamentations':[22,22,66,22,22],
+  'Ezekiel':[28,10,27,17,17,14,27,18,11,22,25,28,23,23,8,63,24,32,14,49,32,31,49,27,17,21,36,26,21,26,18,32,33,31,15,38,28,23,29,49,26,20,27,31,25,24,23,35],
+  'Daniel':[21,49,30,37,31,28,28,27,27,21,45,13],
+  'Hosea':[11,23,5,19,15,11,16,14,17,15,12,14,16,9],
+  'Joel':[20,32,21],
+  'Amos':[15,16,15,13,27,14,17,14,15],
+  'Obadiah':[21],
+  'Jonah':[17,10,10,11],
+  'Micah':[16,13,12,13,15,16,20],
+  'Nahum':[15,13,19],
+  'Habakkuk':[17,20,19],
+  'Zephaniah':[18,15,20],
+  'Haggai':[15,23],
+  'Zechariah':[21,13,10,14,11,15,14,23,17,12,17,14,9,21],
+  'Malachi':[14,17,18,6],
+  'Matthew':[25,23,17,25,48,34,29,34,38,42,30,50,58,36,39,28,27,35,30,34,46,46,39,51,46,75,66,20],
+  'Mark':[45,28,35,41,43,56,37,38,50,52,33,44,37,72,47,20],
+  'Luke':[80,52,38,44,39,49,50,56,62,42,54,59,35,35,32,31,37,43,48,47,38,71,56,53],
+  'John':[51,25,36,54,47,71,53,59,41,42,57,50,38,31,27,33,26,40,42,31,25],
+  'Acts':[26,47,26,37,42,15,60,40,43,48,30,25,52,28,41,40,34,28,41,38,40,30,35,27,27,32,44,31],
+  'Romans':[32,29,31,25,21,23,25,39,33,21,36,21,14,23,33,27],
+  '1 Corinthians':[31,16,23,21,13,20,40,13,27,33,34,31,13,40,58,10],
+  '2 Corinthians':[24,17,18,18,21,18,16,24,15,18,33,21,14],
+  'Galatians':[24,21,29,31,26,18],
+  'Ephesians':[23,22,21,32,33,24],
+  'Philippians':[30,30,21,23],
+  'Colossians':[29,23,25,18],
+  '1 Thessalonians':[10,20,13,18,28],
+  '2 Thessalonians':[12,17,18],
+  '1 Timothy':[20,15,16,16,25,21],
+  '2 Timothy':[18,26,17,22],
+  'Titus':[16,15,15],
+  'Philemon':[25],
+  'Hebrews':[14,18,19,16,14,20,28,13,28,39,40,29,25],
+  'James':[27,26,18,17,20],
+  '1 Peter':[25,25,22,19,14],
+  '2 Peter':[21,22,18],
+  '1 John':[10,29,24,21,21],
+  '2 John':[13],
+  '3 John':[14],
+  'Jude':[25],
+  'Revelation':[20,29,22,11,14,17,17,13,21,11,19,17,18,20,8,21,18,24,21,15,27,21],
+};
+
+// Simple markdown renderer for Bible answers
+function renderMarkdown(text) {
+  if (!text) return null;
+  const lines = text.split('\n');
+  const elements = [];
+  let key = 0;
+  for (let line of lines) {
+    // Bold: **text**
+    let processed = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Italic: *text*
+    processed = processed.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+    if (line.startsWith('### ')) {
+      elements.push(<h4 key={key++} className="bible-ans-heading" dangerouslySetInnerHTML={{ __html: processed.slice(4) }} />);
+    } else if (line.startsWith('## ')) {
+      elements.push(<h3 key={key++} className="bible-ans-heading" dangerouslySetInnerHTML={{ __html: processed.slice(3) }} />);
+    } else if (/^\d+\.\s/.test(line)) {
+      elements.push(<div key={key++} className="bible-ans-list-item" dangerouslySetInnerHTML={{ __html: processed }} />);
+    } else if (line.trim() === '') {
+      elements.push(<div key={key++} style={{ height: 8 }} />);
+    } else {
+      elements.push(<p key={key++} className="bible-ans-para" dangerouslySetInnerHTML={{ __html: processed }} />);
+    }
+  }
+  return elements;
+}
 
 const PASTORS = [
   { name: 'Dr. Weldon Pior', title: 'Senior Pastor', photo: '/assets/dr-weldon-pior.png' },
@@ -43,7 +170,7 @@ export default function DashboardPage() {
 
   // Core state
   const [userData, setUserData] = useState(null);
-  const [userRole, setUserRole] = useState('Member');
+  const [userRole, setUserRole] = useState('Guest');
   const [activeSection, setActiveSection] = useState('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -52,7 +179,7 @@ export default function DashboardPage() {
 
   // Bible verse
   const [dailyVerse, setDailyVerse] = useState({ verse: 'Loading verse of the day...', reference: 'Loading...', explanation: '' });
-  const [bibleVersion, setBibleVersion] = useState('niv');
+  const [bibleVersion, setBibleVersion] = useState('NIV');
 
   // Schedules
   const [scheduleData, setScheduleData] = useState([]);
@@ -66,19 +193,43 @@ export default function DashboardPage() {
     fastSongs: [{ title: '', link: '', lyrics: '', instructions: '' }],
   });
   const [lineupLoading, setLineupLoading] = useState(false);
+  const [lineupView, setLineupView] = useState('calendar'); // 'calendar' | 'form' | 'success'
+  const [lineupSelectedDate, setLineupSelectedDate] = useState(null);
+  const [lineupCalendarMonth, setLineupCalendarMonth] = useState(new Date());
+
+  // AI Song Scanner
+  // Key format: "slowSongs-0", "fastSongs-1", etc.
+  // Value: { status: 'scanning'|'safe'|'explicit'|'warning'|'error', message: string, details: string }
+  const [songScanResults, setSongScanResults] = useState({});
+  const songScanTimers = useRef({});
+
+  // My Lineups
+  const [myLineups, setMyLineups] = useState([]);
+  const [editingLineup, setEditingLineup] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
+  // Backup Singers (fetched from DB)
+  const [backupSingerOptions, setBackupSingerOptions] = useState([]);
 
   // Profile
   const [profileTab, setProfileTab] = useState('personal');
   const [profileForm, setProfileForm] = useState({ firstname: '', lastname: '' });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [setPasswordFormData, setSetPasswordFormData] = useState({ newPassword: '', confirmPassword: '' });
+  const [hasLocalPassword, setHasLocalPassword] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
 
   // Bible Reader
   const [bibleBook, setBibleBook] = useState('Genesis');
   const [bibleChapter, setBibleChapter] = useState(1);
+  const [bibleVerse, setBibleVerse] = useState('');
   const [bibleText, setBibleText] = useState('');
   const [bibleQuestion, setBibleQuestion] = useState('');
   const [bibleAnswer, setBibleAnswer] = useState('');
+  const [highlightPopup, setHighlightPopup] = useState({ visible: false, x: 0, y: 0, text: '' });
+  const [directScripture, setDirectScripture] = useState('');
+  const [answerCopied, setAnswerCopied] = useState(false);
+  const bibleTextRef = useRef(null);
 
   // Daily Quote
   const [dailyQuote, setDailyQuote] = useState({ quote: 'Loading...', author: '' });
@@ -87,6 +238,7 @@ export default function DashboardPage() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatMemoryLoaded, setChatMemoryLoaded] = useState(false);
   const chatEndRef = useRef(null);
 
   // Birthdays
@@ -137,8 +289,9 @@ export default function DashboardPage() {
   // Admin: Users Management
   const [adminUsers, setAdminUsers] = useState([]);
   const [showUserForm, setShowUserForm] = useState(false);
-  const [userForm, setUserForm] = useState({ firstname: '', lastname: '', username: '', password: '', ministry: 'Media', role: 'Member' });
+  const [userForm, setUserForm] = useState({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' });
   const [editingUser, setEditingUser] = useState(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Admin: Ministry Management
   const [ministriesList, setMinistriesList] = useState([]);
@@ -167,13 +320,31 @@ export default function DashboardPage() {
       return;
     }
     setUserData(stored);
-    setUserRole(stored.role || 'Member');
+    setUserRole(stored.role || 'Guest');
     setIsVerified(stored.status === 'Verified');
     setProfileForm({ firstname: stored.firstname, lastname: stored.lastname });
+    setHasLocalPassword(stored.hasPassword !== false);
 
     const savedDark = localStorage.getItem('darkModeEnabled') === 'true';
     setDarkMode(savedDark);
     if (savedDark) document.body.classList.add('dark-mode');
+
+    // Load saved Bible version preference
+    const savedVersion = localStorage.getItem('bibleVersionPref');
+    if (savedVersion) setBibleVersion(savedVersion);
+
+    // Load chat memory for this user
+    try {
+      const chatKey = `chatMemory_${stored.email || stored.id}`;
+      const savedChat = localStorage.getItem(chatKey);
+      if (savedChat) {
+        const parsed = JSON.parse(savedChat);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setChatMessages(parsed);
+        }
+      }
+    } catch { /* silent */ }
+    setChatMemoryLoaded(true);
 
     fetchDailyVerse(stored.ministry);
     loadScheduleData();
@@ -182,6 +353,17 @@ export default function DashboardPage() {
   }, [router]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
+
+  // Persist chat memory to localStorage
+  useEffect(() => {
+    if (!chatMemoryLoaded || !userData?.email) return;
+    const chatKey = `chatMemory_${userData.email || userData.id}`;
+    if (chatMessages.length > 0) {
+      // Keep last 50 messages to avoid localStorage overflow
+      const toSave = chatMessages.slice(-50);
+      localStorage.setItem(chatKey, JSON.stringify(toSave));
+    }
+  }, [chatMessages, chatMemoryLoaded, userData]);
 
   // ============================================
   // TOAST
@@ -205,7 +387,8 @@ export default function DashboardPage() {
   // NAVIGATION
   // ============================================
   const showSection = (sectionId) => {
-    if (!isVerified && sectionId !== 'home') {
+    const isGuestRole = userRole === 'Guest';
+    if (!isVerified && !isGuestRole && sectionId !== 'home') {
       showToast('🔒 Please wait for account verification to access this feature', 'warning');
       return;
     }
@@ -227,7 +410,7 @@ export default function DashboardPage() {
     if (sectionId === 'audit-logs') loadAuditLogs();
     if (sectionId === 'system-config') loadSystemSettings();
     if (sectionId === 'spiritual-assistant' && chatMessages.length === 0) {
-      setChatMessages([{ role: 'assistant', content: `Hello ${userData?.firstname || 'friend'}! 🙏 I'm your spiritual assistant. How can I help you today?` }]);
+      setChatMessages([{ role: 'assistant', content: `Hello ${userData?.firstname || 'friend'}! 🙏 I'm your Spiritual AI Assistant. How can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
     }
   };
 
@@ -510,9 +693,25 @@ export default function DashboardPage() {
   // -- Admin: User Management --
   const handleCreateUser = async () => {
     try {
-      const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...userForm, securityQuestion: 'Set by admin', securityAnswer: 'admin' }) });
+      const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userForm) });
       const data = await res.json();
-      if (data.success) { showToast(data.message, 'success'); setShowUserForm(false); setUserForm({ firstname: '', lastname: '', username: '', password: '', ministry: 'Media', role: 'Member' }); loadAdminUsers(); }
+      if (data.success) { showToast(data.message, 'success'); setShowUserForm(false); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); loadAdminUsers(); }
+      else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const handleEditUser = (user) => {
+    setEditingUser(user);
+    setUserForm({ firstname: user.firstname, lastname: user.lastname, email: user.email, password: '', ministry: user.ministry || '', sub_role: user.sub_role || '', role: user.role || 'Guest' });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateUser = async () => {
+    try {
+      const updates = { id: editingUser.id, firstname: userForm.firstname, lastname: userForm.lastname, ministry: userForm.ministry, sub_role: userForm.sub_role, role: userForm.role };
+      const res = await fetch('/api/admin/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
+      const data = await res.json();
+      if (data.success) { showToast('User updated successfully!', 'success'); setShowEditModal(false); setEditingUser(null); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); loadAdminUsers(); }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
   };
@@ -540,43 +739,275 @@ export default function DashboardPage() {
   };
 
   // ============================================
-  // LINEUP HANDLERS (from original)
+  // LINEUP HANDLERS
   // ============================================
+  const loadBackupSingers = async () => {
+    try {
+      const res = await fetch('/api/lineup/singers');
+      const data = await res.json();
+      if (data.success) setBackupSingerOptions(data.data || []);
+    } catch (e) { console.error('Failed to load backup singers:', e); }
+  };
+
   const handleLineupChange = (field, value) => setLineupForm((prev) => ({ ...prev, [field]: value }));
   const handleBackupChange = (i, v) => { const b = [...lineupForm.backupSingers]; b[i] = v; setLineupForm((p) => ({ ...p, backupSingers: b })); };
   const addBackupSinger = () => setLineupForm((p) => ({ ...p, backupSingers: [...p.backupSingers, ''] }));
-  const handleSongChange = (type, i, field, value) => { const s = [...lineupForm[type]]; s[i] = { ...s[i], [field]: value }; setLineupForm((p) => ({ ...p, [type]: s })); };
+  const removeBackupSinger = (i) => setLineupForm((p) => ({ ...p, backupSingers: p.backupSingers.filter((_, idx) => idx !== i) }));
   const addSong = (type) => setLineupForm((p) => ({ ...p, [type]: [...p[type], { title: '', link: '', lyrics: '', instructions: '' }] }));
-  const removeSong = (type, i) => setLineupForm((p) => ({ ...p, [type]: p[type].filter((_, idx) => idx !== i) }));
+  const removeSong = (type, i) => {
+    setLineupForm((p) => ({ ...p, [type]: p[type].filter((_, idx) => idx !== i) }));
+    setSongScanResults((prev) => { const n = { ...prev }; delete n[`${type}-${i}`]; return n; });
+  };
+
+  // AI Song Content Scanner
+  const scanSongContent = async (type, index, title, link) => {
+    const key = `${type}-${index}`;
+    if (!title && !link) {
+      setSongScanResults((prev) => { const n = { ...prev }; delete n[key]; return n; });
+      return;
+    }
+    if (!title && !link) return; // Need at least a title or link to scan
+
+    setSongScanResults((prev) => ({ ...prev, [key]: { status: 'scanning', message: 'AI is scanning this song...', details: '' } }));
+
+    try {
+      // Step 1: If YouTube link is provided, fetch the actual video title & channel
+      let videoTitle = '';
+      let videoChannel = '';
+      if (link) {
+        try {
+          const ytId = link.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+          if (ytId) {
+            const oembedRes = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${ytId[1]}`);
+            const oembedData = await oembedRes.json();
+            if (oembedData.title) videoTitle = oembedData.title;
+            if (oembedData.author_name) videoChannel = oembedData.author_name;
+          }
+        } catch { /* could not fetch video info, continue with title only */ }
+      }
+
+      // Step 2: Build detailed context for AI
+      let songContext = '';
+      if (title) songContext += `User-entered song title: "${title}"\n`;
+      if (videoTitle) songContext += `Actual YouTube video title: "${videoTitle}"\n`;
+      if (videoChannel) songContext += `YouTube channel: "${videoChannel}"\n`;
+      if (link) songContext += `YouTube link: ${link}\n`;
+
+      const res = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        body: JSON.stringify({
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a church worship song content reviewer. Your job is to analyze songs and determine if they are appropriate for church worship use.
+
+You will receive the user-entered song title AND the actual YouTube video title (fetched from YouTube). Use BOTH to make your judgment. The YouTube title is more reliable — pay close attention to it.
+
+Check for:
+1. Explicit language (profanity, vulgar words, "explicit" tags)
+2. Sexual content or innuendo
+3. Violence, dark or harmful themes
+4. Drug/alcohol glorification
+5. Content that contradicts Christian worship values
+6. If the YouTube title mentions "explicit", "18+", "parental advisory", or contains profanity — flag it immediately
+7. If it's a well-known secular pop/rap/R&B/rock song NOT intended for worship — flag as warning
+
+Respond ONLY with a valid JSON object (no markdown, no code fences, no extra text) in this exact format:
+{"verdict": "safe" or "explicit" or "warning", "reason": "brief 1-sentence explanation", "youtubeTitle": "the actual YouTube title if available"}
+
+- "safe" = song is appropriate for church worship (hymns, gospel, praise & worship)
+- "explicit" = song has explicit/inappropriate content and should NOT be used in church
+- "warning" = song is secular or has borderline content; the song leader should review before using`
+            },
+            {
+              role: 'user',
+              content: `Analyze this song for church worship use:\n${songContext}\nIs this appropriate for a church worship service?`
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 250,
+        }),
+      });
+
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content?.trim();
+
+      if (content) {
+        try {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const result = JSON.parse(jsonMatch[0]);
+            const ytInfo = videoTitle ? `YouTube: "${videoTitle}"${videoChannel ? ` by ${videoChannel}` : ''}` : '';
+            setSongScanResults((prev) => ({
+              ...prev,
+              [key]: {
+                status: result.verdict || 'safe',
+                message: result.verdict === 'safe' ? '✓ Appropriate for worship'
+                  : result.verdict === 'explicit' ? '✕ Explicit content — not recommended'
+                  : '⚠ Caution — review before using',
+                details: result.reason + (ytInfo ? `\n${ytInfo}` : ''),
+              }
+            }));
+            return;
+          }
+        } catch { /* fallback below */ }
+      }
+      setSongScanResults((prev) => ({ ...prev, [key]: { status: 'safe', message: '✓ No issues detected', details: videoTitle ? `YouTube: "${videoTitle}"` : '' } }));
+    } catch {
+      setSongScanResults((prev) => ({ ...prev, [key]: { status: 'error', message: 'Could not scan', details: 'AI scan failed. Please review manually.' } }));
+    }
+  };
+
+  // Debounced song change handler — triggers AI scan when title or link changes
+  const handleSongChange = (type, i, field, value) => {
+    const s = [...lineupForm[type]]; s[i] = { ...s[i], [field]: value }; setLineupForm((p) => ({ ...p, [type]: s }));
+
+    // Auto-scan when title or link changes
+    if (field === 'title' || field === 'link') {
+      const timerKey = `${type}-${i}`;
+      if (songScanTimers.current[timerKey]) clearTimeout(songScanTimers.current[timerKey]);
+
+      const updatedSong = { ...s[i], [field]: value };
+      // Trigger scan if there's a title OR a YouTube link
+      if (updatedSong.title || updatedSong.link) {
+        songScanTimers.current[timerKey] = setTimeout(() => {
+          scanSongContent(type, i, updatedSong.title, updatedSong.link);
+        }, 1200); // Wait 1.2s after user stops typing
+      } else {
+        // Clear scan if both title and link are removed
+        setSongScanResults((prev) => { const n = { ...prev }; delete n[timerKey]; return n; });
+      }
+    }
+  };
+
+  // Manual re-scan trigger
+  const rescanSong = (type, i) => {
+    const song = lineupForm[type][i];
+    if (song?.title || song?.link) scanSongContent(type, i, song.title, song.link);
+  };
+
+  const resetLineupForm = () => {
+    setLineupForm({ scheduleDate: '', practiceDate: '', songLeader: '', backupSingers: [''], slowSongs: [{ title: '', link: '', lyrics: '', instructions: '' }], fastSongs: [{ title: '', link: '', lyrics: '', instructions: '' }] });
+    setLineupSelectedDate(null);
+    setLineupView('calendar');
+    setEditingLineup(null);
+    setSongScanResults({});
+  };
+
+  const handleLineupDateSelect = (dateStr) => {
+    // Check if lineup already exists for this date
+    const existing = scheduleData.find(s => s.scheduleDate === dateStr);
+    if (existing) {
+      showToast('A lineup already exists for this date. Go to My Lineups to edit it.', 'warning');
+      return;
+    }
+    setLineupSelectedDate(dateStr);
+    // Auto-fill song leader with current user's name
+    const autoLeader = userData ? `${userData.firstname} ${userData.lastname}` : '';
+    setLineupForm(prev => ({ ...prev, scheduleDate: dateStr, songLeader: autoLeader }));
+    setLineupView('form');
+    loadBackupSingers();
+  };
 
   const submitLineup = async () => {
-    if (!lineupForm.scheduleDate || !lineupForm.songLeader) { showToast('Schedule date and song leader are required', 'warning'); return; }
+    if (!lineupForm.scheduleDate) { showToast('Schedule date is required', 'warning'); return; }
+    if (!lineupForm.slowSongs.some(s => s.title) && !lineupForm.fastSongs.some(s => s.title)) { showToast('Please add at least one song', 'warning'); return; }
+    // Ensure song leader is set (auto-fill fallback)
+    const songLeaderName = lineupForm.songLeader || (userData ? `${userData.firstname} ${userData.lastname}` : '');
+    if (!songLeaderName) { showToast('Song leader could not be determined', 'warning'); return; }
     setLineupLoading(true);
     try {
+      const isEditing = !!editingLineup;
       const res = await fetch('/api/schedules', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: isEditing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          songLeader: lineupForm.songLeader, scheduleDate: lineupForm.scheduleDate,
+          ...(isEditing && { scheduleId: editingLineup.scheduleId }),
+          songLeader: songLeaderName, scheduleDate: lineupForm.scheduleDate,
           practiceDate: lineupForm.practiceDate || null, backupSingers: lineupForm.backupSingers.filter(Boolean),
           slowSongs: lineupForm.slowSongs.filter((s) => s.title), fastSongs: lineupForm.fastSongs.filter((s) => s.title),
-          submittedBy: userData?.username,
+          submittedBy: userData?.email,
         }),
       });
       const data = await res.json();
-      if (data.success) { showToast('Lineup submitted successfully!', 'success'); setLineupForm({ scheduleDate: '', practiceDate: '', songLeader: '', backupSingers: [''], slowSongs: [{ title: '', link: '', lyrics: '', instructions: '' }], fastSongs: [{ title: '', link: '', lyrics: '', instructions: '' }] }); loadScheduleData(); }
-      else showToast(data.message, 'danger');
+      if (data.success) {
+        setLineupView('success');
+        loadScheduleData();
+        setTimeout(() => { resetLineupForm(); }, 3000);
+      } else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); } finally { setLineupLoading(false); }
+  };
+
+  const deleteLineup = async (scheduleId) => {
+    try {
+      const res = await fetch(`/api/schedules?scheduleId=${scheduleId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) { showToast('Lineup deleted successfully!', 'success'); loadScheduleData(); setDeleteConfirmId(null); }
+      else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const startEditLineup = (lineup) => {
+    setEditingLineup(lineup);
+    setLineupForm({
+      scheduleDate: lineup.scheduleDate, practiceDate: lineup.practiceDate || '',
+      songLeader: lineup.songLeader, backupSingers: lineup.backupSingers?.length ? lineup.backupSingers : [''],
+      slowSongs: lineup.slowSongs?.length ? lineup.slowSongs : [{ title: '', link: '', lyrics: '', instructions: '' }],
+      fastSongs: lineup.fastSongs?.length ? lineup.fastSongs : [{ title: '', link: '', lyrics: '', instructions: '' }],
+    });
+    setLineupView('form');
+    setActiveSection('create-lineup');
+    loadBackupSingers();
+  };
+
+  // Get lineups filtered by current user
+  const getMyLineups = () => {
+    return scheduleData.filter(s => s.submittedBy === userData?.email).sort((a, b) => new Date(b.scheduleDate) - new Date(a.scheduleDate));
+  };
+
+  // Lineup calendar helpers
+  const getLineupCalendarDays = () => {
+    const year = lineupCalendarMonth.getFullYear();
+    const month = lineupCalendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let d = 1; d <= daysInMonth; d++) days.push(d);
+    return days;
+  };
+
+  const isLineupDateTaken = (day) => {
+    if (!day) return false;
+    const dateStr = `${lineupCalendarMonth.getFullYear()}-${String(lineupCalendarMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return scheduleData.some(s => s.scheduleDate === dateStr);
+  };
+
+  const isLineupDatePast = (day) => {
+    if (!day) return false;
+    const date = new Date(lineupCalendarMonth.getFullYear(), lineupCalendarMonth.getMonth(), day);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return date < today;
   };
 
   // ============================================
   // BIBLE READER & CHAT (from original)
   // ============================================
-  const loadBibleChapter = async () => {
+  const loadBibleChapter = async (book, chapter, verse, version) => {
+    const b = book || bibleBook;
+    const c = chapter || bibleChapter;
+    const v = verse || bibleVerse;
+    const ver = version || bibleVersion;
     setBibleText('Loading...');
+    setBibleAnswer('');
+    const verseReq = v ? ` verse ${v}` : '';
+    const versionLabel = BIBLE_VERSIONS.find(bv => bv.value === ver)?.fullName || ver;
     try {
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: 'You are a Bible text provider. Provide the full text of the requested Bible chapter. Use the NIV translation. Include verse numbers.' }, { role: 'user', content: `Provide the full text of ${bibleBook} chapter ${bibleChapter}.` }], temperature: 0.1, max_tokens: 4000 }),
+        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `You are a Bible text provider. Provide the full text of the requested Bible chapter or verse. Use the ${versionLabel} translation. Include verse numbers. If the translation is Cebuano, provide the Cebuano version (Ang Pulong Sa Dios or similar). If Tagalog, provide the Tagalog version (Ang Salita ng Dios or similar). Be accurate to the requested translation.` }, { role: 'user', content: `Provide the full text of ${b} chapter ${c}${verseReq} in the ${versionLabel} translation.` }], temperature: 0.1, max_tokens: 4000 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
@@ -584,18 +1015,104 @@ export default function DashboardPage() {
     } catch { setBibleText('Error loading chapter. Please try again.'); }
   };
 
+  // Get verse count for a specific book and chapter
+  const getVerseCount = (book, chapter) => {
+    const chapters = VERSES_PER_CHAPTER[book];
+    if (!chapters || chapter < 1 || chapter > chapters.length) return 30; // fallback
+    return chapters[chapter - 1];
+  };
+
+  // Direct scripture lookup: e.g. "Ephesians 6:1" or "1 John 3:16"
+  const loadDirectScripture = () => {
+    if (!directScripture.trim()) return;
+    const match = directScripture.trim().match(/^(\d?\s?[A-Za-z\s]+?)\s+(\d+)(?::(\d+(?:-\d+)?))?$/i);
+    if (!match) { setBibleText('Invalid format. Try: "Ephesians 6:1" or "John 3:16-17"'); return; }
+    const bookName = match[1].trim();
+    const chap = parseInt(match[2]);
+    const verse = match[3] || '';
+    // Find matching book
+    const found = Object.keys(BIBLE_BOOKS).find(b => b.toLowerCase() === bookName.toLowerCase());
+    if (!found) { setBibleText(`Book "${bookName}" not found. Check spelling.`); return; }
+    setBibleBook(found);
+    setBibleChapter(chap);
+    setBibleVerse(verse);
+    loadBibleChapter(found, chap, verse);
+  };
+
   const askBibleQuestionHandler = async () => {
     if (!bibleQuestion.trim()) return;
     setBibleAnswer('Thinking...');
+    setAnswerCopied(false);
+    const versionLabel = BIBLE_VERSIONS.find(bv => bv.value === bibleVersion)?.fullName || bibleVersion;
     try {
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter}. Be biblical and insightful.` }, { role: 'user', content: bibleQuestion }], temperature: 0.7, max_tokens: 1000 }),
+        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: bibleQuestion }], temperature: 0.7, max_tokens: 1000 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
       setBibleAnswer(content || 'Error. Please try again.');
     } catch { setBibleAnswer('Error. Please try again.'); }
+  };
+
+  const copyBibleAnswer = () => {
+    if (!bibleAnswer) return;
+    navigator.clipboard.writeText(bibleAnswer).then(() => {
+      setAnswerCopied(true);
+      setTimeout(() => setAnswerCopied(false), 2000);
+    });
+  };
+
+  // Highlight-to-Ask: detect text selection in Bible text
+  useEffect(() => {
+    const handleSelection = (e) => {
+      // Don't dismiss popup if clicking the Ask button itself
+      if (e.target.closest && e.target.closest('.highlight-ask-btn')) return;
+      const selection = window.getSelection();
+      const selectedText = selection?.toString().trim();
+      if (selectedText && bibleTextRef.current && bibleTextRef.current.contains(selection.anchorNode)) {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const parentRect = bibleTextRef.current.getBoundingClientRect();
+        setHighlightPopup({
+          visible: true,
+          x: rect.left - parentRect.left + rect.width / 2,
+          y: rect.top - parentRect.top - 10,
+          text: selectedText,
+        });
+      } else if (!selectedText) {
+        // Only hide if there's no selection at all
+        setTimeout(() => {
+          const sel = window.getSelection();
+          if (!sel || !sel.toString().trim()) {
+            setHighlightPopup(prev => prev.visible ? { ...prev, visible: false } : prev);
+          }
+        }, 200);
+      }
+    };
+    document.addEventListener('mouseup', handleSelection);
+    document.addEventListener('touchend', handleSelection);
+    return () => {
+      document.removeEventListener('mouseup', handleSelection);
+      document.removeEventListener('touchend', handleSelection);
+    };
+  }, []);
+
+  const askHighlightedText = () => {
+    if (!highlightPopup.text) return;
+    const question = `Explain this scripture: "${highlightPopup.text}"`;
+    setBibleQuestion(question);
+    setHighlightPopup({ visible: false, x: 0, y: 0, text: '' });
+    window.getSelection()?.removeAllRanges();
+    setAnswerCopied(false);
+    setBibleAnswer('Thinking...');
+    const versionLabel = BIBLE_VERSIONS.find(bv => bv.value === bibleVersion)?.fullName || bibleVersion;
+    fetch(GROQ_API_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+      body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: question }], temperature: 0.7, max_tokens: 1000 }),
+    }).then(r => r.json()).then(data => {
+      setBibleAnswer(data?.choices?.[0]?.message?.content || 'Error. Please try again.');
+    }).catch(() => setBibleAnswer('Error. Please try again.'));
   };
 
   const fetchDailyQuote = async () => {
@@ -619,9 +1136,15 @@ export default function DashboardPage() {
     setChatMessages((p) => [...p, { role: 'user', content: msg }]);
     setChatLoading(true);
     try {
+      // Build conversation history from memory (last 20 messages for context)
+      const historyMessages = chatMessages.slice(-20).map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `You are a compassionate Christian spiritual advisor for ${userData?.firstname || 'a believer'}. Provide biblical guidance, prayer support, and encouragement. Use Scripture references when appropriate.` }, ...chatMessages.slice(-10).map((m) => ({ role: m.role, content: m.content })), { role: 'user', content: msg }], temperature: 0.7, max_tokens: 1000 }),
+        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [
+          { role: 'system', content: `You are a compassionate Christian spiritual AI advisor for ${userData?.firstname || 'a believer'} who serves in ${userData?.ministry || 'ministry'}. Provide biblical guidance, prayer support, and encouragement. Use Scripture references when appropriate. You have memory of previous conversations with this user — use the conversation history to provide personalized and contextual responses. Always remind yourself: you are an AI assistant; encourage the user to also seek God directly through prayer and His Word.` },
+          ...historyMessages,
+          { role: 'user', content: msg }
+        ], temperature: 0.7, max_tokens: 1000 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
@@ -631,13 +1154,21 @@ export default function DashboardPage() {
     finally { setChatLoading(false); }
   };
 
+  // Clear chat memory
+  const clearChatMemory = () => {
+    const chatKey = `chatMemory_${userData?.email || userData?.id}`;
+    localStorage.removeItem(chatKey);
+    setChatMessages([{ role: 'assistant', content: `Chat history cleared! 🙏 Hello ${userData?.firstname || 'friend'}, how can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
+    showToast('Chat history cleared', 'success');
+  };
+
   // ============================================
   // PROFILE HANDLERS (from original)
   // ============================================
   const saveProfile = async () => {
     setProfileLoading(true);
     try {
-      const res = await fetch('/api/profile/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: userData.username, firstname: profileForm.firstname, lastname: profileForm.lastname }) });
+      const res = await fetch('/api/profile/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userData.email, firstname: profileForm.firstname, lastname: profileForm.lastname }) });
       const data = await res.json();
       if (data.success) { const updated = { ...userData, firstname: profileForm.firstname, lastname: profileForm.lastname }; setUserData(updated); sessionStorage.setItem('userData', JSON.stringify(updated)); showToast('Profile updated!', 'success'); }
       else showToast(data.message, 'danger');
@@ -649,14 +1180,32 @@ export default function DashboardPage() {
     if (passwordForm.newPassword.length < 8) { showToast('Password must be at least 8 characters', 'warning'); return; }
     setProfileLoading(true);
     try {
-      const verifyRes = await fetch('/api/profile/verify-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: userData.username, password: passwordForm.currentPassword }) });
+      const verifyRes = await fetch('/api/profile/verify-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userData.email, password: passwordForm.currentPassword }) });
       const verifyData = await verifyRes.json();
       if (!verifyData.success) { showToast('Current password is incorrect', 'danger'); setProfileLoading(false); return; }
 
-      const res = await fetch('/api/profile/update-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: userData.username, newPassword: passwordForm.newPassword }) });
+      const res = await fetch('/api/profile/update-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userData.email, newPassword: passwordForm.newPassword }) });
       const data = await res.json();
       if (data.success) { showToast('Password updated!', 'success'); setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); }
       else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); } finally { setProfileLoading(false); }
+  };
+
+  const handleSetPassword = async () => {
+    if (setPasswordFormData.newPassword !== setPasswordFormData.confirmPassword) { showToast('Passwords do not match', 'warning'); return; }
+    if (setPasswordFormData.newPassword.length < 8) { showToast('Password must be at least 8 characters', 'warning'); return; }
+    setProfileLoading(true);
+    try {
+      const res = await fetch('/api/profile/set-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userData.email, newPassword: setPasswordFormData.newPassword }) });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message, 'success');
+        setSetPasswordFormData({ newPassword: '', confirmPassword: '' });
+        setHasLocalPassword(true);
+        const updated = { ...userData, hasPassword: true };
+        setUserData(updated);
+        sessionStorage.setItem('userData', JSON.stringify(updated));
+      } else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); } finally { setProfileLoading(false); }
   };
 
@@ -809,7 +1358,7 @@ export default function DashboardPage() {
               </div>
               <div className="user-details">
                 <div className="user-name">{userData.firstname} {userData.lastname}</div>
-                <div className="user-ministry">{userData.ministry} Ministry</div>
+                {userData.ministry && <div className="user-ministry">{userData.ministry} Ministry</div>}
                 <div className="user-role-badge" style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, background: 'rgba(255,195,0,0.2)', color: 'var(--accent)', marginTop: 4, display: 'inline-block' }}>
                   {userRole}
                 </div>
@@ -818,21 +1367,25 @@ export default function DashboardPage() {
           </div>
 
           <nav className="sidebar-menu">
-            {sidebarMenu.map((item) => (
-              <a key={item.id}
-                className={`menu-item ${activeSection === item.section ? 'active' : ''} ${!isVerified && item.section !== 'home' ? 'disabled' : ''}`}
-                onClick={() => showSection(item.section)}
-              >
-                <span className="menu-icon"><i className={item.icon}></i></span>
-                <span>{item.label}</span>
-                {item.section === 'messages' && unreadCount > 0 && (
-                  <span className="notification-badge">{unreadCount}</span>
-                )}
-                {!isVerified && item.section !== 'home' && (
-                  <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#ffc107' }}><i className="fas fa-lock"></i></span>
-                )}
-              </a>
-            ))}
+            {sidebarMenu.map((item) => {
+              const isGuestRole = userRole === 'Guest';
+              const isLocked = !isVerified && !isGuestRole && item.section !== 'home';
+              return (
+                <a key={item.id}
+                  className={`menu-item ${activeSection === item.section ? 'active' : ''} ${isLocked ? 'disabled' : ''}`}
+                  onClick={() => showSection(item.section)}
+                >
+                  <span className="menu-icon"><i className={item.icon}></i></span>
+                  <span>{item.label}</span>
+                  {item.section === 'messages' && unreadCount > 0 && (
+                    <span className="notification-badge">{unreadCount}</span>
+                  )}
+                  {isLocked && (
+                    <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#ffc107' }}><i className="fas fa-lock"></i></span>
+                  )}
+                </a>
+              );
+            })}
           </nav>
 
           <button className="logout-btn" onClick={() => setShowLogoutModal(true)}>
@@ -847,15 +1400,16 @@ export default function DashboardPage() {
               {dashboardType === 'super-admin' && 'Super Admin Dashboard'}
               {dashboardType === 'admin' && 'Admin Dashboard'}
               {dashboardType === 'pastor' && 'Pastor Dashboard'}
+              {dashboardType === 'guest' && 'Guest Dashboard'}
               {dashboardType === 'ministry' && 'Ministry Portal'}
             </h1>
-            <p>{userRole} — {userData.ministry} Ministry</p>
+            <p>{userRole}{userData.ministry ? ` — ${userData.ministry} Ministry` : ''}</p>
             <button className="dark-mode-toggle-header" onClick={toggleDarkMode} title="Toggle Dark Mode">
               <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
             </button>
           </div>
 
-          {!isVerified && (
+          {!isVerified && userRole !== 'Guest' && (
             <div className="verification-banner">
               <h3><i className="fas fa-lock"></i> Account Pending Verification</h3>
               <p>Your account is currently under review. Please wait for administrator verification to access all features.</p>
@@ -872,6 +1426,7 @@ export default function DashboardPage() {
                     {dashboardType === 'super-admin' && 'Full system access. Manage everything from here.'}
                     {dashboardType === 'admin' && 'Manage users, ministries, and system operations.'}
                     {dashboardType === 'pastor' && 'Oversee ministries, events, and your congregation.'}
+                    {dashboardType === 'guest' && 'Welcome! Please wait for the Pastor to assign your ministry and role.'}
                     {dashboardType === 'ministry' && "Here's what's happening in your ministry today."}
                   </p>
                 </div>
@@ -891,9 +1446,18 @@ export default function DashboardPage() {
                   <div className="verse-controls">
                     <div className="version-selector">
                       <label>Version:</label>
-                      {['niv', 'kjv', 'nkjv', 'cev', 'nasb'].map((v) => (
-                        <button key={v} className={`version-btn ${bibleVersion === v ? 'active' : ''}`} onClick={() => setBibleVersion(v)}>{v.toUpperCase()}</button>
-                      ))}
+                      <select
+                        className="version-dropdown"
+                        value={bibleVersion}
+                        onChange={(e) => {
+                          setBibleVersion(e.target.value);
+                          localStorage.setItem('bibleVersionPref', e.target.value);
+                        }}
+                      >
+                        {BIBLE_VERSIONS.map((v) => (
+                          <option key={v.value} value={v.value}>{v.label} — {v.fullName}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <div className="verse-of-the-day">&ldquo;{dailyVerse.verse}&rdquo;</div>
@@ -1345,7 +1909,7 @@ export default function DashboardPage() {
           <section className={`content-section ${activeSection === 'user-management' ? 'active' : ''}`}>
             <h2 className="section-title"><i className="fas fa-users-cog"></i> User Management</h2>
 
-            <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowUserForm(true); setEditingUser(null); }}>
+            <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowUserForm(true); setEditingUser(null); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); }}>
               <i className="fas fa-plus"></i> Create User
             </button>
 
@@ -1357,24 +1921,73 @@ export default function DashboardPage() {
                   <div className="form-group"><label>Last Name *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.lastname} onChange={(e) => setUserForm({ ...userForm, lastname: e.target.value })} /></div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group"><label>Username *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value })} /></div>
+                  <div className="form-group"><label>Email Address *</label><input className="form-control" type="email" style={{ padding: '10px 15px' }} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} /></div>
                   <div className="form-group"><label>Password *</label><input className="form-control" type="password" style={{ padding: '10px 15px' }} value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} /></div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
                   <div className="form-group"><label>Ministry</label>
-                    <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value })}>
+                    <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value, sub_role: '' })}>
+                      <option value="">— No Ministry —</option>
                       {ALL_MINISTRIES.map((m) => <option key={m} value={m}>{m}</option>)}
                     </select>
                   </div>
-                  <div className="form-group"><label>Role</label>
-                    <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
-                      {(userRole === ROLES.SUPER_ADMIN ? ALL_ROLES : ALL_ROLES.filter((r) => r !== 'Super Admin')).map((r) => <option key={r} value={r}>{r}</option>)}
+                  <div className="form-group"><label>Ministry Role</label>
+                    <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.sub_role} onChange={(e) => setUserForm({ ...userForm, sub_role: e.target.value })} disabled={!userForm.ministry || !MINISTRY_SUB_ROLES[userForm.ministry]}>
+                      <option value="">— Select Role —</option>
+                      {(MINISTRY_SUB_ROLES[userForm.ministry] || []).map((sr) => <option key={sr} value={sr}>{sr}</option>)}
                     </select>
                   </div>
+                </div>
+                <div className="form-group" style={{ marginBottom: 15 }}><label>System Role</label>
+                  <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
+                    {(userRole === ROLES.SUPER_ADMIN ? ALL_ROLES : ALL_ROLES.filter((r) => r !== 'Super Admin')).map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button className="btn-primary" onClick={handleCreateUser}><i className="fas fa-save"></i> Create</button>
                   <button className="btn-secondary" onClick={() => setShowUserForm(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Edit User Modal */}
+            {showEditModal && editingUser && (
+              <div className="edit-user-modal-overlay" onClick={() => setShowEditModal(false)}>
+                <div className="edit-user-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="edit-user-modal-header">
+                    <h3><i className="fas fa-user-edit"></i> Edit User</h3>
+                    <button className="btn-close-modal" onClick={() => setShowEditModal(false)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="edit-user-modal-body">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                      <div className="form-group"><label>First Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.firstname} onChange={(e) => setUserForm({ ...userForm, firstname: e.target.value })} /></div>
+                      <div className="form-group"><label>Last Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.lastname} onChange={(e) => setUserForm({ ...userForm, lastname: e.target.value })} /></div>
+                    </div>
+                    <div className="form-group"><label>Email</label><input className="form-control" style={{ padding: '10px 15px', background: '#f0f0f0' }} value={userForm.email} disabled /></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                      <div className="form-group"><label>Ministry</label>
+                        <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value, sub_role: '' })}>
+                          <option value="">— No Ministry —</option>
+                          {ALL_MINISTRIES.map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-group"><label>Ministry Role</label>
+                        <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.sub_role} onChange={(e) => setUserForm({ ...userForm, sub_role: e.target.value })} disabled={!userForm.ministry || !MINISTRY_SUB_ROLES[userForm.ministry]}>
+                          <option value="">— Select Role —</option>
+                          {(MINISTRY_SUB_ROLES[userForm.ministry] || []).map((sr) => <option key={sr} value={sr}>{sr}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="form-group"><label>System Role</label>
+                      <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
+                        {(userRole === ROLES.SUPER_ADMIN ? ALL_ROLES : ALL_ROLES.filter((r) => r !== 'Super Admin')).map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="edit-user-modal-footer">
+                    <button className="btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
+                    <button className="btn-primary" onClick={handleUpdateUser}><i className="fas fa-save"></i> Save Changes</button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1385,9 +1998,10 @@ export default function DashboardPage() {
                   <tr style={{ background: 'var(--primary)', color: 'white' }}>
                     <th style={{ padding: 10 }}>Member ID</th>
                     <th style={{ padding: 10 }}>Name</th>
-                    <th style={{ padding: 10 }}>Username</th>
+                    <th style={{ padding: 10 }}>Email</th>
                     <th style={{ padding: 10 }}>Ministry</th>
-                    <th style={{ padding: 10 }}>Role</th>
+                    <th style={{ padding: 10 }}>Ministry Role</th>
+                    <th style={{ padding: 10 }}>System Role</th>
                     <th style={{ padding: 10 }}>Status</th>
                     <th style={{ padding: 10 }}>Actions</th>
                   </tr>
@@ -1397,11 +2011,16 @@ export default function DashboardPage() {
                     <tr key={u.id} style={{ borderBottom: '1px solid #eee', background: u.is_active === false ? 'rgba(220,53,69,0.05)' : 'transparent' }}>
                       <td style={{ padding: 10 }}>{u.member_id}</td>
                       <td style={{ padding: 10 }}>{u.firstname} {u.lastname}</td>
-                      <td style={{ padding: 10 }}>{u.username}</td>
-                      <td style={{ padding: 10 }}>{u.ministry}</td>
+                      <td style={{ padding: 10, fontSize: '0.8rem' }}>{u.email}</td>
+                      <td style={{ padding: 10 }}>
+                        {u.ministry ? <span className="ministry-badge">{u.ministry}</span> : <span style={{ color: '#aaa' }}>—</span>}
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        {u.sub_role ? <span className="sub-role-badge">{u.sub_role}</span> : <span style={{ color: '#aaa' }}>—</span>}
+                      </td>
                       <td style={{ padding: 10 }}>
                         {canManage(MODULES.ASSIGN_USER_ROLES) ? (
-                          <select style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #dee2e6' }} value={u.role} onChange={(e) => handleUserAction(u.id, 'assign-role', { role: e.target.value })}>
+                          <select style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #dee2e6', fontSize: '0.8rem' }} value={u.role} onChange={(e) => handleUserAction(u.id, 'assign-role', { role: e.target.value })}>
                             {ALL_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                           </select>
                         ) : <span>{u.role}</span>}
@@ -1413,6 +2032,7 @@ export default function DashboardPage() {
                       </td>
                       <td style={{ padding: 10 }}>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          <button className="btn-small btn-info" onClick={() => handleEditUser(u)} title="Edit User"><i className="fas fa-edit"></i></button>
                           {u.status === 'Unverified' && <button className="btn-small btn-success" onClick={() => handleUserAction(u.id, 'verify')} title="Verify"><i className="fas fa-check"></i></button>}
                           {u.is_active !== false && <button className="btn-small btn-warning" onClick={() => handleUserAction(u.id, 'deactivate')} title="Deactivate"><i className="fas fa-ban"></i></button>}
                           {u.is_active === false && <button className="btn-small btn-success" onClick={() => handleUserAction(u.id, 'activate')} title="Activate"><i className="fas fa-check-circle"></i></button>}
@@ -1524,20 +2144,97 @@ export default function DashboardPage() {
           {/* ========== BIBLE READER ========== */}
           <section className={`content-section ${activeSection === 'bible-reader' ? 'active' : ''}`}>
             <h2 className="section-title"><i className="fas fa-bible"></i> Bible Reader</h2>
+
+            {/* Direct Scripture Input */}
+            <div className="bible-direct-input">
+              <div className="bible-direct-icon"><i className="fas fa-search"></i></div>
+              <input
+                className="form-control"
+                placeholder='Go to scripture directly — e.g. "Ephesians 6:1" or "John 3:16-17"'
+                value={directScripture}
+                onChange={(e) => setDirectScripture(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && loadDirectScripture()}
+              />
+              <button className="btn-primary" onClick={loadDirectScripture}><i className="fas fa-arrow-right"></i> Go</button>
+            </div>
+
+            <div className="bible-divider"><span>or browse</span></div>
+
+            {/* Bible Version Selector */}
+            <div className="bible-version-bar">
+              <label><i className="fas fa-globe"></i> Translation:</label>
+              <div className="bible-version-pills">
+                {BIBLE_VERSIONS.map((v) => (
+                  <button
+                    key={v.value}
+                    className={`bible-version-pill ${bibleVersion === v.value ? 'active' : ''}`}
+                    onClick={() => {
+                      setBibleVersion(v.value);
+                      localStorage.setItem('bibleVersionPref', v.value);
+                    }}
+                    title={v.fullName}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Book / Chapter / Verse Dropdowns */}
             <div className="bible-controls">
-              <div className="form-group" style={{ flex: 1 }}><label>Book</label>
-                <select className="form-select" value={bibleBook} onChange={(e) => setBibleBook(e.target.value)} style={{ padding: '10px' }}>
-                  {['Genesis','Exodus','Leviticus','Numbers','Deuteronomy','Joshua','Judges','Ruth','1 Samuel','2 Samuel','1 Kings','2 Kings','1 Chronicles','2 Chronicles','Ezra','Nehemiah','Esther','Job','Psalms','Proverbs','Ecclesiastes','Song of Solomon','Isaiah','Jeremiah','Lamentations','Ezekiel','Daniel','Hosea','Joel','Amos','Obadiah','Jonah','Micah','Nahum','Habakkuk','Zephaniah','Haggai','Zechariah','Malachi','Matthew','Mark','Luke','John','Acts','Romans','1 Corinthians','2 Corinthians','Galatians','Ephesians','Philippians','Colossians','1 Thessalonians','2 Thessalonians','1 Timothy','2 Timothy','Titus','Philemon','Hebrews','James','1 Peter','2 Peter','1 John','2 John','3 John','Jude','Revelation'].map((b) => (<option key={b} value={b}>{b}</option>))}
+              <div className="form-group" style={{ flex: 2 }}><label>Book</label>
+                <select className="form-select" value={bibleBook} onChange={(e) => { setBibleBook(e.target.value); setBibleChapter(1); setBibleVerse(''); }} style={{ padding: '10px' }}>
+                  {Object.keys(BIBLE_BOOKS).map((b) => (<option key={b} value={b}>{b}</option>))}
                 </select>
               </div>
-              <div className="form-group" style={{ width: 100 }}><label>Chapter</label><input type="number" className="form-control" value={bibleChapter} min={1} onChange={(e) => setBibleChapter(parseInt(e.target.value) || 1)} style={{ padding: '10px' }} /></div>
-              <button className="btn-primary" onClick={loadBibleChapter} style={{ alignSelf: 'flex-end' }}>Read</button>
+              <div className="form-group" style={{ flex: 1 }}><label>Chapter</label>
+                <select className="form-select" value={bibleChapter} onChange={(e) => { setBibleChapter(parseInt(e.target.value)); setBibleVerse(''); }} style={{ padding: '10px' }}>
+                  {Array.from({ length: BIBLE_BOOKS[bibleBook] || 1 }, (_, i) => i + 1).map((c) => (<option key={c} value={c}>{c}</option>))}
+                </select>
+              </div>
+              <div className="form-group" style={{ flex: 1 }}><label>Verse <span style={{ fontSize: '0.75rem', color: '#999' }}>(optional)</span></label>
+                <select className="form-select" value={bibleVerse} onChange={(e) => setBibleVerse(e.target.value)} style={{ padding: '10px' }}>
+                  <option value="">All</option>
+                  {Array.from({ length: getVerseCount(bibleBook, bibleChapter) }, (_, i) => i + 1).map((v) => (<option key={v} value={v}>{v}</option>))}
+                </select>
+              </div>
+              <button className="btn-primary" onClick={() => loadBibleChapter()} style={{ alignSelf: 'flex-end', padding: '10px 24px' }}><i className="fas fa-book-open"></i> Read</button>
             </div>
-            {bibleText && <div className="bible-text-display"><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'Georgia, serif', lineHeight: 1.8 }}>{bibleText}</pre></div>}
+
+            {/* Bible Text Display */}
+            {bibleText && <div className="bible-text-display" ref={bibleTextRef} style={{ position: 'relative' }}><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'Georgia, serif', lineHeight: 1.8 }}>{bibleText}</pre>
+              {highlightPopup.visible && (
+                <button className="highlight-ask-btn" onMouseDown={(e) => e.preventDefault()} onClick={askHighlightedText} style={{ position: 'absolute', left: highlightPopup.x, top: highlightPopup.y, transform: 'translate(-50%, -100%)' }}>
+                  <i className="fas fa-question-circle"></i> Ask about this
+                </button>
+              )}
+            </div>}
+
+            {/* Ask about this passage */}
             {bibleText && (
-              <div className="bible-qa" style={{ marginTop: 20 }}><h3>Ask about this passage</h3>
-                <div style={{ display: 'flex', gap: 10 }}><input className="form-control" placeholder="Ask a question..." value={bibleQuestion} onChange={(e) => setBibleQuestion(e.target.value)} style={{ padding: '10px 15px' }} /><button className="btn-primary" onClick={askBibleQuestionHandler}>Ask</button></div>
-                {bibleAnswer && <div className="bible-answer" style={{ marginTop: 15 }}><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{bibleAnswer}</pre></div>}
+              <div className="bible-qa" style={{ marginTop: 20 }}>
+                <h3><i className="fas fa-comment-dots"></i> Ask about this passage</h3>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <input className="form-control" placeholder="Ask a question about this scripture..." value={bibleQuestion} onChange={(e) => setBibleQuestion(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && askBibleQuestionHandler()} style={{ padding: '10px 15px' }} />
+                  <button className="btn-primary" onClick={askBibleQuestionHandler}><i className="fas fa-paper-plane"></i> Ask</button>
+                </div>
+                {bibleAnswer && bibleAnswer !== 'Thinking...' && (
+                  <div className="bible-answer-card" style={{ marginTop: 15 }}>
+                    <div className="bible-answer-header">
+                      <span><i className="fas fa-lightbulb"></i> AI Explanation</span>
+                      <button className="bible-copy-btn" onClick={copyBibleAnswer}>
+                        <i className={answerCopied ? 'fas fa-check' : 'fas fa-copy'}></i> {answerCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <div className="bible-answer-body">{renderMarkdown(bibleAnswer)}</div>
+                  </div>
+                )}
+                {bibleAnswer === 'Thinking...' && (
+                  <div className="bible-thinking" style={{ marginTop: 15 }}>
+                    <div className="bible-thinking-dots"><span></span><span></span><span></span></div>
+                    <span>Analyzing scripture...</span>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -1550,8 +2247,24 @@ export default function DashboardPage() {
 
           {/* ========== SPIRITUAL ASSISTANT ========== */}
           <section className={`content-section ${activeSection === 'spiritual-assistant' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-robot"></i> Spiritual Assistant</h2>
+            <h2 className="section-title"><i className="fas fa-robot"></i> Spiritual AI Assistant</h2>
+
+            {/* Disclaimer Banner */}
+            <div className="ai-disclaimer">
+              <div className="ai-disclaimer-icon"><i className="fas fa-exclamation-triangle"></i></div>
+              <div className="ai-disclaimer-text">
+                <strong>Important Reminder:</strong> It is important to have a personal communication between you and God to receive true wisdom. Read His Word, pray always, and seek the Holy Spirit's guidance. <em>I am just your AI Assistant</em> — not a replacement for your relationship with God.
+                <div className="ai-disclaimer-verse">&ldquo;If any of you lacks wisdom, you should ask God, who gives generously to all without finding fault, and it will be given to you.&rdquo; — <strong>James 1:5</strong></div>
+              </div>
+            </div>
+
             <div className="chat-container">
+              <div className="chat-header">
+                <span><i className="fas fa-cross"></i> Spiritual AI Assistant</span>
+                <button className="chat-clear-btn" onClick={clearChatMemory} title="Clear chat history">
+                  <i className="fas fa-trash-alt"></i> Clear History
+                </button>
+              </div>
               <div className="chat-messages">
                 {chatMessages.map((msg, i) => (
                   <div key={i} className={`chat-message ${msg.role === 'user' ? 'user-message' : 'assistant-message'}`}>
@@ -1586,22 +2299,51 @@ export default function DashboardPage() {
                   <div className="form-group"><label>First Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={profileForm.firstname} onChange={(e) => setProfileForm({ ...profileForm, firstname: e.target.value })} /></div>
                   <div className="form-group"><label>Last Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={profileForm.lastname} onChange={(e) => setProfileForm({ ...profileForm, lastname: e.target.value })} /></div>
                 </div>
-                <div className="form-group"><label>Username</label><input className="form-control" style={{ padding: '10px 15px' }} value={userData.username} readOnly /></div>
-                <div className="form-group"><label>Ministry</label><input className="form-control" style={{ padding: '10px 15px' }} value={userData.ministry} readOnly /></div>
-                <div className="form-group"><label>Role</label><input className="form-control" style={{ padding: '10px 15px' }} value={userRole} readOnly /></div>
-                <div className="form-group"><label>Status</label><input className="form-control" style={{ padding: '10px 15px' }} value={userData.status} readOnly /></div>
-                <div className="form-group"><label>Member ID</label><input className="form-control" style={{ padding: '10px 15px' }} value={userData.memberId || 'N/A'} readOnly /></div>
+                <div className="form-group"><label>Email Address</label><input className="form-control" style={{ padding: '10px 15px' }} value={userData.email || ''} readOnly /></div>
+                {userRole !== 'Guest' && (
+                  <>
+                    <div className="form-group"><label>Ministry</label><input className="form-control" style={{ padding: '10px 15px' }} value={userData.ministry || 'Not Assigned'} readOnly /></div>
+                    <div className="form-group"><label>Role</label><input className="form-control" style={{ padding: '10px 15px' }} value={userRole} readOnly /></div>
+                    <div className="form-group"><label>Status</label><input className="form-control" style={{ padding: '10px 15px' }} value={userData.status || ''} readOnly /></div>
+                    <div className="form-group"><label>Member ID</label><input className="form-control" style={{ padding: '10px 15px' }} value={userData.memberId || 'N/A'} readOnly /></div>
+                  </>
+                )}
                 <button className="btn-primary" onClick={saveProfile} disabled={profileLoading}>{profileLoading ? 'Saving...' : 'Save Changes'}</button>
               </div>
             )}
 
             {profileTab === 'password' && (
               <div className="profile-form">
-                <div className="form-group"><label>Current Password</label><input type="password" className="form-control" style={{ padding: '10px 15px' }} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} /></div>
-                <div className="form-group"><label>New Password</label><input type="password" className="form-control" style={{ padding: '10px 15px' }} value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} /></div>
-                <div className="form-group"><label>Confirm New Password</label><input type="password" className="form-control" style={{ padding: '10px 15px' }} value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} /></div>
-                {passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Passwords do not match</p>}
-                <button className="btn-primary" onClick={changePassword} disabled={profileLoading}>{profileLoading ? 'Updating...' : 'Update Password'}</button>
+                {userData.isGoogleUser && !hasLocalPassword ? (
+                  <>
+                    <div style={{ padding: '16px 20px', background: 'rgba(255,195,0,0.1)', borderRadius: 12, marginBottom: 20, border: '1px solid rgba(255,195,0,0.3)' }}>
+                      <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--accent)' }}>
+                        <i className="fas fa-info-circle" style={{ marginRight: 8 }}></i>
+                        You signed up with Google. Set a password below so you can also log in manually with your email and password.
+                      </p>
+                    </div>
+                    <div className="form-group"><label>New Password</label><input type="password" className="form-control" style={{ padding: '10px 15px' }} placeholder="At least 8 characters" value={setPasswordFormData.newPassword} onChange={(e) => setSetPasswordFormData({ ...setPasswordFormData, newPassword: e.target.value })} /></div>
+                    <div className="form-group"><label>Confirm Password</label><input type="password" className="form-control" style={{ padding: '10px 15px' }} placeholder="Confirm your password" value={setPasswordFormData.confirmPassword} onChange={(e) => setSetPasswordFormData({ ...setPasswordFormData, confirmPassword: e.target.value })} /></div>
+                    {setPasswordFormData.confirmPassword && setPasswordFormData.newPassword !== setPasswordFormData.confirmPassword && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Passwords do not match</p>}
+                    <button className="btn-primary" onClick={handleSetPassword} disabled={profileLoading}>{profileLoading ? 'Setting Password...' : 'Set Password'}</button>
+                  </>
+                ) : (
+                  <>
+                    {userData.isGoogleUser && hasLocalPassword && (
+                      <div style={{ padding: '16px 20px', background: 'rgba(40,167,69,0.1)', borderRadius: 12, marginBottom: 20, border: '1px solid rgba(40,167,69,0.3)' }}>
+                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#28a745' }}>
+                          <i className="fas fa-check-circle" style={{ marginRight: 8 }}></i>
+                          Password set! You can now log in with your email and password, or continue using Google.
+                        </p>
+                      </div>
+                    )}
+                    <div className="form-group"><label>Current Password</label><input type="password" className="form-control" style={{ padding: '10px 15px' }} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} /></div>
+                    <div className="form-group"><label>New Password</label><input type="password" className="form-control" style={{ padding: '10px 15px' }} value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} /></div>
+                    <div className="form-group"><label>Confirm New Password</label><input type="password" className="form-control" style={{ padding: '10px 15px' }} value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} /></div>
+                    {passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Passwords do not match</p>}
+                    <button className="btn-primary" onClick={changePassword} disabled={profileLoading}>{profileLoading ? 'Updating...' : 'Update Password'}</button>
+                  </>
+                )}
               </div>
             )}
 
@@ -1618,51 +2360,231 @@ export default function DashboardPage() {
           {/* ========== CREATE LINEUP (Song Leader) ========== */}
           {canManage(MODULES.CREATE_SONG_LIST) && (
             <section className={`content-section ${activeSection === 'create-lineup' ? 'active' : ''}`}>
-              <h2 className="section-title"><i className="fas fa-music"></i> Create Lineup</h2>
-              <div className="lineup-form">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group"><label>Schedule Date *</label><input type="date" className="form-control" style={{ padding: '10px 15px' }} value={lineupForm.scheduleDate} onChange={(e) => handleLineupChange('scheduleDate', e.target.value)} /></div>
-                  <div className="form-group"><label>Practice Date</label><input type="date" className="form-control" style={{ padding: '10px 15px' }} value={lineupForm.practiceDate} onChange={(e) => handleLineupChange('practiceDate', e.target.value)} /></div>
-                </div>
-                <div className="form-group"><label>Song Leader *</label>
-                  <select className="form-select" style={{ padding: '10px 15px' }} value={lineupForm.songLeader} onChange={(e) => handleLineupChange('songLeader', e.target.value)}>
-                    <option value="">Select song leader</option>
-                    {SONG_LEADERS.map((sl) => <option key={sl} value={sl}>{sl}</option>)}
-                  </select>
-                </div>
-                <div className="form-group"><label>Backup Singers</label>
-                  {lineupForm.backupSingers.map((singer, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
-                      <select className="form-select" style={{ padding: '10px 15px', flex: 1 }} value={singer} onChange={(e) => handleBackupChange(i, e.target.value)}>
-                        <option value="">Select singer</option>
-                        {BACKUP_OPTIONS.map((bo) => <option key={bo} value={bo}>{bo}</option>)}
-                      </select>
-                    </div>
-                  ))}
-                  {lineupForm.backupSingers.length < 5 && <button type="button" className="btn-secondary" onClick={addBackupSinger} style={{ fontSize: '0.85rem' }}><i className="fas fa-plus"></i> Add Backup Singer</button>}
-                </div>
+              <h2 className="section-title"><i className="fas fa-music"></i> {editingLineup ? 'Edit Lineup' : 'Create Lineup'}</h2>
 
-                {['slowSongs', 'fastSongs'].map((type) => (
-                  <div key={type} className="song-form-section">
-                    <h3><i className={`fas fa-${type === 'slowSongs' ? 'music' : 'bolt'}`}></i> {type === 'slowSongs' ? 'Slow' : 'Fast'} Songs</h3>
-                    {lineupForm[type].map((song, i) => (
-                      <div key={i} className="song-form-card">
-                        <div className="song-form-header"><span>{type === 'slowSongs' ? 'Slow' : 'Fast'} Song {i + 1}</span>{lineupForm[type].length > 1 && <button type="button" className="btn-remove" onClick={() => removeSong(type, i)}><i className="fas fa-times"></i></button>}</div>
-                        <input className="form-control" style={{ padding: '10px 15px', marginBottom: 8 }} placeholder="Song title" value={song.title} onChange={(e) => handleSongChange(type, i, 'title', e.target.value)} />
-                        <input className="form-control" style={{ padding: '10px 15px', marginBottom: 8 }} placeholder="YouTube link" value={song.link} onChange={(e) => handleSongChange(type, i, 'link', e.target.value)} />
-                        {song.link && extractYouTubeId(song.link) && <div className="youtube-preview"><iframe src={`https://www.youtube.com/embed/${extractYouTubeId(song.link)}`} allowFullScreen title={song.title}></iframe></div>}
-                        <textarea className="form-control" style={{ padding: '10px 15px', marginBottom: 8 }} placeholder="Lyrics" rows={3} value={song.lyrics} onChange={(e) => handleSongChange(type, i, 'lyrics', e.target.value)}></textarea>
-                        <input className="form-control" style={{ padding: '10px 15px' }} placeholder="Instructions" value={song.instructions} onChange={(e) => handleSongChange(type, i, 'instructions', e.target.value)} />
+              {/* SUCCESS VIEW */}
+              {lineupView === 'success' && (
+                <div className="lineup-success-container">
+                  <div className="lineup-success-icon"><i className="fas fa-check-circle"></i></div>
+                  <h3>{editingLineup ? 'Lineup Updated Successfully!' : 'Lineup Created Successfully!'}</h3>
+                  <p>Your worship lineup for <strong>{formatDate(lineupForm.scheduleDate)}</strong> has been {editingLineup ? 'updated' : 'saved'}.</p>
+                  <button className="btn-primary" onClick={resetLineupForm} style={{ marginTop: 20, padding: '12px 30px' }}><i className="fas fa-plus"></i> Create Another Lineup</button>
+                </div>
+              )}
+
+              {/* CALENDAR VIEW — pick a date first */}
+              {lineupView === 'calendar' && (
+                <div className="lineup-calendar-container">
+                  <div className="lineup-calendar-info">
+                    <i className="fas fa-info-circle"></i>
+                    <span>Select a date on the calendar to create a new lineup</span>
+                  </div>
+                  <div className="lineup-calendar-card">
+                    <div className="lineup-cal-header">
+                      <button onClick={() => setLineupCalendarMonth(new Date(lineupCalendarMonth.getFullYear(), lineupCalendarMonth.getMonth() - 1))}><i className="fas fa-chevron-left"></i></button>
+                      <h3>{lineupCalendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
+                      <button onClick={() => setLineupCalendarMonth(new Date(lineupCalendarMonth.getFullYear(), lineupCalendarMonth.getMonth() + 1))}><i className="fas fa-chevron-right"></i></button>
+                    </div>
+                    <div className="lineup-cal-weekdays">
+                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="lineup-cal-weekday">{d}</div>)}
+                    </div>
+                    <div className="lineup-cal-grid">
+                      {getLineupCalendarDays().map((day, i) => {
+                        const taken = isLineupDateTaken(day);
+                        const past = isLineupDatePast(day);
+                        const today = day && new Date().getDate() === day && new Date().getMonth() === lineupCalendarMonth.getMonth() && new Date().getFullYear() === lineupCalendarMonth.getFullYear();
+                        const dateStr = day ? `${lineupCalendarMonth.getFullYear()}-${String(lineupCalendarMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : '';
+                        return (
+                          <div key={i} className={`lineup-cal-day${!day ? ' empty' : ''}${taken ? ' taken' : ''}${past ? ' past' : ''}${today ? ' today' : ''}`}
+                            onClick={() => day && !past && !taken ? handleLineupDateSelect(dateStr) : null}
+                            title={taken ? 'Lineup exists' : past ? 'Past date' : day ? 'Click to create lineup' : ''}>
+                            {day && <span>{day}</span>}
+                            {taken && day && <div className="lineup-cal-dot"></div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="lineup-cal-legend">
+                      <span><span className="legend-dot available"></span> Available</span>
+                      <span><span className="legend-dot taken"></span> Has Lineup</span>
+                      <span><span className="legend-dot past"></span> Past Date</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* FORM VIEW — after date is selected */}
+              {lineupView === 'form' && (
+                <div className="lineup-form-modern">
+                  {/* Selected Date Banner */}
+                  <div className="lineup-date-banner">
+                    <div className="lineup-date-banner-left">
+                      <i className="fas fa-calendar-check"></i>
+                      <div>
+                        <span className="lineup-date-label">Schedule Date</span>
+                        <span className="lineup-date-value">{formatDate(lineupForm.scheduleDate)}</span>
+                      </div>
+                    </div>
+                    {!editingLineup && <button className="btn-change-date" onClick={() => { setLineupView('calendar'); setLineupSelectedDate(null); }}><i className="fas fa-pen"></i> Change</button>}
+                  </div>
+
+                  {/* Details Row */}
+                  <div className="lineup-details-row">
+                    <div className="lineup-detail-card">
+                      <label><i className="fas fa-calendar-alt"></i> Practice Date</label>
+                      <input type="date" className="form-control" value={lineupForm.practiceDate} onChange={(e) => handleLineupChange('practiceDate', e.target.value)} />
+                    </div>
+                    <div className="lineup-detail-card">
+                      <label><i className="fas fa-microphone"></i> Song Leader</label>
+                      <div className="song-leader-display">
+                        <i className="fas fa-user-circle"></i>
+                        <span>{lineupForm.songLeader || 'You'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Backup Singers */}
+                  <div className="lineup-backup-section">
+                    <label><i className="fas fa-users"></i> Backup Singers</label>
+                    {backupSingerOptions.length === 0 && (
+                      <p style={{ color: '#aaa', fontSize: '0.85rem', margin: '6px 0' }}>
+                        <i className="fas fa-info-circle"></i> No backup singers found. Ask your Admin to assign users with ministry &quot;Praise And Worship&quot; and role &quot;Singers&quot;.
+                      </p>
+                    )}
+                    <div className="lineup-backup-list">
+                      {lineupForm.backupSingers.map((singer, i) => (
+                        <div key={i} className="lineup-backup-item">
+                          <select className="form-select" value={singer} onChange={(e) => handleBackupChange(i, e.target.value)}>
+                            <option value="">Select singer</option>
+                            {backupSingerOptions.map((bo) => <option key={bo.id} value={bo.name}>{bo.name}{bo.sub_role ? ` (${bo.sub_role})` : ''}</option>)}
+                          </select>
+                          {lineupForm.backupSingers.length > 1 && <button className="btn-remove-sm" onClick={() => removeBackupSinger(i)}><i className="fas fa-times"></i></button>}
+                        </div>
+                      ))}
+                    </div>
+                    {lineupForm.backupSingers.length < 5 && <button className="btn-add-subtle" onClick={addBackupSinger}><i className="fas fa-plus"></i> Add Backup Singer</button>}
+                  </div>
+
+                  {/* Two-Column Songs: Slow & Fast side by side */}
+                  <div className="lineup-songs-grid">
+                    {['slowSongs', 'fastSongs'].map((type) => (
+                      <div key={type} className="lineup-song-column">
+                        <div className={`lineup-song-column-header ${type}`}>
+                          <i className={`fas fa-${type === 'slowSongs' ? 'music' : 'bolt'}`}></i>
+                          <span>{type === 'slowSongs' ? 'Slow Songs' : 'Fast Songs'}</span>
+                          <span className="song-count-badge">{lineupForm[type].filter(s => s.title).length}</span>
+                        </div>
+                        <div className="lineup-song-list">
+                          {lineupForm[type].map((song, i) => {
+                            const scanKey = `${type}-${i}`;
+                            const scan = songScanResults[scanKey];
+                            return (
+                            <div key={i} className={`lineup-song-card${song.title ? ' has-title' : ''}${scan?.status === 'explicit' ? ' scan-explicit' : scan?.status === 'warning' ? ' scan-warning' : scan?.status === 'safe' ? ' scan-safe' : ''}`}>
+                              <div className="lineup-song-card-header">
+                                <span className="lineup-song-num">{type === 'slowSongs' ? '🎵' : '⚡'} Song {i + 1}</span>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                  {(song.title || song.link) && <button className="btn-scan-song" onClick={() => rescanSong(type, i)} title="Scan with AI"><i className="fas fa-shield-alt"></i></button>}
+                                  {lineupForm[type].length > 1 && <button className="btn-remove-sm" onClick={() => removeSong(type, i)}><i className="fas fa-trash-alt"></i></button>}
+                                </div>
+                              </div>
+
+                              {/* AI Scan Result Badge */}
+                              {scan && (
+                                <div className={`song-scan-badge scan-${scan.status}`}>
+                                  <div className="song-scan-icon">
+                                    {scan.status === 'scanning' && <div className="scan-spinner"></div>}
+                                    {scan.status === 'safe' && <i className="fas fa-check-circle"></i>}
+                                    {scan.status === 'explicit' && <i className="fas fa-exclamation-triangle"></i>}
+                                    {scan.status === 'warning' && <i className="fas fa-exclamation-circle"></i>}
+                                    {scan.status === 'error' && <i className="fas fa-question-circle"></i>}
+                                  </div>
+                                  <div className="song-scan-text">
+                                    <span className="song-scan-label">{scan.message}</span>
+                                    {scan.details && <span className="song-scan-details">{scan.details}</span>}
+                                  </div>
+                                </div>
+                              )}
+
+                              <input className="form-control" placeholder="Song title *" value={song.title} onChange={(e) => handleSongChange(type, i, 'title', e.target.value)} />
+                              <input className="form-control" placeholder="YouTube link (optional)" value={song.link} onChange={(e) => handleSongChange(type, i, 'link', e.target.value)} />
+                              {song.link && extractYouTubeId(song.link) && <div className="youtube-preview"><iframe src={`https://www.youtube.com/embed/${extractYouTubeId(song.link)}`} allowFullScreen title={song.title}></iframe></div>}
+                              <textarea className="form-control" placeholder="Lyrics (optional)" rows={2} value={song.lyrics} onChange={(e) => handleSongChange(type, i, 'lyrics', e.target.value)}></textarea>
+                              <input className="form-control" placeholder="Instructions (optional)" value={song.instructions} onChange={(e) => handleSongChange(type, i, 'instructions', e.target.value)} />
+                            </div>
+                            );
+                          })}
+                        </div>
+                        {lineupForm[type].length < 5 && <button className="btn-add-song" onClick={() => addSong(type)}><i className="fas fa-plus-circle"></i> Add {type === 'slowSongs' ? 'Slow' : 'Fast'} Song</button>}
                       </div>
                     ))}
-                    {lineupForm[type].length < 5 && <button type="button" className="btn-secondary" onClick={() => addSong(type)}><i className="fas fa-plus"></i> Add {type === 'slowSongs' ? 'Slow' : 'Fast'} Song</button>}
                   </div>
-                ))}
 
-                <button className="btn-primary btn-submit-lineup" onClick={submitLineup} disabled={lineupLoading}>
-                  {lineupLoading ? 'Submitting...' : <><i className="fas fa-paper-plane"></i> Submit Lineup</>}
-                </button>
-              </div>
+                  {/* Submit */}
+                  <div className="lineup-submit-row">
+                    <button className="btn-secondary" onClick={resetLineupForm}><i className="fas fa-arrow-left"></i> Cancel</button>
+                    <button className="btn-primary btn-submit-lineup" onClick={submitLineup} disabled={lineupLoading}>
+                      {lineupLoading ? <><div className="spinner" style={{ display: 'inline-block', width: 18, height: 18, marginRight: 8 }}></div> Saving...</> : <><i className="fas fa-paper-plane"></i> {editingLineup ? 'Update Lineup' : 'Submit Lineup'}</>}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ========== MY LINEUPS (Song Leader) ========== */}
+          {canManage(MODULES.CREATE_SONG_LIST) && (
+            <section className={`content-section ${activeSection === 'my-lineups' ? 'active' : ''}`}>
+              <h2 className="section-title"><i className="fas fa-list"></i> My Lineups</h2>
+              {getMyLineups().length === 0 ? (
+                <div className="lineup-empty-state">
+                  <i className="fas fa-music"></i>
+                  <h3>No Lineups Yet</h3>
+                  <p>You haven&apos;t created any lineups yet. Start by creating one!</p>
+                  <button className="btn-primary" onClick={() => { resetLineupForm(); setActiveSection('create-lineup'); }} style={{ marginTop: 15, padding: '12px 25px' }}><i className="fas fa-plus"></i> Create Lineup</button>
+                </div>
+              ) : (
+                <div className="my-lineups-grid">
+                  {getMyLineups().map((lineup) => (
+                    <div key={lineup.scheduleId} className="my-lineup-card">
+                      <div className="my-lineup-card-header">
+                        <div className="my-lineup-date-badge">
+                          <span className="mlc-month">{new Date(lineup.scheduleDate).toLocaleDateString('en-US', { month: 'short' })}</span>
+                          <span className="mlc-day">{new Date(lineup.scheduleDate).getDate()}</span>
+                          <span className="mlc-year">{new Date(lineup.scheduleDate).getFullYear()}</span>
+                        </div>
+                        <div className="my-lineup-info">
+                          <h4>{formatDate(lineup.scheduleDate)}</h4>
+                          <p><i className="fas fa-microphone"></i> {lineup.songLeader}</p>
+                          {lineup.backupSingers?.length > 0 && <p className="backup-text"><i className="fas fa-users"></i> {lineup.backupSingers.join(', ')}</p>}
+                          {lineup.practiceDate && <p className="practice-text"><i className="fas fa-calendar-alt"></i> Practice: {formatDate(lineup.practiceDate)}</p>}
+                        </div>
+                      </div>
+                      <div className="my-lineup-songs-row">
+                        <div className="my-lineup-song-group slow">
+                          <span className="song-group-label"><i className="fas fa-music"></i> Slow</span>
+                          {lineup.slowSongs?.length > 0 ? lineup.slowSongs.map((s, i) => <span key={i} className="song-pill">{s.title}</span>) : <span className="no-songs">None</span>}
+                        </div>
+                        <div className="my-lineup-song-group fast">
+                          <span className="song-group-label"><i className="fas fa-bolt"></i> Fast</span>
+                          {lineup.fastSongs?.length > 0 ? lineup.fastSongs.map((s, i) => <span key={i} className="song-pill">{s.title}</span>) : <span className="no-songs">None</span>}
+                        </div>
+                      </div>
+                      <div className="my-lineup-actions">
+                        <button className="btn-edit-lineup" onClick={() => startEditLineup(lineup)}><i className="fas fa-edit"></i> Edit</button>
+                        {deleteConfirmId === lineup.scheduleId ? (
+                          <div className="delete-confirm-inline">
+                            <span>Delete?</span>
+                            <button className="btn-confirm-yes" onClick={() => deleteLineup(lineup.scheduleId)}><i className="fas fa-check"></i> Yes</button>
+                            <button className="btn-confirm-no" onClick={() => setDeleteConfirmId(null)}><i className="fas fa-times"></i> No</button>
+                          </div>
+                        ) : (
+                          <button className="btn-delete-lineup" onClick={() => setDeleteConfirmId(lineup.scheduleId)}><i className="fas fa-trash-alt"></i> Delete</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           )}
 

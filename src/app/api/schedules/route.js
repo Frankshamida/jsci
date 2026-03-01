@@ -87,3 +87,62 @@ export async function POST(request) {
     return NextResponse.json({ success: false, message: 'Server error: ' + error.message }, { status: 500 });
   }
 }
+
+// PUT update a schedule/lineup
+export async function PUT(request) {
+  try {
+    const body = await request.json();
+    const { scheduleId, songLeader, backupSingers, scheduleDate, practiceDate, slowSongs, fastSongs } = body;
+
+    if (!scheduleId) {
+      return NextResponse.json({ success: false, message: 'Schedule ID is required' }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from('schedules')
+      .update({
+        song_leader: songLeader,
+        backup_singers: backupSingers || [],
+        schedule_date: scheduleDate,
+        practice_date: practiceDate || null,
+        slow_songs: slowSongs || [],
+        fast_songs: fastSongs || [],
+      })
+      .eq('schedule_id', scheduleId);
+
+    if (error) {
+      return NextResponse.json({ success: false, message: 'Error updating schedule: ' + error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, message: 'Lineup updated successfully!' });
+  } catch (error) {
+    console.error('Update schedule error:', error);
+    return NextResponse.json({ success: false, message: 'Server error: ' + error.message }, { status: 500 });
+  }
+}
+
+// DELETE a schedule/lineup
+export async function DELETE(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const scheduleId = searchParams.get('scheduleId');
+
+    if (!scheduleId) {
+      return NextResponse.json({ success: false, message: 'Schedule ID is required' }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from('schedules')
+      .delete()
+      .eq('schedule_id', scheduleId);
+
+    if (error) {
+      return NextResponse.json({ success: false, message: 'Error deleting schedule: ' + error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, message: 'Lineup deleted successfully!' });
+  } catch (error) {
+    console.error('Delete schedule error:', error);
+    return NextResponse.json({ success: false, message: 'Server error: ' + error.message }, { status: 500 });
+  }
+}

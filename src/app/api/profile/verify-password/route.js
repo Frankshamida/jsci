@@ -4,16 +4,16 @@ import bcrypt from 'bcryptjs';
 
 export async function POST(request) {
   try {
-    const { username, currentPassword } = await request.json();
+    const { email, currentPassword } = await request.json();
 
-    if (!username || !currentPassword) {
-      return NextResponse.json({ success: false, message: 'Username and password are required' }, { status: 400 });
+    if (!email || !currentPassword) {
+      return NextResponse.json({ success: false, message: 'Email and password are required' }, { status: 400 });
     }
 
     const { data: user, error } = await supabase
       .from('users')
       .select('password')
-      .eq('username', username.trim())
+      .eq('email', email.trim().toLowerCase())
       .single();
 
     if (error || !user) {
