@@ -60,8 +60,15 @@ export default function HomePage() {
   const [dailyVerse, setDailyVerse] = useState({ verse: '', reference: '' });
   const heroTimer = useRef(null);
 
-  // ---- Check logged in ----
+  // ---- Check logged in & catch OAuth hash redirect ----
   useEffect(() => {
+    // Safety net: if Google OAuth redirects to root with tokens in hash, redirect to callback page
+    if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+      const hashParams = window.location.hash.substring(1);
+      router.replace(`/auth/callback?mode=login#${hashParams}`);
+      return;
+    }
+
     const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
     if (userData && userData.firstname && userData.email) {
       router.replace('/dashboard');

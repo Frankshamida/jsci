@@ -9,8 +9,9 @@ export async function POST(request) {
     const { mode } = await request.json(); // 'login' or 'signup'
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    // Determine the redirect URL based on the request origin
-    const origin = request.headers.get('origin') || 'http://localhost:3000';
+    // Determine the redirect URL - prefer NEXT_PUBLIC_SITE_URL for production
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    const origin = siteUrl || request.headers.get('origin') || 'http://localhost:3000';
     const redirectTo = `${origin}/auth/callback?mode=${mode || 'login'}`;
 
     const { data, error } = await supabase.auth.signInWithOAuth({

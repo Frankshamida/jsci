@@ -16,11 +16,47 @@ function AuthCallbackContent() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        const supabase = createClient(supabaseUrl, supabaseAnonKey);
+        const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+          auth: {
+            detectSessionInUrl: true,
+            flowType: 'implicit',
+            persistSession: true,
+          },
+        });
         const mode = searchParams.get('mode') || 'login';
 
-        // Get the session from Supabase Auth (handles the OAuth code exchange)
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        // Wait for the session from URL hash using onAuthStateChange
+        // This reliably handles the OAuth token fragments in the URL
+        const { session, error: sessionError } = await new Promise((resolve) => {
+          let resolved = false;
+
+          const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            // INITIAL_SESSION fires when the client finishes loading the session
+            // SIGNED_IN fires when a new sign-in is detected from URL tokens
+            if (!resolved && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
+              if (session) {
+                resolved = true;
+                subscription.unsubscribe();
+                resolve({ session, error: null });
+              } else if (event === 'INITIAL_SESSION') {
+                // INITIAL_SESSION with no session means no tokens were found
+                resolved = true;
+                subscription.unsubscribe();
+                resolve({ session: null, error: { message: 'No session found' } });
+              }
+            }
+          });
+
+          // Safety timeout — if nothing fires in 10 seconds, fall back to getSession
+          setTimeout(async () => {
+            if (!resolved) {
+              resolved = true;
+              subscription.unsubscribe();
+              const { data, error } = await supabase.auth.getSession();
+              resolve({ session: data?.session || null, error });
+            }
+          }, 10000);
+        });
 
         if (sessionError || !session) {
           setStatus('Authentication failed. Redirecting...');

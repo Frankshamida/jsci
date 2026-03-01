@@ -16,6 +16,13 @@ export default function LoginPage() {
   const [alert, setAlert] = useState({ message: '', type: '' });
 
   useEffect(() => {
+    // Safety net: catch OAuth hash tokens that land on this page
+    if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+      const hashParams = window.location.hash.substring(1);
+      router.replace(`/auth/callback?mode=login#${hashParams}`);
+      return;
+    }
+
     // Redirect if already logged in
     const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
     if (userData.firstname) {
