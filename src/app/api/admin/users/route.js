@@ -2,16 +2,27 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import bcrypt from 'bcryptjs';
 
-// GET - Fetch all users (Admin, Super Admin)
+// GET - Fetch all users (Admin, Super Admin) or get event permissions for a specific user
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
+
+    // Lightweight endpoint: any user can check their own event permissions
+    if (action === 'get-event-permissions') {
+      const userId = searchParams.get('userId');
+      if (!userId) return NextResponse.json({ success: false, message: 'userId required' }, { status: 400 });
+      const { data, error } = await supabase.from('users').select('allowed_event_types').eq('id', userId).single();
+      if (error) throw error;
+      return NextResponse.json({ success: true, allowed_event_types: data?.allowed_event_types || [] });
+    }
+
     const role = searchParams.get('role');
     const ministry = searchParams.get('ministry');
     const status = searchParams.get('status');
 
     let query = supabase.from('users')
-      .select('id, member_id, firstname, lastname, email, birthdate, ministry, sub_role, role, status, is_active, last_login, created_at')
+      .select('id, member_id, firstname, lastname, email, birthdate, ministry, sub_role, role, status, is_active, last_login, created_at, allowed_event_types')
       .order('created_at', { ascending: false });
 
     const subRole = searchParams.get('sub_role');
@@ -52,7 +63,8 @@ export async function POST(request) {
       ministry: ministry || null, sub_role: sub_role || null, role: role || 'Guest',
       security_question: 'Set by admin', security_answer: 'admin',
       status: 'Verified', is_active: true,
-    }).select('id, member_id, firstname, lastname, email, ministry, sub_role, role, status, is_active, created_at').single();
+      allowed_event_types: body.allowed_event_types || [],
+    }).select('id, member_id, firstname, lastname, email, ministry, sub_role, role, status, is_active, created_at, allowed_event_types').single();
 
     if (error) throw error;
     return NextResponse.json({ success: true, data, message: 'User created successfully' });
@@ -102,6 +114,12 @@ export async function PUT(request) {
       return NextResponse.json({ success: true, message: `Role updated to ${updates.role}` });
     }
 
+    if (action === 'update-event-permissions') {
+      const { error } = await supabase.from('users').update({ allowed_event_types: updates.allowed_event_types || [] }).eq('id', id);
+      if (error) throw error;
+      return NextResponse.json({ success: true, message: 'Event creation permissions updated' });
+    }
+
     // General update
     const updateData = {};
     if (updates.firstname) updateData.firstname = updates.firstname;
@@ -110,9 +128,10 @@ export async function PUT(request) {
     if (updates.sub_role !== undefined) updateData.sub_role = updates.sub_role || null;
     if (updates.role) updateData.role = updates.role;
     if (updates.status) updateData.status = updates.status;
+    if (updates.allowed_event_types !== undefined) updateData.allowed_event_types = updates.allowed_event_types;
 
     const { data, error } = await supabase.from('users').update(updateData).eq('id', id)
-      .select('id, member_id, firstname, lastname, email, ministry, sub_role, role, status, is_active').single();
+      .select('id, member_id, firstname, lastname, email, ministry, sub_role, role, status, is_active, allowed_event_types').single();
     if (error) throw error;
 
     return NextResponse.json({ success: true, data, message: 'User updated' });

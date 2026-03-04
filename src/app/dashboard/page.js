@@ -14,6 +14,9 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const ALL_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor', 'Admin', 'Super Admin'];
 const ALL_MINISTRIES = ['Praise And Worship', 'Media', 'Dancers', 'Ashers', 'Pastors', 'Teachers'];
 
+// Event types that admin can enable for users
+const USER_EVENT_TYPES = ['Event', 'Meeting', 'Bible Study', 'Prayer Meeting', 'Fellowship', 'Outreach', 'Workshop', 'Other'];
+
 // Ministry → Sub-Role mapping (Admin picks ministry, then sub-role dropdown shows these)
 const MINISTRY_SUB_ROLES = {
   'Praise And Worship': ['Song Leaders', 'Song Leader Backupers', 'Instrumentalists', 'Dancers'],
@@ -173,9 +176,13 @@ export default function DashboardPage() {
   const [userRole, setUserRole] = useState('Guest');
   const [activeSection, setActiveSection] = useState('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+
+  // Pastors carousel
+  const [pastorCarouselIndex, setPastorCarouselIndex] = useState(0);
 
   // Bible verse
   const [dailyVerse, setDailyVerse] = useState({ verse: 'Loading verse of the day...', reference: 'Loading...', explanation: '' });
@@ -255,6 +262,21 @@ export default function DashboardPage() {
   const [eventForm, setEventForm] = useState({ title: '', description: '', eventDate: '', endDate: '', location: '' });
   const [showEventForm, setShowEventForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
+
+  // User-Created Events (enabled by admin)
+  const [userEvents, setUserEvents] = useState([]);
+  const [userEventForm, setUserEventForm] = useState({ title: '', description: '', eventType: 'Event', eventDate: '', endDate: '', location: '' });
+  const [showUserEventForm, setShowUserEventForm] = useState(false);
+  const [editingUserEvent, setEditingUserEvent] = useState(null);
+  const [userEventRsvps, setUserEventRsvps] = useState(null); // { data, grouped, counts }
+  const [viewingUserEventRsvps, setViewingUserEventRsvps] = useState(null); // event object
+  const [allUserEventsForPastor, setAllUserEventsForPastor] = useState([]);
+  const [pastorViewingEvent, setPastorViewingEvent] = useState(null);
+  const [pastorEventRsvps, setPastorEventRsvps] = useState(null);
+  const [eventPermissionsUser, setEventPermissionsUser] = useState(null); // user being edited for event perms
+  const [eventPermissionsForm, setEventPermissionsForm] = useState([]); // array of selected types
+  const [browseUserEvents, setBrowseUserEvents] = useState([]); // all user events (for browsing/RSVP)
+  const [myEventsTab, setMyEventsTab] = useState('mine'); // 'mine' or 'browse'
 
   // Announcements
   const [announcements, setAnnouncements] = useState([]);
@@ -380,6 +402,24 @@ export default function DashboardPage() {
     loadScheduleData();
     loadBirthdays();
     if (stored.id) loadNotifications(stored.id);
+
+    // Refresh allowed_event_types from server (in case admin changed permissions)
+    if (stored.id) {
+      fetch(`/api/admin/users?action=get-event-permissions&userId=${stored.id}`)
+        .then(r => r.json())
+        .then(result => {
+          if (result.success) {
+            const updatedTypes = result.allowed_event_types || [];
+            const current = stored.allowed_event_types || [];
+            if (JSON.stringify(updatedTypes) !== JSON.stringify(current)) {
+              const updated = { ...stored, allowed_event_types: updatedTypes };
+              setUserData(updated);
+              sessionStorage.setItem('userData', JSON.stringify(updated));
+            }
+          }
+        })
+        .catch(() => { /* silent - use cached data */ });
+    }
   }, [router]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
@@ -441,6 +481,9 @@ export default function DashboardPage() {
     if (sectionId === 'system-config') loadSystemSettings();
     if (sectionId === 'create-lineup') { loadScheduleData(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
     if (sectionId === 'my-lineups') loadScheduleData();
+    if (sectionId === 'my-created-events') { loadUserEvents(); loadBrowseUserEvents(); }
+    if (sectionId === 'community-events') loadBrowseUserEvents();
+    if (sectionId === 'user-events-oversight') loadAllUserEventsForPastor();
     if (sectionId === 'spiritual-assistant' && chatMessages.length === 0) {
       setChatMessages([{ role: 'assistant', content: `Hello ${userData?.firstname || 'friend'}! 🙏 I'm your Spiritual AI Assistant. How can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
     }
@@ -607,6 +650,48 @@ export default function DashboardPage() {
     } catch { /* silent */ }
   };
 
+  // User-Created Events
+  const loadUserEvents = async () => {
+    try {
+      if (!userData?.id) return;
+      const res = await fetch(`/api/user-events?createdBy=${userData.id}&userId=${userData.id}`);
+      const data = await res.json();
+      if (data.success) setUserEvents(data.data);
+    } catch { /* silent */ }
+  };
+
+  const loadAllUserEventsForPastor = async () => {
+    try {
+      const res = await fetch(`/api/user-events?all=true&userId=${userData?.id}`);
+      const data = await res.json();
+      if (data.success) setAllUserEventsForPastor(data.data);
+    } catch { /* silent */ }
+  };
+
+  const loadBrowseUserEvents = async () => {
+    try {
+      const res = await fetch(`/api/user-events?upcoming=true&userId=${userData?.id}`);
+      const data = await res.json();
+      if (data.success) setBrowseUserEvents(data.data);
+    } catch { /* silent */ }
+  };
+
+  const loadUserEventRsvps = async (eventId) => {
+    try {
+      const res = await fetch(`/api/user-events/rsvp?eventId=${eventId}`);
+      const data = await res.json();
+      if (data.success) setUserEventRsvps(data);
+    } catch { /* silent */ }
+  };
+
+  const loadPastorEventRsvps = async (eventId) => {
+    try {
+      const res = await fetch(`/api/user-events/rsvp?eventId=${eventId}`);
+      const data = await res.json();
+      if (data.success) setPastorEventRsvps(data);
+    } catch { /* silent */ }
+  };
+
   // ============================================
   // ACTION HANDLERS
   // ============================================
@@ -674,6 +759,106 @@ export default function DashboardPage() {
     const res = await fetch('/api/meetings/rsvp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId, userId: userData?.id, status }) });
     const data = await res.json();
     if (data.success) showToast(`RSVP: ${status}`, 'success');
+  };
+
+  // -- User-Created Events --
+  const handleUserEventSubmit = async () => {
+    try {
+      if (editingUserEvent) {
+        const res = await fetch('/api/user-events', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editingUserEvent.id,
+            userId: userData?.id,
+            userRole,
+            title: userEventForm.title,
+            description: userEventForm.description,
+            eventType: userEventForm.eventType,
+            eventDate: userEventForm.eventDate,
+            endDate: userEventForm.endDate,
+            location: userEventForm.location,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Event updated successfully!', 'success');
+          setShowUserEventForm(false);
+          setEditingUserEvent(null);
+          setUserEventForm({ title: '', description: '', eventType: 'Event', eventDate: '', endDate: '', location: '' });
+          loadUserEvents();
+          if (activeSection === 'user-events-oversight') loadAllUserEventsForPastor();
+        } else showToast(data.message, 'danger');
+      } else {
+        const res = await fetch('/api/user-events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...userEventForm,
+            createdBy: userData?.id,
+            createdByName: `${userData?.firstname} ${userData?.lastname}`,
+            ministry: userData?.ministry || null,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Event created successfully!', 'success');
+          setShowUserEventForm(false);
+          setUserEventForm({ title: '', description: '', eventType: 'Event', eventDate: '', endDate: '', location: '' });
+          loadUserEvents();
+        } else showToast(data.message, 'danger');
+      }
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const handleDeleteUserEvent = async (id) => {
+    if (!confirm('Delete this event?')) return;
+    const res = await fetch(`/api/user-events?id=${id}&userId=${userData?.id}&userRole=${userRole}`, { method: 'DELETE' });
+    const data = await res.json();
+    showToast(data.message, data.success ? 'success' : 'danger');
+    if (data.success) {
+      loadUserEvents();
+      if (activeSection === 'user-events-oversight') loadAllUserEventsForPastor();
+    }
+  };
+
+  const handleUserEventRSVP = async (eventId, status) => {
+    try {
+      const res = await fetch('/api/user-events/rsvp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId, userId: userData?.id, status }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`RSVP: ${status}`, 'success');
+        loadUserEvents();
+        loadBrowseUserEvents();
+        if (activeSection === 'user-events-oversight') loadAllUserEventsForPastor();
+      }
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const handleUpdateEventPermissions = async (userId, allowedTypes) => {
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userId, action: 'update-event-permissions', allowed_event_types: allowedTypes }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Event permissions updated!', 'success');
+        setEventPermissionsUser(null);
+        loadAdminUsers();
+        // If admin updated their own permissions, refresh local session
+        if (userId === userData?.id) {
+          const updated = { ...userData, allowed_event_types: allowedTypes };
+          setUserData(updated);
+          sessionStorage.setItem('userData', JSON.stringify(updated));
+        }
+      } else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
   };
 
   // -- Community Hub --
@@ -1364,7 +1549,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
   const initials = `${userData.firstname?.[0] || ''}${userData.lastname?.[0] || ''}`.toUpperCase();
   const dashboardType = getDashboardType(userRole);
-  const sidebarMenu = getSidebarMenu(userRole);
+  const sidebarMenu = getSidebarMenu(userRole, userData);
   const canManage = (module) => hasPermission(userRole, module);
 
   // ============================================
@@ -1482,30 +1667,23 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
       <div className="dashboard-container">
         {/* ============ SIDEBAR ============ */}
-        <aside className={`sidebar ${sidebarOpen ? 'active' : ''}`}>
-          <div className="sidebar-header">
-            <div className="logo"></div>
-            <div className="church-name">JOYFUL SOUND CHURCH</div>
-            <div className="church-subtitle">INTERNATIONAL</div>
-
-            <div className="user-info">
-              <div className="user-avatar-container">
-                <div className="user-avatar"><div className="avatar-content">{initials}</div></div>
-                <div className="status-indicator">
-                  <div className={`status-circle ${isVerified ? 'verified' : 'unverified'}`} title={isVerified ? 'Verified' : 'Unverified'}></div>
-                </div>
+        <aside className={`sidebar ${sidebarOpen ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
+          {/* Top: Logo + Brand (vertical) */}
+          <div className="sidebar-top">
+            <div className="sidebar-brand">
+              <div className="logo">
+                <img src="/assets/LOGO.png" alt="JSCI Logo" />
               </div>
-              <div className="user-details">
-                <div className="user-name">{userData.firstname} {userData.lastname}</div>
-                {userData.ministry && <div className="user-ministry">{userData.ministry} Ministry</div>}
-                <div className="user-role-badge" style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, background: 'rgba(255,195,0,0.2)', color: 'var(--accent)', marginTop: 4, display: 'inline-block' }}>
-                  {userRole}
-                </div>
+              <div className="brand-text">
+                <span className="brand-name">JOYFUL SOUND</span>
+                <span className="brand-sub">CHURCH INTERNATIONAL</span>
               </div>
             </div>
           </div>
 
+          {/* Menu */}
           <nav className="sidebar-menu">
+            <div className="menu-section-label">Menu</div>
             {sidebarMenu.map((item) => {
               const isGuestRole = userRole === 'Guest';
               const isLocked = !isVerified && !isGuestRole && item.section !== 'home';
@@ -1513,40 +1691,61 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
                 <a key={item.id}
                   className={`menu-item ${activeSection === item.section ? 'active' : ''} ${isLocked ? 'disabled' : ''}`}
                   onClick={() => showSection(item.section)}
+                  title={sidebarCollapsed ? item.label : ''}
                 >
                   <span className="menu-icon"><i className={item.icon}></i></span>
-                  <span>{item.label}</span>
+                  <span className="menu-label">{item.label}</span>
                   {item.section === 'messages' && unreadCount > 0 && (
                     <span className="notification-badge">{unreadCount}</span>
                   )}
                   {isLocked && (
-                    <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#ffc107' }}><i className="fas fa-lock"></i></span>
+                    <span className="menu-lock"><i className="fas fa-lock"></i></span>
                   )}
                 </a>
               );
             })}
           </nav>
 
-          <button className="logout-btn" onClick={() => setShowLogoutModal(true)}>
-            <i className="fas fa-sign-out-alt" style={{ marginRight: 10 }}></i> Logout
-          </button>
+          {/* Bottom: Collapse toggle + User card + Logout + Theme */}
+          <div className="sidebar-bottom">
+            <button className="collapse-toggle" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? 'Expand' : 'Collapse'}>
+              <i className={`fas fa-chevron-${sidebarCollapsed ? 'right' : 'left'}`}></i>
+              <span className="collapse-label">{sidebarCollapsed ? 'Expand' : 'Collapse'}</span>
+            </button>
+            <div className="sidebar-user-card" onClick={() => showSection('my-profile')}>
+              <div className="sidebar-avatar">
+                {userData.profile_picture ? (
+                  <img src={userData.profile_picture} alt="Profile" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="avatar-initials">{initials}</span>
+                )}
+                <div className={`sidebar-status-dot ${isVerified ? 'verified' : 'unverified'}`}></div>
+              </div>
+              <div className="sidebar-user-info">
+                <div className="sidebar-user-name">{userData.firstname} {userData.lastname}</div>
+                <div className="sidebar-user-email">{userData.email}</div>
+              </div>
+              <div className="sidebar-role-pill">{userRole}</div>
+            </div>
+
+            <button className="logout-btn" onClick={() => setShowLogoutModal(true)}>
+              <i className="fas fa-sign-out-alt"></i>
+              <span className="logout-label">Logout</span>
+            </button>
+
+            <div className="sidebar-theme-toggle">
+              <button className={`theme-btn ${!darkMode ? 'active' : ''}`} onClick={() => { if (darkMode) toggleDarkMode(); }}>
+                <i className="fas fa-sun"></i> <span className="theme-label">Light</span>
+              </button>
+              <button className={`theme-btn ${darkMode ? 'active' : ''}`} onClick={() => { if (!darkMode) toggleDarkMode(); }}>
+                <i className="fas fa-moon"></i> <span className="theme-label">Dark</span>
+              </button>
+            </div>
+          </div>
         </aside>
 
         {/* ============ MAIN CONTENT ============ */}
         <main className="main-content">
-          <div className="content-header">
-            <h1 id="pageTitle">
-              {dashboardType === 'super-admin' && 'Super Admin Dashboard'}
-              {dashboardType === 'admin' && 'Admin Dashboard'}
-              {dashboardType === 'pastor' && 'Pastor Dashboard'}
-              {dashboardType === 'guest' && 'Guest Dashboard'}
-              {dashboardType === 'ministry' && 'Ministry Portal'}
-            </h1>
-            <p>{userRole}{userData.ministry ? ` — ${userData.ministry} Ministry` : ''}</p>
-            <button className="dark-mode-toggle-header" onClick={toggleDarkMode} title="Toggle Dark Mode">
-              <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
-            </button>
-          </div>
 
           {!isVerified && userRole !== 'Guest' && (
             <div className="verification-banner">
@@ -1557,17 +1756,50 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== HOME SECTION ========== */}
           <section className={`content-section ${activeSection === 'home' ? 'active' : ''}`}>
+            <h2 className="section-title">Home</h2>
             {isVerified ? (
               <>
-                <div className="welcome-message">
-                  <h2><i className="fas fa-hand-sparkles"></i> Welcome back, {userData.firstname}!</h2>
-                  <p>
-                    {dashboardType === 'super-admin' && 'Full system access. Manage everything from here.'}
-                    {dashboardType === 'admin' && 'Manage users, ministries, and system operations.'}
-                    {dashboardType === 'pastor' && 'Oversee ministries, events, and your congregation.'}
-                    {dashboardType === 'guest' && 'Welcome! Please wait for the Pastor to assign your ministry and role.'}
-                    {dashboardType === 'ministry' && "Here's what's happening in your ministry today."}
-                  </p>
+                <div className="welcome-card">
+                  <div className="welcome-card-glow"></div>
+                  <div className="welcome-card-abstract">
+                    <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="120" cy="80" r="60" fill="rgba(255,195,0,0.06)" />
+                      <circle cx="160" cy="120" r="45" fill="rgba(255,195,0,0.04)" />
+                      <circle cx="80" cy="140" r="30" fill="rgba(255,255,255,0.03)" />
+                      <path d="M10,180 Q60,100 120,160 T200,100" stroke="rgba(255,195,0,0.12)" strokeWidth="1.5" fill="none" />
+                      <path d="M0,140 Q80,60 160,130 T240,80" stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />
+                      <path d="M30,200 Q100,120 180,180" stroke="rgba(255,195,0,0.08)" strokeWidth="1" fill="none" />
+                    </svg>
+                  </div>
+                  <div className="welcome-card-content">
+                    <div className="welcome-date">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                    <h2 className="welcome-greeting">{(() => {
+                      const greetings = [
+                        `Welcome home, ${userData.firstname}. We're so glad you're here.`,
+                        `It's a joy to see you, ${userData.firstname}.`,
+                        `You are a blessing to this ministry, ${userData.firstname}.`,
+                        `We're better because you're here, ${userData.firstname}.`,
+                        `You belong here, ${userData.firstname}.`,
+                        `Grace and peace to you, ${userData.firstname}.`,
+                        `May God refresh your heart today, ${userData.firstname}.`,
+                        `The Lord has something beautiful for you today, ${userData.firstname}.`,
+                        `Walk boldly in faith today, ${userData.firstname}.`,
+                        `Your service matters, ${userData.firstname}. Heaven sees it.`,
+                        `Welcome, ${userData.firstname}. Thank you for serving faithfully.`,
+                        `Your dedication blesses many, ${userData.firstname}.`,
+                        `Lead with love today, ${userData.firstname}.`,
+                        `Your impact in this ministry is powerful, ${userData.firstname}.`,
+                        `Let's serve with excellence today, ${userData.firstname}.`,
+                        `Welcome, ${userData.firstname}. Let's grow together.`,
+                        `Good to see you, ${userData.firstname}.`,
+                        `Shine for His glory today, ${userData.firstname}.`,
+                        `Ready for today's mission, ${userData.firstname}?`,
+                        `Glad you're here, ${userData.firstname}.`,
+                      ];
+                      const dayIndex = new Date().getDate() % greetings.length;
+                      return greetings[dayIndex];
+                    })()}</h2>
+                  </div>
                 </div>
 
                 {/* Dashboard Stats */}
@@ -1582,23 +1814,6 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
                 {/* Bible Verse */}
                 <div className="bible-verse-container">
-                  <div className="verse-controls">
-                    <div className="version-selector">
-                      <label>Version:</label>
-                      <select
-                        className="version-dropdown"
-                        value={bibleVersion}
-                        onChange={(e) => {
-                          setBibleVersion(e.target.value);
-                          localStorage.setItem('bibleVersionPref', e.target.value);
-                        }}
-                      >
-                        {BIBLE_VERSIONS.map((v) => (
-                          <option key={v.value} value={v.value}>{v.label} — {v.fullName}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
                   <div className="verse-of-the-day">&ldquo;{dailyVerse.verse}&rdquo;</div>
                   <div className="verse-reference">— {dailyVerse.reference}</div>
                   {dailyVerse.explanation && <div className="verse-explanation">{dailyVerse.explanation}</div>}
@@ -1608,13 +1823,147 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
                 {dashboardType === 'ministry' && (
                   <>
                     <div className="pastors-section">
-                      <h2><i className="fas fa-crown"></i> Our Spiritual Leaders</h2>
-                      <div className="pastors-grid">
-                        {PASTORS.map((p, i) => (<div key={i} className="pastor-card"><div className="pastor-photo" style={{ backgroundImage: `url('${p.photo}')`, backgroundColor: '#f8f9fa' }}></div><div className="pastor-name">{p.name}</div><div className="pastor-title">{p.title}</div></div>))}
+                      <div className="pastors-big-title">OUR PASTORS</div>
+                      <div className="pastors-carousel">
+                        <div className="pastors-backdrop">
+                          <svg viewBox="0 0 900 480" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+                            <defs>
+                              {/* Golden flare gradient */}
+                              <radialGradient id="pgFlare1" cx="50%" cy="50%" r="50%">
+                                <stop offset="0%" stopColor="rgba(255,195,0,0.28)" />
+                                <stop offset="40%" stopColor="rgba(201,152,11,0.12)" />
+                                <stop offset="100%" stopColor="rgba(146,108,21,0)" />
+                              </radialGradient>
+                              <radialGradient id="pgFlare2" cx="50%" cy="50%" r="50%">
+                                <stop offset="0%" stopColor="rgba(255,195,0,0.22)" />
+                                <stop offset="50%" stopColor="rgba(201,152,11,0.08)" />
+                                <stop offset="100%" stopColor="rgba(146,108,21,0)" />
+                              </radialGradient>
+                              <radialGradient id="pgFlare3" cx="50%" cy="50%" r="50%">
+                                <stop offset="0%" stopColor="rgba(255,215,80,0.18)" />
+                                <stop offset="100%" stopColor="rgba(255,195,0,0)" />
+                              </radialGradient>
+                              {/* Sweep line gradients */}
+                              <linearGradient id="pgSweep1" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor="rgba(146,108,21,0)" />
+                                <stop offset="30%" stopColor="rgba(201,152,11,0.25)" />
+                                <stop offset="70%" stopColor="rgba(201,152,11,0.25)" />
+                                <stop offset="100%" stopColor="rgba(146,108,21,0)" />
+                              </linearGradient>
+                              <linearGradient id="pgSweep2" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor="rgba(146,108,21,0)" />
+                                <stop offset="50%" stopColor="rgba(255,195,0,0.15)" />
+                                <stop offset="100%" stopColor="rgba(146,108,21,0)" />
+                              </linearGradient>
+                              {/* Star sparkle */}
+                              <filter id="pgGlow">
+                                <feGaussianBlur stdDeviation="2" result="blur" />
+                                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                              </filter>
+                            </defs>
+
+                            {/* === Large ambient golden flares === */}
+                            <ellipse cx="450" cy="240" rx="350" ry="200" fill="url(#pgFlare1)" />
+                            <ellipse cx="200" cy="200" rx="220" ry="160" fill="url(#pgFlare2)" />
+                            <ellipse cx="720" cy="220" rx="220" ry="160" fill="url(#pgFlare2)" />
+                            {/* Smaller accent flares */}
+                            <ellipse cx="100" cy="120" rx="100" ry="80" fill="url(#pgFlare3)" />
+                            <ellipse cx="800" cy="100" rx="110" ry="80" fill="url(#pgFlare3)" />
+                            <ellipse cx="450" cy="400" rx="250" ry="80" fill="url(#pgFlare3)" />
+
+                            {/* === Sweeping elegant arcs === */}
+                            <path d="M0,380 Q250,80 450,200 Q650,320 900,80" stroke="url(#pgSweep1)" strokeWidth="1.5" fill="none" />
+                            <path d="M0,320 Q300,120 500,240 Q700,360 900,160" stroke="rgba(201,152,11,0.15)" strokeWidth="1" fill="none" />
+                            <path d="M50,400 Q450,20 850,400" stroke="url(#pgSweep2)" strokeWidth="1.2" fill="none" />
+                            <path d="M100,420 Q450,80 800,420" stroke="rgba(146,108,21,0.1)" strokeWidth="0.8" fill="none" />
+
+                            {/* === Decorative golden circles === */}
+                            <circle cx="120" cy="160" r="90" stroke="rgba(201,152,11,0.12)" strokeWidth="1" fill="none" />
+                            <circle cx="120" cy="160" r="60" stroke="rgba(201,152,11,0.08)" strokeWidth="0.6" fill="none" />
+                            <circle cx="780" cy="180" r="100" stroke="rgba(201,152,11,0.12)" strokeWidth="1" fill="none" />
+                            <circle cx="780" cy="180" r="65" stroke="rgba(201,152,11,0.08)" strokeWidth="0.6" fill="none" />
+                            <circle cx="450" cy="240" r="220" stroke="rgba(146,108,21,0.06)" strokeWidth="0.8" fill="none" />
+                            <circle cx="450" cy="240" r="280" stroke="rgba(146,108,21,0.04)" strokeWidth="0.5" fill="none" />
+
+                            {/* === Bokeh dots === */}
+                            <circle cx="80" cy="100" r="6" fill="rgba(255,195,0,0.18)" />
+                            <circle cx="160" cy="60" r="4" fill="rgba(255,195,0,0.14)" />
+                            <circle cx="60" cy="300" r="5" fill="rgba(201,152,11,0.16)" />
+                            <circle cx="840" cy="90" r="5" fill="rgba(255,195,0,0.18)" />
+                            <circle cx="800" cy="340" r="6" fill="rgba(201,152,11,0.16)" />
+                            <circle cx="870" cy="260" r="4" fill="rgba(255,195,0,0.12)" />
+                            <circle cx="300" cy="50" r="3.5" fill="rgba(255,195,0,0.14)" />
+                            <circle cx="600" cy="40" r="3" fill="rgba(255,195,0,0.12)" />
+                            <circle cx="350" cy="420" r="4" fill="rgba(201,152,11,0.14)" />
+                            <circle cx="550" cy="430" r="3.5" fill="rgba(201,152,11,0.12)" />
+
+                            {/* === Diamond sparkles with glow === */}
+                            <g filter="url(#pgGlow)">
+                              <path d="M130,90 L138,102 L130,114 L122,102 Z" fill="rgba(255,195,0,0.25)" />
+                              <path d="M770,80 L778,92 L770,104 L762,92 Z" fill="rgba(255,195,0,0.25)" />
+                              <path d="M50,250 L56,260 L50,270 L44,260 Z" fill="rgba(201,152,11,0.2)" />
+                              <path d="M850,280 L856,290 L850,300 L844,290 Z" fill="rgba(201,152,11,0.2)" />
+                            </g>
+
+                            {/* === Cross sparkle accents (4-pointed stars) === */}
+                            <g filter="url(#pgGlow)">
+                              <path d="M90,200 L93,190 L96,200 L93,210 Z" fill="rgba(255,215,80,0.3)" />
+                              <path d="M88,197 L93,194 L98,197 L93,200 Z" fill="rgba(255,215,80,0.3)" />
+                            </g>
+                            <g filter="url(#pgGlow)">
+                              <path d="M810,160 L813,150 L816,160 L813,170 Z" fill="rgba(255,215,80,0.3)" />
+                              <path d="M808,157 L813,154 L818,157 L813,160 Z" fill="rgba(255,215,80,0.3)" />
+                            </g>
+                            <g filter="url(#pgGlow)">
+                              <path d="M450,60 L453,48 L456,60 L453,72 Z" fill="rgba(255,215,80,0.2)" />
+                              <path d="M447,57 L453,54 L459,57 L453,60 Z" fill="rgba(255,215,80,0.2)" />
+                            </g>
+
+                            {/* === Horizontal ornamental lines === */}
+                            <line x1="60" y1="240" x2="360" y2="240" stroke="url(#pgSweep2)" strokeWidth="0.8" />
+                            <line x1="540" y1="240" x2="840" y2="240" stroke="url(#pgSweep2)" strokeWidth="0.8" />
+                          </svg>
+                        </div>
+                        <div className="pastors-carousel-track">
+                          {PASTORS.map((p, i) => {
+                            const offset = (i - pastorCarouselIndex + PASTORS.length) % PASTORS.length;
+                            const isCenter = offset === 0;
+                            const isLeft1 = offset === PASTORS.length - 1;
+                            const isRight1 = offset === 1;
+                            const isLeft2 = offset === PASTORS.length - 2;
+                            const isRight2 = offset === 2;
+                            let posClass = 'pastors-card-hidden';
+                            if (isCenter) posClass = 'pastors-card-center';
+                            else if (isLeft1) posClass = 'pastors-card-left-1';
+                            else if (isRight1) posClass = 'pastors-card-right-1';
+                            else if (isLeft2) posClass = 'pastors-card-left-2';
+                            else if (isRight2) posClass = 'pastors-card-right-2';
+                            return (
+                              <div key={i} className={`pastors-carousel-card ${posClass}`} onClick={() => setPastorCarouselIndex(i)}>
+                                <div className="pastors-carousel-img" style={{ backgroundImage: `url('${p.photo}')` }}></div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="pastors-carousel-dots">
+                        {PASTORS.map((_, i) => (<span key={i} className={`pastors-dot ${i === pastorCarouselIndex ? 'active' : ''}`} onClick={() => setPastorCarouselIndex(i)}></span>))}
+                      </div>
+                      <div className="pastors-carousel-info">
+                        <div className="pastors-carousel-name">
+                          <span className="pastors-name-line"></span>
+                          <span>{PASTORS[pastorCarouselIndex].name}</span>
+                          <span className="pastors-name-line"></span>
+                        </div>
+                        <div className="pastors-carousel-role">
+                          <span className="pastors-role-arrow">&#9664;</span>
+                          <span>{PASTORS[pastorCarouselIndex].title}</span>
+                          <span className="pastors-role-arrow">&#9654;</span>
+                        </div>
                       </div>
                     </div>
                     <div className="church-family-section">
-                      <h2><i className="fas fa-users"></i> Our Church Family Gatherings</h2>
+                      <h2>Our Church Family Gatherings</h2>
                       <p style={{ color: '#6c757d', marginBottom: 20 }}>Celebrating fellowship and community</p>
                       <div className="family-gathering-grid">
                         {GATHERINGS.map((g, i) => (<div key={i} className="gathering-card"><div className="gathering-photo" style={{ backgroundImage: `url('${g.photo}')`, backgroundColor: '#e9ecef' }}></div><div className="gathering-info"><div className="gathering-title">{g.title}</div><div className="gathering-description">{g.desc}</div></div></div>))}
@@ -1625,7 +1974,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
               </>
             ) : (
               <div>
-                <div className="welcome-message"><h2><i className="fas fa-hand-sparkles"></i> Welcome, {userData.firstname}!</h2><p>Your account is pending verification.</p></div>
+                <div className="welcome-message"><h2>Welcome, {userData.firstname}!</h2><p>Your account is pending verification.</p></div>
                 <div className="bible-verse-container">
                   <div className="verse-of-the-day">&ldquo;For I know the plans I have for you,&rdquo; declares the Lord, &ldquo;plans to prosper you and not to harm you, plans to give you hope and a future.&rdquo;</div>
                   <div className="verse-reference">— Jeremiah 29:11</div>
@@ -1640,7 +1989,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== WEEKLY SCHEDULE ========== */}
           <section className={`content-section ${activeSection === 'weekly-schedule' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-calendar-alt"></i> Weekly Schedule</h2>
+            <h2 className="section-title">Weekly Schedule</h2>
             <div className="schedule-calendar">
               <div className="calendar-header">
                 <button className="calendar-nav-btn" onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))}><i className="fas fa-chevron-left"></i></button>
@@ -1678,7 +2027,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== EVENTS ========== */}
           <section className={`content-section ${(activeSection === 'events' || activeSection === 'events-management') ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-calendar-alt"></i> Events</h2>
+            <h2 className="section-title">Events</h2>
 
             {canManage(MODULES.CREATE_EVENTS) && (
               <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowEventForm(true); setEditingEvent(null); setEventForm({ title: '', description: '', eventDate: '', endDate: '', location: '' }); }}>
@@ -1733,7 +2082,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== ANNOUNCEMENTS ========== */}
           <section className={`content-section ${(activeSection === 'announcements' || activeSection === 'announcements-management') ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-bullhorn"></i> Announcements</h2>
+            <h2 className="section-title">Announcements</h2>
 
             {canManage(MODULES.CREATE_ANNOUNCEMENTS) && (
               <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowAnnouncementForm(true); setEditingAnnouncement(null); setAnnouncementForm({ title: '', content: '', isPinned: false }); }}>
@@ -1788,7 +2137,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== MINISTRY MEETINGS ========== */}
           <section className={`content-section ${activeSection === 'ministry-meetings' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-handshake"></i> Ministry Meetings</h2>
+            <h2 className="section-title">Ministry Meetings</h2>
 
             {canManage(MODULES.CREATE_MINISTRY_MEETING) && (
               <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => setShowMeetingForm(true)}>
@@ -1831,7 +2180,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== COMMUNITY HUB ========== */}
           <section className={`content-section ${activeSection === 'community-hub' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-comments"></i> Community Hub</h2>
+            <h2 className="section-title">Community Hub</h2>
 
             {canManage(MODULES.CREATE_POSTS) && (
               <div style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
@@ -1888,7 +2237,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== MESSAGES ========== */}
           <section className={`content-section ${activeSection === 'messages' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-envelope"></i> Messages</h2>
+            <h2 className="section-title">Messages</h2>
 
             <div style={{ display: 'flex', gap: 10, marginBottom: 15, flexWrap: 'wrap' }}>
               {['inbox', 'sent', 'broadcast'].map((tab) => (
@@ -1941,7 +2290,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== ATTENDANCE MANAGEMENT ========== */}
           <section className={`content-section ${activeSection === 'attendance-management' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-clipboard-check"></i> Attendance Management</h2>
+            <h2 className="section-title">Attendance Management</h2>
 
             <div style={{ display: 'flex', gap: 15, marginBottom: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div className="form-group" style={{ margin: 0 }}>
@@ -1990,7 +2339,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== MINISTRY OVERSIGHT (Pastor) ========== */}
           <section className={`content-section ${activeSection === 'ministry-oversight' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-church"></i> Ministry Oversight</h2>
+            <h2 className="section-title">Ministry Oversight</h2>
             {ministriesList.map((min) => (
               <div key={min.id} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }}>
                 <h3 style={{ color: 'var(--primary)' }}>{min.name}</h3>
@@ -2006,7 +2355,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== REPORTS ========== */}
           <section className={`content-section ${activeSection === 'reports' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-chart-bar"></i> Reports</h2>
+            <h2 className="section-title">Reports</h2>
 
             {reportData && dashboardType !== 'ministry' && (
               <div className="stats-container" style={{ marginBottom: 20 }}>
@@ -2046,7 +2395,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== USER MANAGEMENT (Admin/Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'user-management' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-users-cog"></i> User Management</h2>
+            <h2 className="section-title">User Management</h2>
 
             <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowUserForm(true); setEditingUser(null); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); }}>
               <i className="fas fa-plus"></i> Create User
@@ -2131,6 +2480,59 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
               </div>
             )}
 
+            {/* Event Permissions Modal */}
+            {eventPermissionsUser && (
+              <div className="edit-user-modal-overlay" onClick={() => setEventPermissionsUser(null)}>
+                <div className="edit-user-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 500 }}>
+                  <div className="edit-user-modal-header">
+                    <h3><i className="fas fa-calendar-check"></i> Event Creation Permissions</h3>
+                    <button className="btn-close-modal" onClick={() => setEventPermissionsUser(null)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="edit-user-modal-body">
+                    <div style={{ padding: '12px 16px', background: 'rgba(0,123,255,0.05)', borderRadius: 10, marginBottom: 15, border: '1px solid rgba(0,123,255,0.15)' }}>
+                      <strong>{eventPermissionsUser.firstname} {eventPermissionsUser.lastname}</strong>
+                      <div style={{ fontSize: '0.85rem', color: '#6c757d' }}>{eventPermissionsUser.email} • {eventPermissionsUser.role}</div>
+                    </div>
+                    <p style={{ marginBottom: 12, fontSize: '0.9rem', color: '#6c757d' }}>
+                      Select which types of events this user can create. When enabled, a &quot;My Events&quot; section will appear in their sidebar.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {USER_EVENT_TYPES.map((type) => {
+                        const isChecked = eventPermissionsForm.includes(type);
+                        return (
+                          <label key={type} style={{
+                            display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                            borderRadius: 8, cursor: 'pointer', transition: 'all 0.2s',
+                            background: isChecked ? 'rgba(40,167,69,0.08)' : 'var(--bg-card)',
+                            border: isChecked ? '2px solid #28a745' : '2px solid #dee2e6',
+                          }}>
+                            <input type="checkbox" checked={isChecked} onChange={() => {
+                              setEventPermissionsForm((prev) =>
+                                isChecked ? prev.filter((t) => t !== type) : [...prev, type]
+                              );
+                            }} style={{ accentColor: '#28a745' }} />
+                            <span style={{ fontWeight: isChecked ? 600 : 400, color: isChecked ? '#28a745' : 'inherit' }}>{type}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 15 }}>
+                      <button className="btn-small" style={{ fontSize: '0.8rem', color: '#28a745', background: 'rgba(40,167,69,0.1)', border: '1px solid rgba(40,167,69,0.3)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}
+                        onClick={() => setEventPermissionsForm([...USER_EVENT_TYPES])}>Select All</button>
+                      <button className="btn-small" style={{ fontSize: '0.8rem', color: '#dc3545', background: 'rgba(220,53,69,0.1)', border: '1px solid rgba(220,53,69,0.3)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}
+                        onClick={() => setEventPermissionsForm([])}>Clear All</button>
+                    </div>
+                  </div>
+                  <div className="edit-user-modal-footer">
+                    <button className="btn-secondary" onClick={() => setEventPermissionsUser(null)}>Cancel</button>
+                    <button className="btn-primary" onClick={() => handleUpdateEventPermissions(eventPermissionsUser.id, eventPermissionsForm)}>
+                      <i className="fas fa-save"></i> Save Permissions
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                 <thead>
@@ -2172,6 +2574,10 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
                       <td style={{ padding: 10 }}>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                           <button className="btn-small btn-info" onClick={() => handleEditUser(u)} title="Edit User"><i className="fas fa-edit"></i></button>
+                          <button className="btn-small" style={{ background: 'rgba(146,108,21,0.15)', color: 'var(--primary)', border: '1px solid rgba(146,108,21,0.3)', padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: '0.78rem' }} onClick={() => { setEventPermissionsUser(u); setEventPermissionsForm(u.allowed_event_types || []); }} title="Event Permissions">
+                            <i className="fas fa-calendar-check"></i>
+                            {(u.allowed_event_types || []).length > 0 && <span style={{ marginLeft: 3, fontSize: '0.7rem', fontWeight: 700 }}>{(u.allowed_event_types || []).length}</span>}
+                          </button>
                           {u.status === 'Unverified' && <button className="btn-small btn-success" onClick={() => handleUserAction(u.id, 'verify')} title="Verify"><i className="fas fa-check"></i></button>}
                           {u.is_active !== false && <button className="btn-small btn-warning" onClick={() => handleUserAction(u.id, 'deactivate')} title="Deactivate"><i className="fas fa-ban"></i></button>}
                           {u.is_active === false && <button className="btn-small btn-success" onClick={() => handleUserAction(u.id, 'activate')} title="Activate"><i className="fas fa-check-circle"></i></button>}
@@ -2189,7 +2595,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== MINISTRY MANAGEMENT (Admin/Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'ministry-management' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-church"></i> Ministry Management</h2>
+            <h2 className="section-title">Ministry Management</h2>
 
             <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => setShowMinistryForm(true)}>
               <i className="fas fa-plus"></i> Create Ministry
@@ -2223,7 +2629,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== ROLES & PERMISSIONS (Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'roles-permissions' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-shield-alt"></i> Roles & Permissions</h2>
+            <h2 className="section-title">Roles &amp; Permissions</h2>
             {rolesList.map((role) => (
               <div key={role.id} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12 }}>
                 <h3 style={{ color: 'var(--primary)' }}>{role.name}</h3>
@@ -2238,7 +2644,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== SYSTEM CONFIG (Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'system-config' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-cogs"></i> System Configuration</h2>
+            <h2 className="section-title">System Configuration</h2>
             {Object.entries(systemSettings).map(([key, value]) => (
               <div key={key} style={{ padding: 15, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -2252,7 +2658,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== AUDIT LOGS (Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'audit-logs' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-history"></i> Audit Logs</h2>
+            <h2 className="section-title">Audit Logs</h2>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
@@ -2282,7 +2688,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== BIBLE READER ========== */}
           <section className={`content-section ${activeSection === 'bible-reader' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-bible"></i> Bible Reader</h2>
+            <h2 className="section-title">Bible Reader</h2>
 
             {/* Direct Scripture Input */}
             <div className="bible-direct-input">
@@ -2380,13 +2786,13 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== DAILY QUOTE ========== */}
           <section className={`content-section ${activeSection === 'daily-quote' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-quote-left"></i> Daily Quote</h2>
+            <h2 className="section-title">Daily Quote</h2>
             <div className="quote-container"><div className="quote-text">&ldquo;{dailyQuote.quote}&rdquo;</div><div className="quote-author">— {dailyQuote.author}</div></div>
           </section>
 
           {/* ========== SPIRITUAL ASSISTANT ========== */}
           <section className={`content-section ${activeSection === 'spiritual-assistant' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-robot"></i> Spiritual AI Assistant</h2>
+            <h2 className="section-title">Spiritual AI Assistant</h2>
 
             {/* Disclaimer Banner */}
             <div className="ai-disclaimer">
@@ -2425,7 +2831,34 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
           {/* ========== MY PROFILE ========== */}
           <section className={`content-section ${activeSection === 'my-profile' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-user-circle"></i> My Profile</h2>
+            <h2 className="section-title">My Profile</h2>
+
+            {/* Profile Header Card */}
+            <div className="profile-header-card">
+              <div className="profile-header-bg"></div>
+              <div className="profile-header-content">
+                <div className="profile-header-avatar">
+                  {userData.profile_picture ? (
+                    <img src={userData.profile_picture} alt="Profile" referrerPolicy="no-referrer" />
+                  ) : (
+                    <span className="profile-header-initials">{initials}</span>
+                  )}
+                  <div className={`profile-header-status ${isVerified ? 'verified' : 'unverified'}`}>
+                    <i className={`fas fa-${isVerified ? 'check' : 'clock'}`}></i>
+                  </div>
+                </div>
+                <div className="profile-header-info">
+                  <h3 className="profile-header-name">{userData.firstname} {userData.lastname}</h3>
+                  <p className="profile-header-email">{userData.email}</p>
+                  <div className="profile-header-meta">
+                    <span className="profile-header-role"><i className="fas fa-shield-alt"></i> {userRole}</span>
+                    {userData.ministry && <span className="profile-header-ministry"><i className="fas fa-church"></i> {userData.ministry}</span>}
+                    <span className={`profile-header-badge ${isVerified ? 'verified' : 'unverified'}`}>{isVerified ? 'Verified' : 'Pending'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="profile-tabs">
               <button className={`profile-tab ${profileTab === 'personal' ? 'active' : ''}`} onClick={() => setProfileTab('personal')}>Personal Info</button>
               <button className={`profile-tab ${profileTab === 'password' ? 'active' : ''}`} onClick={() => setProfileTab('password')}>Change Password</button>
@@ -2496,10 +2929,413 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
             )}
           </section>
 
+          {/* ========== COMMUNITY EVENTS (All users can browse & RSVP) ========== */}
+          <section className={`content-section ${activeSection === 'community-events' ? 'active' : ''}`}>
+            <h2 className="section-title">Community Events</h2>
+            <p style={{ color: '#6c757d', marginBottom: 20 }}>Browse events created by members and let them know if you&apos;re attending!</p>
+
+            {/* RSVP Detail Modal for Community Events */}
+            {viewingUserEventRsvps && activeSection === 'community-events' && (
+              <div className="edit-user-modal-overlay" onClick={() => { setViewingUserEventRsvps(null); setUserEventRsvps(null); }}>
+                <div className="edit-user-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 600 }}>
+                  <div className="edit-user-modal-header">
+                    <h3><i className="fas fa-users"></i> Responses — {viewingUserEventRsvps.title}</h3>
+                    <button className="btn-close-modal" onClick={() => { setViewingUserEventRsvps(null); setUserEventRsvps(null); }}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="edit-user-modal-body" style={{ maxHeight: 500, overflowY: 'auto' }}>
+                    {userEventRsvps ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 15, marginBottom: 20, flexWrap: 'wrap' }}>
+                          <div style={{ padding: '10px 16px', borderRadius: 10, background: 'rgba(40,167,69,0.1)', border: '1px solid rgba(40,167,69,0.3)', textAlign: 'center', flex: 1, minWidth: 80 }}>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#28a745' }}>{userEventRsvps.counts?.going || 0}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#28a745' }}>Going</div>
+                          </div>
+                          <div style={{ padding: '10px 16px', borderRadius: 10, background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)', textAlign: 'center', flex: 1, minWidth: 80 }}>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ffc107' }}>{userEventRsvps.counts?.maybe || 0}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#ffc107' }}>Maybe</div>
+                          </div>
+                          <div style={{ padding: '10px 16px', borderRadius: 10, background: 'rgba(220,53,69,0.1)', border: '1px solid rgba(220,53,69,0.3)', textAlign: 'center', flex: 1, minWidth: 80 }}>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc3545' }}>{userEventRsvps.counts?.notGoing || 0}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#dc3545' }}>Not Going</div>
+                          </div>
+                        </div>
+                        {['going', 'maybe', 'notGoing'].map((group) => {
+                          const items = userEventRsvps.grouped?.[group] || [];
+                          const label = group === 'going' ? 'Going' : group === 'maybe' ? 'Maybe' : 'Not Going';
+                          const color = group === 'going' ? '#28a745' : group === 'maybe' ? '#ffc107' : '#dc3545';
+                          return items.length > 0 ? (
+                            <div key={group} style={{ marginBottom: 15 }}>
+                              <h4 style={{ color, marginBottom: 8, fontSize: '0.9rem' }}><i className={`fas fa-${group === 'going' ? 'check-circle' : group === 'maybe' ? 'question-circle' : 'times-circle'}`}></i> {label} ({items.length})</h4>
+                              {items.map((r) => (
+                                <div key={r.id} style={{ padding: '8px 12px', background: 'var(--bg-card)', borderRadius: 8, marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #eee' }}>
+                                  <span style={{ fontWeight: 500 }}>{r.users?.firstname} {r.users?.lastname}</span>
+                                  <span style={{ fontSize: '0.8rem', color: '#6c757d' }}>{r.users?.ministry || ''}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })}
+                        {(userEventRsvps.counts?.total || 0) === 0 && <p style={{ color: '#6c757d', textAlign: 'center' }}>No responses yet.</p>}
+                      </>
+                    ) : <p style={{ color: '#6c757d' }}>Loading responses...</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="events-grid">
+              {browseUserEvents.map((evt) => (
+                <div key={evt.id} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.08)', borderLeft: '4px solid #17a2b8' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: 12, background: 'rgba(23,162,184,0.15)', color: '#17a2b8', fontWeight: 600, display: 'inline-block', marginBottom: 6 }}>{evt.event_type}</span>
+                      <h3 style={{ color: 'var(--primary)', marginBottom: 4, marginTop: 4 }}>{evt.title}</h3>
+                      <p style={{ color: '#6c757d', fontSize: '0.8rem', margin: 0 }}><i className="fas fa-user"></i> By: {evt.creator_name || 'Unknown'}</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 5, fontSize: '0.8rem' }}>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(40,167,69,0.15)', color: '#28a745' }}>{evt.rsvpCounts?.going || 0} going</span>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(255,193,7,0.15)', color: '#e0a800' }}>{evt.rsvpCounts?.maybe || 0} maybe</span>
+                    </div>
+                  </div>
+                  {evt.description && <p style={{ color: '#6c757d', marginBottom: 8, marginTop: 8 }}>{evt.description}</p>}
+                  <p style={{ margin: '4px 0' }}><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
+                  {evt.end_date && <p style={{ margin: '4px 0' }}><i className="fas fa-hourglass-end"></i> Until: {formatDateTime(evt.end_date)}</p>}
+                  {evt.location && <p style={{ margin: '4px 0' }}><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
+
+                  {/* RSVP Buttons */}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {evt.myRsvp && <span style={{ fontSize: '0.8rem', color: '#6c757d', marginRight: 4 }}>Your response: <strong style={{ color: evt.myRsvp === 'Going' ? '#28a745' : evt.myRsvp === 'Maybe' ? '#e0a800' : '#dc3545' }}>{evt.myRsvp}</strong></span>}
+                    <button className="btn-small" style={{ background: evt.myRsvp === 'Going' ? '#28a745' : 'rgba(40,167,69,0.15)', color: evt.myRsvp === 'Going' ? '#fff' : '#28a745', border: '1px solid #28a745' }} onClick={() => handleUserEventRSVP(evt.id, 'Going')}>
+                      <i className="fas fa-check"></i> Going
+                    </button>
+                    <button className="btn-small" style={{ background: evt.myRsvp === 'Maybe' ? '#ffc107' : 'rgba(255,193,7,0.15)', color: evt.myRsvp === 'Maybe' ? '#fff' : '#e0a800', border: '1px solid #ffc107' }} onClick={() => handleUserEventRSVP(evt.id, 'Maybe')}>
+                      <i className="fas fa-question"></i> Maybe
+                    </button>
+                    <button className="btn-small" style={{ background: evt.myRsvp === 'Not Going' ? '#dc3545' : 'rgba(220,53,69,0.15)', color: evt.myRsvp === 'Not Going' ? '#fff' : '#dc3545', border: '1px solid #dc3545' }} onClick={() => handleUserEventRSVP(evt.id, 'Not Going')}>
+                      <i className="fas fa-times"></i> Not Going
+                    </button>
+                    <button className="btn-small btn-info" onClick={() => { setViewingUserEventRsvps(evt); loadUserEventRsvps(evt.id); }} title="View Responses">
+                      <i className="fas fa-users"></i> Responses
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {browseUserEvents.length === 0 && <p style={{ color: '#6c757d' }}>No community events at this time. Check back later!</p>}
+            </div>
+          </section>
+
+          {/* ========== MY CREATED EVENTS (Users with event permissions) ========== */}
+          <section className={`content-section ${activeSection === 'my-created-events' ? 'active' : ''}`}>
+            <h2 className="section-title">My Events</h2>
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid #eee' }}>
+              <button onClick={() => setMyEventsTab('mine')} style={{ padding: '10px 24px', border: 'none', borderBottom: myEventsTab === 'mine' ? '3px solid var(--primary)' : '3px solid transparent', background: 'transparent', color: myEventsTab === 'mine' ? 'var(--primary)' : '#6c757d', fontWeight: myEventsTab === 'mine' ? 700 : 500, cursor: 'pointer', fontSize: '0.95rem', transition: 'all 0.2s' }}>
+                <i className="fas fa-calendar-alt"></i> My Events
+              </button>
+              <button onClick={() => { setMyEventsTab('browse'); loadBrowseUserEvents(); }} style={{ padding: '10px 24px', border: 'none', borderBottom: myEventsTab === 'browse' ? '3px solid var(--primary)' : '3px solid transparent', background: 'transparent', color: myEventsTab === 'browse' ? 'var(--primary)' : '#6c757d', fontWeight: myEventsTab === 'browse' ? 700 : 500, cursor: 'pointer', fontSize: '0.95rem', transition: 'all 0.2s' }}>
+                <i className="fas fa-globe"></i> Browse All Events
+              </button>
+            </div>
+
+            {/* ===== MY EVENTS TAB ===== */}
+            {myEventsTab === 'mine' && <>
+
+            {(userData?.allowed_event_types || userData?.allowedEventTypes || []).length > 0 && (
+              <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => {
+                setShowUserEventForm(true);
+                setEditingUserEvent(null);
+                setUserEventForm({ title: '', description: '', eventType: (userData?.allowed_event_types || userData?.allowedEventTypes || [])[0] || 'Event', eventDate: '', endDate: '', location: '' });
+              }}>
+                <i className="fas fa-plus"></i> Create Event
+              </button>
+            )}
+
+            {/* Create/Edit Form */}
+            {showUserEventForm && (
+              <div className="form-card" style={{ marginBottom: 20, padding: 20, background: 'var(--bg-card)', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                <h3>{editingUserEvent ? 'Edit Event' : 'Create New Event'}</h3>
+                <div className="form-group">
+                  <label>Event Type *</label>
+                  <select className="form-select" style={{ padding: '10px 15px' }} value={userEventForm.eventType} onChange={(e) => setUserEventForm({ ...userEventForm, eventType: e.target.value })}>
+                    {(userData?.allowed_event_types || userData?.allowedEventTypes || []).map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group"><label>Title *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userEventForm.title} onChange={(e) => setUserEventForm({ ...userEventForm, title: e.target.value })} placeholder="Event title" /></div>
+                <div className="form-group"><label>Description</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={3} value={userEventForm.description} onChange={(e) => setUserEventForm({ ...userEventForm, description: e.target.value })} placeholder="Event description..." /></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                  <div className="form-group"><label>Event Date *</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={userEventForm.eventDate} onChange={(e) => setUserEventForm({ ...userEventForm, eventDate: e.target.value })} /></div>
+                  <div className="form-group"><label>End Date</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={userEventForm.endDate} onChange={(e) => setUserEventForm({ ...userEventForm, endDate: e.target.value })} /></div>
+                </div>
+                <div className="form-group"><label>Location</label><input className="form-control" style={{ padding: '10px 15px' }} value={userEventForm.location} onChange={(e) => setUserEventForm({ ...userEventForm, location: e.target.value })} placeholder="Event location" /></div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="btn-primary" onClick={handleUserEventSubmit}><i className="fas fa-save"></i> {editingUserEvent ? 'Update' : 'Create'}</button>
+                  <button className="btn-secondary" onClick={() => { setShowUserEventForm(false); setEditingUserEvent(null); }}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* RSVP Detail Modal */}
+            {viewingUserEventRsvps && (
+              <div className="edit-user-modal-overlay" onClick={() => { setViewingUserEventRsvps(null); setUserEventRsvps(null); }}>
+                <div className="edit-user-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 600 }}>
+                  <div className="edit-user-modal-header">
+                    <h3><i className="fas fa-users"></i> Responses — {viewingUserEventRsvps.title}</h3>
+                    <button className="btn-close-modal" onClick={() => { setViewingUserEventRsvps(null); setUserEventRsvps(null); }}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="edit-user-modal-body" style={{ maxHeight: 500, overflowY: 'auto' }}>
+                    {userEventRsvps ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 15, marginBottom: 20, flexWrap: 'wrap' }}>
+                          <div style={{ padding: '10px 16px', borderRadius: 10, background: 'rgba(40,167,69,0.1)', border: '1px solid rgba(40,167,69,0.3)', textAlign: 'center', flex: 1, minWidth: 80 }}>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#28a745' }}>{userEventRsvps.counts?.going || 0}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#28a745' }}>Going</div>
+                          </div>
+                          <div style={{ padding: '10px 16px', borderRadius: 10, background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)', textAlign: 'center', flex: 1, minWidth: 80 }}>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ffc107' }}>{userEventRsvps.counts?.maybe || 0}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#ffc107' }}>Maybe</div>
+                          </div>
+                          <div style={{ padding: '10px 16px', borderRadius: 10, background: 'rgba(220,53,69,0.1)', border: '1px solid rgba(220,53,69,0.3)', textAlign: 'center', flex: 1, minWidth: 80 }}>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc3545' }}>{userEventRsvps.counts?.notGoing || 0}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#dc3545' }}>Not Going</div>
+                          </div>
+                        </div>
+                        {['going', 'maybe', 'notGoing'].map((group) => {
+                          const items = userEventRsvps.grouped?.[group] || [];
+                          const label = group === 'going' ? 'Going' : group === 'maybe' ? 'Maybe' : 'Not Going';
+                          const color = group === 'going' ? '#28a745' : group === 'maybe' ? '#ffc107' : '#dc3545';
+                          return items.length > 0 ? (
+                            <div key={group} style={{ marginBottom: 15 }}>
+                              <h4 style={{ color, marginBottom: 8, fontSize: '0.9rem' }}><i className={`fas fa-${group === 'going' ? 'check-circle' : group === 'maybe' ? 'question-circle' : 'times-circle'}`}></i> {label} ({items.length})</h4>
+                              {items.map((r) => (
+                                <div key={r.id} style={{ padding: '8px 12px', background: 'var(--bg-card)', borderRadius: 8, marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #eee' }}>
+                                  <span style={{ fontWeight: 500 }}>{r.users?.firstname} {r.users?.lastname}</span>
+                                  <span style={{ fontSize: '0.8rem', color: '#6c757d' }}>{r.users?.ministry || ''}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })}
+                        {(userEventRsvps.counts?.total || 0) === 0 && <p style={{ color: '#6c757d', textAlign: 'center' }}>No responses yet.</p>}
+                      </>
+                    ) : <p style={{ color: '#6c757d' }}>Loading responses...</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Events List */}
+            <div className="events-grid">
+              {userEvents.map((evt) => (
+                <div key={evt.id} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.08)', borderLeft: '4px solid var(--primary)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: 12, background: 'rgba(146,108,21,0.15)', color: 'var(--primary)', fontWeight: 600, marginBottom: 6, display: 'inline-block' }}>{evt.event_type}</span>
+                      <h3 style={{ color: 'var(--primary)', marginBottom: 4, marginTop: 4 }}>{evt.title}</h3>
+                    </div>
+                    <div style={{ display: 'flex', gap: 5, fontSize: '0.8rem' }}>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(40,167,69,0.15)', color: '#28a745' }}>{evt.rsvpCounts?.going || 0} going</span>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(255,193,7,0.15)', color: '#e0a800' }}>{evt.rsvpCounts?.maybe || 0} maybe</span>
+                    </div>
+                  </div>
+                  {evt.description && <p style={{ color: '#6c757d', marginBottom: 8 }}>{evt.description}</p>}
+                  <p><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
+                  {evt.end_date && <p><i className="fas fa-hourglass-end"></i> Until: {formatDateTime(evt.end_date)}</p>}
+                  {evt.location && <p><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <button className="btn-small btn-info" onClick={() => { setViewingUserEventRsvps(evt); loadUserEventRsvps(evt.id); }} title="View Responses"><i className="fas fa-users"></i> Responses</button>
+                    <button className="btn-small btn-primary" onClick={() => {
+                      setEditingUserEvent(evt);
+                      setUserEventForm({
+                        title: evt.title, description: evt.description || '',
+                        eventType: evt.event_type, eventDate: evt.event_date?.slice(0, 16),
+                        endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '',
+                      });
+                      setShowUserEventForm(true);
+                    }}><i className="fas fa-edit"></i> Edit</button>
+                    <button className="btn-small btn-danger" onClick={() => handleDeleteUserEvent(evt.id)}><i className="fas fa-trash"></i> Delete</button>
+                  </div>
+                </div>
+              ))}
+              {userEvents.length === 0 && <p style={{ color: '#6c757d' }}>You have not created any events yet. Click &quot;Create Event&quot; to get started!</p>}
+            </div>
+
+            </>}
+
+            {/* ===== BROWSE ALL EVENTS TAB ===== */}
+            {myEventsTab === 'browse' && <>
+              <p style={{ color: '#6c757d', marginBottom: 15 }}>Discover events created by other members and let them know if you&apos;re attending!</p>
+              <div className="events-grid">
+                {browseUserEvents.filter(evt => evt.created_by !== userData?.id).map((evt) => (
+                  <div key={evt.id} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.08)', borderLeft: '4px solid #17a2b8' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                      <div>
+                        <span style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: 12, background: 'rgba(23,162,184,0.15)', color: '#17a2b8', fontWeight: 600, display: 'inline-block', marginBottom: 6 }}>{evt.event_type}</span>
+                        <h3 style={{ color: 'var(--primary)', marginBottom: 4, marginTop: 4 }}>{evt.title}</h3>
+                        <p style={{ color: '#6c757d', fontSize: '0.8rem', margin: 0 }}><i className="fas fa-user"></i> By: {evt.creator_name || 'Unknown'}</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: 5, fontSize: '0.8rem' }}>
+                        <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(40,167,69,0.15)', color: '#28a745' }}>{evt.rsvpCounts?.going || 0} going</span>
+                        <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(255,193,7,0.15)', color: '#e0a800' }}>{evt.rsvpCounts?.maybe || 0} maybe</span>
+                      </div>
+                    </div>
+                    {evt.description && <p style={{ color: '#6c757d', marginBottom: 8, marginTop: 8 }}>{evt.description}</p>}
+                    <p style={{ margin: '4px 0' }}><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
+                    {evt.end_date && <p style={{ margin: '4px 0' }}><i className="fas fa-hourglass-end"></i> Until: {formatDateTime(evt.end_date)}</p>}
+                    {evt.location && <p style={{ margin: '4px 0' }}><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
+
+                    {/* RSVP Buttons */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {evt.myRsvp && <span style={{ fontSize: '0.8rem', color: '#6c757d', marginRight: 4 }}>Your response: <strong style={{ color: evt.myRsvp === 'Going' ? '#28a745' : evt.myRsvp === 'Maybe' ? '#e0a800' : '#dc3545' }}>{evt.myRsvp}</strong></span>}
+                      <button className="btn-small" style={{ background: evt.myRsvp === 'Going' ? '#28a745' : 'rgba(40,167,69,0.15)', color: evt.myRsvp === 'Going' ? '#fff' : '#28a745', border: '1px solid #28a745' }} onClick={() => handleUserEventRSVP(evt.id, 'Going')}>
+                        <i className="fas fa-check"></i> Going
+                      </button>
+                      <button className="btn-small" style={{ background: evt.myRsvp === 'Maybe' ? '#ffc107' : 'rgba(255,193,7,0.15)', color: evt.myRsvp === 'Maybe' ? '#fff' : '#e0a800', border: '1px solid #ffc107' }} onClick={() => handleUserEventRSVP(evt.id, 'Maybe')}>
+                        <i className="fas fa-question"></i> Maybe
+                      </button>
+                      <button className="btn-small" style={{ background: evt.myRsvp === 'Not Going' ? '#dc3545' : 'rgba(220,53,69,0.15)', color: evt.myRsvp === 'Not Going' ? '#fff' : '#dc3545', border: '1px solid #dc3545' }} onClick={() => handleUserEventRSVP(evt.id, 'Not Going')}>
+                        <i className="fas fa-times"></i> Not Going
+                      </button>
+                      <button className="btn-small btn-info" onClick={() => { setViewingUserEventRsvps(evt); loadUserEventRsvps(evt.id); }} title="View Responses">
+                        <i className="fas fa-users"></i> Responses
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {browseUserEvents.filter(evt => evt.created_by !== userData?.id).length === 0 && <p style={{ color: '#6c757d' }}>No events from other members at this time.</p>}
+              </div>
+            </>}
+
+          </section>
+
+          {/* ========== USER EVENTS OVERSIGHT (Pastor/Admin) ========== */}
+          <section className={`content-section ${activeSection === 'user-events-oversight' ? 'active' : ''}`}>
+            <h2 className="section-title">User-Created Events</h2>
+            <p style={{ color: '#6c757d', marginBottom: 20 }}>View and manage events created by users who have been granted event creation permissions.</p>
+
+            {/* Pastor RSVP Detail Modal */}
+            {pastorViewingEvent && (
+              <div className="edit-user-modal-overlay" onClick={() => { setPastorViewingEvent(null); setPastorEventRsvps(null); }}>
+                <div className="edit-user-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 650 }}>
+                  <div className="edit-user-modal-header">
+                    <h3><i className="fas fa-info-circle"></i> Event Details</h3>
+                    <button className="btn-close-modal" onClick={() => { setPastorViewingEvent(null); setPastorEventRsvps(null); }}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="edit-user-modal-body" style={{ maxHeight: 550, overflowY: 'auto' }}>
+                    <div style={{ marginBottom: 20 }}>
+                      <span style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: 12, background: 'rgba(146,108,21,0.15)', color: 'var(--primary)', fontWeight: 600 }}>{pastorViewingEvent.event_type}</span>
+                      <h3 style={{ color: 'var(--primary)', marginTop: 8, marginBottom: 6 }}>{pastorViewingEvent.title}</h3>
+                      {pastorViewingEvent.description && <p style={{ color: '#6c757d', marginBottom: 10 }}>{pastorViewingEvent.description}</p>}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 15 }}>
+                        <div style={{ padding: 12, background: 'rgba(146,108,21,0.05)', borderRadius: 8 }}>
+                          <div style={{ fontSize: '0.8rem', color: '#6c757d' }}>Date & Time</div>
+                          <div style={{ fontWeight: 600 }}>{formatDateTime(pastorViewingEvent.event_date)}</div>
+                        </div>
+                        {pastorViewingEvent.location && (
+                          <div style={{ padding: 12, background: 'rgba(146,108,21,0.05)', borderRadius: 8 }}>
+                            <div style={{ fontSize: '0.8rem', color: '#6c757d' }}>Location</div>
+                            <div style={{ fontWeight: 600 }}>{pastorViewingEvent.location}</div>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ padding: 12, background: 'rgba(0,123,255,0.05)', borderRadius: 8, border: '1px solid rgba(0,123,255,0.15)', marginBottom: 15 }}>
+                        <div style={{ fontSize: '0.8rem', color: '#6c757d', marginBottom: 4 }}>Created By</div>
+                        <div style={{ fontWeight: 600 }}>{pastorViewingEvent.created_by_name || (pastorViewingEvent.users ? `${pastorViewingEvent.users.firstname} ${pastorViewingEvent.users.lastname}` : 'Unknown')}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#6c757d' }}>
+                          {pastorViewingEvent.users?.ministry && <span><i className="fas fa-church" style={{ marginRight: 4 }}></i>{pastorViewingEvent.users.ministry}</span>}
+                          {pastorViewingEvent.users?.role && <span style={{ marginLeft: 12 }}><i className="fas fa-user-tag" style={{ marginRight: 4 }}></i>{pastorViewingEvent.users.role}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <h4 style={{ marginBottom: 10, color: 'var(--primary)' }}><i className="fas fa-users"></i> User Responses</h4>
+                    {pastorEventRsvps ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 15, marginBottom: 15, flexWrap: 'wrap' }}>
+                          <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(40,167,69,0.1)', border: '1px solid rgba(40,167,69,0.3)', textAlign: 'center', flex: 1, minWidth: 70 }}>
+                            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#28a745' }}>{pastorEventRsvps.counts?.going || 0}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#28a745' }}>Going</div>
+                          </div>
+                          <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)', textAlign: 'center', flex: 1, minWidth: 70 }}>
+                            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#ffc107' }}>{pastorEventRsvps.counts?.maybe || 0}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#ffc107' }}>Maybe</div>
+                          </div>
+                          <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(220,53,69,0.1)', border: '1px solid rgba(220,53,69,0.3)', textAlign: 'center', flex: 1, minWidth: 70 }}>
+                            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#dc3545' }}>{pastorEventRsvps.counts?.notGoing || 0}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#dc3545' }}>Not Going</div>
+                          </div>
+                        </div>
+                        {['going', 'maybe', 'notGoing'].map((group) => {
+                          const items = pastorEventRsvps.grouped?.[group] || [];
+                          const label = group === 'going' ? 'Going' : group === 'maybe' ? 'Maybe' : 'Not Going';
+                          const color = group === 'going' ? '#28a745' : group === 'maybe' ? '#ffc107' : '#dc3545';
+                          return items.length > 0 ? (
+                            <div key={group} style={{ marginBottom: 12 }}>
+                              <h4 style={{ color, marginBottom: 6, fontSize: '0.85rem' }}><i className={`fas fa-${group === 'going' ? 'check-circle' : group === 'maybe' ? 'question-circle' : 'times-circle'}`}></i> {label} ({items.length})</h4>
+                              {items.map((r) => (
+                                <div key={r.id} style={{ padding: '6px 10px', background: 'var(--bg-card)', borderRadius: 6, marginBottom: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #eee', fontSize: '0.9rem' }}>
+                                  <span style={{ fontWeight: 500 }}>{r.users?.firstname} {r.users?.lastname}</span>
+                                  <span style={{ fontSize: '0.78rem', color: '#6c757d' }}>{r.users?.ministry || ''} • {r.users?.role || ''}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })}
+                        {(pastorEventRsvps.counts?.total || 0) === 0 && <p style={{ color: '#6c757d', textAlign: 'center' }}>No responses yet.</p>}
+                      </>
+                    ) : <p style={{ color: '#6c757d' }}>Loading responses...</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Event Cards */}
+            <div className="events-grid">
+              {allUserEventsForPastor.map((evt) => (
+                <div key={evt.id} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.08)', borderLeft: '4px solid var(--primary)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: 12, background: 'rgba(146,108,21,0.15)', color: 'var(--primary)', fontWeight: 600, display: 'inline-block', marginBottom: 6 }}>{evt.event_type}</span>
+                      <h3 style={{ color: 'var(--primary)', marginBottom: 4, marginTop: 2 }}>{evt.title}</h3>
+                    </div>
+                    <div style={{ display: 'flex', gap: 5, fontSize: '0.8rem' }}>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(40,167,69,0.15)', color: '#28a745' }}>{evt.rsvpCounts?.going || 0} going</span>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(255,193,7,0.15)', color: '#e0a800' }}>{evt.rsvpCounts?.maybe || 0} maybe</span>
+                    </div>
+                  </div>
+                  {evt.description && <p style={{ color: '#6c757d', marginBottom: 8 }}>{evt.description}</p>}
+                  <p><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
+                  {evt.location && <p><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
+                  <div style={{ padding: '8px 12px', background: 'rgba(0,123,255,0.05)', borderRadius: 8, border: '1px solid rgba(0,123,255,0.15)', marginTop: 8, fontSize: '0.85rem' }}>
+                    <i className="fas fa-user" style={{ marginRight: 6, color: '#007bff' }}></i>
+                    <strong>Created by:</strong> {evt.created_by_name || (evt.users ? `${evt.users.firstname} ${evt.users.lastname}` : 'Unknown')}
+                    {evt.users?.ministry && <span style={{ marginLeft: 10, color: '#6c757d' }}>({evt.users.ministry})</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <button className="btn-small btn-info" onClick={() => { setPastorViewingEvent(evt); loadPastorEventRsvps(evt.id); }}><i className="fas fa-eye"></i> View Details & Responses</button>
+                    <button className="btn-small btn-primary" onClick={() => {
+                      setEditingUserEvent(evt);
+                      setUserEventForm({
+                        title: evt.title, description: evt.description || '',
+                        eventType: evt.event_type, eventDate: evt.event_date?.slice(0, 16),
+                        endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '',
+                      });
+                      setShowUserEventForm(true);
+                    }}><i className="fas fa-edit"></i> Edit</button>
+                    <button className="btn-small btn-danger" onClick={() => handleDeleteUserEvent(evt.id)}><i className="fas fa-trash"></i> Delete</button>
+                  </div>
+                </div>
+              ))}
+              {allUserEventsForPastor.length === 0 && <p style={{ color: '#6c757d' }}>No user-created events found.</p>}
+            </div>
+          </section>
+
           {/* ========== CREATE LINEUP (Song Leader) ========== */}
           {canManage(MODULES.CREATE_SONG_LIST) && (
             <section className={`content-section ${activeSection === 'create-lineup' ? 'active' : ''}`}>
-              <h2 className="section-title"><i className="fas fa-music"></i> {isAdmin ? (editingLineup ? 'Edit Assignment' : 'Assign Lineup') : (editingLineup ? 'Edit Songs' : 'Create Lineup')}</h2>
+              <h2 className="section-title">{isAdmin ? (editingLineup ? 'Edit Assignment' : 'Assign Lineup') : (editingLineup ? 'Edit Songs' : 'Create Lineup')}</h2>
 
               {/* SUCCESS VIEW */}
               {lineupView === 'success' && (
@@ -2797,7 +3633,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
           {/* ========== MY LINEUPS / ALL ASSIGNMENTS ========== */}
           {canManage(MODULES.CREATE_SONG_LIST) && (
             <section className={`content-section ${activeSection === 'my-lineups' ? 'active' : ''}`}>
-              <h2 className="section-title"><i className="fas fa-list"></i> {isAdmin ? 'All Assignments' : 'My Lineups'}</h2>
+              <h2 className="section-title">{isAdmin ? 'All Assignments' : 'My Lineups'}</h2>
               {getMyLineups().length === 0 ? (
                 <div className="lineup-empty-state">
                   <i className="fas fa-music"></i>

@@ -44,11 +44,14 @@ export async function POST(request) {
       email: user.email,
       birthdate: user.birthdate,
       ministry: user.ministry,
+      sub_role: user.sub_role || null,
       role: user.role || 'Guest',
       status: user.status,
       isActive: user.is_active !== false,
       isGoogleUser: !!user.google_id,
       hasPassword: user.password !== 'GOOGLE_AUTH',
+      profile_picture: user.profile_picture || null,
+      allowed_event_types: user.allowed_event_types || [],
     };
 
     return NextResponse.json({ success: true, data: userData });

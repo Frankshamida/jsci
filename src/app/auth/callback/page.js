@@ -70,6 +70,7 @@ function AuthCallbackContent() {
         const nameParts = fullName.split(' ');
         const firstname = nameParts[0] || '';
         const lastname = nameParts.slice(1).join(' ') || '';
+        const googleAvatarUrl = googleUser.user_metadata?.avatar_url || googleUser.user_metadata?.picture || null;
 
         // Check if a user with this email/google_id already exists in our users table
         const { data: existingUser, error: lookupError } = await supabase
@@ -86,8 +87,12 @@ function AuthCallbackContent() {
             return;
           }
 
-          // Update last login
-          await supabase.from('users').update({ last_login: new Date().toISOString() }).eq('id', existingUser.id);
+          // Update last login + sync Google profile picture
+          const updateFields = { last_login: new Date().toISOString() };
+          if (googleAvatarUrl) updateFields.profile_picture = googleAvatarUrl;
+          if (fullName && !existingUser.firstname) updateFields.firstname = firstname;
+          if (fullName && !existingUser.lastname) updateFields.lastname = lastname;
+          await supabase.from('users').update(updateFields).eq('id', existingUser.id);
 
           const userData = {
             id: existingUser.id,
@@ -97,11 +102,14 @@ function AuthCallbackContent() {
             email: existingUser.email,
             birthdate: existingUser.birthdate,
             ministry: existingUser.ministry,
+            sub_role: existingUser.sub_role || null,
             role: existingUser.role || 'Guest',
             status: existingUser.status,
             isActive: existingUser.is_active !== false,
             isGoogleUser: true,
             hasPassword: existingUser.password !== 'GOOGLE_AUTH',
+            profile_picture: googleAvatarUrl || existingUser.profile_picture || null,
+            allowed_event_types: existingUser.allowed_event_types || [],
           };
 
           sessionStorage.setItem('userData', JSON.stringify(userData));
@@ -131,6 +139,7 @@ function AuthCallbackContent() {
             security_question: 'Google Account',
             security_answer: 'GOOGLE_AUTH',
             status: 'Unverified',
+            profile_picture: googleAvatarUrl,
           })
           .select()
           .single();
@@ -150,11 +159,14 @@ function AuthCallbackContent() {
           email: newUser.email,
           birthdate: newUser.birthdate,
           ministry: newUser.ministry,
+          sub_role: newUser.sub_role || null,
           role: newUser.role || 'Guest',
           status: newUser.status,
           isActive: newUser.is_active !== false,
           isGoogleUser: true,
           hasPassword: false,
+          profile_picture: googleAvatarUrl || null,
+          allowed_event_types: newUser.allowed_event_types || [],
         };
 
         sessionStorage.setItem('userData', JSON.stringify(userData));

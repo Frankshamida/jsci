@@ -135,6 +135,15 @@ export const MODULES = {
   FULL_EVENTS_CONTROL: 'full_events_control',
   CUSTOM_REPORTS: 'custom_reports',
   EXPORT_ALL_DATA: 'export_all_data',
+
+  // === USER EVENT CREATION MODULES ===
+  CREATE_USER_EVENTS: 'create_user_events',
+  VIEW_USER_EVENTS: 'view_user_events',
+  EDIT_USER_EVENTS: 'edit_user_events',
+  DELETE_USER_EVENTS: 'delete_user_events',
+  VIEW_USER_EVENT_RSVPS: 'view_user_event_rsvps',
+  MANAGE_USER_EVENT_PERMISSIONS: 'manage_user_event_permissions',
+  VIEW_ALL_USER_EVENTS: 'view_all_user_events',
 };
 
 // Role → Module access mapping (from Appendix R)
@@ -237,6 +246,9 @@ export const ROLE_PERMISSIONS = {
     MODULES.VIEW_PROFILE, MODULES.UPDATE_PROFILE, MODULES.LOGOUT,
     // Events & Schedule view
     MODULES.VIEW_EVENTS, MODULES.VIEW_SCHEDULE,
+    // User Events oversight
+    MODULES.VIEW_ALL_USER_EVENTS, MODULES.VIEW_USER_EVENT_RSVPS,
+    MODULES.EDIT_USER_EVENTS, MODULES.DELETE_USER_EVENTS,
   ],
 
   [ROLES.ADMIN]: [
@@ -257,6 +269,9 @@ export const ROLE_PERMISSIONS = {
     MODULES.VIEW_ATTENDANCE, MODULES.MARK_ATTENDANCE, MODULES.UPDATE_ATTENDANCE, MODULES.DELETE_ATTENDANCE,
     // Song Lineup Management (Admin can create/manage all lineups)
     MODULES.CREATE_SONG_LIST, MODULES.ADD_REMOVE_SONGS, MODULES.UPDATE_SONG_LINEUP, MODULES.ASSIGN_SINGERS,
+    // User Event Permissions Management
+    MODULES.MANAGE_USER_EVENT_PERMISSIONS, MODULES.VIEW_ALL_USER_EVENTS,
+    MODULES.VIEW_USER_EVENT_RSVPS, MODULES.EDIT_USER_EVENTS, MODULES.DELETE_USER_EVENTS,
     // Reports, Communication & Profile
     MODULES.GENERATE_REPORTS, MODULES.VIEW_PERSONAL_REPORTS, MODULES.EXPORT_REPORTS,
     MODULES.SEND_BROADCASTS, MODULES.VIEW_MESSAGES, MODULES.SEND_MESSAGES,
@@ -317,9 +332,10 @@ export function getDashboardType(role) {
 /**
  * Get sidebar menu items based on user role
  * @param {string} role
+ * @param {object} [userData] - Optional user data for dynamic sidebar items
  * @returns {Array}
  */
-export function getSidebarMenu(role) {
+export function getSidebarMenu(role, userData) {
   const dashboardType = getDashboardType(role);
 
   if (dashboardType === 'super-admin') {
@@ -363,6 +379,7 @@ export function getSidebarMenu(role) {
       { id: 'home', icon: 'fas fa-tachometer-alt', label: 'Dashboard', section: 'home' },
       { id: 'ministries', icon: 'fas fa-church', label: 'Ministry Oversight', section: 'ministry-oversight' },
       { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events-management' },
+      { id: 'user-events-oversight', icon: 'fas fa-calendar-plus', label: 'User Events', section: 'user-events-oversight' },
       { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements-management' },
       { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },
       { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
@@ -374,13 +391,36 @@ export function getSidebarMenu(role) {
   }
 
   if (dashboardType === 'guest') {
-    return [
+    const guestMenu = [
       { id: 'home', icon: 'fas fa-home', label: 'Home', section: 'home' },
       { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events' },
+      { id: 'community-events', icon: 'fas fa-calendar-day', label: 'Community Events', section: 'community-events' },
+    ];
+    const guestAllowed = userData?.allowed_event_types || userData?.allowedEventTypes || [];
+    if (guestAllowed.length > 0) {
+      guestMenu.push({ id: 'my-created-events', icon: 'fas fa-calendar-plus', label: 'My Events', section: 'my-created-events' });
+    }
+    guestMenu.push(
       { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
       { id: 'assistant', icon: 'fas fa-robot', label: 'Spiritual Assistant', section: 'spiritual-assistant' },
       { id: 'profile', icon: 'fas fa-user', label: 'My Profile', section: 'my-profile' },
+    );
+    return guestMenu;
+  }
+
+  // Member with NO ministry and NO ministry role — restricted sidebar
+  if (role === ROLES.MEMBER && !userData?.ministry && !userData?.sub_role) {
+    const basicMenu = [
+      { id: 'home', icon: 'fas fa-home', label: 'Home', section: 'home' },
+      { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events' },
+      { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements' },
+      { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
+      { id: 'messages', icon: 'fas fa-envelope', label: 'Messages', section: 'messages' },
+      { id: 'bible', icon: 'fas fa-bible', label: 'Bible Reader', section: 'bible-reader' },
+      { id: 'assistant', icon: 'fas fa-robot', label: 'Spiritual Assistant', section: 'spiritual-assistant' },
+      { id: 'profile', icon: 'fas fa-user', label: 'My Profile', section: 'my-profile' },
     ];
+    return basicMenu;
   }
 
   // Ministry dashboard (Member, Song Leader, Leader)
@@ -404,11 +444,20 @@ export function getSidebarMenu(role) {
 
   menu.push(
     { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events' },
+    { id: 'community-events', icon: 'fas fa-calendar-day', label: 'Community Events', section: 'community-events' },
     { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements' },
+  );
+
+  // Dynamic: Show "My Events" if user has event creation permissions
+  const allowedTypes = userData?.allowed_event_types || userData?.allowedEventTypes || [];
+  if (allowedTypes.length > 0) {
+    menu.push({ id: 'my-created-events', icon: 'fas fa-calendar-plus', label: 'My Events', section: 'my-created-events' });
+  }
+
+  menu.push(
     { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
     { id: 'messages', icon: 'fas fa-envelope', label: 'Messages', section: 'messages' },
     { id: 'bible', icon: 'fas fa-bible', label: 'Bible Reader', section: 'bible-reader' },
-    { id: 'quote', icon: 'fas fa-quote-right', label: 'Daily Quote', section: 'daily-quote' },
     { id: 'assistant', icon: 'fas fa-robot', label: 'Spiritual Assistant', section: 'spiritual-assistant' },
     { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', section: 'reports' },
     { id: 'profile', icon: 'fas fa-user', label: 'My Profile', section: 'my-profile' },
