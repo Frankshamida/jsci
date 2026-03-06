@@ -9,7 +9,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <head>
-        <meta name="google-site-verification" content="qKsYEzWnu3nNnwL2mQ1F00-BjY3OU0VQowx1r8HlZMk" />
+        <meta name="google-site-verification" content="3FH6FYrBm5O341ms_WFVZZVyo5Ymve05DCUEzfeGM0A" />
         <link
           rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
