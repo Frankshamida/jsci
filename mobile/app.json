@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Joyful Sound Church",
+    "slug": "jsci-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "jsci",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0d0d1a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jsci.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0d0d1a"
+      },
+      "package": "com.jsci.mobile"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      "expo-image-picker"
+    ]
+  }
+}

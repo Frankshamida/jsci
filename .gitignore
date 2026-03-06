@@ -20,5 +20,9 @@ npm-debug.log*
 Thumbs.db
 .DS_Store
 
+# Expo
+.expo/
+
 # Scripts with credentials
+web/scripts/seed-admins.js
 scripts/seed-admins.js
