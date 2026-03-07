@@ -286,9 +286,9 @@ export default function DashboardPage() {
 
   // Create Lineup
   const [lineupForm, setLineupForm] = useState({
-    scheduleDate: '', practiceDate: '', songLeader: '',
-    backupSingers: [], slowSongs: [{ title: '', link: '', lyrics: '', instructions: '' }],
-    fastSongs: [{ title: '', link: '', lyrics: '', instructions: '' }],
+    scheduleDate: '', practiceDate: '', practiceTime: '', songLeader: '',
+    backupSingers: [], slowSongs: [{ title: '', link: '', instructions: '' }],
+    fastSongs: [{ title: '', link: '', instructions: '' }],
   });
   const [lineupLoading, setLineupLoading] = useState(false);
   const [lineupView, setLineupView] = useState('calendar'); // 'calendar' | 'form' | 'success'
@@ -326,7 +326,8 @@ export default function DashboardPage() {
 
   // Lineup Excuses
   const [lineupExcuses, setLineupExcuses] = useState([]); // all excuses loaded
-  const [excuseModalDate, setExcuseModalDate] = useState(null); // date being excused (Song Leader)
+  const [excuseModalDate, setExcuseModalDate] = useState(null); // date being excused
+  const [excuseModalRoleType, setExcuseModalRoleType] = useState(null); // role type override for excuse
   const [excuseReason, setExcuseReason] = useState('');
   const [excuseLoading, setExcuseLoading] = useState(false);
 
@@ -334,11 +335,14 @@ export default function DashboardPage() {
   const [subRequests, setSubRequests] = useState([]);
   const [subModalDate, setSubModalDate] = useState(null); // date for sub request modal
   const [subModalScheduleId, setSubModalScheduleId] = useState(null);
+  const [subModalRoleType, setSubModalRoleType] = useState(null); // role type for sub request
   const [subReason, setSubReason] = useState('');
   const [subLoading, setSubLoading] = useState(false);
   const [subThankYouModal, setSubThankYouModal] = useState(null); // { subId, subName }
   const [subThankYouMessage, setSubThankYouMessage] = useState('');
   const [pawLogsSubTab, setPawLogsSubTab] = useState('excuses'); // 'excuses' | 'substitutes' (admin PAW Logs)
+  const [pawActionCalMonth, setPawActionCalMonth] = useState(new Date()); // calendar month for PAW quick actions
+  const [pawActionModal, setPawActionModal] = useState(null); // { date, roleType } — the date-action picker modal
 
   // Profile
   const [profileTab, setProfileTab] = useState('personal');
@@ -545,6 +549,20 @@ export default function DashboardPage() {
   const [pawAudioTime, setPawAudioTime] = useState({ current: 0, duration: 0 });
   const pawPlayerRef = useRef(null);
   const pawProgressRef = useRef(null);
+
+  // Multimedia Lyrics Library
+  const [lyricsLibrary, setLyricsLibrary] = useState([]);
+  const [lyricsSearch, setLyricsSearch] = useState('');
+  const [lyricsLangFilter, setLyricsLangFilter] = useState('All');
+  const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
+  const [lyricsEditorData, setLyricsEditorData] = useState(null); // null = new, object = editing
+  const [lyricsEditorForm, setLyricsEditorForm] = useState({ title: '', artist: '', language: 'English', youtube_link: '', sections: [], lyrics_plain: '', lyrics_html: '' });
+  const [lyricsEditorLoading, setLyricsEditorLoading] = useState(false);
+  const [lyricsAiLoading, setLyricsAiLoading] = useState(false);
+  const [lyricsFormatLoading, setLyricsFormatLoading] = useState(false);
+  const [lyricsPasteText, setLyricsPasteText] = useState('');
+  const [lyricsLinkModal, setLyricsLinkModal] = useState(null); // { lyricsId, lyricsTitle } for linking to schedule
+  const [multimediaLineupNotifs, setMultimediaLineupNotifs] = useState([]); // schedules needing lyrics
 
   // Logout
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -773,6 +791,110 @@ export default function DashboardPage() {
   }, [userData?.id]);
 
   // ============================================
+  // REAL-TIME: SUBSTITUTE REQUESTS, NOTIFICATIONS, EXCUSES
+  // Instantly updates when admin approves/rejects subs,
+  // shows notification popup to backup singers, etc.
+  // ============================================
+  useEffect(() => {
+    if (!userData?.id || !supabase) return;
+    const userId = userData.id;
+
+    // --- Real-time: lineup_substitutes ---
+    const subsChannel = supabase
+      .channel('lineup-substitutes-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'lineup_substitutes',
+      }, (payload) => {
+        // Re-fetch all sub requests on any change
+        loadSubRequests();
+        loadScheduleData();
+
+        const evt = payload.eventType;
+        const row = payload.new || {};
+
+        // If a sub was just approved (Open for Sub) and I'm NOT the requester → toast
+        if (evt === 'UPDATE' && row.status === 'Open for Sub' && row.requester_id !== userId) {
+          const roleLabel = row.role_type || 'Song Leader';
+          const userSubRole = userData?.sub_role || '';
+          // Only show toast if the user's role matches the sub's role
+          const myRole = userSubRole.includes('Song Leaders') ? 'Song Leader' : userSubRole.includes('Backup Singer') ? 'Backup Singer' : userSubRole.includes('Instrumentalist') ? 'Instrumentalist' : userSubRole.includes('Dancer') ? 'Dancer' : null;
+          if (myRole && myRole === roleLabel) {
+            showToast(`🔔 ${row.requester_name} (${roleLabel}) needs a substitute! Check the lineup section.`, 'info');
+          }
+        }
+
+        // If MY sub was approved/rejected → toast
+        if (evt === 'UPDATE' && row.requester_id === userId) {
+          if (row.status === 'Open for Sub') {
+            showToast('✅ Your substitute request was approved! Members have been notified.', 'success');
+          } else if (row.status === 'Rejected') {
+            showToast('❌ Your substitute request was rejected by admin.', 'danger');
+          } else if (row.status === 'Accepted' && row.substitute_name) {
+            showToast(`🎉 ${row.substitute_name} accepted your sub request!`, 'success');
+          }
+        }
+
+        // If I just accepted someone's sub → toast for requester handled above
+        if (evt === 'UPDATE' && row.status === 'Accepted' && row.substitute_id === userId) {
+          showToast(`✅ You're now substituting for ${row.requester_name}!`, 'success');
+        }
+      })
+      .subscribe();
+
+    // --- Real-time: notifications ---
+    const notifsChannel = supabase
+      .channel(`notifications-realtime-${userId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${userId}`,
+      }, (payload) => {
+        const notif = payload.new;
+        // Re-fetch to update the bell count + PAW Notifications tab
+        loadNotifications(userId);
+        loadPawNotifications();
+        // Show a toast with the notification title
+        if (notif && notif.title) {
+          showToast(notif.title, 'info');
+        }
+      })
+      .subscribe();
+
+    // --- Real-time: lineup_excuses ---
+    const excusesChannel = supabase
+      .channel('lineup-excuses-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'lineup_excuses',
+      }, (payload) => {
+        loadLineupExcuses();
+
+        const evt = payload.eventType;
+        const row = payload.new || {};
+
+        // If MY excuse was approved/rejected → toast
+        if (evt === 'UPDATE' && row.user_id === userId) {
+          if (row.status === 'Approved') {
+            showToast('✅ Your excuse has been approved!', 'success');
+          } else if (row.status === 'Rejected') {
+            showToast('❌ Your excuse was rejected by admin.', 'danger');
+          }
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subsChannel);
+      supabase.removeChannel(notifsChannel);
+      supabase.removeChannel(excusesChannel);
+    };
+  }, [userData?.id]);
+
+  // ============================================
   // TOAST
   // ============================================
   const showToast = useCallback((message, type = 'info') => {
@@ -829,7 +951,7 @@ export default function DashboardPage() {
     if (sectionId === 'permissions-control') { loadPermissionOverrides(); } else { setPermCtrlUnlocked(false); setPermCtrlPasswordInput(''); setPermCtrlPasswordError(''); }
     if (sectionId === 'create-lineup') { loadScheduleData(); loadLineupExcuses(); loadSubRequests(); loadPawMembers(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
     if (sectionId === 'my-lineups') loadScheduleData();
-    if (sectionId === 'praise-worship') { loadPawSchedules(); loadPawMySchedules(); loadPawNotifications(); const subRole = userData?.sub_role || ''; const ministry = userData?.ministry || ''; let roleLabel = subRole || ministry || 'Worship Team Member'; fetchPawBibleVerse(roleLabel); }
+    if (sectionId === 'praise-worship') { loadPawSchedules(); loadPawMySchedules(); loadPawNotifications(); loadSubRequests(); loadLineupExcuses(); const subRole = userData?.sub_role || ''; const ministry = userData?.ministry || ''; let roleLabel = subRole || ministry || 'Worship Team Member'; fetchPawBibleVerse(roleLabel); if ((ministry === 'Media') || (subRole || '').includes('Multimedia') || (subRole || '').includes('Lyrics')) { loadLyricsLibrary(); loadMultimediaLineupNotifs(); } }
     if (sectionId === 'my-created-events') { loadUserEvents(); loadBrowseUserEvents(); }
     if (sectionId === 'community-events') loadBrowseUserEvents();
     if (sectionId === 'user-events-oversight') loadAllUserEventsForPastor();
@@ -1353,21 +1475,277 @@ export default function DashboardPage() {
   };
 
   // Fetch lyrics using Groq AI (passes YouTube link for accurate song identification)
-  const fetchSongLyrics = async (songTitle, songLink) => {
-    setPawLyricsModal({ title: songTitle, lyrics: null, artist: null, loading: true });
+  const fetchSongLyrics = async (songTitle, songLink, scheduleDate) => {
+    // Split combined "TITLE - ARTIST" format into clean parts for searching
+    let cleanTitle = songTitle || '';
+    let cleanArtist = '';
+    if (cleanTitle.includes(' - ')) {
+      const parts = cleanTitle.split(' - ');
+      cleanTitle = parts[0].trim();
+      cleanArtist = parts.slice(1).join(' - ').trim();
+    }
+    setPawLyricsModal({ title: cleanTitle, lyrics: null, artist: cleanArtist, loading: true, source: null });
     try {
+      let libraryMatch = null;
+
+      // Strategy 1: Check by linked schedule date first (most reliable)
+      if (scheduleDate) {
+        const linkedRes = await fetch(`/api/lyrics/library?scheduleDate=${encodeURIComponent(scheduleDate)}`);
+        const linkedData = await linkedRes.json();
+        if (linkedData.success && linkedData.data?.length > 0) {
+          libraryMatch = linkedData.data.find(l => {
+            const lt = (l.title || '').toLowerCase();
+            const ct = cleanTitle.toLowerCase();
+            return lt.includes(ct) || ct.includes(lt);
+          });
+        }
+      }
+
+      // Strategy 2: Search by clean title
+      if (!libraryMatch) {
+        const libRes = await fetch(`/api/lyrics/library?search=${encodeURIComponent(cleanTitle)}`);
+        const libData = await libRes.json();
+        if (libData.success && libData.data?.length > 0) {
+          libraryMatch = libData.data.find(l => {
+            const lt = (l.title || '').toLowerCase();
+            const ct = cleanTitle.toLowerCase();
+            return lt.includes(ct) || ct.includes(lt);
+          });
+        }
+      }
+
+      // If multimedia has prepared this → show their version
+      if (libraryMatch && libraryMatch.lyrics_plain) {
+        setPawLyricsModal({
+          title: libraryMatch.title,
+          lyrics: libraryMatch.lyrics_plain,
+          artist: libraryMatch.artist || cleanArtist,
+          loading: false,
+          source: 'multimedia',
+          preparedBy: libraryMatch.prepared_by_name,
+        });
+        return;
+      }
+
+      // Fallback to AI lyrics
       let url = `/api/lyrics?title=${encodeURIComponent(songTitle)}`;
       if (songLink) url += `&link=${encodeURIComponent(songLink)}`;
       const res = await fetch(url);
       const data = await res.json();
       if (data.success && data.data && data.data.lyrics) {
-        setPawLyricsModal({ title: data.data.title || songTitle, lyrics: data.data.lyrics, artist: data.data.artist, loading: false });
+        setPawLyricsModal({ title: data.data.title || cleanTitle, lyrics: data.data.lyrics, artist: data.data.artist || cleanArtist, loading: false, source: 'ai' });
       } else {
-        setPawLyricsModal({ title: songTitle, lyrics: null, artist: '', loading: false });
+        setPawLyricsModal({ title: cleanTitle, lyrics: null, artist: cleanArtist, loading: false, source: null });
       }
     } catch {
-      setPawLyricsModal({ title: songTitle, lyrics: null, artist: '', loading: false });
+      setPawLyricsModal({ title: cleanTitle, lyrics: null, artist: cleanArtist, loading: false, source: null });
     }
+  };
+
+  // ============================================
+  // MULTIMEDIA LYRICS LIBRARY
+  // ============================================
+  const isMultimediaUser = (userData?.ministry === 'Media') || (userData?.sub_role || '').includes('Multimedia') || (userData?.sub_role || '').includes('Lyrics');
+
+  const loadLyricsLibrary = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (lyricsSearch) params.set('search', lyricsSearch);
+      if (lyricsLangFilter && lyricsLangFilter !== 'All') params.set('language', lyricsLangFilter);
+      const res = await fetch(`/api/lyrics/library?${params.toString()}`);
+      const data = await res.json();
+      if (data.success) setLyricsLibrary(data.data || []);
+    } catch { /* silent */ }
+  };
+
+  const loadMultimediaLineupNotifs = async () => {
+    try {
+      // Fetch upcoming schedules that have songs (for Multimedia to prepare lyrics)
+      const res = await fetch('/api/praise-worship?type=schedules');
+      const data = await res.json();
+      if (data.success) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const upcoming = (data.data || []).filter(s => {
+          if (new Date(s.scheduleDate) < today) return false;
+          const allSongs = [...(s.slowSongs || []), ...(s.fastSongs || [])];
+          return allSongs.some(song => song.title);
+        });
+        setMultimediaLineupNotifs(upcoming);
+      }
+    } catch { /* silent */ }
+  };
+
+  const handleLyricsAiAutofill = async () => {
+    const link = lyricsEditorForm.youtube_link;
+    if (!link) { showToast('Please enter a YouTube link first', 'warning'); return; }
+    setLyricsAiLoading(true);
+    try {
+      const res = await fetch('/api/lyrics/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ai-autofill', youtubeLink: link }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setLyricsEditorForm(prev => ({
+          ...prev,
+          title: data.data.title || prev.title,
+          artist: data.data.artist || prev.artist,
+          language: data.data.language || prev.language,
+          sections: data.data.sections || prev.sections,
+          lyrics_html: data.data.lyrics_html || prev.lyrics_html,
+          lyrics_plain: data.data.lyrics_plain || prev.lyrics_plain,
+        }));
+        showToast('AI auto-filled song details!', 'success');
+      } else {
+        showToast(data.message || 'AI could not identify this song', 'warning');
+      }
+    } catch (e) { showToast('AI autofill failed: ' + e.message, 'danger'); }
+    setLyricsAiLoading(false);
+  };
+
+  const handleLyricsAiFormat = async () => {
+    if (!lyricsPasteText.trim()) { showToast('Please paste lyrics text first', 'warning'); return; }
+    setLyricsFormatLoading(true);
+    try {
+      const res = await fetch('/api/lyrics/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ai-format', rawLyrics: lyricsPasteText, title: lyricsEditorForm.title, artist: lyricsEditorForm.artist }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setLyricsEditorForm(prev => ({
+          ...prev,
+          sections: data.data.sections || prev.sections,
+          lyrics_html: data.data.lyrics_html || prev.lyrics_html,
+          lyrics_plain: data.data.lyrics_plain || prev.lyrics_plain,
+          language: data.data.language || prev.language,
+        }));
+        setLyricsPasteText('');
+        showToast('Lyrics formatted into sections!', 'success');
+      } else {
+        showToast(data.message || 'Could not format lyrics', 'warning');
+      }
+    } catch (e) { showToast('Format failed: ' + e.message, 'danger'); }
+    setLyricsFormatLoading(false);
+  };
+
+  const handleLyricsSave = async () => {
+    if (!lyricsEditorForm.title.trim()) { showToast('Song title is required', 'warning'); return; }
+    setLyricsEditorLoading(true);
+    try {
+      const isEditing = !!lyricsEditorData;
+      const body = {
+        title: lyricsEditorForm.title,
+        artist: lyricsEditorForm.artist,
+        language: lyricsEditorForm.language,
+        youtube_link: lyricsEditorForm.youtube_link,
+        sections: lyricsEditorForm.sections,
+        lyrics_html: lyricsEditorForm.lyrics_html,
+        lyrics_plain: lyricsEditorForm.lyrics_plain,
+        prepared_by: userData?.id,
+        prepared_by_name: `${userData?.firstname} ${userData?.lastname}`,
+        status: 'Published',
+      };
+      const res = await fetch('/api/lyrics/library', {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isEditing ? { ...body, id: lyricsEditorData.id } : body),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isEditing ? 'Lyrics updated!' : 'Lyrics saved to library!', 'success');
+        setLyricsEditorOpen(false);
+        setLyricsEditorData(null);
+        setLyricsEditorForm({ title: '', artist: '', language: 'English', youtube_link: '', sections: [], lyrics_plain: '', lyrics_html: '' });
+        setLyricsPasteText('');
+        loadLyricsLibrary();
+      } else showToast(data.message || 'Failed to save', 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    setLyricsEditorLoading(false);
+  };
+
+  const handleLyricsDelete = async (id) => {
+    if (!confirm('Delete this lyrics entry?')) return;
+    try {
+      const res = await fetch(`/api/lyrics/library?id=${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) { showToast('Lyrics deleted!', 'success'); loadLyricsLibrary(); }
+      else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const handleLyricsLinkToSchedule = async (lyricsId, scheduleDate) => {
+    try {
+      const res = await fetch('/api/lyrics/library', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: lyricsId, action: 'link-schedule', scheduleDate: scheduleDate }),
+      });
+      const data = await res.json();
+      if (data.success) { showToast('Lyrics linked to schedule!', 'success'); setLyricsLinkModal(null); loadLyricsLibrary(); }
+      else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const openLyricsEditor = (existing = null) => {
+    if (existing) {
+      setLyricsEditorData(existing);
+      setLyricsEditorForm({
+        title: existing.title || '',
+        artist: existing.artist || '',
+        language: existing.language || 'English',
+        youtube_link: existing.youtube_link || '',
+        sections: existing.sections || [],
+        lyrics_plain: existing.lyrics_plain || '',
+        lyrics_html: existing.lyrics_html || '',
+      });
+    } else {
+      setLyricsEditorData(null);
+      setLyricsEditorForm({ title: '', artist: '', language: 'English', youtube_link: '', sections: [], lyrics_plain: '', lyrics_html: '' });
+    }
+    setLyricsPasteText('');
+    setLyricsEditorOpen(true);
+  };
+
+  const updateLyricsSection = (index, field, value) => {
+    setLyricsEditorForm(prev => {
+      const sections = [...prev.sections];
+      sections[index] = { ...sections[index], [field]: value };
+      // Rebuild plain/html from sections
+      const plain = sections.map(s => `[${s.label}]\n${s.content}`).join('\n\n');
+      const html = sections.map(s => `<div class="lyrics-section"><h4>${s.label}</h4><p>${s.content.replace(/\n/g, '<br/>')}</p></div>`).join('');
+      return { ...prev, sections, lyrics_plain: plain, lyrics_html: html };
+    });
+  };
+
+  const addLyricsSection = () => {
+    setLyricsEditorForm(prev => ({
+      ...prev,
+      sections: [...prev.sections, { label: 'Verse ' + (prev.sections.filter(s => s.label.startsWith('Verse')).length + 1), content: '' }],
+    }));
+  };
+
+  const removeLyricsSection = (index) => {
+    setLyricsEditorForm(prev => {
+      const sections = prev.sections.filter((_, i) => i !== index);
+      const plain = sections.map(s => `[${s.label}]\n${s.content}`).join('\n\n');
+      const html = sections.map(s => `<div class="lyrics-section"><h4>${s.label}</h4><p>${s.content.replace(/\n/g, '<br/>')}</p></div>`).join('');
+      return { ...prev, sections, lyrics_plain: plain, lyrics_html: html };
+    });
+  };
+
+  const moveLyricsSection = (index, direction) => {
+    setLyricsEditorForm(prev => {
+      const sections = [...prev.sections];
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= sections.length) return prev;
+      [sections[index], sections[newIndex]] = [sections[newIndex], sections[index]];
+      const plain = sections.map(s => `[${s.label}]\n${s.content}`).join('\n\n');
+      const html = sections.map(s => `<div class="lyrics-section"><h4>${s.label}</h4><p>${s.content.replace(/\n/g, '<br/>')}</p></div>`).join('');
+      return { ...prev, sections, lyrics_plain: plain, lyrics_html: html };
+    });
   };
 
   // YouTube IFrame API: load script once
@@ -2059,10 +2437,16 @@ export default function DashboardPage() {
   const removeBackupSinger = (name) => {
     setLineupForm((p) => ({ ...p, backupSingers: p.backupSingers.filter((s) => s !== name) }));
   };
-  // Get available backup singers (exclude already selected + exclude current song leader)
+  // Get available backup singers (exclude already selected + exclude current song leader + exclude excused)
   const getAvailableBackupSingers = () => {
     const selected = lineupForm.backupSingers.filter(Boolean);
-    return backupSingerOptions.filter(b => !selected.includes(b.name) && b.name !== lineupForm.songLeader);
+    return backupSingerOptions.filter(b => {
+      if (selected.includes(b.name)) return false;
+      if (b.name === lineupForm.songLeader) return false;
+      // Exclude excused backup singers for this date
+      if (lineupForm.scheduleDate && getExcuseForMemberOnDate(b.name, lineupForm.scheduleDate, 'Backup Singer')) return false;
+      return true;
+    });
   };
   // When song leader changes, also remove them from backup singers if present
   const handleSongLeaderChange = (value) => {
@@ -2072,7 +2456,7 @@ export default function DashboardPage() {
       backupSingers: prev.backupSingers.filter(s => s !== value),
     }));
   };
-  const addSong = (type) => setLineupForm((p) => ({ ...p, [type]: [...p[type], { title: '', link: '', lyrics: '', instructions: '' }] }));
+  const addSong = (type) => setLineupForm((p) => ({ ...p, [type]: [...p[type], { title: '', link: '', instructions: '' }] }));
   const removeSong = (type, i) => {
     setLineupForm((p) => ({ ...p, [type]: p[type].filter((_, idx) => idx !== i) }));
     setSongScanResults((prev) => { const n = { ...prev }; delete n[`${type}-${i}`]; return n; });
@@ -2299,7 +2683,7 @@ Examples:
   };
 
   const resetLineupForm = () => {
-    setLineupForm({ scheduleDate: '', practiceDate: '', songLeader: '', backupSingers: [], slowSongs: [{ title: '', link: '', lyrics: '', instructions: '' }], fastSongs: [{ title: '', link: '', lyrics: '', instructions: '' }] });
+    setLineupForm({ scheduleDate: '', practiceDate: '', practiceTime: '', songLeader: '', backupSingers: [], slowSongs: [{ title: '', link: '', instructions: '' }], fastSongs: [{ title: '', link: '', instructions: '' }] });
     setLineupSelectedDate(null);
     setLineupView('calendar');
     setEditingLineup(null);
@@ -2349,13 +2733,24 @@ Examples:
       // This is their assigned date OR their sub date — open form to add/edit songs
       setLineupSelectedDate(dateStr);
       setEditingLineup(existing);
+      // Auto-fill practice date to the Saturday before the schedule date
+      let autoPracticeDate = existing.practiceDate || '';
+      if (!autoPracticeDate && existing.scheduleDate) {
+        const schedDate = new Date(existing.scheduleDate + 'T00:00:00');
+        const dayOfWeek = schedDate.getDay(); // 0=Sun, 6=Sat
+        const daysBack = dayOfWeek === 0 ? 1 : dayOfWeek === 6 ? 0 : (dayOfWeek + 1);
+        const satDate = new Date(schedDate);
+        satDate.setDate(satDate.getDate() - daysBack);
+        autoPracticeDate = `${satDate.getFullYear()}-${String(satDate.getMonth()+1).padStart(2,'0')}-${String(satDate.getDate()).padStart(2,'0')}`;
+      }
       setLineupForm({
         scheduleDate: existing.scheduleDate,
-        practiceDate: existing.practiceDate || '',
+        practiceDate: autoPracticeDate,
+        practiceTime: existing.practiceTime || '',
         songLeader: existing.songLeader,
         backupSingers: existing.backupSingers?.length ? [...existing.backupSingers] : [],
-        slowSongs: existing.slowSongs?.length ? existing.slowSongs : [{ title: '', link: '', lyrics: '', instructions: '' }],
-        fastSongs: existing.fastSongs?.length ? existing.fastSongs : [{ title: '', link: '', lyrics: '', instructions: '' }],
+        slowSongs: existing.slowSongs?.length ? existing.slowSongs : [{ title: '', link: '', instructions: '' }],
+        fastSongs: existing.fastSongs?.length ? existing.fastSongs : [{ title: '', link: '', instructions: '' }],
       });
       setLineupView('form');
     }
@@ -2391,7 +2786,8 @@ Examples:
         body: JSON.stringify({
           ...(isEditing && { scheduleId: editingLineup.scheduleId }),
           songLeader: songLeaderName, scheduleDate: lineupForm.scheduleDate,
-          practiceDate: lineupForm.practiceDate || null, backupSingers: lineupForm.backupSingers.filter(Boolean),
+          practiceDate: lineupForm.practiceDate || null, practiceTime: lineupForm.practiceTime || null,
+          backupSingers: lineupForm.backupSingers.filter(Boolean),
           slowSongs: lineupForm.slowSongs.filter((s) => s.title), fastSongs: lineupForm.fastSongs.filter((s) => s.title),
           submittedBy: userData?.email,
           songLeaderId: songLeaderId,
@@ -2418,11 +2814,22 @@ Examples:
 
   const startEditLineup = (lineup) => {
     setEditingLineup(lineup);
+    // Auto-fill practice date to Saturday before schedule date if not set
+    let autoPracticeDate = lineup.practiceDate || '';
+    if (!autoPracticeDate && lineup.scheduleDate) {
+      const schedDate = new Date(lineup.scheduleDate + 'T00:00:00');
+      const dayOfWeek = schedDate.getDay();
+      const daysBack = dayOfWeek === 0 ? 1 : dayOfWeek === 6 ? 0 : (dayOfWeek + 1);
+      const satDate = new Date(schedDate);
+      satDate.setDate(satDate.getDate() - daysBack);
+      autoPracticeDate = `${satDate.getFullYear()}-${String(satDate.getMonth()+1).padStart(2,'0')}-${String(satDate.getDate()).padStart(2,'0')}`;
+    }
     setLineupForm({
-      scheduleDate: lineup.scheduleDate, practiceDate: lineup.practiceDate || '',
+      scheduleDate: lineup.scheduleDate, practiceDate: autoPracticeDate,
+      practiceTime: lineup.practiceTime || '',
       songLeader: lineup.songLeader || '', backupSingers: lineup.backupSingers?.length ? [...lineup.backupSingers] : [],
-      slowSongs: lineup.slowSongs?.length ? lineup.slowSongs : [{ title: '', link: '', lyrics: '', instructions: '' }],
-      fastSongs: lineup.fastSongs?.length ? lineup.fastSongs : [{ title: '', link: '', lyrics: '', instructions: '' }],
+      slowSongs: lineup.slowSongs?.length ? lineup.slowSongs : [{ title: '', link: '', instructions: '' }],
+      fastSongs: lineup.fastSongs?.length ? lineup.fastSongs : [{ title: '', link: '', instructions: '' }],
     });
     setLineupSelectedDate(lineup.scheduleDate);
     setLineupTab('assign');
@@ -2503,7 +2910,7 @@ Examples:
     setExcuseLoading(true);
     try {
       const userSubRole = userData?.sub_role || '';
-      const detectedRole = overrideRoleType || (userSubRole.includes('Song Leaders') ? 'Song Leader' : userSubRole.includes('Backup Singer') ? 'Backup Singer' : userSubRole.includes('Instrumentalist') ? 'Instrumentalist' : userSubRole.includes('Dancer') ? 'Dancer' : userSubRole.includes('Media') ? 'Media' : 'Song Leader');
+      const detectedRole = overrideRoleType || excuseModalRoleType || (userSubRole.includes('Song Leaders') ? 'Song Leader' : userSubRole.includes('Backup Singer') ? 'Backup Singer' : userSubRole.includes('Instrumentalist') ? 'Instrumentalist' : userSubRole.includes('Dancer') ? 'Dancer' : userSubRole.includes('Media') ? 'Media' : 'Song Leader');
       const res = await fetch('/api/lineup/excuses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2520,6 +2927,7 @@ Examples:
       if (data.success) {
         showToast('Excuse submitted! Waiting for admin approval.', 'success');
         setExcuseModalDate(null);
+        setExcuseModalRoleType(null);
         setExcuseReason('');
         loadLineupExcuses();
       } else showToast(data.message, 'danger');
@@ -2551,6 +2959,11 @@ Examples:
   // Check if a Song Leader is excused on a specific date (for admin dropdown graying)
   const getExcuseForLeaderOnDate = (leaderName, dateStr) => {
     return lineupExcuses.find(e => e.user_name === leaderName && e.excuse_date === dateStr && (e.status === 'Approved' || e.status === 'Pending'));
+  };
+
+  // Check if a backup singer / instrumentalist / dancer has an excuse for a date
+  const getExcuseForMemberOnDate = (memberName, dateStr, roleType) => {
+    return lineupExcuses.find(e => e.user_name === memberName && e.excuse_date === dateStr && (e.role_type || '') === roleType && (e.status === 'Approved' || e.status === 'Pending'));
   };
 
   // Get current month's assigned dates that are missing songs (for Song Leader cards)
@@ -2605,6 +3018,8 @@ Examples:
     setSubLoading(true);
     try {
       const schedule = scheduleData.find(s => s.scheduleDate === subModalDate);
+      const userSubRole = userData?.sub_role || '';
+      const detectedRole = subModalRoleType || (userSubRole.includes('Song Leaders') ? 'Song Leader' : userSubRole.includes('Backup Singer') ? 'Backup Singer' : userSubRole.includes('Instrumentalist') ? 'Instrumentalist' : userSubRole.includes('Dancer') ? 'Dancer' : 'Song Leader');
       const res = await fetch('/api/lineup/substitutes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2615,12 +3030,13 @@ Examples:
           scheduleId: schedule?.scheduleId || subModalScheduleId || null,
           scheduleDate: subModalDate,
           reason: subReason.trim(),
+          roleType: detectedRole,
         }),
       });
       const data = await res.json();
       if (data.success) {
         showToast('Substitute request submitted! Waiting for admin approval.', 'success');
-        setSubModalDate(null); setSubModalScheduleId(null); setSubReason('');
+        setSubModalDate(null); setSubModalScheduleId(null); setSubModalRoleType(null); setSubReason('');
         loadSubRequests();
       } else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); } finally { setSubLoading(false); }
@@ -2628,8 +3044,18 @@ Examples:
 
   const adminReviewSub = async (subId, action) => {
     try {
-      // Get all song leader IDs for notification
-      const slIds = songLeaderOptions.map(sl => sl.id);
+      // Find the sub request to get its role_type
+      const subReq = subRequests.find(s => s.id === subId);
+      const roleType = subReq?.role_type || 'Song Leader';
+      // Get member IDs matching the same role for notifications
+      let notifyIds = [];
+      if (roleType === 'Song Leader') {
+        notifyIds = songLeaderOptions.map(sl => sl.id);
+      } else {
+        // Find members from pawAllMembers matching the role's sub_role keyword
+        const roleKeyword = roleType === 'Backup Singer' ? 'Backup Singer' : roleType === 'Instrumentalist' ? 'Instrumentalist' : roleType === 'Dancer' ? 'Dancer' : roleType;
+        notifyIds = pawAllMembers.filter(m => (m.sub_role || '').includes(roleKeyword)).map(m => m.id);
+      }
       const res = await fetch('/api/lineup/substitutes', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -2637,7 +3063,8 @@ Examples:
           id: subId,
           action: action === 'approve' ? 'admin-approve' : 'admin-reject',
           reviewedBy: userData?.email,
-          songLeaderIds: slIds,
+          songLeaderIds: roleType === 'Song Leader' ? notifyIds : undefined,
+          memberIds: roleType !== 'Song Leader' ? notifyIds : undefined,
         }),
       });
       const data = await res.json();
@@ -2693,8 +3120,8 @@ Examples:
   };
 
   // Helpers for substitute data
-  const getSubForDate = (dateStr) => {
-    return subRequests.find(s => s.schedule_date === dateStr && s.requester_id === userData?.id && s.status !== 'Cancelled' && s.status !== 'Rejected');
+  const getSubForDate = (dateStr, roleType) => {
+    return subRequests.find(s => s.schedule_date === dateStr && s.requester_id === userData?.id && s.status !== 'Cancelled' && s.status !== 'Rejected' && (!roleType || (s.role_type || 'Song Leader') === roleType));
   };
 
   const getMySubRequests = () => {
@@ -2704,7 +3131,17 @@ Examples:
 
   const getOpenSubsForMe = () => {
     if (!userData) return [];
-    return subRequests.filter(s => s.status === 'Open for Sub' && s.requester_id !== userData.id).sort((a, b) => new Date(a.schedule_date) - new Date(b.schedule_date));
+    // Determine user's PAW role keyword
+    const userSubRole = userData.sub_role || '';
+    const userRoleType = userSubRole.includes('Song Leaders') ? 'Song Leader' : userSubRole.includes('Backup Singer') ? 'Backup Singer' : userSubRole.includes('Instrumentalist') ? 'Instrumentalist' : userSubRole.includes('Dancer') ? 'Dancer' : null;
+    return subRequests.filter(s => {
+      if (s.status !== 'Open for Sub') return false;
+      if (s.requester_id === userData.id) return false;
+      // Only show open subs matching user's role
+      const subRole = s.role_type || 'Song Leader';
+      if (userRoleType && subRole !== userRoleType) return false;
+      return true;
+    }).sort((a, b) => new Date(a.schedule_date) - new Date(b.schedule_date));
   };
 
   const getPendingAdminSubs = () => {
@@ -3295,34 +3732,61 @@ Examples:
           setShowWelcomeModal(false);
         }}>
           <div className="welcome-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="welcome-modal-glow"></div>
-            <div className="welcome-modal-header">
-              <div className="welcome-modal-cross">✝</div>
-              <h2>Welcome to Joyful Sound Church</h2>
-              <p className="welcome-modal-subtitle">International Ministry Portal</p>
+            {/* Animated background orbs */}
+            <div className="wm-orb wm-orb-1"></div>
+            <div className="wm-orb wm-orb-2"></div>
+            <div className="wm-orb wm-orb-3"></div>
+
+            {/* Floating sparkles */}
+            <div className="wm-sparkles">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="wm-sparkle" style={{
+                  left: `${15 + Math.random() * 70}%`,
+                  top: `${10 + Math.random() * 80}%`,
+                  animationDelay: `${i * 0.5}s`,
+                }} />
+              ))}
             </div>
-            <div className="welcome-modal-body">
-              <div className="welcome-modal-greeting">
-                <span className="welcome-wave">👋</span>
-                <h3>Hello, {userData?.firstname || 'Beloved'}!</h3>
-                <p>We&apos;re so glad you&apos;re here. God has a wonderful plan for you.</p>
-              </div>
-              <div className="welcome-modal-verse">
-                <div className="verse-icon">📖</div>
-                <blockquote>&ldquo;{welcomeVerse.verse}&rdquo;</blockquote>
-                <cite>— {welcomeVerse.reference}</cite>
-              </div>
-              <button className="welcome-modal-btn" onClick={() => {
-                const welcomeKey = `welcomed_${userData?.email || userData?.id}`;
-                localStorage.setItem(welcomeKey, 'true');
-                setShowWelcomeModal(false);
-              }}>
-                <i className="fas fa-dove"></i> Begin My Journey
-              </button>
+
+            {/* Logo */}
+            <div className="wm-logo-wrap">
+              <div className="wm-logo-ring"></div>
+              <img src="/assets/LOGO.png" alt="JSCI" className="wm-logo" />
             </div>
-            <div className="welcome-modal-footer">
-              <span>🕊️ The joy of the Lord is your strength — Nehemiah 8:10</span>
+
+            {/* Greeting */}
+            <div className="wm-greeting">
+              <span className="wm-wave">👋</span>
+              <h2>Welcome, <span className="wm-name">{userData?.firstname || 'Beloved'}</span></h2>
+              <p className="wm-subtitle">We&apos;re so glad you&apos;re here</p>
             </div>
+
+            {/* Divider */}
+            <div className="wm-divider">
+              <span className="wm-divider-dot"></span>
+              <span className="wm-divider-line"></span>
+              <span className="wm-divider-dot"></span>
+            </div>
+
+            {/* Verse */}
+            <div className="wm-verse-card">
+              <i className="fas fa-quote-left wm-quote-icon"></i>
+              <p className="wm-verse-text">{welcomeVerse.verse}</p>
+              <span className="wm-verse-ref">{welcomeVerse.reference}</span>
+            </div>
+
+            {/* CTA */}
+            <button className="wm-btn" onClick={() => {
+              const welcomeKey = `welcomed_${userData?.email || userData?.id}`;
+              localStorage.setItem(welcomeKey, 'true');
+              setShowWelcomeModal(false);
+            }}>
+              <span>Get Started</span>
+              <i className="fas fa-arrow-right"></i>
+            </button>
+
+            {/* Footer tagline */}
+            <p className="wm-footer">Joyful Sound Church International</p>
           </div>
         </div>
       )}
@@ -3391,8 +3855,17 @@ Examples:
         </div>
       )}
 
-      {/* Mobile Menu Toggle */}
-      <button className="mobile-menu-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>☰</button>
+      {/* Mobile Top Navbar */}
+      <header className="mobile-topbar">
+        <div className="mobile-topbar-left">
+          <img src="/assets/LOGO.png" alt="JSCI Logo" className="mobile-topbar-logo" />
+        </div>
+        <button className="mobile-hamburger" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle menu">
+          <span className={`hamburger-line ${sidebarOpen ? 'open' : ''}`}></span>
+          <span className={`hamburger-line ${sidebarOpen ? 'open' : ''}`}></span>
+          <span className={`hamburger-line ${sidebarOpen ? 'open' : ''}`}></span>
+        </button>
+      </header>
       <div className={`overlay ${sidebarOpen ? 'active' : ''}`} onClick={() => setSidebarOpen(false)}></div>
 
       <div className="dashboard-container">
@@ -6378,10 +6851,10 @@ Examples:
 
             {/* PAW Tab Bar */}
             <div className="paw-tab-bar">
-              <button className={`paw-tab ${pawTab === 'schedules' ? 'active' : ''}`} onClick={() => { setPawTab('schedules'); loadPawSchedules(); }}>
+              <button className={`paw-tab ${pawTab === 'schedules' ? 'active' : ''}`} onClick={() => { setPawTab('schedules'); loadPawSchedules(); loadSubRequests(); }}>
                 <i className="fas fa-calendar-alt"></i> Schedule Lineups
               </button>
-              <button className={`paw-tab ${pawTab === 'my-schedule' ? 'active' : ''}`} onClick={() => { setPawTab('my-schedule'); loadPawMySchedules(); }}>
+              <button className={`paw-tab ${pawTab === 'my-schedule' ? 'active' : ''}`} onClick={() => { setPawTab('my-schedule'); loadPawMySchedules(); loadSubRequests(); }}>
                 <i className="fas fa-user-check"></i> My Schedule
               </button>
               <button className={`paw-tab ${pawTab === 'notifications' ? 'active' : ''}`} onClick={() => { setPawTab('notifications'); loadPawNotifications(); }}>
@@ -6390,10 +6863,52 @@ Examples:
                   <span className="paw-notif-badge">{pawNotifications.filter(n => !n.is_read).length}</span>
                 )}
               </button>
+              {isMultimediaUser && (
+                <button className={`paw-tab ${pawTab === 'lyrics-library' ? 'active' : ''}`} onClick={() => { setPawTab('lyrics-library'); loadLyricsLibrary(); loadMultimediaLineupNotifs(); }}>
+                  <i className="fas fa-file-audio"></i> Lyrics
+                </button>
+              )}
             </div>
 
             {/* SCHEDULES TAB */}
             {pawTab === 'schedules' && (
+              <div>
+              {/* Open Sub Requests Banner — visible to all PAW members */}
+              {(() => {
+                const openSubs = getOpenSubsForMe();
+                if (openSubs.length === 0) return null;
+                const userSubRole = userData?.sub_role || '';
+                const myRoleLabel = userSubRole.includes('Song Leaders') ? 'Song Leader' : userSubRole.includes('Backup Singer') ? 'Backup Singer' : userSubRole.includes('Instrumentalist') ? 'Instrumentalist' : userSubRole.includes('Dancer') ? 'Dancer' : 'member';
+                return (
+                  <div className="paw-open-subs-banner" style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(156,39,176,0.15), rgba(103,58,183,0.12))', border: '1px solid rgba(156,39,176,0.3)', borderRadius: 14, padding: '16px 18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <i className="fas fa-people-arrows" style={{ color: '#ce93d8', fontSize: '1.1rem' }}></i>
+                      <h4 style={{ color: '#ce93d8', margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>🔔 Open Sub Requests <span style={{ background: '#9c27b0', color: '#fff', borderRadius: 12, padding: '2px 8px', fontSize: '0.75rem', marginLeft: 6 }}>{openSubs.length}</span></h4>
+                    </div>
+                    <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem', margin: '0 0 12px', lineHeight: 1.4 }}>A fellow {myRoleLabel} needs a substitute. Can you help?</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {openSubs.map(sub => (
+                        <div key={sub.id} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(156,39,176,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                              {sub.requester_profile_picture ? <img src={sub.requester_profile_picture} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#ce93d8' }}>{getInitials(sub.requester_name)}</span>}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <strong style={{ fontSize: '0.85rem', color: '#fff' }}>{sub.requester_name}</strong>
+                              <span style={{ display: 'block', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', marginTop: 2 }}><i className="fas fa-calendar-day"></i> {formatDate(sub.schedule_date)}</span>
+                            </div>
+                            <span style={{ background: 'rgba(156,39,176,0.25)', color: '#ce93d8', fontSize: '0.7rem', padding: '3px 8px', borderRadius: 8, fontWeight: 600 }}>{sub.role_type || 'Song Leader'}</span>
+                          </div>
+                          <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', fontStyle: 'italic' }}><i className="fas fa-quote-left" style={{ marginRight: 4, fontSize: '0.65rem' }}></i>{sub.reason}</span>
+                          <button className="paw-open-sub-accept-btn" onClick={() => acceptSubRequest(sub.id)} style={{ alignSelf: 'flex-end', padding: '6px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #9c27b0, #7b1fa2)', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <i className="fas fa-hand-holding-heart"></i> I&apos;ll Sub!
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="paw-schedules-grid">
                 {pawSchedules.filter(s => new Date(s.scheduleDate) >= new Date(new Date().toDateString())).sort((a, b) => new Date(a.scheduleDate) - new Date(b.scheduleDate)).length === 0 && (
                   <div className="paw-empty-state">
@@ -6485,11 +7000,48 @@ Examples:
                   </div>
                 ))}
               </div>
+              </div>
             )}
 
             {/* MY SCHEDULE TAB */}
             {pawTab === 'my-schedule' && (
               <div className="paw-my-schedule-container">
+                {/* Open Sub Requests Banner for My Schedule tab */}
+                {(() => {
+                  const openSubs = getOpenSubsForMe();
+                  if (openSubs.length === 0) return null;
+                  const userSubRole = userData?.sub_role || '';
+                  const myRoleLabel = userSubRole.includes('Song Leaders') ? 'Song Leader' : userSubRole.includes('Backup Singer') ? 'Backup Singer' : userSubRole.includes('Instrumentalist') ? 'Instrumentalist' : userSubRole.includes('Dancer') ? 'Dancer' : 'member';
+                  return (
+                    <div className="paw-open-subs-banner" style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(156,39,176,0.15), rgba(103,58,183,0.12))', border: '1px solid rgba(156,39,176,0.3)', borderRadius: 14, padding: '16px 18px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                        <i className="fas fa-people-arrows" style={{ color: '#ce93d8', fontSize: '1.1rem' }}></i>
+                        <h4 style={{ color: '#ce93d8', margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>🔔 {myRoleLabel} Sub Needed! <span style={{ background: '#9c27b0', color: '#fff', borderRadius: 12, padding: '2px 8px', fontSize: '0.75rem', marginLeft: 6 }}>{openSubs.length}</span></h4>
+                      </div>
+                      <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem', margin: '0 0 12px', lineHeight: 1.4 }}>A fellow {myRoleLabel} needs someone to fill in. Tap below to volunteer!</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {openSubs.map(sub => (
+                          <div key={sub.id} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(156,39,176,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                                {sub.requester_profile_picture ? <img src={sub.requester_profile_picture} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#ce93d8' }}>{getInitials(sub.requester_name)}</span>}
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <strong style={{ fontSize: '0.85rem', color: '#fff' }}>{sub.requester_name}</strong>
+                                <span style={{ display: 'block', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', marginTop: 2 }}><i className="fas fa-calendar-day"></i> {formatDate(sub.schedule_date)}</span>
+                              </div>
+                              <span style={{ background: 'rgba(156,39,176,0.25)', color: '#ce93d8', fontSize: '0.7rem', padding: '3px 8px', borderRadius: 8, fontWeight: 600 }}>{sub.role_type || 'Song Leader'}</span>
+                            </div>
+                            <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', fontStyle: 'italic' }}><i className="fas fa-quote-left" style={{ marginRight: 4, fontSize: '0.65rem' }}></i>{sub.reason}</span>
+                            <button className="paw-open-sub-accept-btn" onClick={() => acceptSubRequest(sub.id)} style={{ alignSelf: 'flex-end', padding: '6px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #9c27b0, #7b1fa2)', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <i className="fas fa-hand-holding-heart"></i> I&apos;ll Sub!
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {pawMySchedules.length === 0 ? (
                   <div className="paw-empty-state">
                     <i className="fas fa-user-clock"></i>
@@ -6576,16 +7128,313 @@ Examples:
                         </div>
 
                         <div className="paw-card-v2-footer">
-                          <button className="paw-view-btn-v2"><i className="fas fa-eye"></i> View Details</button>
+                          <button className="paw-view-btn-v2" onClick={(e) => { e.stopPropagation(); setPawSelectedSchedule(schedule); }}><i className="fas fa-eye"></i> View Details</button>
                         </div>
+                        {/* Substitute action row for assigned non-Song-Leader cards */}
+                        {(() => {
+                          const isPast = new Date(schedule.scheduleDate + 'T00:00:00') < new Date(new Date().toDateString());
+                          const cardRoleType = schedule.role === 'Backup Singer' ? 'Backup Singer' : schedule.role === 'Instrumentalist' ? 'Instrumentalist' : schedule.role === 'Dancer' ? 'Dancer' : null;
+                          if (isPast || !cardRoleType || schedule.role?.includes('Substituted')) return null;
+                          const mySub = getSubForDate(schedule.scheduleDate, cardRoleType);
+                          return (
+                            <div className="paw-card-v2-actions-row" onClick={(e) => e.stopPropagation()}>
+                              {mySub ? (
+                                <span className={`paw-card-action-status ${mySub.status === 'Pending Admin' ? 'pending' : mySub.status === 'Open for Sub' ? 'open' : mySub.status === 'Accepted' ? 'accepted' : 'default'}`}>
+                                  <i className="fas fa-people-arrows"></i> Sub: {mySub.status === 'Pending Admin' ? 'Pending' : mySub.status}
+                                </span>
+                              ) : (
+                                <button className="paw-card-action-btn substitute" onClick={(e) => { e.stopPropagation(); setSubModalDate(schedule.scheduleDate); setSubModalScheduleId(schedule.scheduleId || null); setSubModalRoleType(cardRoleType); setSubReason(''); }}>
+                                  <i className="fas fa-people-arrows"></i> Request Sub
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
                 )}
+
+                {/* Quick Actions for Backup Singers, Instrumentalists, Dancers */}
+                {(() => {
+                  const userSubRole = userData?.sub_role || '';
+                  const isBackupSinger = userSubRole.includes('Backup Singer');
+                  const isInstrumentalist = userSubRole.includes('Instrumentalist');
+                  const isDancer = userSubRole.includes('Dancer');
+                  const isSongLeader = userSubRole.includes('Song Leaders');
+                  const isPAW = userSubRole.includes('Praise And Worship') || isBackupSinger || isInstrumentalist || isDancer;
+                  const myRoleLabel = isBackupSinger ? 'Backup Singer' : isInstrumentalist ? 'Instrumentalist' : isDancer ? 'Dancer' : null;
+                  const myRoleIcon = isBackupSinger ? 'fa-users' : isInstrumentalist ? 'fa-guitar' : isDancer ? 'fa-shoe-prints' : null;
+                  const myRoleColor = isBackupSinger ? '#17a2b8' : isInstrumentalist ? '#6f42c1' : isDancer ? '#e83e8c' : '#926c15';
+
+                  // Show for Backup Singers, Instrumentalists, Dancers (not Song Leaders — they use the lineup calendar)
+                  if (!isPAW || !myRoleLabel || isSongLeader) return null;
+
+                  const myExcuses = lineupExcuses.filter(e => e.user_id === userData?.id && (e.role_type || '') === myRoleLabel);
+                  const mySubs = subRequests.filter(s => s.requester_id === userData?.id && (s.role_type || '') === myRoleLabel && s.status !== 'Cancelled' && s.status !== 'Rejected');
+
+                  // Calendar helpers
+                  const calYear = pawActionCalMonth.getFullYear();
+                  const calMonth = pawActionCalMonth.getMonth();
+                  const firstDay = new Date(calYear, calMonth, 1).getDay();
+                  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+                  const calDays = [];
+                  for (let i = 0; i < firstDay; i++) calDays.push(null);
+                  for (let d = 1; d <= daysInMonth; d++) calDays.push(d);
+
+                  const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+
+                  const getDateStr = (day) => `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+                  return (
+                    <div className="paw-quick-actions-section">
+                      <div className="paw-quick-actions-header">
+                        <i className={`fas ${myRoleIcon}`} style={{ color: myRoleColor }}></i>
+                        <h3>{myRoleLabel} — Excuse &amp; Substitute</h3>
+                      </div>
+                      <p className="paw-quick-actions-desc">
+                        <i className="fas fa-info-circle"></i> Tap any <strong>future Sunday</strong> on the calendar to file an excuse or request a substitute.
+                      </p>
+
+                      {/* Calendar */}
+                      <div className="paw-action-calendar-card">
+                        <div className="paw-action-cal-header">
+                          <button onClick={() => setPawActionCalMonth(new Date(calYear, calMonth - 1))}><i className="fas fa-chevron-left"></i></button>
+                          <h3>{pawActionCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
+                          <button onClick={() => setPawActionCalMonth(new Date(calYear, calMonth + 1))}><i className="fas fa-chevron-right"></i></button>
+                        </div>
+                        <div className="paw-action-cal-weekdays">
+                          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="paw-action-cal-wd">{d}</div>)}
+                        </div>
+                        <div className="paw-action-cal-grid">
+                          {calDays.map((day, i) => {
+                            if (!day) return <div key={i} className="paw-action-cal-day empty"></div>;
+                            const dateStr = getDateStr(day);
+                            const date = new Date(calYear, calMonth, day);
+                            const isPast = date < todayDate;
+                            const isSunday = date.getDay() === 0;
+                            const isToday = date.getTime() === todayDate.getTime();
+                            const excuse = myExcuses.find(e => e.excuse_date === dateStr);
+                            const sub = mySubs.find(s => s.schedule_date === dateStr);
+                            const isAssigned = pawMySchedules.some(s => s.scheduleDate === dateStr && s.role === myRoleLabel);
+                            const isClickable = !isPast && isSunday;
+                            return (
+                              <div key={i}
+                                className={`paw-action-cal-day${isPast ? ' past' : ''}${isToday ? ' today' : ''}${isSunday ? ' sunday' : ''}${excuse ? ' has-excuse' : ''}${sub ? ' has-sub' : ''}${isAssigned ? ' assigned' : ''}${isClickable ? ' clickable' : ''}`}
+                                onClick={() => {
+                                  if (!isClickable) return;
+                                  // Open action picker modal for this date — include isAssigned so modal can conditionally show sub button
+                                  setPawActionModal({ date: dateStr, roleType: myRoleLabel, isAssigned });
+                                }}
+                                title={isPast ? 'Past date' : !isSunday ? '' : excuse ? `Excuse: ${excuse.status}` : sub ? `Sub: ${sub.status === 'Pending Admin' ? 'Pending' : sub.status}` : isAssigned ? 'You\'re assigned — tap for actions' : 'Tap to file excuse or request sub'}
+                              >
+                                <span className="paw-action-cal-num">{day}</span>
+                                {isSunday && !isPast && (
+                                  <div className="paw-action-cal-dots">
+                                    {excuse && <span className={`paw-action-cal-dot excuse-dot ${excuse.status.toLowerCase()}`}></span>}
+                                    {sub && <span className={`paw-action-cal-dot sub-dot ${sub.status === 'Pending Admin' ? 'pending' : sub.status === 'Accepted' ? 'accepted' : sub.status === 'Open for Sub' ? 'open' : 'default'}`}></span>}
+                                    {isAssigned && !excuse && !sub && <span className="paw-action-cal-dot assigned-dot"></span>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="paw-action-cal-legend">
+                          <span><span className="legend-dot" style={{ background: myRoleColor }}></span> Assigned</span>
+                          <span><span className="legend-dot" style={{ background: '#ffc107' }}></span> Excuse Pending</span>
+                          <span><span className="legend-dot" style={{ background: '#28a745' }}></span> Excuse Approved</span>
+                          <span><span className="legend-dot" style={{ background: '#9c27b0' }}></span> Sub Request</span>
+                          <span><span className="legend-dot past"></span> Past</span>
+                        </div>
+                      </div>
+
+                      {/* Date Action Picker Modal */}
+                      {pawActionModal && (
+                        <div className="um-modal-overlay" onClick={() => setPawActionModal(null)}>
+                          <div className="paw-date-action-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="paw-date-action-header">
+                              <div className="paw-date-action-date-display">
+                                <span className="paw-date-action-day">{new Date(pawActionModal.date + 'T00:00:00').getDate()}</span>
+                                <div className="paw-date-action-month-col">
+                                  <span>{new Date(pawActionModal.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long' })}</span>
+                                  <span>{new Date(pawActionModal.date + 'T00:00:00').getFullYear()}</span>
+                                </div>
+                                <span className="paw-date-action-weekday">{new Date(pawActionModal.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })}</span>
+                              </div>
+                              <span className="paw-date-action-role-badge" style={{ background: myRoleColor }}>
+                                <i className={`fas ${myRoleIcon}`}></i> {myRoleLabel}
+                              </span>
+                              <button className="btn-close-modal" onClick={() => setPawActionModal(null)}><i className="fas fa-times"></i></button>
+                            </div>
+                            <div className="paw-date-action-body">
+                              {/* Show existing excuse/sub status */}
+                              {(() => {
+                                const exc = myExcuses.find(e => e.excuse_date === pawActionModal.date);
+                                const sub = mySubs.find(s => s.schedule_date === pawActionModal.date);
+                                return (
+                                  <>
+                                    {exc && (
+                                      <div className={`paw-date-action-status-card ${exc.status.toLowerCase()}`}>
+                                        <i className="fas fa-calendar-minus"></i>
+                                        <div>
+                                          <strong>Excuse: {exc.status}</strong>
+                                          <p>{exc.reason}</p>
+                                        </div>
+                                        {exc.status === 'Pending' && (
+                                          <button className="paw-date-action-cancel" onClick={() => { cancelExcuse(exc.id); setPawActionModal(null); }}><i className="fas fa-times"></i> Cancel</button>
+                                        )}
+                                      </div>
+                                    )}
+                                    {sub && (
+                                      <div className={`paw-date-action-status-card ${sub.status === 'Pending Admin' ? 'pending' : sub.status === 'Accepted' ? 'accepted' : 'open'}`}>
+                                        <i className="fas fa-people-arrows"></i>
+                                        <div>
+                                          <strong>Sub: {sub.status === 'Pending Admin' ? 'Pending Approval' : sub.status}</strong>
+                                          <p>{sub.reason}</p>
+                                          {sub.status === 'Accepted' && sub.substitute_name && <p><i className="fas fa-user-check"></i> {sub.substitute_name}</p>}
+                                        </div>
+                                        {sub.status === 'Pending Admin' && (
+                                          <button className="paw-date-action-cancel" onClick={() => { cancelSubRequest(sub.id); setPawActionModal(null); }}><i className="fas fa-times"></i> Cancel</button>
+                                        )}
+                                      </div>
+                                    )}
+                                    {/* Action Buttons */}
+                                    <div className="paw-date-action-buttons">
+                                      {!exc && (
+                                        <button className="paw-date-action-btn excuse" onClick={() => {
+                                          setPawActionModal(null);
+                                          setExcuseModalDate(pawActionModal.date);
+                                          setExcuseModalRoleType(pawActionModal.roleType);
+                                          setExcuseReason('');
+                                        }}>
+                                          <i className="fas fa-calendar-minus"></i>
+                                          <div>
+                                            <strong>File an Excuse</strong>
+                                            <span>Let admin know you can&apos;t make it</span>
+                                          </div>
+                                        </button>
+                                      )}
+                                      {!sub && pawActionModal.isAssigned && (
+                                        <button className="paw-date-action-btn substitute" onClick={() => {
+                                          setPawActionModal(null);
+                                          setSubModalDate(pawActionModal.date);
+                                          setSubModalScheduleId(null);
+                                          setSubModalRoleType(pawActionModal.roleType);
+                                          setSubReason('');
+                                        }}>
+                                          <i className="fas fa-people-arrows"></i>
+                                          <div>
+                                            <strong>Request Substitute</strong>
+                                            <span>Ask someone to cover your role</span>
+                                          </div>
+                                        </button>
+                                      )}
+                                      {!sub && !pawActionModal.isAssigned && !exc && (
+                                        <p className="paw-date-action-hint"><i className="fas fa-info-circle"></i> Substitute requests are only available for dates where you&apos;re assigned in the lineup.</p>
+                                      )}
+                                      {exc && sub && (
+                                        <p className="paw-date-action-done"><i className="fas fa-check-circle"></i> You have already filed an excuse and a sub request for this date.</p>
+                                      )}
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* My Excuse Dates */}
+                      {myExcuses.length > 0 && (
+                        <div className="paw-quick-history-card" style={{ marginTop: 20 }}>
+                          <h4><i className="fas fa-calendar-minus"></i> My Excuses</h4>
+                          <div className="paw-quick-history-list">
+                            {myExcuses.map(exc => {
+                              const isPastExc = new Date(exc.excuse_date + 'T00:00:00') < todayDate;
+                              return (
+                                <div key={exc.id} className={`paw-quick-history-item ${exc.status.toLowerCase()}${isPastExc ? ' past' : ''}`}>
+                                  <span className="paw-quick-history-date">{formatDate(exc.excuse_date)}</span>
+                                  <span className={`paw-quick-history-status ${exc.status.toLowerCase()}`}>{exc.status}</span>
+                                  <span className="paw-quick-history-reason">{exc.reason}</span>
+                                  {exc.status === 'Pending' && !isPastExc && (
+                                    <button className="paw-quick-history-cancel" onClick={() => cancelExcuse(exc.id)}><i className="fas fa-times"></i></button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* My Sub Requests */}
+                      {mySubs.length > 0 && (
+                        <div className="paw-quick-history-card" style={{ marginTop: 12 }}>
+                          <h4><i className="fas fa-people-arrows"></i> My Sub Requests</h4>
+                          <div className="paw-quick-history-list">
+                            {mySubs.map(sub => {
+                              const isPastSub = new Date(sub.schedule_date + 'T00:00:00') < todayDate;
+                              return (
+                                <div key={sub.id} className={`paw-quick-history-item ${sub.status === 'Pending Admin' ? 'pending' : sub.status === 'Open for Sub' ? 'open' : sub.status === 'Accepted' ? 'accepted' : 'default'}${isPastSub ? ' past' : ''}`}>
+                                  <span className="paw-quick-history-date">{formatDate(sub.schedule_date)}</span>
+                                  <span className={`paw-quick-history-status ${sub.status === 'Pending Admin' ? 'pending' : sub.status.toLowerCase().replace(/ /g, '-')}`}>{sub.status === 'Pending Admin' ? 'Pending' : sub.status}</span>
+                                  <span className="paw-quick-history-reason">{sub.reason}</span>
+                                  {sub.status === 'Pending Admin' && !isPastSub && (
+                                    <button className="paw-quick-history-cancel" onClick={() => cancelSubRequest(sub.id)}><i className="fas fa-times"></i></button>
+                                  )}
+                                  {sub.status === 'Accepted' && sub.substitute_name && (
+                                    <span className="paw-quick-history-sub-name"><i className="fas fa-user-check"></i> {sub.substitute_name}</span>
+                                  )}
+                                  {sub.status === 'Accepted' && sub.substitute_name && !sub.thank_you_sent && !isPastSub && (
+                                    <button className="paw-quick-history-thankyou" onClick={() => { setSubThankYouModal({ subId: sub.id, subName: sub.substitute_name }); setSubThankYouMessage(''); }}>
+                                      <i className="fas fa-heart"></i> Thank You
+                                    </button>
+                                  )}
+                                  {sub.thank_you_sent && (
+                                    <span className="paw-quick-history-thankyou-sent"><i className="fas fa-heart"></i> Sent</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Open Sub Requests from fellow members — I'll Sub! */}
+                      {(() => {
+                        const openSubs = getOpenSubsForMe();
+                        if (openSubs.length === 0) return null;
+                        return (
+                          <div className="paw-quick-history-card paw-open-subs-card" style={{ marginTop: 16 }}>
+                            <h4 style={{ color: '#9c27b0' }}><i className="fas fa-people-arrows"></i> Open Sub Requests <span className="paw-open-subs-badge">{openSubs.length}</span></h4>
+                            <p className="paw-open-subs-hint">A fellow {myRoleLabel} needs a substitute. Can you help?</p>
+                            <div className="paw-quick-history-list">
+                              {openSubs.map(sub => (
+                                <div key={sub.id} className="paw-quick-history-item open" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <div className="paw-open-sub-avatar">
+                                      {sub.requester_profile_picture ? <img src={sub.requester_profile_picture} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#9c27b0' }}>{getInitials(sub.requester_name)}</span>}
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                      <strong style={{ fontSize: '0.85rem', color: '#fff' }}>{sub.requester_name}</strong>
+                                      <span className="paw-quick-history-date" style={{ display: 'block', marginTop: 2 }}><i className="fas fa-calendar-day"></i> {formatDate(sub.schedule_date)}</span>
+                                    </div>
+                                  </div>
+                                  <span className="paw-quick-history-reason"><i className="fas fa-quote-left"></i> {sub.reason}</span>
+                                  <button className="paw-open-sub-accept-btn" onClick={() => acceptSubRequest(sub.id)}>
+                                    <i className="fas fa-check"></i> I&apos;ll Sub!
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
               </div>
             )}
-
-            {/* NOTIFICATIONS TAB */}
             {pawTab === 'notifications' && (
               <div className="paw-notifications-container">
                 {pawNotifications.length === 0 ? (
@@ -6602,6 +7451,13 @@ Examples:
                           if (!notif.is_read) {
                             await fetch('/api/notifications', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: notif.id }) });
                             loadPawNotifications();
+                            loadNotifications(userData?.id);
+                          }
+                          // If substitute notification, navigate to My Schedule tab to see/act on open subs
+                          if (notif.type === 'substitute') {
+                            setPawTab('my-schedule');
+                            loadPawMySchedules();
+                            loadSubRequests();
                           }
                         }}
                       >
@@ -6612,12 +7468,300 @@ Examples:
                           <div className="paw-notif-title">{notif.title}</div>
                           <div className="paw-notif-message">{notif.message}</div>
                           <div className="paw-notif-time"><i className="fas fa-clock"></i> {new Date(notif.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                          {notif.type === 'substitute' && notif.title?.includes('Available') && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: '0.75rem', color: '#ce93d8', fontWeight: 600 }}>
+                              <i className="fas fa-arrow-right"></i> Tap to view &amp; sub
+                            </span>
+                          )}
+                          {notif.type === 'substitute' && notif.title?.includes('Thank You') && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: '0.75rem', color: '#f0c040', fontWeight: 600 }}>
+                              <i className="fas fa-heart"></i> Thank you message received
+                            </span>
+                          )}
                         </div>
                         {!notif.is_read && <span className="paw-notif-dot"></span>}
                       </div>
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* LYRICS LIBRARY TAB (Multimedia Users) */}
+            {pawTab === 'lyrics-library' && isMultimediaUser && (
+              <div className="lyrics-lib-container">
+                {/* Lyrics Editor Modal */}
+                {lyricsEditorOpen && (
+                  <div className="um-modal-overlay" onClick={() => setLyricsEditorOpen(false)}>
+                    <div className="lyrics-editor-modal" onClick={(e) => e.stopPropagation()}>
+                      <div className="lyrics-editor-header">
+                        <h3><i className="fas fa-pen-fancy"></i> {lyricsEditorData ? 'Edit Lyrics' : 'Create Lyrics'}</h3>
+                        <button className="modal-close-btn" onClick={() => setLyricsEditorOpen(false)}><i className="fas fa-times"></i></button>
+                      </div>
+                      <div className="lyrics-editor-body">
+                        {/* YouTube Link + AI Auto-fill */}
+                        <div className="lyrics-editor-yt-row">
+                          <div className="lyrics-editor-field" style={{ flex: 1 }}>
+                            <label><i className="fab fa-youtube" style={{ color: '#ff0000' }}></i> YouTube Link</label>
+                            <input type="text" className="form-control" placeholder="https://youtube.com/watch?v=..." value={lyricsEditorForm.youtube_link} onChange={(e) => setLyricsEditorForm(prev => ({ ...prev, youtube_link: e.target.value }))} />
+                          </div>
+                          <button className="lyrics-ai-btn" onClick={handleLyricsAiAutofill} disabled={lyricsAiLoading || !lyricsEditorForm.youtube_link}>
+                            {lyricsAiLoading ? <><i className="fas fa-spinner fa-spin"></i> AI Working...</> : <><i className="fas fa-magic"></i> AI Auto-Fill</>}
+                          </button>
+                        </div>
+
+                        {/* Title, Artist, Language */}
+                        <div className="lyrics-editor-meta-row">
+                          <div className="lyrics-editor-field">
+                            <label>Song Title *</label>
+                            <input type="text" className="form-control" placeholder="Song title" value={lyricsEditorForm.title} onChange={(e) => setLyricsEditorForm(prev => ({ ...prev, title: e.target.value }))} />
+                          </div>
+                          <div className="lyrics-editor-field">
+                            <label>Artist</label>
+                            <input type="text" className="form-control" placeholder="Artist name" value={lyricsEditorForm.artist} onChange={(e) => setLyricsEditorForm(prev => ({ ...prev, artist: e.target.value }))} />
+                          </div>
+                          <div className="lyrics-editor-field" style={{ maxWidth: 160 }}>
+                            <label>Language</label>
+                            <select className="form-control" value={lyricsEditorForm.language} onChange={(e) => setLyricsEditorForm(prev => ({ ...prev, language: e.target.value }))}>
+                              <option value="English">English</option>
+                              <option value="Tagalog">Tagalog</option>
+                              <option value="Bisaya">Bisaya</option>
+                              <option value="Mixed">Mixed</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Paste & AI Format Section */}
+                        <div className="lyrics-editor-paste-section">
+                          <label><i className="fas fa-paste"></i> Paste Lyrics (AI will auto-format into sections)</label>
+                          <textarea className="form-control lyrics-paste-area" rows={5} placeholder="Paste raw lyrics here from any website... AI will detect Verse 1, Chorus, Bridge etc." value={lyricsPasteText} onChange={(e) => setLyricsPasteText(e.target.value)} />
+                          <button className="lyrics-format-btn" onClick={handleLyricsAiFormat} disabled={lyricsFormatLoading || !lyricsPasteText.trim()}>
+                            {lyricsFormatLoading ? <><i className="fas fa-spinner fa-spin"></i> Formatting...</> : <><i className="fas fa-wand-magic-sparkles"></i> AI Format into Sections</>}
+                          </button>
+                        </div>
+
+                        {/* Section Editor */}
+                        <div className="lyrics-sections-editor">
+                          <div className="lyrics-sections-header">
+                            <h4><i className="fas fa-layer-group"></i> Lyrics Sections</h4>
+                            <button className="lyrics-add-section-btn" onClick={addLyricsSection}><i className="fas fa-plus"></i> Add Section</button>
+                          </div>
+                          {lyricsEditorForm.sections.length === 0 && (
+                            <div className="lyrics-no-sections">
+                              <i className="fas fa-music"></i>
+                              <p>No sections yet. Use AI Auto-Fill, paste lyrics above, or add sections manually.</p>
+                            </div>
+                          )}
+                          {lyricsEditorForm.sections.map((section, idx) => (
+                            <div key={idx} className="lyrics-section-card">
+                              <div className="lyrics-section-card-header">
+                                <select className="lyrics-section-label-select" value={section.label} onChange={(e) => updateLyricsSection(idx, 'label', e.target.value)}>
+                                  <option value="Intro">Intro</option>
+                                  <option value="Verse 1">Verse 1</option>
+                                  <option value="Verse 2">Verse 2</option>
+                                  <option value="Verse 3">Verse 3</option>
+                                  <option value="Verse 4">Verse 4</option>
+                                  <option value="Pre-Chorus">Pre-Chorus</option>
+                                  <option value="Chorus">Chorus</option>
+                                  <option value="Chorus 2">Chorus 2</option>
+                                  <option value="Bridge">Bridge</option>
+                                  <option value="Bridge 2">Bridge 2</option>
+                                  <option value="Interlude">Interlude</option>
+                                  <option value="Outro">Outro</option>
+                                  <option value="Tag">Tag</option>
+                                  <option value="Refrain">Refrain</option>
+                                  <option value="Ad-lib">Ad-lib</option>
+                                </select>
+                                <div className="lyrics-section-actions">
+                                  <button onClick={() => moveLyricsSection(idx, -1)} disabled={idx === 0} title="Move up"><i className="fas fa-arrow-up"></i></button>
+                                  <button onClick={() => moveLyricsSection(idx, 1)} disabled={idx === lyricsEditorForm.sections.length - 1} title="Move down"><i className="fas fa-arrow-down"></i></button>
+                                  <button onClick={() => removeLyricsSection(idx)} className="lyrics-section-delete" title="Remove"><i className="fas fa-trash"></i></button>
+                                </div>
+                              </div>
+                              <textarea className="form-control lyrics-section-textarea" rows={4} placeholder="Enter lyrics for this section..." value={section.content} onChange={(e) => updateLyricsSection(idx, 'content', e.target.value)} />
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Preview */}
+                        {lyricsEditorForm.sections.length > 0 && (
+                          <div className="lyrics-preview-section">
+                            <h4><i className="fas fa-eye"></i> Preview</h4>
+                            <div className="lyrics-preview-card">
+                              {lyricsEditorForm.title && <h3 className="lyrics-preview-title">{lyricsEditorForm.title}</h3>}
+                              {lyricsEditorForm.artist && <p className="lyrics-preview-artist">{lyricsEditorForm.artist}</p>}
+                              {lyricsEditorForm.sections.map((section, idx) => (
+                                <div key={idx} className="lyrics-preview-section-block">
+                                  <span className="lyrics-preview-label">[{section.label}]</span>
+                                  <pre className="lyrics-preview-content">{section.content}</pre>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="lyrics-editor-footer">
+                        <button className="btn-secondary" onClick={() => setLyricsEditorOpen(false)}>Cancel</button>
+                        <button className="btn-primary" onClick={handleLyricsSave} disabled={lyricsEditorLoading || !lyricsEditorForm.title.trim()}>
+                          {lyricsEditorLoading ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> {lyricsEditorData ? 'Update Lyrics' : 'Save to Library'}</>}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Link to Schedule Modal */}
+                {lyricsLinkModal && (
+                  <div className="um-modal-overlay" onClick={() => setLyricsLinkModal(null)}>
+                    <div className="lyrics-link-modal" onClick={(e) => e.stopPropagation()}>
+                      <div className="lyrics-editor-header">
+                        <h3><i className="fas fa-link"></i> Link to Schedule</h3>
+                        <button className="modal-close-btn" onClick={() => setLyricsLinkModal(null)}><i className="fas fa-times"></i></button>
+                      </div>
+                      <div className="lyrics-link-body">
+                        <p className="lyrics-link-desc"><i className="fas fa-info-circle"></i> Select a schedule date to link <strong>&quot;{lyricsLinkModal.lyricsTitle}&quot;</strong> to. Other ministry members will then see &quot;Prepared by Multimedia Team&quot; when viewing the lyrics.</p>
+                        <div className="lyrics-link-schedule-list">
+                          {multimediaLineupNotifs.length === 0 ? (
+                            <div className="lyrics-no-sections"><i className="fas fa-calendar-xmark"></i><p>No upcoming schedules with songs found.</p></div>
+                          ) : (
+                            multimediaLineupNotifs.map((sched, idx) => (
+                              <div key={idx} className="lyrics-link-schedule-card" onClick={() => handleLyricsLinkToSchedule(lyricsLinkModal.lyricsId, sched.scheduleDate)}>
+                                <div className="lyrics-link-sched-date">
+                                  <span className="lyrics-link-day">{new Date(sched.scheduleDate + 'T00:00:00').getDate()}</span>
+                                  <span className="lyrics-link-month">{new Date(sched.scheduleDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' })}</span>
+                                </div>
+                                <div className="lyrics-link-sched-info">
+                                  <strong>{sched.songLeader}</strong>
+                                  <span>{[...(sched.slowSongs || []), ...(sched.fastSongs || [])].filter(s => s.title).map(s => s.title).join(', ')}</span>
+                                </div>
+                                <i className="fas fa-arrow-right" style={{ color: '#90caf9' }}></i>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Multimedia Lineup Notifications Banner */}
+                {multimediaLineupNotifs.length > 0 && (
+                  <div className="lyrics-lineup-banner">
+                    <div className="lyrics-lineup-banner-header">
+                      <i className="fas fa-music"></i>
+                      <h4>🎵 Songs Needing Lyrics <span className="lyrics-lineup-count">{multimediaLineupNotifs.reduce((acc, s) => acc + [...(s.slowSongs || []), ...(s.fastSongs || [])].filter(ss => ss.title).length, 0)}</span></h4>
+                    </div>
+                    <p className="lyrics-lineup-banner-desc">Song Leaders have added songs to upcoming lineups. Prepare lyrics for the worship team!</p>
+                    <div className="lyrics-lineup-items">
+                      {multimediaLineupNotifs.map((sched, idx) => {
+                        const allSongs = [...(sched.slowSongs || []), ...(sched.fastSongs || [])].filter(s => s.title);
+                        return (
+                          <div key={idx} className="lyrics-lineup-item">
+                            <div className="lyrics-lineup-item-date">
+                              <span className="lyrics-lineup-item-day">{new Date(sched.scheduleDate + 'T00:00:00').getDate()}</span>
+                              <span className="lyrics-lineup-item-month">{new Date(sched.scheduleDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' })}</span>
+                            </div>
+                            <div className="lyrics-lineup-item-songs">
+                              <strong>{sched.songLeader}</strong>
+                              <div className="lyrics-lineup-song-chips">
+                                {allSongs.map((song, si) => (
+                                  <span key={si} className="lyrics-lineup-song-chip" onClick={() => {
+                                    openLyricsEditor();
+                                    // Split "TITLE - ARTIST" format into separate fields
+                                    const songTitleRaw = song.title || '';
+                                    let sTitle = songTitleRaw;
+                                    let sArtist = '';
+                                    if (songTitleRaw.includes(' - ')) {
+                                      const parts = songTitleRaw.split(' - ');
+                                      sTitle = parts[0].trim();
+                                      sArtist = parts.slice(1).join(' - ').trim();
+                                    }
+                                    setLyricsEditorForm(prev => ({
+                                      ...prev,
+                                      title: sTitle,
+                                      artist: sArtist,
+                                      youtube_link: song.link || '',
+                                    }));
+                                  }}>
+                                    <i className="fas fa-music"></i> {song.title}
+                                    <i className="fas fa-plus" style={{ marginLeft: 6, fontSize: '0.65rem' }}></i>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Search & Filter Bar */}
+                <div className="lyrics-lib-toolbar">
+                  <button className="lyrics-create-btn" onClick={() => openLyricsEditor()}>
+                    <i className="fas fa-plus"></i> Create Lyrics
+                  </button>
+                  <div className="lyrics-search-bar">
+                    <i className="fas fa-search"></i>
+                    <input type="text" placeholder="Search by title or artist..." value={lyricsSearch} onChange={(e) => setLyricsSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && loadLyricsLibrary()} />
+                  </div>
+                  <select className="lyrics-lang-filter" value={lyricsLangFilter} onChange={(e) => { setLyricsLangFilter(e.target.value); setTimeout(loadLyricsLibrary, 100); }}>
+                    <option value="All">All Languages</option>
+                    <option value="English">🇺🇸 English</option>
+                    <option value="Tagalog">🇵🇭 Tagalog</option>
+                    <option value="Bisaya">🏝️ Bisaya</option>
+                    <option value="Mixed">🌐 Mixed</option>
+                  </select>
+                </div>
+
+                {/* Lyrics Library Grid */}
+                <div className="lyrics-lib-grid">
+                  {lyricsLibrary.length === 0 ? (
+                    <div className="paw-empty-state">
+                      <i className="fas fa-file-audio"></i>
+                      <p>No lyrics in library yet.</p>
+                      <span>Create your first lyrics entry using the button above!</span>
+                    </div>
+                  ) : (
+                    lyricsLibrary.map((item) => (
+                      <div key={item.id} className="lyrics-lib-card">
+                        <div className="lyrics-lib-card-header">
+                          <div className="lyrics-lib-card-lang" data-lang={item.language}>
+                            {item.language === 'English' ? '🇺🇸' : item.language === 'Tagalog' ? '🇵🇭' : item.language === 'Bisaya' ? '🏝️' : '🌐'} {item.language}
+                          </div>
+                          {item.youtube_link && (
+                            <a href={item.youtube_link} target="_blank" rel="noopener noreferrer" className="lyrics-lib-yt-link" onClick={(e) => e.stopPropagation()}>
+                              <i className="fab fa-youtube"></i>
+                            </a>
+                          )}
+                        </div>
+                        <div className="lyrics-lib-card-body">
+                          <h4 className="lyrics-lib-card-title">{item.title}</h4>
+                          {item.artist && <p className="lyrics-lib-card-artist"><i className="fas fa-user"></i> {item.artist}</p>}
+                          <p className="lyrics-lib-card-preview">{item.lyrics_plain ? item.lyrics_plain.substring(0, 100) + '...' : 'No lyrics content'}</p>
+                        </div>
+                        <div className="lyrics-lib-card-meta">
+                          <span><i className="fas fa-user-pen"></i> {item.prepared_by_name || 'Unknown'}</span>
+                          <span><i className="fas fa-clock"></i> {new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                        <div className="lyrics-lib-card-actions">
+                          <button className="lyrics-lib-btn edit" onClick={() => openLyricsEditor(item)} title="Edit"><i className="fas fa-edit"></i></button>
+                          <button className="lyrics-lib-btn link" onClick={() => setLyricsLinkModal({ lyricsId: item.id, lyricsTitle: item.title })} title="Link to Schedule"><i className="fas fa-link"></i></button>
+                          <button className="lyrics-lib-btn view" onClick={() => setPawLyricsModal({ title: item.title, lyrics: item.lyrics_plain, artist: item.artist, loading: false, source: 'multimedia', preparedBy: item.prepared_by_name })} title="View"><i className="fas fa-eye"></i></button>
+                          <button className="lyrics-lib-btn delete" onClick={() => handleLyricsDelete(item.id)} title="Delete"><i className="fas fa-trash"></i></button>
+                        </div>
+                        {item.linked_schedule_dates?.length > 0 && (
+                          <div className="lyrics-lib-linked-dates">
+                            <i className="fas fa-calendar-check"></i>
+                            {item.linked_schedule_dates.map((d, i) => (
+                              <span key={i} className="lyrics-lib-linked-chip">{new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </section>
@@ -6729,7 +7873,7 @@ Examples:
                                     {isPlaying && <><span></span><span></span><span></span><span></span><span></span></>}
                                   </div>
                                 </div>
-                                <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, song.link)} title="View Lyrics">
+                                <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, song.link, pawSelectedSchedule.scheduleDate)} title="View Lyrics">
                                   <i className="fas fa-align-left"></i> Lyrics
                                 </button>
                               </div>
@@ -6748,14 +7892,14 @@ Examples:
                           {song.link && !vidId && (
                             <div className="paw-audio-player-row">
                               <a href={song.link} target="_blank" rel="noopener noreferrer" className="paw-external-link-btn"><i className="fas fa-external-link-alt"></i> Open Link</a>
-                              <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, song.link)} title="View Lyrics">
+                              <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, song.link, pawSelectedSchedule.scheduleDate)} title="View Lyrics">
                                 <i className="fas fa-align-left"></i> Lyrics
                               </button>
                             </div>
                           )}
                           {!song.link && (
                             <div className="paw-audio-player-row">
-                              <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title)} title="View Lyrics">
+                              <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, null, pawSelectedSchedule.scheduleDate)} title="View Lyrics">
                                 <i className="fas fa-align-left"></i> Lyrics
                               </button>
                             </div>
@@ -6790,7 +7934,7 @@ Examples:
                                     {isPlaying && <><span></span><span></span><span></span><span></span><span></span></>}
                                   </div>
                                 </div>
-                                <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, song.link)} title="View Lyrics">
+                                <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, song.link, pawSelectedSchedule.scheduleDate)} title="View Lyrics">
                                   <i className="fas fa-align-left"></i> Lyrics
                                 </button>
                               </div>
@@ -6809,14 +7953,14 @@ Examples:
                           {song.link && !vidId && (
                             <div className="paw-audio-player-row">
                               <a href={song.link} target="_blank" rel="noopener noreferrer" className="paw-external-link-btn"><i className="fas fa-external-link-alt"></i> Open Link</a>
-                              <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, song.link)} title="View Lyrics">
+                              <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, song.link, pawSelectedSchedule.scheduleDate)} title="View Lyrics">
                                 <i className="fas fa-align-left"></i> Lyrics
                               </button>
                             </div>
                           )}
                           {!song.link && (
                             <div className="paw-audio-player-row">
-                              <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title)} title="View Lyrics">
+                              <button className="paw-lyrics-btn" onClick={() => fetchSongLyrics(song.title, null, pawSelectedSchedule.scheduleDate)} title="View Lyrics">
                                 <i className="fas fa-align-left"></i> Lyrics
                               </button>
                             </div>
@@ -6868,7 +8012,121 @@ Examples:
                   )}
                 </div>
                 <div className="paw-lyrics-modal-footer">
-                  <span className="paw-lyrics-source-text"><i className="fas fa-robot"></i> Lyrics powered by AI</span>
+                  {pawLyricsModal.source === 'multimedia' ? (
+                    <div className="paw-lyrics-source-multimedia-badge">
+                      <i className="fas fa-desktop"></i>
+                      <span>Prepared by: <strong>{pawLyricsModal.preparedBy || 'Multimedia Team'}</strong></span>
+                      <span className="paw-lyrics-mm-tag">Media Ministry</span>
+                    </div>
+                  ) : (
+                    <span className="paw-lyrics-source-text"><i className="fas fa-robot"></i> Lyrics powered by AI</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========== GLOBAL EXCUSE / SUBSTITUTE / THANK YOU MODALS ========== */}
+          {/* Excuse Modal (Global – accessible from all PAW roles) */}
+          {excuseModalDate && (
+            <div className="um-modal-overlay" onClick={() => { setExcuseModalDate(null); setExcuseModalRoleType(null); }}>
+              <div className="lu-excuse-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="lu-excuse-modal-header">
+                  <h3><i className="fas fa-calendar-minus"></i> File an Excuse</h3>
+                  <button className="btn-close-modal" onClick={() => { setExcuseModalDate(null); setExcuseModalRoleType(null); }}><i className="fas fa-times"></i></button>
+                </div>
+                <div className="lu-excuse-modal-body">
+                  {excuseModalRoleType && (
+                    <div className="lu-excuse-role-badge" style={{ background: excuseModalRoleType === 'Backup Singer' ? '#17a2b8' : excuseModalRoleType === 'Instrumentalist' ? '#6f42c1' : excuseModalRoleType === 'Dancer' ? '#e83e8c' : '#926c15', color: '#fff', padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                      <i className={`fas ${excuseModalRoleType === 'Backup Singer' ? 'fa-users' : excuseModalRoleType === 'Instrumentalist' ? 'fa-guitar' : excuseModalRoleType === 'Dancer' ? 'fa-shoe-prints' : 'fa-microphone'}`}></i>
+                      {excuseModalRoleType}
+                    </div>
+                  )}
+                  <div className="lu-excuse-date-display">
+                    <i className="fas fa-calendar-day"></i>
+                    <span>{formatDate(excuseModalDate)}</span>
+                  </div>
+                  {getMyExcuseForDate(excuseModalDate) ? (
+                    <div className="lu-excuse-already">
+                      <i className="fas fa-info-circle"></i>
+                      <p>You already have an excuse for this date ({getMyExcuseForDate(excuseModalDate).status}).</p>
+                    </div>
+                  ) : (
+                    <>
+                      <label className="lu-excuse-label">Reason for excuse <span>*</span></label>
+                      <textarea className="form-control lu-excuse-textarea" rows={3} value={excuseReason} onChange={(e) => setExcuseReason(e.target.value)} placeholder="e.g., Family event, out of town, medical appointment..." />
+                      <p className="lu-excuse-note"><i className="fas fa-info-circle"></i> Your excuse will be marked as <strong>Pending</strong> until the Admin reviews and approves it.</p>
+                    </>
+                  )}
+                </div>
+                {!getMyExcuseForDate(excuseModalDate) && (
+                  <div className="lu-excuse-modal-footer">
+                    <button className="btn-secondary" onClick={() => { setExcuseModalDate(null); setExcuseModalRoleType(null); }}>Cancel</button>
+                    <button className="btn-primary" onClick={() => submitExcuse()} disabled={excuseLoading || !excuseReason.trim()}>
+                      {excuseLoading ? <><div className="spinner" style={{ display: 'inline-block', width: 16, height: 16, marginRight: 6 }}></div> Submitting...</> : <><i className="fas fa-paper-plane"></i> Submit Excuse</>}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Substitute Request Modal (Global – accessible from all PAW roles) */}
+          {subModalDate && (
+            <div className="um-modal-overlay" onClick={() => { setSubModalDate(null); setSubModalRoleType(null); }}>
+              <div className="lu-excuse-modal lu-sub-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="lu-excuse-modal-header lu-sub-modal-header">
+                  <h3><i className="fas fa-people-arrows"></i> Request Substitute</h3>
+                  <button className="btn-close-modal" onClick={() => { setSubModalDate(null); setSubModalRoleType(null); }}><i className="fas fa-times"></i></button>
+                </div>
+                <div className="lu-excuse-modal-body">
+                  {subModalRoleType && (
+                    <div className="lu-excuse-role-badge" style={{ background: subModalRoleType === 'Backup Singer' ? '#17a2b8' : subModalRoleType === 'Instrumentalist' ? '#6f42c1' : subModalRoleType === 'Dancer' ? '#e83e8c' : '#926c15', color: '#fff', padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                      <i className={`fas ${subModalRoleType === 'Backup Singer' ? 'fa-users' : subModalRoleType === 'Instrumentalist' ? 'fa-guitar' : subModalRoleType === 'Dancer' ? 'fa-shoe-prints' : 'fa-microphone'}`}></i>
+                      {subModalRoleType}
+                    </div>
+                  )}
+                  <div className="lu-excuse-date-display">
+                    <i className="fas fa-calendar-day"></i>
+                    <span>{formatDate(subModalDate)}</span>
+                  </div>
+                  <p className="lu-sub-modal-desc">
+                    <i className="fas fa-info-circle"></i> Your request will go to the Admin for approval. Once approved, all {subModalRoleType === 'Backup Singer' ? 'Backup Singers' : subModalRoleType === 'Instrumentalist' ? 'Instrumentalists' : subModalRoleType === 'Dancer' ? 'Dancers' : 'Song Leaders'} will be notified and can volunteer to substitute for you.
+                  </p>
+                  <label className="lu-excuse-label">Reason for substitute request <span>*</span></label>
+                  <textarea className="form-control lu-excuse-textarea" rows={3} value={subReason} onChange={(e) => setSubReason(e.target.value)} placeholder="e.g., I'll be out of town, family commitment, not feeling well..." />
+                </div>
+                <div className="lu-excuse-modal-footer">
+                  <button className="btn-secondary" onClick={() => { setSubModalDate(null); setSubModalRoleType(null); }}>Cancel</button>
+                  <button className="btn-primary lu-sub-submit-btn" onClick={submitSubRequest} disabled={subLoading || !subReason.trim()}>
+                    {subLoading ? <><div className="spinner" style={{ display: 'inline-block', width: 16, height: 16, marginRight: 6 }}></div> Submitting...</> : <><i className="fas fa-paper-plane"></i> Submit Request</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Thank You Modal (Global) */}
+          {subThankYouModal && (
+            <div className="um-modal-overlay" onClick={() => setSubThankYouModal(null)}>
+              <div className="lu-excuse-modal lu-thankyou-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="lu-excuse-modal-header lu-thankyou-modal-header">
+                  <h3><i className="fas fa-heart"></i> Send Thank You</h3>
+                  <button className="btn-close-modal" onClick={() => setSubThankYouModal(null)}><i className="fas fa-times"></i></button>
+                </div>
+                <div className="lu-excuse-modal-body">
+                  <div className="lu-thankyou-to">
+                    <i className="fas fa-user"></i>
+                    <span>To: <strong>{subThankYouModal.subName}</strong></span>
+                  </div>
+                  <label className="lu-excuse-label">Your message (optional)</label>
+                  <textarea className="form-control lu-excuse-textarea" rows={3} value={subThankYouMessage} onChange={(e) => setSubThankYouMessage(e.target.value)} placeholder="Thank you for substituting! God bless you! 🙏" />
+                </div>
+                <div className="lu-excuse-modal-footer">
+                  <button className="btn-secondary" onClick={() => setSubThankYouModal(null)}>Cancel</button>
+                  <button className="btn-primary lu-thankyou-send-btn" onClick={sendSubThankYou}>
+                    <i className="fas fa-heart"></i> Send Thank You 💛
+                  </button>
                 </div>
               </div>
             </div>
@@ -6950,12 +8208,15 @@ Examples:
                               </div>
                               <div className="lu-excuse-admin-item-info">
                                 <strong>{sub.requester_name}</strong>
+                                <span className="lu-sub-admin-role-badge" style={{ background: (sub.role_type || 'Song Leader') === 'Song Leader' ? 'rgba(146,108,21,0.15)' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? 'rgba(23,162,184,0.15)' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? 'rgba(111,66,193,0.15)' : 'rgba(232,62,140,0.15)', color: (sub.role_type || 'Song Leader') === 'Song Leader' ? '#926c15' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? '#17a2b8' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? '#6f42c1' : '#e83e8c' }}>
+                                  <i className={`fas ${(sub.role_type || 'Song Leader') === 'Song Leader' ? 'fa-microphone' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? 'fa-users' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? 'fa-guitar' : 'fa-shoe-prints'}`}></i> {sub.role_type || 'Song Leader'}
+                                </span>
                                 <span className="lu-excuse-admin-date"><i className="fas fa-calendar-day"></i> {formatDate(sub.schedule_date)}</span>
                                 <p className="lu-excuse-admin-reason"><i className="fas fa-quote-left"></i> {sub.reason}</p>
                               </div>
                             </div>
                             <div className="lu-excuse-admin-actions">
-                              <button className="btn-small btn-success" onClick={() => adminReviewSub(sub.id, 'approve')} title="Approve & Notify All Song Leaders"><i className="fas fa-check"></i></button>
+                              <button className="btn-small btn-success" onClick={() => adminReviewSub(sub.id, 'approve')} title={`Approve & Notify All ${(sub.role_type || 'Song Leader') === 'Song Leader' ? 'Song Leaders' : (sub.role_type || 'Song Leader') + 's'}`}><i className="fas fa-check"></i></button>
                               <button className="btn-small btn-danger" onClick={() => adminReviewSub(sub.id, 'reject')} title="Reject"><i className="fas fa-times"></i></button>
                             </div>
                           </div>
@@ -7071,10 +8332,12 @@ Examples:
                                   <div className="lu-backup-chips">
                                     {lineupForm.backupSingers.filter(Boolean).map((singer) => {
                                       const bo = backupSingerOptions.find(o => o.name === singer);
+                                      const bsExcuse = lineupForm.scheduleDate ? getExcuseForMemberOnDate(singer, lineupForm.scheduleDate, 'Backup Singer') : null;
                                       return (
-                                        <div key={singer} className="lu-backup-chip">
+                                        <div key={singer} className={`lu-backup-chip${bsExcuse ? ' excused' : ''}`}>
                                           <div className="lu-chip-avatar small">{bo?.profile_picture ? <img src={bo.profile_picture} alt="" /> : <span>{singer.split(' ').map(n => n[0]).join('')}</span>}</div>
                                           <span>{singer}</span>
+                                          {bsExcuse && <span className="lu-excused-tag"><i className="fas fa-ban"></i> {bsExcuse.status}</span>}
                                           <button className="lu-chip-remove" onClick={() => removeBackupSinger(singer)}><i className="fas fa-times"></i></button>
                                         </div>
                                       );
@@ -7083,15 +8346,31 @@ Examples:
                                 )}
                                 
                                 {/* Dropdown to add more (only shows un-selected singers, excludes song leader) */}
-                                {getAvailableBackupSingers().length > 0 && lineupForm.backupSingers.filter(Boolean).length < 5 && (
-                                  <select className="form-select lu-add-backup-select" value="" onChange={(e) => { addBackupSingerByName(e.target.value); }}>
-                                    <option value="">+ Add Backup Singer</option>
-                                    {getAvailableBackupSingers().map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
-                                  </select>
-                                )}
-                                {getAvailableBackupSingers().length === 0 && lineupForm.backupSingers.filter(Boolean).length > 0 && backupSingerOptions.length > 0 && (
-                                  <p className="lu-field-hint"><i className="fas fa-check-circle" style={{color: 'var(--primary)'}}></i> All available backup singers have been added.</p>
-                                )}
+                                {(() => {
+                                  const available = getAvailableBackupSingers();
+                                  const selected = lineupForm.backupSingers.filter(Boolean);
+                                  const excusedSingers = lineupForm.scheduleDate ? backupSingerOptions.filter(b => !selected.includes(b.name) && b.name !== lineupForm.songLeader && getExcuseForMemberOnDate(b.name, lineupForm.scheduleDate, 'Backup Singer')) : [];
+                                  return (
+                                    <>
+                                      {(available.length > 0 || excusedSingers.length > 0) && selected.length < 5 && (
+                                        <select className="form-select lu-add-backup-select" value="" onChange={(e) => { addBackupSingerByName(e.target.value); }}>
+                                          <option value="">+ Add Backup Singer</option>
+                                          {available.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
+                                          {excusedSingers.map((b) => {
+                                            const exc = getExcuseForMemberOnDate(b.name, lineupForm.scheduleDate, 'Backup Singer');
+                                            return <option key={b.id} value={b.name} disabled style={{ color: '#999' }}>{b.name} ⛔ (Excused – {exc?.status})</option>;
+                                          })}
+                                        </select>
+                                      )}
+                                      {available.length === 0 && excusedSingers.length === 0 && selected.length > 0 && backupSingerOptions.length > 0 && (
+                                        <p className="lu-field-hint"><i className="fas fa-check-circle" style={{color: 'var(--primary)'}}></i> All available backup singers have been added.</p>
+                                      )}
+                                      {excusedSingers.length > 0 && (
+                                        <p className="lu-field-hint excuse-hint"><i className="fas fa-info-circle"></i> Grayed out singers have filed an excuse for this date.</p>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </div>
 
@@ -7155,7 +8434,7 @@ Examples:
                                     if (subAccepted) { handleLineupDateSelect(dateStr); return; }
                                     if (isMySubDateFuture) { handleLineupDateSelect(dateStr); return; }
                                     if (taken) { handleLineupDateSelect(dateStr); return; }
-                                    if (!past && !taken) { setExcuseModalDate(dateStr); setExcuseReason(''); return; }
+                                    if (!past && !taken) { setExcuseModalDate(dateStr); setExcuseModalRoleType('Song Leader'); setExcuseReason(''); return; }
                                   }}
                                   title={isMySubDateFuture ? 'You\'re substituting — click to add songs' : subAccepted ? `Excused — Substituted by ${mySub.substitute_name}` : assignedAndFuture ? 'Your assigned date — click to add songs' : assignedAndPast ? 'Past assigned date' : slViewable ? `Assigned to ${leaderName} — click to view` : hasExcuse ? `Excused (${myExcuse.status})` : past ? 'Past date' : 'Click to file an excuse'}>
                                   {day && <span className="lineup-cal-day-num">{day}</span>}
@@ -7222,7 +8501,7 @@ Examples:
                                       </div>
                                       {/* Sub action buttons */}
                                       {!isPast && !mySub && (
-                                        <button className="lu-sub-request-btn" onClick={(e) => { e.stopPropagation(); setSubModalDate(dateStr); setSubModalScheduleId(schedule?.scheduleId || null); setSubReason(''); }} title="Request a substitute Song Leader">
+                                        <button className="lu-sub-request-btn" onClick={(e) => { e.stopPropagation(); setSubModalDate(dateStr); setSubModalScheduleId(schedule?.scheduleId || null); setSubModalRoleType('Song Leader'); setSubReason(''); }} title="Request a substitute Song Leader">
                                           <i className="fas fa-people-arrows"></i> Request Substitute
                                         </button>
                                       )}
@@ -7274,7 +8553,7 @@ Examples:
                               <span className="lu-sub-badge">{getOpenSubsForMe().length}</span>
                             </div>
                             <div className="lu-info-card-body">
-                              <p className="lu-info-hint">A fellow Song Leader needs a substitute. Can you help?</p>
+                              <p className="lu-info-hint">A fellow {(() => { const usr = userData?.sub_role || ''; return usr.includes('Song Leaders') ? 'Song Leader' : usr.includes('Backup Singer') ? 'Backup Singer' : usr.includes('Instrumentalist') ? 'Instrumentalist' : usr.includes('Dancer') ? 'Dancer' : 'member'; })()} needs a substitute. Can you help?</p>
                               <div className="lu-sub-requests-list">
                                 {getOpenSubsForMe().map(sub => (
                                   <div key={sub.id} className="lu-sub-request-card">
@@ -7352,99 +8631,6 @@ Examples:
                         </div>
                       </div>
 
-                      {/* Excuse Modal */}
-                      {excuseModalDate && (
-                        <div className="um-modal-overlay" onClick={() => setExcuseModalDate(null)}>
-                          <div className="lu-excuse-modal" onClick={(e) => e.stopPropagation()}>
-                            <div className="lu-excuse-modal-header">
-                              <h3><i className="fas fa-calendar-minus"></i> File an Excuse</h3>
-                              <button className="btn-close-modal" onClick={() => setExcuseModalDate(null)}><i className="fas fa-times"></i></button>
-                            </div>
-                            <div className="lu-excuse-modal-body">
-                              <div className="lu-excuse-date-display">
-                                <i className="fas fa-calendar-day"></i>
-                                <span>{formatDate(excuseModalDate)}</span>
-                              </div>
-                              {getMyExcuseForDate(excuseModalDate) ? (
-                                <div className="lu-excuse-already">
-                                  <i className="fas fa-info-circle"></i>
-                                  <p>You already have an excuse for this date ({getMyExcuseForDate(excuseModalDate).status}).</p>
-                                </div>
-                              ) : (
-                                <>
-                                  <label className="lu-excuse-label">Reason for excuse <span>*</span></label>
-                                  <textarea className="form-control lu-excuse-textarea" rows={3} value={excuseReason} onChange={(e) => setExcuseReason(e.target.value)} placeholder="e.g., Family event, out of town, medical appointment..." />
-                                  <p className="lu-excuse-note"><i className="fas fa-info-circle"></i> Your excuse will be marked as <strong>Pending</strong> until the Admin reviews and approves it.</p>
-                                </>
-                              )}
-                            </div>
-                            {!getMyExcuseForDate(excuseModalDate) && (
-                              <div className="lu-excuse-modal-footer">
-                                <button className="btn-secondary" onClick={() => setExcuseModalDate(null)}>Cancel</button>
-                                <button className="btn-primary" onClick={() => submitExcuse()} disabled={excuseLoading || !excuseReason.trim()}>
-                                  {excuseLoading ? <><div className="spinner" style={{ display: 'inline-block', width: 16, height: 16, marginRight: 6 }}></div> Submitting...</> : <><i className="fas fa-paper-plane"></i> Submit Excuse</>}
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Substitute Request Modal */}
-                      {subModalDate && (
-                        <div className="um-modal-overlay" onClick={() => setSubModalDate(null)}>
-                          <div className="lu-excuse-modal lu-sub-modal" onClick={(e) => e.stopPropagation()}>
-                            <div className="lu-excuse-modal-header lu-sub-modal-header">
-                              <h3><i className="fas fa-people-arrows"></i> Request Substitute</h3>
-                              <button className="btn-close-modal" onClick={() => setSubModalDate(null)}><i className="fas fa-times"></i></button>
-                            </div>
-                            <div className="lu-excuse-modal-body">
-                              <div className="lu-excuse-date-display">
-                                <i className="fas fa-calendar-day"></i>
-                                <span>{formatDate(subModalDate)}</span>
-                              </div>
-                              <p className="lu-sub-modal-desc">
-                                <i className="fas fa-info-circle"></i> Your request will go to the Admin for approval. Once approved, all Song Leaders will be notified and can volunteer to substitute for you.
-                              </p>
-                              <label className="lu-excuse-label">Reason for substitute request <span>*</span></label>
-                              <textarea className="form-control lu-excuse-textarea" rows={3} value={subReason} onChange={(e) => setSubReason(e.target.value)} placeholder="e.g., I'll be out of town, family commitment, not feeling well..." />
-                            </div>
-                            <div className="lu-excuse-modal-footer">
-                              <button className="btn-secondary" onClick={() => setSubModalDate(null)}>Cancel</button>
-                              <button className="btn-primary lu-sub-submit-btn" onClick={submitSubRequest} disabled={subLoading || !subReason.trim()}>
-                                {subLoading ? <><div className="spinner" style={{ display: 'inline-block', width: 16, height: 16, marginRight: 6 }}></div> Submitting...</> : <><i className="fas fa-paper-plane"></i> Submit Request</>}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Thank You Modal */}
-                      {subThankYouModal && (
-                        <div className="um-modal-overlay" onClick={() => setSubThankYouModal(null)}>
-                          <div className="lu-excuse-modal lu-thankyou-modal" onClick={(e) => e.stopPropagation()}>
-                            <div className="lu-excuse-modal-header lu-thankyou-modal-header">
-                              <h3><i className="fas fa-heart"></i> Send Thank You</h3>
-                              <button className="btn-close-modal" onClick={() => setSubThankYouModal(null)}><i className="fas fa-times"></i></button>
-                            </div>
-                            <div className="lu-excuse-modal-body">
-                              <div className="lu-thankyou-to">
-                                <i className="fas fa-user"></i>
-                                <span>To: <strong>{subThankYouModal.subName}</strong></span>
-                              </div>
-                              <label className="lu-excuse-label">Your message (optional)</label>
-                              <textarea className="form-control lu-excuse-textarea" rows={3} value={subThankYouMessage} onChange={(e) => setSubThankYouMessage(e.target.value)} placeholder="Thank you for substituting! God bless you! 🙏" />
-                            </div>
-                            <div className="lu-excuse-modal-footer">
-                              <button className="btn-secondary" onClick={() => setSubThankYouModal(null)}>Cancel</button>
-                              <button className="btn-primary lu-thankyou-send-btn" onClick={sendSubThankYou}>
-                                <i className="fas fa-heart"></i> Send Thank You 💛
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
                       {/* Detail Popup for viewing other leader's date */}
                       {lineupDetailPopup && (
                         <div className="lineup-detail-overlay" onClick={() => setLineupDetailPopup(null)}>
@@ -7507,8 +8693,25 @@ Examples:
                         </div>
                       </div>
 
-                      <div className="lineup-details-row">
-                        <div className="lineup-detail-card" style={{ flex: '1 1 100%' }}><label><i className="fas fa-calendar-alt"></i> Practice Date</label><input type="date" className="form-control" value={lineupForm.practiceDate} onChange={(e) => handleLineupChange('practiceDate', e.target.value)} /></div>
+                      <div className="lineup-practice-section">
+                        <label className="lineup-practice-section-label"><i className="fas fa-guitar"></i> Practice Schedule</label>
+                        <div className="lineup-practice-grid">
+                          <div className="lineup-practice-field">
+                            <label>Date</label>
+                            <input type="date" className="form-control" value={lineupForm.practiceDate} onChange={(e) => handleLineupChange('practiceDate', e.target.value)} />
+                          </div>
+                          <div className="lineup-practice-field">
+                            <label>Time</label>
+                            <input type="time" className="form-control" value={lineupForm.practiceTime} onChange={(e) => handleLineupChange('practiceTime', e.target.value)} />
+                          </div>
+                        </div>
+                        {lineupForm.practiceDate && (
+                          <div className="lineup-practice-preview">
+                            <i className="fas fa-calendar-check"></i>
+                            {new Date(lineupForm.practiceDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                            {lineupForm.practiceTime && ` • ${new Date('2000-01-01T' + lineupForm.practiceTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`}
+                          </div>
+                        )}
                       </div>
 
                       <div className="lineup-songs-grid">
@@ -7523,6 +8726,7 @@ Examples:
                               {lineupForm[type].map((song, i) => {
                                 const scanKey = `${type}-${i}`;
                                 const scan = songScanResults[scanKey];
+                                const vidId = song.link ? extractYouTubeId(song.link) : null;
                                 return (
                                 <div key={i} className={`lineup-song-card${song.title ? ' has-title' : ''}${scan?.status === 'explicit' ? ' scan-explicit' : scan?.status === 'warning' ? ' scan-warning' : scan?.status === 'safe' ? ' scan-safe' : ''}`}>
                                   <div className="lineup-song-card-header">
@@ -7543,8 +8747,12 @@ Examples:
                                     {songAutoFillLoading[`${type}-${i}`] && <div className="song-title-autofill-spinner"><div className="scan-spinner"></div></div>}
                                   </div>
                                   <input className="form-control" placeholder="YouTube link (optional)" value={song.link} onChange={(e) => handleSongChange(type, i, 'link', e.target.value)} />
-                                  {song.link && extractYouTubeId(song.link) && <div className="youtube-preview"><iframe src={`https://www.youtube.com/embed/${extractYouTubeId(song.link)}`} allowFullScreen title={song.title}></iframe></div>}
-                                  <textarea className="form-control" placeholder="Lyrics (optional)" rows={2} value={song.lyrics} onChange={(e) => handleSongChange(type, i, 'lyrics', e.target.value)}></textarea>
+                                  {vidId && (
+                                    <div className="lineup-yt-thumb" onClick={() => window.open(song.link, '_blank')}>
+                                      <img src={`https://img.youtube.com/vi/${vidId}/mqdefault.jpg`} alt="thumbnail" />
+                                      <div className="lineup-yt-play"><i className="fab fa-youtube"></i></div>
+                                    </div>
+                                  )}
                                   <input className="form-control" placeholder="Instructions (optional)" value={song.instructions} onChange={(e) => handleSongChange(type, i, 'instructions', e.target.value)} />
                                 </div>
                                 );
@@ -7553,6 +8761,11 @@ Examples:
                             {lineupForm[type].length < 5 && <button className="btn-add-song" onClick={() => addSong(type)}><i className="fas fa-plus-circle"></i> Add {type === 'slowSongs' ? 'Slow' : 'Fast'} Song</button>}
                           </div>
                         ))}
+                      </div>
+
+                      <div className="lineup-mm-note">
+                        <i className="fas fa-desktop"></i>
+                        <span>Lyrics will be prepared by the <strong>Multimedia Team</strong>. Just add the song title and YouTube link.</span>
                       </div>
 
                       <div className="lineup-submit-row">
@@ -7752,14 +8965,16 @@ Examples:
                                 <div className="paw-notif-body">
                                   <div className="paw-notif-top">
                                     <strong>{sub.requester_name}</strong>
-                                    <span className="paw-notif-role" style={{ background: 'rgba(156,39,176,0.1)', color: '#9c27b0' }}><i className="fas fa-people-arrows"></i> Sub Request</span>
+                                    <span className="paw-notif-role" style={{ background: (sub.role_type || 'Song Leader') === 'Song Leader' ? 'rgba(146,108,21,0.12)' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? 'rgba(23,162,184,0.12)' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? 'rgba(111,66,193,0.12)' : 'rgba(232,62,140,0.12)', color: (sub.role_type || 'Song Leader') === 'Song Leader' ? '#926c15' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? '#17a2b8' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? '#6f42c1' : '#e83e8c' }}>
+                                      <i className={`fas ${(sub.role_type || 'Song Leader') === 'Song Leader' ? 'fa-microphone' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? 'fa-users' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? 'fa-guitar' : 'fa-shoe-prints'}`}></i> {sub.role_type || 'Song Leader'}
+                                    </span>
                                   </div>
                                   <div className="paw-notif-date"><i className="fas fa-calendar-day"></i> {formatDate(sub.schedule_date)}</div>
                                   <p className="paw-notif-reason"><i className="fas fa-quote-left"></i> {sub.reason}</p>
                                   <div className="paw-notif-time"><i className="fas fa-clock"></i> Filed {new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
                                 </div>
                                 <div className="paw-notif-actions">
-                                  <button className="paw-action-approve" onClick={() => adminReviewSub(sub.id, 'approve')} title="Approve & Notify All Song Leaders"><i className="fas fa-check"></i></button>
+                                  <button className="paw-action-approve" onClick={() => adminReviewSub(sub.id, 'approve')} title={`Approve & Notify All ${(sub.role_type || 'Song Leader') === 'Song Leader' ? 'Song Leaders' : (sub.role_type || 'Song Leader') + 's'}`}><i className="fas fa-check"></i></button>
                                   <button className="paw-action-reject" onClick={() => adminReviewSub(sub.id, 'reject')} title="Reject"><i className="fas fa-times"></i></button>
                                 </div>
                               </div>
@@ -7950,8 +9165,8 @@ Examples:
                                         </div>
                                         <div className="paw-excuse-user-info">
                                           <strong>{sub.requester_name}</strong>
-                                          <span className="paw-excuse-role-tag" style={{ background: 'rgba(156,39,176,0.1)', color: '#9c27b0' }}>
-                                            <i className="fas fa-microphone"></i> Song Leader
+                                          <span className="paw-excuse-role-tag" style={{ background: (sub.role_type || 'Song Leader') === 'Song Leader' ? 'rgba(146,108,21,0.1)' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? 'rgba(23,162,184,0.1)' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? 'rgba(111,66,193,0.1)' : 'rgba(232,62,140,0.1)', color: (sub.role_type || 'Song Leader') === 'Song Leader' ? '#926c15' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? '#17a2b8' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? '#6f42c1' : '#e83e8c' }}>
+                                            <i className={`fas ${(sub.role_type || 'Song Leader') === 'Song Leader' ? 'fa-microphone' : (sub.role_type || 'Song Leader') === 'Backup Singer' ? 'fa-users' : (sub.role_type || 'Song Leader') === 'Instrumentalist' ? 'fa-guitar' : 'fa-shoe-prints'}`}></i> {sub.role_type || 'Song Leader'}
                                           </span>
                                         </div>
                                       </div>

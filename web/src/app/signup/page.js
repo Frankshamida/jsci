@@ -184,7 +184,7 @@ export default function SignupPage() {
         setSplashName(form.firstname || 'Friend');
         setSplashVerse(WELCOME_VERSES[Math.floor(Math.random() * WELCOME_VERSES.length)]);
         setShowSignupSplash(true);
-        setTimeout(() => router.push('/login'), 4500);
+        setTimeout(() => router.push('/login?email=' + encodeURIComponent(form.email)), 4500);
       } else {
         setAlert({ message: result.message || 'Error creating account', type: 'danger' });
         setLoading(false);

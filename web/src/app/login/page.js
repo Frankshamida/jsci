@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import './login.css';
 
@@ -16,6 +16,14 @@ const LOGIN_VERSES = [
 ];
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
   const [darkMode, setDarkMode] = useState(false);
   const [email, setEmail] = useState('');
@@ -28,6 +36,8 @@ export default function LoginPage() {
   const [showLoginSplash, setShowLoginSplash] = useState(false);
   const [splashVerse, setSplashVerse] = useState(LOGIN_VERSES[0]);
   const [splashName, setSplashName] = useState('');
+
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     // Safety net: catch OAuth hash tokens that land on this page
@@ -50,6 +60,11 @@ export default function LoginPage() {
       setEmail(savedEmail);
       setPassword(savedPassword);
       setRememberMe(true);
+    }
+    // Pre-fill email from signup redirect (takes priority over saved credentials)
+    const emailParam = searchParams.get('email');
+    if (emailParam) {
+      setEmail(emailParam);
     }
     // Dark mode
     const saved = localStorage.getItem('darkModeEnabled') === 'true';

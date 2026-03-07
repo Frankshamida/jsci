@@ -20,6 +20,7 @@ export async function GET() {
       backupSingers: s.backup_singers || [],
       scheduleDate: s.schedule_date,
       practiceDate: s.practice_date,
+      practiceTime: s.practice_time || null,
       slowSongs: s.slow_songs || [],
       fastSongs: s.fast_songs || [],
       submittedBy: s.submitted_by,
@@ -40,7 +41,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { songLeader, backupSingers, scheduleDate, practiceDate, slowSongs, fastSongs, submittedBy, songLeaderId } = body;
+    const { songLeader, backupSingers, scheduleDate, practiceDate, practiceTime, slowSongs, fastSongs, submittedBy, songLeaderId } = body;
 
     if (!songLeader || !scheduleDate) {
       return NextResponse.json({ success: false, message: 'Song leader and schedule date are required' }, { status: 400 });
@@ -64,6 +65,7 @@ export async function POST(request) {
         backup_singers: backupSingers || [],
         schedule_date: scheduleDate,
         practice_date: practiceDate || null,
+        practice_time: practiceTime || null,
         slow_songs: slowSongs || [],
         fast_songs: fastSongs || [],
         submitted_by: submittedBy || 'Unknown',
@@ -111,7 +113,7 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { scheduleId, songLeader, backupSingers, scheduleDate, practiceDate, slowSongs, fastSongs, songLeaderId, notifyLeader } = body;
+    const { scheduleId, songLeader, backupSingers, scheduleDate, practiceDate, practiceTime, slowSongs, fastSongs, songLeaderId, notifyLeader } = body;
 
     if (!scheduleId) {
       return NextResponse.json({ success: false, message: 'Schedule ID is required' }, { status: 400 });
@@ -124,6 +126,7 @@ export async function PUT(request) {
         backup_singers: backupSingers || [],
         schedule_date: scheduleDate,
         practice_date: practiceDate || null,
+        practice_time: practiceTime || null,
         slow_songs: slowSongs || [],
         fast_songs: fastSongs || [],
       })
