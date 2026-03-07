@@ -564,6 +564,24 @@ export default function DashboardPage() {
   const [lyricsLinkModal, setLyricsLinkModal] = useState(null); // { lyricsId, lyricsTitle } for linking to schedule
   const [multimediaLineupNotifs, setMultimediaLineupNotifs] = useState([]); // schedules needing lyrics
 
+  // Facebook Live Streams
+  const [liveStreams, setLiveStreams] = useState([]);
+  const [liveStreamForm, setLiveStreamForm] = useState({ iframe_url: '', caption: 'Sunday Service Live', title: 'Sunday Service Live' });
+  const [showLiveStreamForm, setShowLiveStreamForm] = useState(false);
+  const [editingLiveStream, setEditingLiveStream] = useState(null);
+  const [liveStreamLoading, setLiveStreamLoading] = useState(false);
+  const [activeLiveStream, setActiveLiveStream] = useState(null); // currently viewed live in community
+  const [liveStreamComments, setLiveStreamComments] = useState([]);
+  const [liveStreamCommentInput, setLiveStreamCommentInput] = useState('');
+  const [liveStreamReactionCount, setLiveStreamReactionCount] = useState(0);
+  const [liveStreamUserReacted, setLiveStreamUserReacted] = useState(false);
+  const [liveStreamReactAnimating, setLiveStreamReactAnimating] = useState(false);
+  const [liveStreamFullscreen, setLiveStreamFullscreen] = useState(false);
+  const [liveStreamReplyTo, setLiveStreamReplyTo] = useState(null); // { id, user_name }
+  const [liveStreamCommentLikeAnimating, setLiveStreamCommentLikeAnimating] = useState({});
+  const [liveStreamFloatingHearts, setLiveStreamFloatingHearts] = useState([]);
+  const liveStreamFullscreenRef = useRef(null);
+
   // Logout
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
@@ -939,6 +957,8 @@ export default function DashboardPage() {
     if (sectionId === 'announcements' || sectionId === 'announcements-management') loadAnnouncements();
     if (sectionId === 'ministry-meetings') loadMeetings();
     if (sectionId === 'community-hub') loadCommunityPosts();
+    if (sectionId === 'community-hub') loadLiveStreams();
+    if (sectionId === 'live-stream-management') loadLiveStreams();
     if (sectionId === 'messages') loadMessages();
     if (sectionId === 'attendance-management') loadAttendance();
     if (sectionId === 'reports') loadReports();
@@ -1141,6 +1161,196 @@ export default function DashboardPage() {
       if (data.success) setCommunityPosts(data.data);
     } catch { /* silent */ }
   };
+
+  // ============================================
+  // FACEBOOK LIVE STREAMS
+  // ============================================
+  const loadLiveStreams = async () => {
+    try {
+      const res = await fetch('/api/live-streams');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setLiveStreams(data);
+        // Auto-select the first active live stream for community
+        const activeLive = data.find(s => s.is_live && s.is_active);
+        if (activeLive && !activeLiveStream) {
+          setActiveLiveStream(activeLive);
+          loadLiveStreamComments(activeLive.id);
+          loadLiveStreamReactions(activeLive.id);
+        }
+      }
+    } catch { /* silent */ }
+  };
+
+  const handleCreateLiveStream = async () => {
+    if (!liveStreamForm.iframe_url.trim()) { showToast('Please enter the Facebook iframe embed code', 'warning'); return; }
+    setLiveStreamLoading(true);
+    try {
+      const res = await fetch('/api/live-streams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          iframe_url: liveStreamForm.iframe_url,
+          caption: liveStreamForm.caption || 'Sunday Service Live',
+          title: liveStreamForm.title || 'Sunday Service Live',
+          posted_by: userData?.id,
+          posted_by_name: `${userData?.firstname} ${userData?.lastname}`,
+        }),
+      });
+      const data = await res.json();
+      if (data.id) {
+        showToast('🎥 Live stream posted successfully!', 'success');
+        setLiveStreamForm({ iframe_url: '', caption: 'Sunday Service Live', title: 'Sunday Service Live' });
+        setShowLiveStreamForm(false);
+        loadLiveStreams();
+      } else { showToast(data.error || 'Failed to post live stream', 'danger'); }
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    setLiveStreamLoading(false);
+  };
+
+  const handleUpdateLiveStream = async (id, updates) => {
+    try {
+      const res = await fetch('/api/live-streams', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...updates }),
+      });
+      const data = await res.json();
+      if (data.id) {
+        showToast('Live stream updated', 'success');
+        loadLiveStreams();
+      }
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const handleDeleteLiveStream = async (id) => {
+    if (!confirm('Are you sure you want to delete this live stream?')) return;
+    try {
+      await fetch(`/api/live-streams?id=${id}`, { method: 'DELETE' });
+      showToast('Live stream removed', 'success');
+      loadLiveStreams();
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const loadLiveStreamComments = async (streamId) => {
+    try {
+      const res = await fetch(`/api/live-streams/comments?stream_id=${streamId}&user_id=${userData?.id}`);
+      const data = await res.json();
+      if (Array.isArray(data)) setLiveStreamComments(data);
+    } catch { /* silent */ }
+  };
+
+  const handleLiveStreamComment = async () => {
+    if (!liveStreamCommentInput.trim() || !activeLiveStream) return;
+    try {
+      const res = await fetch('/api/live-streams/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stream_id: activeLiveStream.id,
+          user_id: userData?.id,
+          user_name: `${userData?.firstname} ${userData?.lastname}`,
+          user_picture: userData?.profile_picture || '',
+          content: liveStreamCommentInput,
+          parent_id: liveStreamReplyTo?.id || null,
+        }),
+      });
+      if (res.ok) {
+        setLiveStreamCommentInput('');
+        setLiveStreamReplyTo(null);
+        loadLiveStreamComments(activeLiveStream.id);
+      }
+    } catch { /* silent */ }
+  };
+
+  const handleDeleteLiveComment = async (commentId) => {
+    try {
+      await fetch(`/api/live-streams/comments?id=${commentId}&user_id=${userData?.id}`, { method: 'DELETE' });
+      loadLiveStreamComments(activeLiveStream.id);
+    } catch { /* silent */ }
+  };
+
+  const loadLiveStreamReactions = async (streamId) => {
+    try {
+      const res = await fetch(`/api/live-streams/reactions?stream_id=${streamId}&user_id=${userData?.id}`);
+      const data = await res.json();
+      setLiveStreamReactionCount(data.count || 0);
+      setLiveStreamUserReacted(data.userReacted || false);
+    } catch { /* silent */ }
+  };
+
+  const handleLiveStreamReaction = async () => {
+    if (!activeLiveStream) return;
+    // Optimistic update
+    setLiveStreamUserReacted(prev => !prev);
+    setLiveStreamReactionCount(prev => liveStreamUserReacted ? prev - 1 : prev + 1);
+    setLiveStreamReactAnimating(true);
+    // Floating heart
+    const heartId = Date.now();
+    setLiveStreamFloatingHearts(prev => [...prev, heartId]);
+    setTimeout(() => setLiveStreamFloatingHearts(prev => prev.filter(h => h !== heartId)), 1200);
+    setTimeout(() => setLiveStreamReactAnimating(false), 600);
+    try {
+      await fetch('/api/live-streams/reactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stream_id: activeLiveStream.id, user_id: userData?.id, user_name: `${userData?.firstname} ${userData?.lastname}` }),
+      });
+      loadLiveStreamReactions(activeLiveStream.id);
+    } catch {
+      // Rollback
+      setLiveStreamUserReacted(prev => !prev);
+      setLiveStreamReactionCount(prev => liveStreamUserReacted ? prev + 1 : prev - 1);
+    }
+  };
+
+  const handleLiveCommentLike = async (commentId) => {
+    setLiveStreamCommentLikeAnimating(prev => ({ ...prev, [commentId]: true }));
+    setTimeout(() => setLiveStreamCommentLikeAnimating(prev => ({ ...prev, [commentId]: false })), 600);
+    try {
+      await fetch('/api/live-streams/comments/like', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment_id: commentId, user_id: userData?.id, user_name: `${userData?.firstname} ${userData?.lastname}` }),
+      });
+      loadLiveStreamComments(activeLiveStream.id);
+    } catch { /* silent */ }
+  };
+
+  const toggleLiveStreamFullscreen = () => {
+    if (!liveStreamFullscreen) {
+      const el = liveStreamFullscreenRef.current;
+      if (el) {
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if (el.msRequestFullscreen) el.msRequestFullscreen();
+      }
+      setLiveStreamFullscreen(true);
+      try { screen.orientation.lock('landscape').catch(() => {}); } catch {}
+    } else {
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      setLiveStreamFullscreen(false);
+      try { screen.orientation.unlock(); } catch {}
+    }
+  };
+
+  const extractIframeSrc = (iframeStr) => {
+    const match = iframeStr.match(/src="([^"]+)"/);
+    return match ? match[1] : iframeStr;
+  };
+
+  // Real-time subscriptions for live streams
+  useEffect(() => {
+    if (!userData?.id) return;
+    const streamSub = supabase.channel('live-streams-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_streams' }, () => { loadLiveStreams(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_stream_reactions' }, () => { if (activeLiveStream) loadLiveStreamReactions(activeLiveStream.id); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_stream_comments' }, () => { if (activeLiveStream) loadLiveStreamComments(activeLiveStream.id); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_stream_comment_likes' }, () => { if (activeLiveStream) loadLiveStreamComments(activeLiveStream.id); })
+      .subscribe();
+    return () => { supabase.removeChannel(streamSub); };
+  }, [userData?.id, activeLiveStream?.id]);
 
   const loadMessages = async () => {
     try {
@@ -4627,6 +4837,136 @@ Examples:
               </div>
             </div>
 
+            {/* === FACEBOOK LIVE STREAM VIEWER === */}
+            {liveStreams.filter(s => s.is_live && s.is_active).length > 0 && (
+              <div className="live-stream-community-section">
+                {liveStreams.filter(s => s.is_live && s.is_active).map((stream) => (
+                  <div key={stream.id} className={`live-stream-card${liveStreamFullscreen ? ' fullscreen-mode' : ''}`} ref={liveStreamFullscreenRef}>
+                    <div className="live-stream-card-header">
+                      <div className="live-stream-badge-row">
+                        <span className="live-badge-pulse"><i className="fas fa-circle"></i> LIVE</span>
+                        <h3 className="live-stream-caption">{stream.caption || 'Sunday Service Live'}</h3>
+                      </div>
+                      <div className="live-stream-header-actions">
+                        <button className="live-stream-fullscreen-btn" onClick={toggleLiveStreamFullscreen} title={liveStreamFullscreen ? 'Exit Fullscreen' : 'Fullscreen & Landscape'}>
+                          <i className={`fas fa-${liveStreamFullscreen ? 'compress' : 'expand'}`}></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="live-stream-video-wrapper">
+                      <iframe src={extractIframeSrc(stream.iframe_url)} className="live-stream-iframe" allowFullScreen allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
+                      {/* Floating hearts */}
+                      <div className="live-stream-floating-hearts">
+                        {liveStreamFloatingHearts.map(hId => (
+                          <div key={hId} className="live-floating-heart"><i className="fas fa-heart"></i></div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="live-stream-card-footer">
+                      <div className="live-stream-reactions-bar">
+                        <button className={`live-stream-heart-btn${liveStreamUserReacted ? ' reacted' : ''}${liveStreamReactAnimating ? ' animating' : ''}`} onClick={() => { setActiveLiveStream(stream); handleLiveStreamReaction(); }}>
+                          <i className={`${liveStreamUserReacted ? 'fas' : 'far'} fa-heart`}></i>
+                          <span>{liveStreamReactionCount}</span>
+                        </button>
+                        <button className="live-stream-comment-toggle" onClick={() => { setActiveLiveStream(stream); loadLiveStreamComments(stream.id); loadLiveStreamReactions(stream.id); }}>
+                          <i className="far fa-comment"></i>
+                          <span>Comments</span>
+                        </button>
+                      </div>
+                      <span className="live-stream-posted-by">Posted by {stream.posted_by_name} • {formatDateTime(stream.created_at)}</span>
+                    </div>
+
+                    {/* Live Comments Section */}
+                    {activeLiveStream?.id === stream.id && (
+                      <div className="live-stream-comments-section">
+                        <div className="live-stream-comments-header">
+                          <h4><i className="fas fa-comments"></i> Live Chat</h4>
+                          <span className="live-stream-comment-count">{liveStreamComments.reduce((acc, c) => acc + 1 + (c.replies?.length || 0), 0)} comments</span>
+                        </div>
+                        <div className="live-stream-comments-list">
+                          {liveStreamComments.length === 0 && <p className="live-stream-no-comments">No comments yet. Be the first to chat! 💬</p>}
+                          {liveStreamComments.map((comment) => (
+                            <div key={comment.id} className="live-stream-comment">
+                              <div className="live-stream-comment-avatar">
+                                {comment.user_picture ? <img src={comment.user_picture} alt="" referrerPolicy="no-referrer" /> : <span>{comment.user_name?.split(' ').map(n => n[0]).join('').slice(0,2)}</span>}
+                              </div>
+                              <div className="live-stream-comment-body">
+                                <div className="live-stream-comment-bubble">
+                                  <strong>{comment.user_name}</strong>
+                                  <p>{comment.content}</p>
+                                </div>
+                                <div className="live-stream-comment-actions">
+                                  <span className="live-stream-comment-time">{formatDateTime(comment.created_at)}</span>
+                                  <button className={`live-stream-comment-like${comment.liked ? ' liked' : ''}${liveStreamCommentLikeAnimating[comment.id] ? ' animating' : ''}`} onClick={() => handleLiveCommentLike(comment.id)}>
+                                    <i className={`${comment.liked ? 'fas' : 'far'} fa-heart`}></i> {comment.likeCount > 0 && <span>{comment.likeCount}</span>}
+                                  </button>
+                                  <button className="live-stream-reply-btn" onClick={() => setLiveStreamReplyTo({ id: comment.id, user_name: comment.user_name })}>
+                                    <i className="fas fa-reply"></i> Reply
+                                  </button>
+                                  {userData?.id === comment.user_id && (
+                                    <button className="live-stream-delete-btn" onClick={() => handleDeleteLiveComment(comment.id)}>
+                                      <i className="fas fa-trash-alt"></i>
+                                    </button>
+                                  )}
+                                </div>
+                                {/* Replies */}
+                                {comment.replies && comment.replies.length > 0 && (
+                                  <div className="live-stream-replies">
+                                    {comment.replies.map((reply) => (
+                                      <div key={reply.id} className="live-stream-comment reply">
+                                        <div className="live-stream-comment-avatar small">
+                                          {reply.user_picture ? <img src={reply.user_picture} alt="" referrerPolicy="no-referrer" /> : <span>{reply.user_name?.split(' ').map(n => n[0]).join('').slice(0,2)}</span>}
+                                        </div>
+                                        <div className="live-stream-comment-body">
+                                          <div className="live-stream-comment-bubble reply-bubble">
+                                            <strong>{reply.user_name}</strong>
+                                            <p>{reply.content}</p>
+                                          </div>
+                                          <div className="live-stream-comment-actions">
+                                            <span className="live-stream-comment-time">{formatDateTime(reply.created_at)}</span>
+                                            <button className={`live-stream-comment-like${reply.liked ? ' liked' : ''}${liveStreamCommentLikeAnimating[reply.id] ? ' animating' : ''}`} onClick={() => handleLiveCommentLike(reply.id)}>
+                                              <i className={`${reply.liked ? 'fas' : 'far'} fa-heart`}></i> {reply.likeCount > 0 && <span>{reply.likeCount}</span>}
+                                            </button>
+                                            {userData?.id === reply.user_id && (
+                                              <button className="live-stream-delete-btn" onClick={() => handleDeleteLiveComment(reply.id)}>
+                                                <i className="fas fa-trash-alt"></i>
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Comment Input */}
+                        <div className="live-stream-comment-input-area">
+                          {liveStreamReplyTo && (
+                            <div className="live-stream-reply-indicator">
+                              <span>Replying to <strong>{liveStreamReplyTo.user_name}</strong></span>
+                              <button onClick={() => setLiveStreamReplyTo(null)}><i className="fas fa-times"></i></button>
+                            </div>
+                          )}
+                          <div className="live-stream-comment-input-row">
+                            <div className="live-stream-input-avatar">
+                              {userData?.profile_picture ? <img src={userData.profile_picture} alt="" referrerPolicy="no-referrer" /> : <span>{userData?.firstname?.[0]}{userData?.lastname?.[0]}</span>}
+                            </div>
+                            <input className="live-stream-comment-input" placeholder={liveStreamReplyTo ? `Reply to ${liveStreamReplyTo.user_name}...` : 'Write a comment...'} value={liveStreamCommentInput} onChange={(e) => setLiveStreamCommentInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleLiveStreamComment(); }} />
+                            <button className="live-stream-send-btn" onClick={handleLiveStreamComment} disabled={!liveStreamCommentInput.trim()}>
+                              <i className="fas fa-paper-plane"></i>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="community-layout">
               {/* Main feed */}
               <div className="community-feed">
@@ -4928,6 +5268,92 @@ Examples:
                 </div>
               </div>
             )}
+          </section>
+
+          {/* ========== LIVE STREAM MANAGEMENT (Admin/SuperAdmin) ========== */}
+          <section className={`content-section ${activeSection === 'live-stream-management' ? 'active' : ''}`}>
+            <h2 className="section-title"><i className="fas fa-broadcast-tower" style={{ marginRight: 10, color: 'var(--accent)' }}></i>Live Stream Management</h2>
+
+            <button className="btn-primary" style={{ marginBottom: 20, borderRadius: 22, padding: '10px 24px' }} onClick={() => { setShowLiveStreamForm(true); setEditingLiveStream(null); setLiveStreamForm({ iframe_url: '', caption: 'Sunday Service Live', title: 'Sunday Service Live' }); }}>
+              <i className="fas fa-plus"></i> Post New Live Stream
+            </button>
+
+            {showLiveStreamForm && (
+              <div className="live-admin-form-card">
+                <div className="live-admin-form-header">
+                  <div className="live-admin-form-icon">🎥</div>
+                  <h3>{editingLiveStream ? 'Edit Live Stream' : 'Post Facebook Live to Community'}</h3>
+                  <p>Paste the Facebook Live iframe embed code below</p>
+                </div>
+                <div className="live-admin-form-body">
+                  <div className="form-group">
+                    <label><i className="fas fa-code"></i> Facebook Iframe Embed Code *</label>
+                    <textarea className="form-control live-admin-iframe-input" rows={4} placeholder='Paste iframe code from Facebook... e.g. <iframe src="https://www.facebook.com/plugins/video.php?..." ...></iframe>' value={liveStreamForm.iframe_url} onChange={(e) => setLiveStreamForm({ ...liveStreamForm, iframe_url: e.target.value })} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                    <div className="form-group">
+                      <label><i className="fas fa-heading"></i> Title / Caption</label>
+                      <input className="form-control" style={{ padding: '10px 15px' }} value={liveStreamForm.caption} onChange={(e) => setLiveStreamForm({ ...liveStreamForm, caption: e.target.value, title: e.target.value })} placeholder="Sunday Service Live" />
+                    </div>
+                    <div className="form-group">
+                      <label><i className="fas fa-tag"></i> Custom Title</label>
+                      <input className="form-control" style={{ padding: '10px 15px' }} value={liveStreamForm.title} onChange={(e) => setLiveStreamForm({ ...liveStreamForm, title: e.target.value })} placeholder="Sunday Service Live" />
+                    </div>
+                  </div>
+                  {liveStreamForm.iframe_url && (
+                    <div className="live-admin-preview">
+                      <label><i className="fas fa-eye"></i> Preview</label>
+                      <div className="live-admin-preview-frame">
+                        <iframe src={extractIframeSrc(liveStreamForm.iframe_url)} style={{ width: '100%', height: 300, border: 'none', borderRadius: 12 }} allowFullScreen allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="live-admin-form-footer">
+                  <button className="btn-secondary" onClick={() => { setShowLiveStreamForm(false); setEditingLiveStream(null); }}>Cancel</button>
+                  <button className="btn-primary" onClick={editingLiveStream ? () => handleUpdateLiveStream(editingLiveStream.id, { iframe_url: liveStreamForm.iframe_url, caption: liveStreamForm.caption, title: liveStreamForm.title }) : handleCreateLiveStream} disabled={liveStreamLoading}>
+                    {liveStreamLoading ? <><i className="fas fa-spinner fa-spin"></i> Posting...</> : <><i className="fas fa-paper-plane"></i> {editingLiveStream ? 'Update' : 'Post to Community'}</>}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Live Streams Listing */}
+            <div className="live-admin-list">
+              <h3 style={{ marginBottom: 16, color: 'var(--text-primary)' }}><i className="fas fa-list"></i> All Live Streams ({liveStreams.length})</h3>
+              {liveStreams.length === 0 && <p style={{ color: '#adb5bd', textAlign: 'center', padding: 40 }}>No live streams posted yet.</p>}
+              {liveStreams.map((stream) => (
+                <div key={stream.id} className={`live-admin-item${stream.is_live ? ' is-live' : ''}${!stream.is_active ? ' inactive' : ''}`}>
+                  <div className="live-admin-item-header">
+                    <div className="live-admin-item-status">
+                      {stream.is_live ? <span className="live-badge-pulse"><i className="fas fa-circle"></i> LIVE</span> : <span className="live-badge-ended">Ended</span>}
+                    </div>
+                    <div className="live-admin-item-info">
+                      <h4>{stream.caption || stream.title || 'Sunday Service Live'}</h4>
+                      <span className="live-admin-item-meta">Posted by {stream.posted_by_name} • {formatDateTime(stream.created_at)}</span>
+                    </div>
+                    <div className="live-admin-item-stats">
+                      <span><i className="fas fa-heart" style={{ color: '#e74c3c' }}></i> {stream.reactionCount || 0}</span>
+                      <span><i className="fas fa-comment" style={{ color: 'var(--primary)' }}></i> {stream.commentCount || 0}</span>
+                    </div>
+                  </div>
+                  <div className="live-admin-item-actions">
+                    <button className={`btn-small ${stream.is_live ? 'btn-danger' : 'btn-success'}`} onClick={() => handleUpdateLiveStream(stream.id, { is_live: !stream.is_live })}>
+                      <i className={`fas fa-${stream.is_live ? 'stop' : 'play'}`}></i> {stream.is_live ? 'End Live' : 'Set Live'}
+                    </button>
+                    <button className="btn-small btn-primary" onClick={() => { setEditingLiveStream(stream); setLiveStreamForm({ iframe_url: stream.iframe_url, caption: stream.caption, title: stream.title }); setShowLiveStreamForm(true); }}>
+                      <i className="fas fa-edit"></i> Edit
+                    </button>
+                    <button className={`btn-small ${stream.is_active ? 'btn-warning' : 'btn-success'}`} onClick={() => handleUpdateLiveStream(stream.id, { is_active: !stream.is_active })}>
+                      <i className={`fas fa-${stream.is_active ? 'eye-slash' : 'eye'}`}></i> {stream.is_active ? 'Hide' : 'Show'}
+                    </button>
+                    <button className="btn-small btn-danger" onClick={() => handleDeleteLiveStream(stream.id)}>
+                      <i className="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
 
           {/* ========== MESSAGES ========== */}
