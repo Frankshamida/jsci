@@ -108,7 +108,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithGoogle = async (): Promise<{ success: boolean; message?: string }> => {
     try {
       // Build the Supabase OAuth URL for Google
-      const redirectUri = AuthSession.makeRedirectUri({ scheme: 'jsci' });
+      // In Expo Go: returns exp://192.168.x.x:8081/--/  (or exp://127.0.0.1:8081/--)
+      // In standalone build: returns jsci://
+      const redirectUri = AuthSession.makeRedirectUri({
+        scheme: 'jsci',
+        path: 'auth/callback',
+      });
+      console.log('[GoogleAuth] Redirect URI:', redirectUri);
       const authUrl = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectUri)}`;
 
       // Open browser for Google sign-in
