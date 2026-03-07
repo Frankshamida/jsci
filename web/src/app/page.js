@@ -192,6 +192,7 @@ export default function HomePage() {
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>News</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
+          <a href="/live" className="hp-btn-live"><i className="fas fa-broadcast-tower"></i> Watch Live</a>
           <a href="/login" className="hp-btn-login"><i className="fas fa-sign-in-alt"></i> Login</a>
           <a href="/signup" className="hp-btn-signup"><i className="fas fa-user-plus"></i> Sign Up</a>
         </div>
@@ -503,6 +504,7 @@ export default function HomePage() {
               <li><a href="#activities"><i className="fas fa-chevron-right"></i> Activities</a></li>
               <li><a href="#news"><i className="fas fa-chevron-right"></i> News & Events</a></li>
               <li><a href="#pastors"><i className="fas fa-chevron-right"></i> Our Pastors</a></li>
+              <li><a href="/live"><i className="fas fa-broadcast-tower"></i> Watch Live</a></li>
               <li><a href="#location"><i className="fas fa-chevron-right"></i> Visit Us</a></li>
             </ul>
           </div>

@@ -577,10 +577,13 @@ export default function DashboardPage() {
   const [liveStreamUserReacted, setLiveStreamUserReacted] = useState(false);
   const [liveStreamReactAnimating, setLiveStreamReactAnimating] = useState(false);
   const [liveStreamFullscreen, setLiveStreamFullscreen] = useState(false);
+  const [liveStreamCommentsVisible, setLiveStreamCommentsVisible] = useState(true);
   const [liveStreamReplyTo, setLiveStreamReplyTo] = useState(null); // { id, user_name }
   const [liveStreamCommentLikeAnimating, setLiveStreamCommentLikeAnimating] = useState({});
   const [liveStreamFloatingHearts, setLiveStreamFloatingHearts] = useState([]);
   const liveStreamFullscreenRef = useRef(null);
+  const [showLiveShareModal, setShowLiveShareModal] = useState(false);
+  const [liveShareCopied, setLiveShareCopied] = useState(false);
 
   // Logout
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -1338,6 +1341,57 @@ export default function DashboardPage() {
   const extractIframeSrc = (iframeStr) => {
     const match = iframeStr.match(/src="([^"]+)"/);
     return match ? match[1] : iframeStr;
+  };
+
+  // Live Stream Share helpers
+  const liveShareUrl = 'https://jsci.vercel.app/live';
+
+  const handleLiveShareCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(liveShareUrl);
+      setLiveShareCopied(true);
+      setTimeout(() => setLiveShareCopied(false), 2500);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = liveShareUrl;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setLiveShareCopied(true);
+      setTimeout(() => setLiveShareCopied(false), 2500);
+    }
+  };
+
+  const shareLiveToFacebook = () => {
+    const text = activeLiveStream ? `🔴 Watch LIVE: ${activeLiveStream.caption || 'Sunday Service'} at Joyful Sound Church International! 🙏✨` : '🔴 Watch LIVE at Joyful Sound Church International! 🙏✨';
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(liveShareUrl)}&quote=${encodeURIComponent(text)}`, '_blank', 'width=600,height=400');
+  };
+
+  const shareLiveToMessenger = () => {
+    window.open(`https://www.facebook.com/dialog/send?link=${encodeURIComponent(liveShareUrl)}&app_id=966242223397117&redirect_uri=${encodeURIComponent(liveShareUrl)}`, '_blank', 'width=600,height=400');
+  };
+
+  const shareLiveToWhatsApp = () => {
+    const text = activeLiveStream ? `🔴 *LIVE NOW* - ${activeLiveStream.caption || 'Sunday Service'} at Joyful Sound Church International!\n🙏 Watch here: ${liveShareUrl}` : `🔴 Watch LIVE at Joyful Sound Church International!\n🙏 ${liveShareUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const shareLiveToTelegram = () => {
+    const text = activeLiveStream ? `🔴 LIVE NOW - ${activeLiveStream.caption || 'Sunday Service'} at Joyful Sound Church International!` : '🔴 Watch LIVE at Joyful Sound Church International!';
+    window.open(`https://t.me/share/url?url=${encodeURIComponent(liveShareUrl)}&text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const shareLiveNative = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Joyful Sound Church International - Live',
+          text: activeLiveStream ? `🔴 Watch LIVE: ${activeLiveStream.caption || 'Sunday Service'}` : '🔴 Watch LIVE at Joyful Sound Church International!',
+          url: liveShareUrl,
+        });
+      } catch { /* user cancelled */ }
+    }
   };
 
   // Real-time subscriptions for live streams
@@ -4848,36 +4902,49 @@ Examples:
                         <h3 className="live-stream-caption">{stream.caption || 'Sunday Service Live'}</h3>
                       </div>
                       <div className="live-stream-header-actions">
+                        <button className="live-stream-share-btn" onClick={() => { setActiveLiveStream(stream); setShowLiveShareModal(true); setLiveShareCopied(false); }} title="Share Live Stream">
+                          <i className="fas fa-share-alt"></i>
+                          <span className="live-share-btn-label">Share</span>
+                        </button>
+                        {liveStreamFullscreen && (
+                          <button className={`live-stream-chat-toggle-btn${liveStreamCommentsVisible ? ' active' : ''}`} onClick={() => setLiveStreamCommentsVisible(prev => !prev)} title={liveStreamCommentsVisible ? 'Hide Chat' : 'Show Chat'}>
+                            <i className={`fas fa-comment${liveStreamCommentsVisible ? '-slash' : ''}`}></i>
+                            <span className="live-chat-toggle-label">{liveStreamCommentsVisible ? 'Hide Chat' : 'Show Chat'}</span>
+                          </button>
+                        )}
                         <button className="live-stream-fullscreen-btn" onClick={toggleLiveStreamFullscreen} title={liveStreamFullscreen ? 'Exit Fullscreen' : 'Fullscreen & Landscape'}>
                           <i className={`fas fa-${liveStreamFullscreen ? 'compress' : 'expand'}`}></i>
                         </button>
                       </div>
                     </div>
-                    <div className="live-stream-video-wrapper">
-                      <iframe src={extractIframeSrc(stream.iframe_url)} className="live-stream-iframe" allowFullScreen allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
-                      {/* Floating hearts */}
-                      <div className="live-stream-floating-hearts">
-                        {liveStreamFloatingHearts.map(hId => (
-                          <div key={hId} className="live-floating-heart"><i className="fas fa-heart"></i></div>
-                        ))}
+                    <div className="live-stream-body-layout">
+                      <div className="live-stream-video-area">
+                        <div className="live-stream-video-wrapper">
+                          <iframe src={extractIframeSrc(stream.iframe_url)} className="live-stream-iframe" allowFullScreen allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
+                          {/* Floating hearts */}
+                          <div className="live-stream-floating-hearts">
+                            {liveStreamFloatingHearts.map(hId => (
+                              <div key={hId} className="live-floating-heart"><i className="fas fa-heart"></i></div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="live-stream-card-footer">
+                          <div className="live-stream-reactions-bar">
+                            <button className={`live-stream-heart-btn${liveStreamUserReacted ? ' reacted' : ''}${liveStreamReactAnimating ? ' animating' : ''}`} onClick={() => { setActiveLiveStream(stream); handleLiveStreamReaction(); }}>
+                              <i className={`${liveStreamUserReacted ? 'fas' : 'far'} fa-heart`}></i>
+                              <span>{liveStreamReactionCount}</span>
+                            </button>
+                            <button className="live-stream-comment-toggle" onClick={() => { setActiveLiveStream(stream); setLiveStreamCommentsVisible(true); loadLiveStreamComments(stream.id); loadLiveStreamReactions(stream.id); }}>
+                              <i className="far fa-comment"></i>
+                              <span>Comments</span>
+                            </button>
+                          </div>
+                          <span className="live-stream-posted-by">Posted by {stream.posted_by_name} • {formatDateTime(stream.created_at)}</span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="live-stream-card-footer">
-                      <div className="live-stream-reactions-bar">
-                        <button className={`live-stream-heart-btn${liveStreamUserReacted ? ' reacted' : ''}${liveStreamReactAnimating ? ' animating' : ''}`} onClick={() => { setActiveLiveStream(stream); handleLiveStreamReaction(); }}>
-                          <i className={`${liveStreamUserReacted ? 'fas' : 'far'} fa-heart`}></i>
-                          <span>{liveStreamReactionCount}</span>
-                        </button>
-                        <button className="live-stream-comment-toggle" onClick={() => { setActiveLiveStream(stream); loadLiveStreamComments(stream.id); loadLiveStreamReactions(stream.id); }}>
-                          <i className="far fa-comment"></i>
-                          <span>Comments</span>
-                        </button>
-                      </div>
-                      <span className="live-stream-posted-by">Posted by {stream.posted_by_name} • {formatDateTime(stream.created_at)}</span>
-                    </div>
 
-                    {/* Live Comments Section */}
-                    {activeLiveStream?.id === stream.id && (
+                    {/* Live Comments Section - Side Panel in Fullscreen */}
+                    {activeLiveStream?.id === stream.id && liveStreamCommentsVisible && (
                       <div className="live-stream-comments-section">
                         <div className="live-stream-comments-header">
                           <h4><i className="fas fa-comments"></i> Live Chat</h4>
@@ -4962,8 +5029,46 @@ Examples:
                         </div>
                       </div>
                     )}
+                    </div>{/* end live-stream-body-layout */}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Live Stream Share Modal */}
+            {showLiveShareModal && (
+              <div className="live-share-modal-overlay" onClick={() => setShowLiveShareModal(false)}>
+                <div className="live-share-modal" onClick={(e) => e.stopPropagation()}>
+                  <button className="live-share-modal-close" onClick={() => setShowLiveShareModal(false)}><i className="fas fa-times"></i></button>
+                  <div className="live-share-modal-header">
+                    <div className="live-share-modal-icon">🔴</div>
+                    <h3>Share Live Stream</h3>
+                    <p>Invite others to watch {activeLiveStream?.caption || 'our live service'}</p>
+                  </div>
+                  <div className="live-share-modal-body">
+                    <div className="live-share-preview">
+                      <img src="/assets/LOGO.png" alt="JSCI" className="live-share-preview-logo" />
+                      <div className="live-share-preview-info">
+                        <span className="live-share-preview-badge"><i className="fas fa-circle"></i> LIVE</span>
+                        <strong>{activeLiveStream?.caption || 'Sunday Service Live'}</strong>
+                        <span>jsci.vercel.app/live</span>
+                      </div>
+                    </div>
+                    <div className="live-share-buttons-grid">
+                      <button className="live-share-option facebook" onClick={shareLiveToFacebook}><i className="fab fa-facebook-f"></i><span>Facebook</span></button>
+                      <button className="live-share-option messenger" onClick={shareLiveToMessenger}><i className="fab fa-facebook-messenger"></i><span>Messenger</span></button>
+                      <button className="live-share-option whatsapp" onClick={shareLiveToWhatsApp}><i className="fab fa-whatsapp"></i><span>WhatsApp</span></button>
+                      <button className="live-share-option telegram" onClick={shareLiveToTelegram}><i className="fab fa-telegram-plane"></i><span>Telegram</span></button>
+                      {typeof navigator !== 'undefined' && navigator.share && (
+                        <button className="live-share-option native" onClick={shareLiveNative}><i className="fas fa-share-alt"></i><span>More</span></button>
+                      )}
+                    </div>
+                    <div className="live-share-copy-row">
+                      <div className="live-share-copy-input"><i className="fas fa-link"></i><input type="text" readOnly value={liveShareUrl} /></div>
+                      <button className={`live-share-copy-btn${liveShareCopied ? ' copied' : ''}`} onClick={handleLiveShareCopyLink}><i className={`fas ${liveShareCopied ? 'fa-check' : 'fa-copy'}`}></i> {liveShareCopied ? 'Copied!' : 'Copy'}</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 

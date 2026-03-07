@@ -138,6 +138,66 @@ body.dark-mode .hp-navbar-links .hp-btn-signup:hover {
   color: #1e1e1e !important;
 }
 
+/* Watch Live Button */
+.hp-navbar-links .hp-btn-live {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  color: white !important;
+  padding: 8px 20px;
+  border-radius: 25px;
+  font-weight: 700;
+  box-shadow: 0 3px 12px rgba(231, 76, 60, 0.3);
+  animation: hpLivePulse 3s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.hp-navbar-links .hp-btn-live::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -60%;
+  width: 60%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transform: skewX(-25deg);
+  animation: hpLiveShine 4s ease-in-out infinite;
+}
+
+@keyframes hpLiveShine {
+  0%, 100% { left: -60%; }
+  50% { left: 120%; }
+}
+
+.hp-navbar-links .hp-btn-live:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(231, 76, 60, 0.5);
+  background: linear-gradient(135deg, #c0392b, #e74c3c);
+}
+
+.hp-navbar-links .hp-btn-live i {
+  margin-right: 2px;
+  animation: hpLiveDot 1.5s ease-in-out infinite;
+}
+
+@keyframes hpLivePulse {
+  0%, 100% { box-shadow: 0 3px 12px rgba(231, 76, 60, 0.3); }
+  50% { box-shadow: 0 3px 20px rgba(231, 76, 60, 0.55); }
+}
+
+@keyframes hpLiveDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+body.dark-mode .hp-navbar-links .hp-btn-live {
+  background: linear-gradient(135deg, #e74c3c, #ff6b6b);
+  box-shadow: 0 3px 12px rgba(231, 76, 60, 0.4);
+}
+
+body.dark-mode .hp-navbar-links .hp-btn-live:hover {
+  box-shadow: 0 5px 20px rgba(231, 76, 60, 0.6);
+}
+
 .hp-navbar-actions {
   display: flex;
   align-items: center;
