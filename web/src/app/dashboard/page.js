@@ -265,7 +265,13 @@ export default function DashboardPage() {
   // Core state
   const [userData, setUserData] = useState(null);
   const [userRole, setUserRole] = useState('Guest');
-  const [activeSection, setActiveSection] = useState('home');
+  const [activeSection, setActiveSection] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace('#', '');
+      return hash || 'home';
+    }
+    return 'home';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -683,6 +689,13 @@ export default function DashboardPage() {
     loadBirthdays();
     if (stored.id) loadNotifications(stored.id);
 
+    // Restore section from URL hash and load its data
+    const hashSection = window.location.hash.replace('#', '');
+    if (hashSection && hashSection !== 'home') {
+      // Defer to let state settle, then trigger data load for restored section
+      setTimeout(() => { showSection(hashSection); }, 300);
+    }
+
     // Fetch life verse full text for banner
     if (stored.life_verse) {
       const lv = savedLifeVerseVer || 'NIV';
@@ -953,6 +966,10 @@ export default function DashboardPage() {
     }
     setActiveSection(sectionId);
     setSidebarOpen(false);
+    // Persist section in URL hash for refresh persistence
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', sectionId === 'home' ? window.location.pathname : `#${sectionId}`);
+    }
 
     // Load data on section visit
     if (sectionId === 'daily-quote') fetchDailyQuote();
