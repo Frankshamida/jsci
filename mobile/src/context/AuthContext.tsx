@@ -107,60 +107,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithGoogle = async (): Promise<{ success: boolean; message?: string }> => {
     try {
-      // Build the Supabase OAuth URL for Google
-      // In Expo Go: returns exp://192.168.x.x:8081/--/  (or exp://127.0.0.1:8081/--)
-      // In standalone build: returns jsci://
-      const redirectUri = AuthSession.makeRedirectUri({
+      // ── Step 1: Build the redirect URI for this device ──
+      // Expo Go  → exp://192.168.x.x:8082/--/auth/callback
+      // Standalone → jsci://auth/callback
+      const appRedirectUri = AuthSession.makeRedirectUri({
         scheme: 'jsci',
         path: 'auth/callback',
       });
-      console.log('[GoogleAuth] Redirect URI:', redirectUri);
-      const authUrl = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectUri)}`;
+      console.log('[GoogleAuth] App redirect URI:', appRedirectUri);
 
-      // Open browser for Google sign-in
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+      // ── Step 2: Build the web bridge URL ──
+      // Supabase will redirect HERE (https:// always works).
+      // The bridge page reads the Supabase tokens, fetches the Google profile,
+      // then redirects back to the mobile app via appRedirectUri with user params.
+      const webCallbackUrl =
+        `https://jsci.vercel.app/auth/mobile-callback?app_redirect=${encodeURIComponent(appRedirectUri)}`;
+
+      // ── Step 3: Build the Supabase OAuth URL ──
+      const authUrl =
+        `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(webCallbackUrl)}`;
+
+      console.log('[GoogleAuth] Opening browser…');
+
+      // ── Step 4: Open the browser ──
+      // openAuthSessionAsync monitors for any navigation to appRedirectUri
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, appRedirectUri);
 
       if (result.type !== 'success' || !result.url) {
         return { success: false, message: 'Google sign-in was cancelled' };
       }
 
-      // Parse the tokens from the redirect URL
-      const url = result.url;
-      // Supabase returns tokens as hash fragment: #access_token=...&refresh_token=...
-      const hashPart = url.includes('#') ? url.split('#')[1] : url.split('?')[1];
-      if (!hashPart) {
-        return { success: false, message: 'No authentication data received' };
-      }
+      console.log('[GoogleAuth] Redirect received:', result.url);
 
-      const params = new URLSearchParams(hashPart);
-      const accessToken = params.get('access_token');
+      // ── Step 5: Parse Google user info from URL params ──
+      // The bridge page appends ?googleId=…&email=…&firstname=…&lastname=…&avatarUrl=…
+      const urlWithoutHash = result.url.split('#')[0];
+      const queryString = urlWithoutHash.includes('?') ? urlWithoutHash.split('?')[1] : '';
+      const params = new URLSearchParams(queryString);
 
-      if (!accessToken) {
-        return { success: false, message: 'Authentication failed — no access token' };
-      }
+      const googleId = params.get('googleId') || '';
+      const email = params.get('email') || '';
+      const firstname = params.get('firstname') || '';
+      const lastname = params.get('lastname') || '';
+      const avatarUrl = params.get('avatarUrl') || '';
 
-      // Use the access token to get user info from Supabase
-      const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'apikey': SUPABASE_ANON_KEY,
-        },
-      });
-      const googleUser = await userRes.json();
-
-      if (!googleUser || !googleUser.email) {
+      if (!googleId || !email) {
         return { success: false, message: 'Failed to get Google account information' };
       }
 
-      const email = googleUser.email;
-      const fullName = googleUser.user_metadata?.full_name || '';
-      const nameParts = fullName.split(' ');
-      const firstname = nameParts[0] || '';
-      const lastname = nameParts.slice(1).join(' ') || '';
-      const avatarUrl = googleUser.user_metadata?.avatar_url || googleUser.user_metadata?.picture || null;
+      console.log('[GoogleAuth] Got user info, calling backend…');
 
-      // Call our backend to handle the Google login/signup (find or create user in users table)
-      const callbackRes = await api.googleCallback(googleUser.id, email, firstname, lastname, avatarUrl);
+      // ── Step 6: Call our backend to find/create user ──
+      const callbackRes = await api.googleCallback(googleId, email, firstname, lastname, avatarUrl);
 
       if (callbackRes.success && callbackRes.data) {
         const userData = callbackRes.data as User;
