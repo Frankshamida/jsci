@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
 import { Colors, Spacing, BorderRadius, FontSize } from '../../theme';
 import { Card } from '../../components';
 import { useAuth } from '../../context/AuthContext';
@@ -38,7 +39,8 @@ const GATHERINGS = [
 ];
 
 export default function HomeScreen() {
-  const { user } = useAuth();
+  const { user, isFeatureEnabled } = useAuth();
+  const navigation = useNavigation<any>();
   const [refreshing, setRefreshing] = useState(false);
   const [pastorIndex, setPastorIndex] = useState(0);
   const [dailyVerse, setDailyVerse] = useState({ verse: 'For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you.', reference: 'Jeremiah 29:11' });
@@ -65,6 +67,136 @@ export default function HomeScreen() {
     `You belong here, ${user?.firstname}!`,
   ];
   const greeting = greetings[new Date().getDate() % greetings.length];
+
+  // ─── Role-based Quick Access Buttons ──────
+  const userRole = user?.role || 'Guest';
+  const userMinistry = user?.ministry || '';
+  const userSubRole = user?.sub_role || '';
+  const isPraiseAndWorship = userMinistry === 'Praise And Worship';
+  const isSongLeader = userRole === 'Song Leader' || userSubRole === 'Song Leaders';
+  const isBackupSinger = userSubRole === 'Backup Singer';
+  const isInstrumentalist = userSubRole === 'Instrumentalists';
+  const isDancer = userSubRole === 'Dancers';
+  const isMultimedia = userSubRole === 'Multimedia' || userSubRole === 'Lyrics';
+  const isLeaderOrAbove = ['Leader', 'Pastor', 'Admin', 'Super Admin'].includes(userRole);
+  const isAdminOrAbove = ['Admin', 'Super Admin'].includes(userRole);
+  const isPastor = userRole === 'Pastor' || isAdminOrAbove;
+
+  type QuickAccessItem = {
+    label: string;
+    icon: string;
+    gradient: string[];
+    onPress: () => void;
+    badge?: string;
+  };
+
+  const getQuickAccessItems = (): QuickAccessItem[] => {
+    const items: QuickAccessItem[] = [];
+
+    // ── Praise & Worship (for Song Leaders, Backup Singers, Instrumentalists, Dancers, and PAW ministry) ──
+    if (isPraiseAndWorship || isSongLeader || isBackupSinger || isInstrumentalist || isDancer) {
+      items.push({
+        label: 'Praise & Worship',
+        icon: 'musical-notes',
+        gradient: ['rgba(201,152,11,0.25)', 'rgba(201,152,11,0.08)'],
+        onPress: () => navigation.navigate('PraiseWorship'),
+        badge: isSongLeader ? 'Song Leader' : isBackupSinger ? 'Backup' : undefined,
+      });
+    }
+
+    // ── Lyrics Library (for Multimedia users) ──
+    if (isMultimedia || isAdminOrAbove) {
+      items.push({
+        label: 'Lyrics Library',
+        icon: 'document-text',
+        gradient: ['rgba(23,162,184,0.25)', 'rgba(23,162,184,0.08)'],
+        onPress: () => navigation.navigate('LyricsLibrary'),
+      });
+    }
+
+    // ── Announcements (all logged-in users) ──
+    if (isFeatureEnabled('announcements.view')) {
+      items.push({
+        label: 'Announcements',
+        icon: 'megaphone',
+        gradient: ['rgba(255,193,7,0.25)', 'rgba(255,193,7,0.08)'],
+        onPress: () => navigation.navigate('Announcements'),
+      });
+    }
+
+    // ── Notifications (all logged-in users) ──
+    items.push({
+      label: 'Notifications',
+      icon: 'notifications',
+      gradient: ['rgba(220,53,69,0.25)', 'rgba(220,53,69,0.08)'],
+      onPress: () => navigation.navigate('Notifications'),
+    });
+
+    // ── Schedules (Members + above with PAW ministry) ──
+    if (isPraiseAndWorship || isLeaderOrAbove) {
+      items.push({
+        label: 'Schedules',
+        icon: 'calendar',
+        gradient: ['rgba(40,167,69,0.25)', 'rgba(40,167,69,0.08)'],
+        onPress: () => navigation.navigate('PraiseWorship'),
+      });
+    }
+
+    // ── Messages (Members + above) ──
+    if (isFeatureEnabled('messages.view')) {
+      items.push({
+        label: 'Messages',
+        icon: 'chatbubbles',
+        gradient: ['rgba(23,162,184,0.25)', 'rgba(23,162,184,0.08)'],
+        onPress: () => navigation.navigate('MainTabs', { screen: 'Messages' }),
+      });
+    }
+
+    return items;
+  };
+
+  const quickAccessItems = getQuickAccessItems();
+
+  const renderQuickAccess = () => {
+    if (quickAccessItems.length === 0) return null;
+
+    return (
+      <>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Quick Access</Text>
+          <Text style={styles.sectionSubtitle}>
+            {isPraiseAndWorship ? 'Your ministry tools' : 'Your dashboard shortcuts'}
+          </Text>
+        </View>
+
+        <View style={styles.quickAccessGrid}>
+          {quickAccessItems.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              activeOpacity={0.8}
+              onPress={item.onPress}
+              style={styles.quickAccessItem}
+            >
+              <LinearGradient
+                colors={item.gradient as [string, string]}
+                style={styles.quickAccessGradient}
+              >
+                {item.badge && (
+                  <View style={styles.quickAccessBadge}>
+                    <Text style={styles.quickAccessBadgeText}>{item.badge}</Text>
+                  </View>
+                )}
+                <View style={styles.quickAccessIconWrap}>
+                  <Ionicons name={item.icon as any} size={24} color={Colors.primary} />
+                </View>
+                <Text style={styles.quickAccessLabel} numberOfLines={2}>{item.label}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </>
+    );
+  };
 
   return (
     <ScrollView
@@ -97,6 +229,9 @@ export default function HomeScreen() {
         <Text style={styles.verseText}>&ldquo;{dailyVerse.verse}&rdquo;</Text>
         <Text style={styles.verseRef}>— {dailyVerse.reference}</Text>
       </Card>
+
+      {/* ─── Role-Based Quick Access ─── */}
+      {renderQuickAccess()}
 
       {/* Our Pastors */}
       <View style={styles.sectionHeader}>
@@ -238,4 +373,56 @@ const styles = StyleSheet.create({
   },
   gatheringTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '600', flex: 1 },
   gatheringDesc: { display: 'none' }, // Hidden on mobile for compact view
+
+  // Quick Access
+  quickAccessGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.md,
+    marginBottom: Spacing.xxl,
+  },
+  quickAccessItem: {
+    width: (width - Spacing.lg * 2 - Spacing.md * 2) / 3,
+  },
+  quickAccessGradient: {
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 110,
+    borderWidth: 1,
+    borderColor: 'rgba(201,152,11,0.12)',
+  },
+  quickAccessIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primaryMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.sm,
+    borderWidth: 1.5,
+    borderColor: 'rgba(201,152,11,0.2)',
+  },
+  quickAccessLabel: {
+    color: Colors.textPrimary,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 15,
+  },
+  quickAccessBadge: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    backgroundColor: Colors.primaryMuted,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: BorderRadius.sm,
+  },
+  quickAccessBadgeText: {
+    color: Colors.primary,
+    fontSize: 8,
+    fontWeight: '700',
+  },
 });

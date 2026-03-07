@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform,
-  Image, TouchableOpacity, StatusBar, Dimensions,
+  Image, TouchableOpacity, StatusBar, Dimensions, ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,10 +22,11 @@ interface LoginScreenProps {
 }
 
 export default function LoginScreen({ navigation }: LoginScreenProps) {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
   const validate = () => {
@@ -49,6 +50,20 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       Toast.show({ type: 'error', text1: 'Error', text2: e.message });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    try {
+      const result = await loginWithGoogle();
+      if (!result.success) {
+        Toast.show({ type: 'error', text1: 'Google Sign-In Failed', text2: result.message });
+      }
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'Error', text2: e.message || 'Google sign-in failed' });
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -78,7 +93,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                 style={styles.logoGlow}
               />
               <Image
-                source={require('../../../assets/icon.png')}
+                source={require('../../../assets/LOGO.png')}
                 style={styles.logo}
                 resizeMode="contain"
               />
@@ -132,6 +147,35 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
               icon="log-in-outline"
               size="lg"
             />
+
+            {/* Divider */}
+            <View style={styles.orDivider}>
+              <View style={styles.orLine} />
+              <Text style={styles.orText}>or continue with</Text>
+              <View style={styles.orLine} />
+            </View>
+
+            {/* Google Sign-In Button */}
+            <TouchableOpacity
+              style={styles.googleBtn}
+              onPress={handleGoogleLogin}
+              disabled={googleLoading}
+              activeOpacity={0.8}
+            >
+              {googleLoading ? (
+                <ActivityIndicator size="small" color={Colors.textPrimary} />
+              ) : (
+                <>
+                  <View style={styles.googleIconWrap}>
+                    <Image
+                      source={{ uri: 'https://www.google.com/favicon.ico' }}
+                      style={styles.googleIcon}
+                    />
+                  </View>
+                  <Text style={styles.googleBtnText}>Sign in with Google</Text>
+                </>
+              )}
+            </TouchableOpacity>
 
             <View style={styles.signupRow}>
               <Text style={styles.signupLabel}>Don&apos;t have an account? </Text>
@@ -204,21 +248,21 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xxxl,
   },
   logoContainer: {
-    width: 100,
-    height: 100,
+    width: 120,
+    height: 120,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.lg,
   },
   logoGlow: {
     position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
   },
   logo: {
-    width: 80,
-    height: 80,
+    width: 100,
+    height: 100,
   },
   churchName: {
     color: Colors.primary,
@@ -285,6 +329,55 @@ const styles = StyleSheet.create({
     color: Colors.primaryLight,
     fontSize: FontSize.sm,
     fontWeight: '700',
+  },
+
+  // OR Divider
+  orDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: Spacing.xl,
+    gap: Spacing.md,
+  },
+  orLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.cardBorder,
+  },
+  orText: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '500',
+  },
+
+  // Google Button
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  googleIconWrap: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  googleIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 2,
+  },
+  googleBtnText: {
+    color: Colors.textPrimary,
+    fontSize: FontSize.md,
+    fontWeight: '600',
   },
 
   // Footer

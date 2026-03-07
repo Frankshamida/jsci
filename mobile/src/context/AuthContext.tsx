@@ -7,6 +7,15 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { User } from '../types';
 import api from '../services/api';
 import storage from '../services/storage';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
+import { Platform } from 'react-native';
+
+WebBrowser.maybeCompleteAuthSession();
+
+// Supabase config — same as your web app
+const SUPABASE_URL = 'https://okgootzwaklvzywtbwub.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rZ29vdHp3YWtsdnp5d3Rid3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzUxNjEsImV4cCI6MjA4Nzc1MTE2MX0.k0N5q6Xbc5UKyQwBqVkM5vATA0Lvg1dzYJxxh4NRIF8';
 
 interface AuthContextType {
   user: User | null;
@@ -14,6 +23,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   permissionOverrides: Record<string, boolean>;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
   signup: (data: { firstname: string; lastname: string; birthdate?: string; email: string; password: string }) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
   updateUser: (userData: Partial<User>) => void;
@@ -95,6 +105,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const loginWithGoogle = async (): Promise<{ success: boolean; message?: string }> => {
+    try {
+      // Build the Supabase OAuth URL for Google
+      const redirectUri = AuthSession.makeRedirectUri({ scheme: 'jsci' });
+      const authUrl = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectUri)}`;
+
+      // Open browser for Google sign-in
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+
+      if (result.type !== 'success' || !result.url) {
+        return { success: false, message: 'Google sign-in was cancelled' };
+      }
+
+      // Parse the tokens from the redirect URL
+      const url = result.url;
+      // Supabase returns tokens as hash fragment: #access_token=...&refresh_token=...
+      const hashPart = url.includes('#') ? url.split('#')[1] : url.split('?')[1];
+      if (!hashPart) {
+        return { success: false, message: 'No authentication data received' };
+      }
+
+      const params = new URLSearchParams(hashPart);
+      const accessToken = params.get('access_token');
+
+      if (!accessToken) {
+        return { success: false, message: 'Authentication failed — no access token' };
+      }
+
+      // Use the access token to get user info from Supabase
+      const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+      });
+      const googleUser = await userRes.json();
+
+      if (!googleUser || !googleUser.email) {
+        return { success: false, message: 'Failed to get Google account information' };
+      }
+
+      const email = googleUser.email;
+      const fullName = googleUser.user_metadata?.full_name || '';
+      const nameParts = fullName.split(' ');
+      const firstname = nameParts[0] || '';
+      const lastname = nameParts.slice(1).join(' ') || '';
+      const avatarUrl = googleUser.user_metadata?.avatar_url || googleUser.user_metadata?.picture || null;
+
+      // Call our backend to handle the Google login/signup (find or create user in users table)
+      const callbackRes = await api.googleCallback(googleUser.id, email, firstname, lastname, avatarUrl);
+
+      if (callbackRes.success && callbackRes.data) {
+        const userData = callbackRes.data as User;
+        setUser(userData);
+        await storage.saveUser(userData);
+        await loadPermissions();
+        return { success: true };
+      }
+
+      return { success: false, message: callbackRes.message || 'Google sign-in failed' };
+    } catch (e: any) {
+      console.error('Google login error:', e);
+      return { success: false, message: e.message || 'Google sign-in failed' };
+    }
+  };
+
   const logout = async () => {
     setUser(null);
     setPermissionOverrides({});
@@ -131,6 +207,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         permissionOverrides,
         login,
+        loginWithGoogle,
         signup,
         logout,
         updateUser,

@@ -200,6 +200,27 @@ class ApiService {
   }
 
   // ============================================
+  // GOOGLE AUTH
+  // ============================================
+  async getGoogleAuthUrl(mode: 'login' | 'signup' = 'login', redirectUri?: string) {
+    return this.request<{ url: string }>('/api/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ mode, redirectUri }),
+    });
+  }
+
+  async googleCallback(googleId: string, email: string, firstname: string, lastname: string, avatarUrl?: string | null) {
+    return this.request<any>('/api/auth/google-mobile', {
+      method: 'POST',
+      body: JSON.stringify({ googleId, email, firstname, lastname, avatarUrl }),
+    });
+  }
+
+  async checkAccount(email: string) {
+    return this.request<{ exists: boolean }>(`/api/auth/check-account?email=${encodeURIComponent(email)}`);
+  }
+
+  // ============================================
   // SCHEDULES
   // ============================================
   async getSchedules() {
@@ -211,6 +232,39 @@ class ApiService {
   // ============================================
   async getMeetings() {
     return this.request<any[]>('/api/meetings');
+  }
+
+  // ============================================
+  // PRAISE & WORSHIP
+  // ============================================
+  async getPraiseWorshipSchedules() {
+    return this.request<any[]>('/api/praise-worship?type=schedules');
+  }
+
+  async getMyPraiseWorshipSchedule(userId: string) {
+    return this.request<any[]>(`/api/praise-worship?type=my-schedule&userId=${userId}`);
+  }
+
+  async getPraiseWorshipNotifications(userId: string) {
+    return this.request<any[]>(`/api/praise-worship?type=notifications&userId=${userId}`);
+  }
+
+  // ============================================
+  // LYRICS LIBRARY
+  // ============================================
+  async getLyricsLibrary(params?: Record<string, string>) {
+    const qs = new URLSearchParams(params || {});
+    return this.request<any[]>(`/api/lyrics/library?${qs}`);
+  }
+
+  async getLyricsById(id: string) {
+    return this.request<any>(`/api/lyrics/library?id=${id}`);
+  }
+
+  async fetchAILyrics(title: string, link?: string) {
+    const qs = new URLSearchParams({ title });
+    if (link) qs.append('link', link);
+    return this.request<any>(`/api/lyrics?${qs}`);
   }
 }
 

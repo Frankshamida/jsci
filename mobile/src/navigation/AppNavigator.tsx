@@ -25,6 +25,8 @@ import AnnouncementsScreen from '../screens/main/AnnouncementsScreen';
 import MessagesScreen from '../screens/main/MessagesScreen';
 import NotificationsScreen from '../screens/main/NotificationsScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
+import PraiseWorshipScreen from '../screens/main/PraiseWorshipScreen';
+import LyricsLibraryScreen from '../screens/main/LyricsLibraryScreen';
 
 // ─── Type Definitions ───────────────────────
 export type AuthStackParamList = {
@@ -45,6 +47,8 @@ export type MainStackParamList = {
   MainTabs: undefined;
   Announcements: undefined;
   Notifications: undefined;
+  PraiseWorship: undefined;
+  LyricsLibrary: undefined;
 };
 
 // ─── Navigators ─────────────────────────────
@@ -151,6 +155,8 @@ function MainNavigator() {
       <MainStack.Screen name="MainTabs" component={MainTabNavigator} options={{ headerShown: false }} />
       <MainStack.Screen name="Announcements" component={AnnouncementsScreen} options={{ title: 'Announcements' }} />
       <MainStack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
+      <MainStack.Screen name="PraiseWorship" component={PraiseWorshipScreen} options={{ title: 'Praise & Worship' }} />
+      <MainStack.Screen name="LyricsLibrary" component={LyricsLibraryScreen} options={{ title: 'Lyrics Library' }} />
     </MainStack.Navigator>
   );
 }
