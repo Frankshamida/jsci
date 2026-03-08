@@ -136,6 +136,12 @@ export const MODULES = {
   CUSTOM_REPORTS: 'custom_reports',
   EXPORT_ALL_DATA: 'export_all_data',
 
+  // === RECORDINGS (Google Drive) ===
+  VIEW_RECORDINGS: 'view_recordings',
+  UPLOAD_RECORDINGS: 'upload_recordings',
+  EDIT_RECORDINGS: 'edit_recordings',
+  DELETE_RECORDINGS: 'delete_recordings',
+
   // === USER EVENT CREATION MODULES ===
   CREATE_USER_EVENTS: 'create_user_events',
   VIEW_USER_EVENTS: 'view_user_events',
@@ -172,6 +178,8 @@ export const ROLE_PERMISSIONS = {
     MODULES.VIEW_MINISTRY_DASHBOARD, MODULES.VIEW_NOTIFICATIONS, MODULES.VIEW_BIBLE_VERSES,
     // Profile Management
     MODULES.VIEW_PROFILE, MODULES.UPDATE_PROFILE, MODULES.CHANGE_PASSWORD,
+    // Recordings
+    MODULES.VIEW_RECORDINGS,
     // Ministry Schedule
     MODULES.VIEW_SCHEDULE, MODULES.VIEW_ASSIGNED_TASKS, MODULES.MARK_ATTENDANCE_SELF,
     // Ministry Meetings (View & RSVP only)
@@ -203,6 +211,8 @@ export const ROLE_PERMISSIONS = {
     MODULES.SEND_UPDATES_PASTORS,
     MODULES.CREATE_SONG_LIST, MODULES.ADD_REMOVE_SONGS, MODULES.UPDATE_SONG_LINEUP, MODULES.ASSIGN_SINGERS,
     MODULES.VIEW_MINISTRY_REPORTS,
+    // Recordings
+    MODULES.VIEW_RECORDINGS, MODULES.UPLOAD_RECORDINGS,
   ],
 
   [ROLES.LEADER]: [
@@ -244,6 +254,8 @@ export const ROLE_PERMISSIONS = {
     // Reports & Profile
     MODULES.GENERATE_REPORTS, MODULES.EXPORT_REPORTS,
     MODULES.VIEW_PROFILE, MODULES.UPDATE_PROFILE, MODULES.LOGOUT,
+    // Recordings
+    MODULES.VIEW_RECORDINGS, MODULES.UPLOAD_RECORDINGS, MODULES.EDIT_RECORDINGS, MODULES.DELETE_RECORDINGS,
     // Events & Schedule view
     MODULES.VIEW_EVENTS, MODULES.VIEW_SCHEDULE,
     // User Events oversight
@@ -269,6 +281,8 @@ export const ROLE_PERMISSIONS = {
     MODULES.VIEW_ATTENDANCE, MODULES.MARK_ATTENDANCE, MODULES.UPDATE_ATTENDANCE, MODULES.DELETE_ATTENDANCE,
     // Song Lineup Management (Admin can create/manage all lineups)
     MODULES.CREATE_SONG_LIST, MODULES.ADD_REMOVE_SONGS, MODULES.UPDATE_SONG_LINEUP, MODULES.ASSIGN_SINGERS,
+    // Recordings
+    MODULES.VIEW_RECORDINGS, MODULES.UPLOAD_RECORDINGS, MODULES.EDIT_RECORDINGS, MODULES.DELETE_RECORDINGS,
     // User Event Permissions Management
     MODULES.MANAGE_USER_EVENT_PERMISSIONS, MODULES.VIEW_ALL_USER_EVENTS,
     MODULES.VIEW_USER_EVENT_RSVPS, MODULES.EDIT_USER_EVENTS, MODULES.DELETE_USER_EVENTS,
@@ -355,6 +369,7 @@ export function getSidebarMenu(role, userData) {
       { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },
       { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
       { id: 'live-stream-mgmt', icon: 'fas fa-broadcast-tower', label: 'Live Streams', section: 'live-stream-management' },
+      { id: 'recordings', icon: 'fas fa-microphone-alt', label: 'Recordings', section: 'recordings' },
       { id: 'messages', icon: 'fas fa-envelope', label: 'Messages', section: 'messages' },
       { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', section: 'reports' },
       { id: 'permissions-control', icon: 'fas fa-toggle-on', label: 'Permissions Control', section: 'permissions-control' },
@@ -383,6 +398,7 @@ export function getSidebarMenu(role, userData) {
     { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements' },
     { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
     { id: 'live-stream-mgmt', icon: 'fas fa-broadcast-tower', label: 'Live Streams', section: 'live-stream-management' },
+    { id: 'recordings', icon: 'fas fa-microphone-alt', label: 'Recordings', section: 'recordings' },
     { id: 'messages', icon: 'fas fa-envelope', label: 'Messages', section: 'messages' },
     { id: 'bible', icon: 'fas fa-bible', label: 'Bible Reader', section: 'bible-reader' },
     { id: 'assistant', icon: 'fas fa-robot', label: 'Spiritual Assistant', section: 'spiritual-assistant' },
@@ -449,6 +465,7 @@ export const FEATURE_CONTROLS = {
   'sidebar.ministry_management': { label: 'Ministry Management', category: 'Sidebar Sections', icon: 'fas fa-church', description: 'Show Ministry Management in sidebar' },
   'sidebar.user_events': { label: 'My Events / User Events', category: 'Sidebar Sections', icon: 'fas fa-calendar-plus', description: 'Show My Events in sidebar' },
   'sidebar.live_streams': { label: 'Live Streams Management', category: 'Sidebar Sections', icon: 'fas fa-broadcast-tower', description: 'Show Live Stream Management in sidebar (Admin only)' },
+  'sidebar.recordings': { label: 'Recordings', category: 'Sidebar Sections', icon: 'fas fa-microphone-alt', description: 'Show Recordings in sidebar' },
   'sidebar.profile': { label: 'My Profile', category: 'Sidebar Sections', icon: 'fas fa-user', description: 'Show My Profile in sidebar' },
 
   // --- Profile ---
@@ -523,6 +540,12 @@ export const FEATURE_CONTROLS = {
   'bible.reader': { label: 'Bible Reader', category: 'Bible & Spiritual', icon: 'fas fa-bible', description: 'Allow access to Bible Reader' },
   'bible.spiritual_assistant': { label: 'Spiritual Assistant', category: 'Bible & Spiritual', icon: 'fas fa-robot', description: 'Allow access to AI Spiritual Assistant' },
 
+  // --- Recordings ---
+  'recordings.view': { label: 'View Recordings', category: 'Recordings', icon: 'fas fa-play-circle', description: 'Allow viewing and playing recordings' },
+  'recordings.upload': { label: 'Upload Recordings', category: 'Recordings', icon: 'fas fa-cloud-upload-alt', description: 'Allow uploading recordings to Google Drive' },
+  'recordings.edit': { label: 'Edit Recordings', category: 'Recordings', icon: 'fas fa-edit', description: 'Allow editing recording details' },
+  'recordings.delete': { label: 'Delete Recordings', category: 'Recordings', icon: 'fas fa-trash', description: 'Allow deleting recordings' },
+
   // --- User Events ---
   'user_events.create': { label: 'Create User Events', category: 'User Events', icon: 'fas fa-calendar-plus', description: 'Allow creating community events' },
   'user_events.browse': { label: 'Browse User Events', category: 'User Events', icon: 'fas fa-calendar-day', description: 'Allow browsing community events' },
@@ -588,6 +611,7 @@ export const SIDEBAR_FEATURE_MAP = {
   'announcements-management': 'sidebar.announcements',
   'community-hub': 'sidebar.community',
   'live-stream-management': 'sidebar.live_streams',
+  'recordings': 'sidebar.recordings',
   'messages': 'sidebar.messages',
   'bible-reader': 'sidebar.bible',
   'spiritual-assistant': 'sidebar.assistant',
@@ -618,6 +642,7 @@ export const SIDEBAR_ACTION_FEATURES = {
   'announcements-management': ['announcements.view', 'announcements.create', 'announcements.edit', 'announcements.delete'],
   'community-hub': ['community.view_posts', 'community.create_post', 'community.like_comment'],
   'live-stream-management': ['community.view_posts'],
+  'recordings': ['recordings.view', 'recordings.upload', 'recordings.edit', 'recordings.delete'],
   'messages': ['messages.view', 'messages.send', 'messages.broadcast'],
   'bible-reader': ['bible.reader'],
   'spiritual-assistant': ['bible.spiritual_assistant'],

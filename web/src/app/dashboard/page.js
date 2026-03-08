@@ -566,7 +566,7 @@ export default function DashboardPage() {
   const [pawBibleVerse, setPawBibleVerse] = useState(null);
   const [pawBibleVerseLoading, setPawBibleVerseLoading] = useState(false);
   const [pawSelectedSchedule, setPawSelectedSchedule] = useState(null);
-  const [pawTab, setPawTab] = useState('schedules'); // 'schedules' | 'my-schedule' | 'notifications'
+  const [pawTab, setPawTab] = useState('schedules'); // 'schedules' | 'my-schedule' | 'notifications' | 'practice'
   const [pawLyricsModal, setPawLyricsModal] = useState(null); // { title, lyrics, artist, thumbnail, loading }
   const [pawPlayingSong, setPawPlayingSong] = useState(null); // { key: 'slow-0', videoId: 'abc' } or null
   const [pawAudioTime, setPawAudioTime] = useState({ current: 0, duration: 0 });
@@ -586,6 +586,23 @@ export default function DashboardPage() {
   const [lyricsPasteText, setLyricsPasteText] = useState('');
   const [lyricsLinkModal, setLyricsLinkModal] = useState(null); // { lyricsId, lyricsTitle } for linking to schedule
   const [multimediaLineupNotifs, setMultimediaLineupNotifs] = useState([]); // schedules needing lyrics
+
+  // Practice Recordings (P&W)
+  const [practiceRecordings, setPracticeRecordings] = useState([]);
+  const [practiceRecordingsLoading, setPracticeRecordingsLoading] = useState(false);
+  const [practiceRecordingUploading, setPracticeRecordingUploading] = useState(false);
+  const [practiceRecordingProgress, setPracticeRecordingProgress] = useState(0);
+  const [practiceIsRecording, setPracticeIsRecording] = useState(false);
+  const [practiceRecordingTime, setPracticeRecordingTime] = useState(0);
+  const [practiceAudioPreview, setPracticeAudioPreview] = useState(null);
+  const [practiceRecordingFile, setPracticeRecordingFile] = useState(null);
+  const [practiceRecordingSongType, setPracticeRecordingSongType] = useState(null); // 'Slow Song' | 'Fast Song'
+  const [practiceRecordingSchedule, setPracticeRecordingSchedule] = useState(null); // schedule being recorded for
+  const [practicePlayingId, setPracticePlayingId] = useState(null); // currently playing recording id
+  const [practiceRecordingsListing, setPracticeRecordingsListing] = useState([]); // grouped by schedule for sidebar listing
+  const practiceMediaRecorderRef = useRef(null);
+  const practiceAudioChunksRef = useRef([]);
+  const practiceRecordingTimerRef = useRef(null);
 
   // Facebook Live Streams
   const [liveStreams, setLiveStreams] = useState([]);
@@ -607,6 +624,30 @@ export default function DashboardPage() {
   const liveStreamFullscreenRef = useRef(null);
   const [showLiveShareModal, setShowLiveShareModal] = useState(false);
   const [liveShareCopied, setLiveShareCopied] = useState(false);
+
+  // Recordings (Google Drive)
+  const [recordings, setRecordings] = useState([]);
+  const [recordingsCount, setRecordingsCount] = useState(0);
+  const [recordingsSearch, setRecordingsSearch] = useState('');
+  const [recordingsCategoryFilter, setRecordingsCategoryFilter] = useState('All');
+  const [recordingsLoading, setRecordingsLoading] = useState(false);
+  const [showRecordingForm, setShowRecordingForm] = useState(false);
+  const [editingRecording, setEditingRecording] = useState(null);
+  const [recordingForm, setRecordingForm] = useState({ title: '', description: '', category: 'Worship', recording_date: '', tags: '', is_public: true });
+  const [recordingFile, setRecordingFile] = useState(null);
+  const [recordingUploading, setRecordingUploading] = useState(false);
+  const [recordingUploadProgress, setRecordingUploadProgress] = useState(0);
+  const [playingRecording, setPlayingRecording] = useState(null);
+  const recordingFileInputRef = useRef(null);
+
+  // Audio Recorder (in-browser)
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState(null);
+  const [showAudioRecorder, setShowAudioRecorder] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
 
   // Logout
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -996,6 +1037,7 @@ export default function DashboardPage() {
     if (sectionId === 'community-hub') loadCommunityPosts();
     if (sectionId === 'community-hub') loadLiveStreams();
     if (sectionId === 'live-stream-management') loadLiveStreams();
+    if (sectionId === 'recordings') { loadRecordings(); loadPracticeRecordingsListing(); }
     if (sectionId === 'messages') loadMessages();
     if (sectionId === 'attendance-management') loadAttendance();
     if (sectionId === 'reports') loadReports();
@@ -1008,7 +1050,7 @@ export default function DashboardPage() {
     if (sectionId === 'permissions-control') { loadPermissionOverrides(); } else { setPermCtrlUnlocked(false); setPermCtrlPasswordInput(''); setPermCtrlPasswordError(''); }
     if (sectionId === 'create-lineup') { loadScheduleData(); loadLineupExcuses(); loadSubRequests(); loadPawMembers(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
     if (sectionId === 'my-lineups') loadScheduleData();
-    if (sectionId === 'praise-worship') { loadPawSchedules(); loadPawMySchedules(); loadPawNotifications(); loadSubRequests(); loadLineupExcuses(); const subRole = userData?.sub_role || ''; const ministry = userData?.ministry || ''; let roleLabel = subRole || ministry || 'Worship Team Member'; fetchPawBibleVerse(roleLabel); if ((ministry === 'Media') || (subRole || '').includes('Multimedia') || (subRole || '').includes('Lyrics')) { loadLyricsLibrary(); loadMultimediaLineupNotifs(); } }
+    if (sectionId === 'praise-worship') { loadPawSchedules(); loadPawMySchedules(); loadPawNotifications(); loadSubRequests(); loadLineupExcuses(); loadPracticeRecordings(); const subRole = userData?.sub_role || ''; const ministry = userData?.ministry || ''; let roleLabel = subRole || ministry || 'Worship Team Member'; fetchPawBibleVerse(roleLabel); if ((ministry === 'Media') || (subRole || '').includes('Multimedia') || (subRole || '').includes('Lyrics')) { loadLyricsLibrary(); loadMultimediaLineupNotifs(); } }
     if (sectionId === 'my-created-events') { loadUserEvents(); loadBrowseUserEvents(); }
     if (sectionId === 'community-events') loadBrowseUserEvents();
     if (sectionId === 'user-events-oversight') loadAllUserEventsForPastor();
@@ -1440,6 +1482,216 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(streamSub); };
   }, [userData?.id, activeLiveStream?.id]);
 
+  // ============================================
+  // RECORDINGS (Google Drive)
+  // ============================================
+  const RECORDING_CATEGORIES = ['Worship', 'Sermon', 'Practice', 'Event', 'Meeting', 'Other'];
+
+  const loadRecordings = async () => {
+    setRecordingsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (recordingsSearch) params.set('search', recordingsSearch);
+      if (recordingsCategoryFilter && recordingsCategoryFilter !== 'All') params.set('category', recordingsCategoryFilter);
+      const res = await fetch(`/api/recordings?${params.toString()}`);
+      const data = await res.json();
+      if (data.success) {
+        setRecordings(data.data || []);
+        setRecordingsCount(data.count || 0);
+      }
+    } catch (e) { console.error('Error loading recordings:', e); }
+    setRecordingsLoading(false);
+  };
+
+  const handleRecordingSubmit = async () => {
+    if (!recordingForm.title.trim()) { showToast('Please enter a title', 'warning'); return; }
+    if (!editingRecording && !recordingFile) { showToast('Please select a file to upload', 'warning'); return; }
+
+    setRecordingUploading(true);
+    setRecordingUploadProgress(0);
+
+    try {
+      if (editingRecording && !recordingFile) {
+        const res = await fetch('/api/recordings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editingRecording.id,
+            title: recordingForm.title,
+            description: recordingForm.description,
+            category: recordingForm.category,
+            recording_date: recordingForm.recording_date || null,
+            tags: recordingForm.tags ? recordingForm.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+            is_public: recordingForm.is_public,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Recording updated!', 'success');
+          setShowRecordingForm(false);
+          setEditingRecording(null);
+          loadRecordings();
+        } else {
+          showToast(data.message || 'Update failed', 'danger');
+        }
+      } else {
+        const formData = new FormData();
+        formData.append('file', recordingFile);
+        formData.append('title', recordingForm.title);
+        formData.append('description', recordingForm.description || '');
+        formData.append('category', recordingForm.category);
+        formData.append('recording_date', recordingForm.recording_date || '');
+        formData.append('tags', JSON.stringify(recordingForm.tags ? recordingForm.tags.split(',').map(t => t.trim()).filter(Boolean) : []));
+        formData.append('uploaded_by', userData?.id || '');
+        formData.append('uploaded_by_name', `${userData?.firstname || ''} ${userData?.lastname || ''}`.trim());
+        formData.append('is_public', recordingForm.is_public);
+
+        const progressInterval = setInterval(() => {
+          setRecordingUploadProgress(prev => prev < 90 ? prev + 5 : prev);
+        }, 500);
+
+        const res = await fetch('/api/recordings', { method: 'POST', body: formData });
+        clearInterval(progressInterval);
+        setRecordingUploadProgress(100);
+
+        const data = await res.json();
+        if (data.success) {
+          showToast('Recording uploaded to Google Drive! 🎵', 'success');
+          setShowRecordingForm(false);
+          setEditingRecording(null);
+          setRecordingFile(null);
+          if (recordingFileInputRef.current) recordingFileInputRef.current.value = '';
+          loadRecordings();
+        } else {
+          showToast(data.message || 'Upload failed', 'danger');
+        }
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'danger');
+    }
+    setRecordingUploading(false);
+    setRecordingUploadProgress(0);
+  };
+
+  const handleDeleteRecording = async (rec) => {
+    if (!confirm(`Delete "${rec.title}"? This will also remove the file from Google Drive.`)) return;
+    try {
+      const res = await fetch(`/api/recordings?id=${rec.id}`, { method: 'DELETE' });
+      let data;
+      const text = await res.text();
+      try { data = JSON.parse(text); } catch { data = { success: res.ok, message: text || 'Unknown error' }; }
+      if (data.success) {
+        showToast('Recording deleted', 'success');
+        loadRecordings();
+      } else {
+        showToast(data.message || 'Delete failed', 'danger');
+      }
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const openRecordingEditor = (rec = null) => {
+    if (rec) {
+      setEditingRecording(rec);
+      setRecordingForm({
+        title: rec.title || '',
+        description: rec.description || '',
+        category: rec.category || 'Worship',
+        recording_date: rec.recording_date || '',
+        tags: (rec.tags || []).join(', '),
+        is_public: rec.is_public !== false,
+      });
+    } else {
+      setEditingRecording(null);
+      setRecordingForm({ title: '', description: '', category: 'Worship', recording_date: '', tags: '', is_public: true });
+    }
+    setRecordingFile(null);
+    if (recordingFileInputRef.current) recordingFileInputRef.current.value = '';
+    setShowRecordingForm(true);
+  };
+
+  // ---- Audio Recorder Functions ----
+  const startAudioRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg' });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const mimeType = mediaRecorder.mimeType || 'audio/webm';
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('ogg') ? 'ogg' : 'wav';
+        const fileName = `Recording_${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`;
+        const file = new File([blob], fileName, { type: mimeType });
+        setRecordingFile(file);
+        setAudioPreviewUrl(URL.createObjectURL(blob));
+      };
+
+      mediaRecorder.start(1000);
+      setIsRecording(true);
+      setRecordingTime(0);
+      setAudioPreviewUrl(null);
+      recordingTimerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
+    } catch (err) {
+      showToast('Microphone access denied. Please allow microphone permission.', 'danger');
+    }
+  };
+
+  const stopAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
+
+  const discardAudioRecording = () => {
+    stopAudioRecording();
+    setRecordingFile(null);
+    setAudioPreviewUrl(null);
+    setRecordingTime(0);
+    audioChunksRef.current = [];
+  };
+
+  const formatRecordingTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return 'Unknown';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  };
+
+  const formatDuration = (seconds) => {
+    if (!seconds) return '';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hrs > 0) return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return `${mins}:${String(secs).padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    if (!userData?.id) return;
+    const recSub = supabase.channel('recordings-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recordings' }, () => { loadRecordings(); })
+      .subscribe();
+    return () => { supabase.removeChannel(recSub); };
+  }, [userData?.id]);
+
   const loadMessages = async () => {
     try {
       if (!userData?.id) return;
@@ -1838,6 +2090,183 @@ export default function DashboardPage() {
     } catch {
       setPawLyricsModal({ title: cleanTitle, lyrics: null, artist: cleanArtist, loading: false, source: null });
     }
+  };
+
+  // ============================================
+  // PRACTICE RECORDINGS (P&W)
+  // ============================================
+  const isPawMember = userData?.ministry === 'Praise And Worship' || userData?.ministry === 'Media' || userRole === 'Admin' || userRole === 'Super Admin' || userRole === 'Pastor';
+  const isSongLeaderUser = (userData?.sub_role || '').includes('Song Leader');
+  const userFullName = `${userData?.firstname || ''} ${userData?.lastname || ''}`.trim();
+
+  // Check if user can record for a given schedule
+  const canRecordPractice = (schedule) => {
+    if (userRole === 'Admin' || userRole === 'Super Admin') return true;
+    const isLeader = schedule?.songLeader?.toLowerCase() === userFullName.toLowerCase() || schedule?.song_leader?.toLowerCase() === userFullName.toLowerCase();
+    if (isLeader) return true;
+    // Check if user is in allowed_recorders of any recording for this schedule
+    const schedRecs = practiceRecordings.filter(r => r.schedule_id === (schedule?.scheduleId || schedule?.schedule_id));
+    const isAllowed = schedRecs.some(r => (r.allowed_recorders || []).some(a => a.id === userData?.id || a.name?.toLowerCase() === userFullName.toLowerCase()));
+    return isAllowed;
+  };
+
+  // Check if user can edit/delete a specific recording
+  const canManagePracticeRecording = (rec) => {
+    if (userRole === 'Admin' || userRole === 'Super Admin') return true;
+    if (rec.recorded_by === userData?.id) return true;
+    return false;
+  };
+
+  const loadPracticeRecordings = async () => {
+    setPracticeRecordingsLoading(true);
+    try {
+      const res = await fetch('/api/practice-recordings');
+      const data = await res.json();
+      if (data.success) setPracticeRecordings(data.data || []);
+    } catch { /* silent */ }
+    setPracticeRecordingsLoading(false);
+  };
+
+  const loadPracticeRecordingsListing = async () => {
+    try {
+      const res = await fetch('/api/practice-recordings?type=listing');
+      const data = await res.json();
+      if (data.success) setPracticeRecordingsListing(data.data || []);
+    } catch { /* silent */ }
+  };
+
+  const startPracticeRecording = async (schedule, songType) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg' });
+      practiceMediaRecorderRef.current = mediaRecorder;
+      practiceAudioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) practiceAudioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const mimeType = mediaRecorder.mimeType || 'audio/webm';
+        const blob = new Blob(practiceAudioChunksRef.current, { type: mimeType });
+        const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('ogg') ? 'ogg' : 'wav';
+        const fileName = `Practice_${songType.replace(/\s/g, '')}_${schedule.scheduleDate || schedule.schedule_date}_${Date.now()}.${ext}`;
+        const file = new File([blob], fileName, { type: mimeType });
+        setPracticeRecordingFile(file);
+        setPracticeAudioPreview(URL.createObjectURL(blob));
+      };
+
+      mediaRecorder.start(1000);
+      setPracticeIsRecording(true);
+      setPracticeRecordingTime(0);
+      setPracticeAudioPreview(null);
+      setPracticeRecordingFile(null);
+      setPracticeRecordingSongType(songType);
+      setPracticeRecordingSchedule(schedule);
+      practiceRecordingTimerRef.current = setInterval(() => setPracticeRecordingTime(prev => prev + 1), 1000);
+    } catch (err) {
+      showToast('Microphone access denied. Please allow microphone permission.', 'danger');
+    }
+  };
+
+  const stopPracticeRecording = () => {
+    if (practiceMediaRecorderRef.current && practiceMediaRecorderRef.current.state !== 'inactive') {
+      practiceMediaRecorderRef.current.stop();
+    }
+    setPracticeIsRecording(false);
+    if (practiceRecordingTimerRef.current) {
+      clearInterval(practiceRecordingTimerRef.current);
+      practiceRecordingTimerRef.current = null;
+    }
+  };
+
+  const discardPracticeRecording = () => {
+    stopPracticeRecording();
+    setPracticeRecordingFile(null);
+    setPracticeAudioPreview(null);
+    setPracticeRecordingTime(0);
+    setPracticeRecordingSongType(null);
+    setPracticeRecordingSchedule(null);
+    practiceAudioChunksRef.current = [];
+  };
+
+  const savePracticeRecording = async (titleOverride) => {
+    if (!practiceRecordingFile || !practiceRecordingSchedule || !practiceRecordingSongType) {
+      showToast('No recording to save', 'warning'); return;
+    }
+    const schedule = practiceRecordingSchedule;
+    const songType = practiceRecordingSongType;
+    const schedId = schedule.scheduleId || schedule.schedule_id;
+    const schedDate = schedule.scheduleDate || schedule.schedule_date;
+    const songs = songType === 'Slow Song' ? (schedule.slowSongs || schedule.slow_songs || []) : (schedule.fastSongs || schedule.fast_songs || []);
+    const songNames = songs.map(s => s.title).filter(Boolean).join(', ');
+    const title = titleOverride || `${songType} Practice - ${new Date(schedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+    setPracticeRecordingUploading(true);
+    setPracticeRecordingProgress(0);
+    try {
+      const formData = new FormData();
+      formData.append('file', practiceRecordingFile);
+      formData.append('schedule_id', schedId);
+      formData.append('schedule_date', schedDate);
+      formData.append('song_type', songType);
+      formData.append('title', title);
+      formData.append('description', songNames ? `Songs: ${songNames}` : '');
+      formData.append('recorded_by', userData?.id || '');
+      formData.append('recorded_by_name', userFullName);
+
+      const progressInterval = setInterval(() => { setPracticeRecordingProgress(prev => prev < 90 ? prev + 5 : prev); }, 500);
+      const res = await fetch('/api/practice-recordings', { method: 'POST', body: formData });
+      clearInterval(progressInterval);
+      setPracticeRecordingProgress(100);
+
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { success: res.ok, message: text }; }
+
+      if (data.success) {
+        showToast(`${songType} practice recording saved! 🎙️`, 'success');
+        discardPracticeRecording();
+        loadPracticeRecordings();
+      } else {
+        showToast(data.message || 'Upload failed', 'danger');
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'danger');
+    }
+    setPracticeRecordingUploading(false);
+    setPracticeRecordingProgress(0);
+  };
+
+  const deletePracticeRecording = async (rec) => {
+    if (!confirm(`Delete "${rec.title}"?`)) return;
+    try {
+      const res = await fetch(`/api/practice-recordings?id=${rec.id}`, { method: 'DELETE' });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { success: res.ok, message: text }; }
+      if (data.success) {
+        showToast('Practice recording deleted', 'success');
+        loadPracticeRecordings();
+      } else {
+        showToast(data.message || 'Delete failed', 'danger');
+      }
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  // Get the upcoming/next practice schedule (Saturday before Sunday)
+  const getUpcomingPracticeSchedules = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const allSchedules = pawSchedules.length > 0 ? pawSchedules : pawMySchedules;
+    return allSchedules
+      .filter(s => (s.scheduleDate || s.schedule_date) >= today)
+      .sort((a, b) => (a.scheduleDate || a.schedule_date).localeCompare(b.scheduleDate || b.schedule_date));
+  };
+
+  // Get practice recordings for a specific schedule
+  const getPracticeRecordingsForSchedule = (scheduleId) => {
+    return practiceRecordings.filter(r => r.schedule_id === scheduleId);
   };
 
   // ============================================
@@ -5849,6 +6278,422 @@ Examples:
             </div>
           </section>
 
+          {/* ========== RECORDINGS (Google Drive) ========== */}
+          <section className={`content-section ${activeSection === 'recordings' ? 'active' : ''}`}>
+            <h2 className="section-title"><i className="fas fa-microphone-alt" style={{ marginRight: 10, color: 'var(--accent)' }}></i>Recordings</h2>
+            <p style={{ color: '#888', marginBottom: 20, fontSize: 14 }}>
+              <i className="fab fa-google-drive" style={{ marginRight: 6 }}></i>
+              Files are saved to Google Drive automatically
+            </p>
+
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button className="btn-primary" style={{ borderRadius: 22, padding: '10px 24px' }} onClick={() => openRecordingEditor()}>
+                <i className="fas fa-upload"></i> Upload File
+              </button>
+              <button className="btn-primary" style={{ borderRadius: 22, padding: '10px 24px', background: 'linear-gradient(135deg, #e53935, #d32f2f)' }} onClick={() => { setShowAudioRecorder(true); setRecordingFile(null); setAudioPreviewUrl(null); setRecordingTime(0); setRecordingForm({ title: '', description: '', category: 'Worship', recording_date: new Date().toISOString().split('T')[0], tags: '', is_public: true }); }}>
+                <i className="fas fa-microphone"></i> Record Audio
+              </button>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <input className="form-control" style={{ padding: '10px 15px', borderRadius: 22 }} placeholder="🔍 Search recordings..." value={recordingsSearch} onChange={(e) => setRecordingsSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') loadRecordings(); }} />
+              </div>
+              <select className="form-control" style={{ width: 'auto', minWidth: 140, borderRadius: 22, padding: '10px 15px' }} value={recordingsCategoryFilter} onChange={(e) => { setRecordingsCategoryFilter(e.target.value); setTimeout(loadRecordings, 100); }}>
+                <option value="All">All Categories</option>
+                {RECORDING_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            {showRecordingForm && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => { if (!recordingUploading) { setShowRecordingForm(false); setEditingRecording(null); } }}>
+                <div style={{ background: 'var(--card-bg, #fff)', borderRadius: 16, padding: 30, maxWidth: 550, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, var(--primary), var(--accent))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#fff' }}>
+                      {editingRecording ? '✏️' : '🎙️'}
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0 }}>{editingRecording ? 'Edit Recording' : 'Upload Recording'}</h3>
+                      <p style={{ margin: 0, fontSize: 13, color: '#888' }}>{editingRecording ? 'Update recording details' : 'Upload audio/video to Google Drive'}</p>
+                    </div>
+                    <button style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#888' }} onClick={() => { setShowRecordingForm(false); setEditingRecording(null); }}>✕</button>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 15 }}>
+                    <label><i className="fas fa-heading" style={{ marginRight: 6 }}></i>Title *</label>
+                    <input className="form-control" style={{ padding: '10px 15px' }} placeholder="e.g., Sunday Worship - March 2026" value={recordingForm.title} onChange={(e) => setRecordingForm({ ...recordingForm, title: e.target.value })} />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 15 }}>
+                    <label><i className="fas fa-align-left" style={{ marginRight: 6 }}></i>Description</label>
+                    <textarea className="form-control" style={{ padding: '10px 15px' }} rows={3} placeholder="Optional description..." value={recordingForm.description} onChange={(e) => setRecordingForm({ ...recordingForm, description: e.target.value })} />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginBottom: 15 }}>
+                    <div className="form-group">
+                      <label><i className="fas fa-tag" style={{ marginRight: 6 }}></i>Category</label>
+                      <select className="form-control" style={{ padding: '10px 15px' }} value={recordingForm.category} onChange={(e) => setRecordingForm({ ...recordingForm, category: e.target.value })}>
+                        {RECORDING_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label><i className="fas fa-calendar" style={{ marginRight: 6 }}></i>Recording Date</label>
+                      <input type="date" className="form-control" style={{ padding: '10px 15px' }} value={recordingForm.recording_date} onChange={(e) => setRecordingForm({ ...recordingForm, recording_date: e.target.value })} />
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 15 }}>
+                    <label><i className="fas fa-tags" style={{ marginRight: 6 }}></i>Tags (comma-separated)</label>
+                    <input className="form-control" style={{ padding: '10px 15px' }} placeholder="e.g., worship, sunday, march" value={recordingForm.tags} onChange={(e) => setRecordingForm({ ...recordingForm, tags: e.target.value })} />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 15 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={recordingForm.is_public} onChange={(e) => setRecordingForm({ ...recordingForm, is_public: e.target.checked })} />
+                      <i className="fas fa-globe" style={{ marginRight: 4 }}></i>Visible to all members
+                    </label>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 20 }}>
+                    <label><i className="fas fa-file-audio" style={{ marginRight: 6 }}></i>{editingRecording ? 'Replace File (optional)' : 'Audio/Video File *'}</label>
+                    <div style={{ border: '2px dashed #ddd', borderRadius: 12, padding: 20, textAlign: 'center', cursor: 'pointer', transition: 'all 0.3s' }} onClick={() => recordingFileInputRef.current?.click()}>
+                      <input ref={recordingFileInputRef} type="file" accept="audio/*,video/*,.mp3,.mp4,.wav,.m4a,.ogg,.webm,.aac,.flac,.mov,.avi" style={{ display: 'none' }} onChange={(e) => { setRecordingFile(e.target.files[0] || null); }} />
+                      {recordingFile ? (
+                        <div>
+                          <i className="fas fa-check-circle" style={{ fontSize: 28, color: '#28a745', marginBottom: 8 }}></i>
+                          <p style={{ margin: '5px 0 0', fontWeight: 600 }}>{recordingFile.name}</p>
+                          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#888' }}>{formatFileSize(recordingFile.size)}</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <i className="fas fa-cloud-upload-alt" style={{ fontSize: 32, color: '#888', marginBottom: 8 }}></i>
+                          <p style={{ margin: '5px 0 0', color: '#888' }}>Click to select file</p>
+                          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#aaa' }}>MP3, MP4, WAV, M4A, OGG, WebM, AAC, FLAC</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {recordingUploading && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                        <span style={{ fontSize: 13, color: '#888' }}>Uploading to Google Drive...</span>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{recordingUploadProgress}%</span>
+                      </div>
+                      <div style={{ width: '100%', height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden' }}>
+                        <div style={{ width: `${recordingUploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, var(--primary), var(--accent))', borderRadius: 4, transition: 'width 0.3s ease' }}></div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button className="btn-primary" style={{ flex: 1, borderRadius: 22, padding: '12px 20px' }} onClick={handleRecordingSubmit} disabled={recordingUploading}>
+                      {recordingUploading ? (<><i className="fas fa-spinner fa-spin"></i> Uploading...</>) : editingRecording ? (<><i className="fas fa-save"></i> Save Changes</>) : (<><i className="fab fa-google-drive"></i> Upload to Google Drive</>)}
+                    </button>
+                    <button className="btn-secondary" style={{ borderRadius: 22, padding: '12px 20px' }} onClick={() => { setShowRecordingForm(false); setEditingRecording(null); }} disabled={recordingUploading}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Audio Recorder Modal */}
+            {showAudioRecorder && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => { if (!isRecording && !recordingUploading) { setShowAudioRecorder(false); discardAudioRecording(); } }}>
+                <div style={{ background: 'var(--card-bg, #fff)', borderRadius: 16, padding: 30, maxWidth: 500, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #e53935, #d32f2f)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#fff' }}>🎙️</div>
+                    <div>
+                      <h3 style={{ margin: 0 }}>Audio Recorder</h3>
+                      <p style={{ margin: 0, fontSize: 13, color: '#888' }}>Record audio and save to Google Drive</p>
+                    </div>
+                    <button style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#888' }} onClick={() => { if (!isRecording && !recordingUploading) { setShowAudioRecorder(false); discardAudioRecording(); } }}>✕</button>
+                  </div>
+
+                  {/* Recorder Controls */}
+                  <div style={{ textAlign: 'center', padding: '20px 0 25px' }}>
+                    <div style={{ width: 120, height: 120, borderRadius: '50%', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: isRecording ? 'rgba(229,57,53,0.1)' : audioPreviewUrl ? 'rgba(40,167,69,0.1)' : 'rgba(0,0,0,0.04)', border: isRecording ? '3px solid #e53935' : audioPreviewUrl ? '3px solid #28a745' : '3px solid #ddd', transition: 'all 0.3s', animation: isRecording ? 'pulse 1.5s infinite' : 'none' }}>
+                      {isRecording ? (
+                        <i className="fas fa-microphone" style={{ fontSize: 40, color: '#e53935' }}></i>
+                      ) : audioPreviewUrl ? (
+                        <i className="fas fa-check-circle" style={{ fontSize: 40, color: '#28a745' }}></i>
+                      ) : (
+                        <i className="fas fa-microphone-alt" style={{ fontSize: 40, color: '#888' }}></i>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: 32, fontWeight: 700, fontFamily: 'monospace', marginBottom: 8, color: isRecording ? '#e53935' : '#333' }}>
+                      {formatRecordingTime(recordingTime)}
+                    </div>
+
+                    {isRecording && <p style={{ color: '#e53935', fontSize: 13, margin: '0 0 12px' }}><i className="fas fa-circle" style={{ fontSize: 8, marginRight: 6, animation: 'pulse 1s infinite' }}></i>Recording...</p>}
+
+                    <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                      {!isRecording && !audioPreviewUrl && (
+                        <button className="btn-primary" style={{ borderRadius: 30, padding: '14px 32px', fontSize: 15, background: 'linear-gradient(135deg, #e53935, #d32f2f)' }} onClick={startAudioRecording}>
+                          <i className="fas fa-microphone"></i> Start Recording
+                        </button>
+                      )}
+                      {isRecording && (
+                        <button className="btn-primary" style={{ borderRadius: 30, padding: '14px 32px', fontSize: 15, background: '#333' }} onClick={stopAudioRecording}>
+                          <i className="fas fa-stop"></i> Stop
+                        </button>
+                      )}
+                      {!isRecording && audioPreviewUrl && (
+                        <>
+                          <button className="btn-secondary" style={{ borderRadius: 30, padding: '12px 24px' }} onClick={discardAudioRecording}>
+                            <i className="fas fa-redo"></i> Re-record
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Audio Preview */}
+                  {audioPreviewUrl && !isRecording && (
+                    <div style={{ marginBottom: 20, padding: 16, background: 'rgba(40,167,69,0.05)', borderRadius: 12, border: '1px solid rgba(40,167,69,0.15)' }}>
+                      <p style={{ fontSize: 13, color: '#28a745', fontWeight: 600, margin: '0 0 10px' }}><i className="fas fa-check" style={{ marginRight: 6 }}></i>Recording complete — {formatRecordingTime(recordingTime)} • {recordingFile ? formatFileSize(recordingFile.size) : ''}</p>
+                      <audio controls src={audioPreviewUrl} style={{ width: '100%', borderRadius: 10 }} />
+                    </div>
+                  )}
+
+                  {/* Title & Details (show after recording) */}
+                  {audioPreviewUrl && !isRecording && (
+                    <div>
+                      <div className="form-group" style={{ marginBottom: 15 }}>
+                        <label><i className="fas fa-heading" style={{ marginRight: 6 }}></i>Title *</label>
+                        <input className="form-control" style={{ padding: '10px 15px' }} placeholder="e.g., Sunday Worship Recording" value={recordingForm.title} onChange={(e) => setRecordingForm({ ...recordingForm, title: e.target.value })} />
+                      </div>
+
+                      <div className="form-group" style={{ marginBottom: 15 }}>
+                        <label><i className="fas fa-align-left" style={{ marginRight: 6 }}></i>Description</label>
+                        <textarea className="form-control" style={{ padding: '10px 15px' }} rows={2} placeholder="Optional description..." value={recordingForm.description} onChange={(e) => setRecordingForm({ ...recordingForm, description: e.target.value })} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginBottom: 15 }}>
+                        <div className="form-group">
+                          <label><i className="fas fa-tag" style={{ marginRight: 6 }}></i>Category</label>
+                          <select className="form-control" style={{ padding: '10px 15px' }} value={recordingForm.category} onChange={(e) => setRecordingForm({ ...recordingForm, category: e.target.value })}>
+                            {RECORDING_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label><i className="fas fa-calendar" style={{ marginRight: 6 }}></i>Recording Date</label>
+                          <input type="date" className="form-control" style={{ padding: '10px 15px' }} value={recordingForm.recording_date} onChange={(e) => setRecordingForm({ ...recordingForm, recording_date: e.target.value })} />
+                        </div>
+                      </div>
+
+                      <div className="form-group" style={{ marginBottom: 15 }}>
+                        <label><i className="fas fa-tags" style={{ marginRight: 6 }}></i>Tags (comma-separated)</label>
+                        <input className="form-control" style={{ padding: '10px 15px' }} placeholder="e.g., worship, sunday" value={recordingForm.tags} onChange={(e) => setRecordingForm({ ...recordingForm, tags: e.target.value })} />
+                      </div>
+
+                      {recordingUploading && (
+                        <div style={{ marginBottom: 20 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                            <span style={{ fontSize: 13, color: '#888' }}>Uploading to Google Drive...</span>
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{recordingUploadProgress}%</span>
+                          </div>
+                          <div style={{ width: '100%', height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ width: `${recordingUploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #e53935, var(--accent))', borderRadius: 4, transition: 'width 0.3s ease' }}></div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button className="btn-primary" style={{ flex: 1, borderRadius: 22, padding: '12px 20px', background: 'linear-gradient(135deg, #e53935, var(--accent))' }} onClick={async () => {
+                          if (!recordingForm.title.trim()) { showToast('Please enter a title', 'warning'); return; }
+                          if (!recordingFile) { showToast('No recording found', 'warning'); return; }
+                          setRecordingUploading(true); setRecordingUploadProgress(0);
+                          try {
+                            const formData = new FormData();
+                            formData.append('file', recordingFile);
+                            formData.append('title', recordingForm.title);
+                            formData.append('description', recordingForm.description || '');
+                            formData.append('category', recordingForm.category);
+                            formData.append('recording_date', recordingForm.recording_date || '');
+                            formData.append('tags', JSON.stringify(recordingForm.tags ? recordingForm.tags.split(',').map(t => t.trim()).filter(Boolean) : []));
+                            formData.append('uploaded_by', userData?.id || '');
+                            formData.append('uploaded_by_name', `${userData?.firstname || ''} ${userData?.lastname || ''}`.trim());
+                            formData.append('is_public', recordingForm.is_public);
+                            const progressInterval = setInterval(() => { setRecordingUploadProgress(prev => prev < 90 ? prev + 5 : prev); }, 500);
+                            const res = await fetch('/api/recordings', { method: 'POST', body: formData });
+                            clearInterval(progressInterval); setRecordingUploadProgress(100);
+                            const data = await res.json();
+                            if (data.success) {
+                              showToast('Audio recording saved to Google Drive! 🎙️', 'success');
+                              setShowAudioRecorder(false); discardAudioRecording(); loadRecordings();
+                            } else { showToast(data.message || 'Upload failed', 'danger'); }
+                          } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+                          setRecordingUploading(false); setRecordingUploadProgress(0);
+                        }} disabled={recordingUploading}>
+                          {recordingUploading ? (<><i className="fas fa-spinner fa-spin"></i> Saving...</>) : (<><i className="fab fa-google-drive"></i> Save to Google Drive</>)}
+                        </button>
+                        <button className="btn-secondary" style={{ borderRadius: 22, padding: '12px 20px' }} onClick={() => { setShowAudioRecorder(false); discardAudioRecording(); }} disabled={recordingUploading}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {recordingsLoading ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#888' }}>
+                <i className="fas fa-spinner fa-spin" style={{ fontSize: 24, marginBottom: 10 }}></i>
+                <p>Loading recordings...</p>
+              </div>
+            ) : recordings.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 60, color: '#888' }}>
+                <i className="fas fa-microphone-slash" style={{ fontSize: 48, marginBottom: 15, opacity: 0.3 }}></i>
+                <h3 style={{ margin: '0 0 8px', fontWeight: 600 }}>No recordings yet</h3>
+                <p style={{ margin: 0 }}>Upload your first recording to get started!</p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
+                {recordings.map((rec) => (
+                  <div key={rec.id} style={{ background: 'var(--card-bg, #fff)', borderRadius: 14, overflow: 'hidden', boxShadow: 'var(--shadow, 0 4px 12px rgba(0,0,0,0.08))', transition: 'transform 0.2s, box-shadow 0.2s', border: '1px solid rgba(0,0,0,0.06)' }}>
+                    <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: rec.category === 'Worship' ? 'rgba(255,195,0,0.15)' : rec.category === 'Sermon' ? 'rgba(146,108,21,0.15)' : rec.category === 'Practice' ? 'rgba(40,167,69,0.15)' : 'rgba(108,117,125,0.15)', color: rec.category === 'Worship' ? '#b8860b' : rec.category === 'Sermon' ? '#926C15' : rec.category === 'Practice' ? '#28a745' : '#6c757d' }}>
+                          {rec.category === 'Worship' ? '🎵' : rec.category === 'Sermon' ? '📖' : rec.category === 'Practice' ? '🎹' : rec.category === 'Event' ? '🎪' : rec.category === 'Meeting' ? '🤝' : '📁'} {rec.category}
+                        </span>
+                        {rec.mime_type?.startsWith('video') && <span style={{ fontSize: 11, color: '#888' }}><i className="fas fa-video"></i> Video</span>}
+                        {rec.mime_type?.startsWith('audio') && <span style={{ fontSize: 11, color: '#888' }}><i className="fas fa-music"></i> Audio</span>}
+                        {rec.play_count > 0 && <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}><i className="fas fa-play"></i> {rec.play_count}</span>}
+                      </div>
+                      <h4 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>{rec.title}</h4>
+                      {rec.description && <p style={{ margin: '0 0 6px', fontSize: 13, color: '#888', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{rec.description}</p>}
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12, color: '#999' }}>
+                        {rec.recording_date && <span><i className="fas fa-calendar"></i> {new Date(rec.recording_date).toLocaleDateString()}</span>}
+                        {rec.file_size_bytes && <span><i className="fas fa-hdd"></i> {formatFileSize(rec.file_size_bytes)}</span>}
+                        {rec.uploaded_by_name && <span><i className="fas fa-user"></i> {rec.uploaded_by_name}</span>}
+                      </div>
+                    </div>
+
+                    {rec.tags && rec.tags.length > 0 && (
+                      <div style={{ padding: '8px 18px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {rec.tags.map((tag, i) => (
+                          <span key={i} style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, background: 'rgba(146,108,21,0.08)', color: '#926C15' }}>#{tag}</span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+                      {/* Inline Audio/Video Player */}
+                      {rec.google_drive_file_id && (
+                        playingRecording === rec.id ? (
+                          <div style={{ width: '100%' }}>
+                            {rec.mime_type?.startsWith('video') ? (
+                              <video
+                                controls
+                                autoPlay
+                                style={{ width: '100%', borderRadius: 10, maxHeight: 240, background: '#000' }}
+                                src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`}
+                                onError={() => { alert('Playback error. Try downloading instead.'); setPlayingRecording(null); }}
+                              />
+                            ) : (
+                              <audio
+                                controls
+                                autoPlay
+                                style={{ width: '100%', borderRadius: 20 }}
+                                src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`}
+                                onError={() => { alert('Playback error. Try downloading instead.'); setPlayingRecording(null); }}
+                              />
+                            )}
+                            <button className="btn-small btn-secondary" style={{ borderRadius: 16, fontSize: 12, marginTop: 6 }} onClick={() => setPlayingRecording(null)}>
+                              <i className="fas fa-stop"></i> Close Player
+                            </button>
+                          </div>
+                        ) : (
+                          <button className="btn-small btn-primary" style={{ borderRadius: 16, fontSize: 12, alignSelf: 'flex-start' }} onClick={() => setPlayingRecording(rec.id)}>
+                            <i className="fas fa-play"></i> Play {rec.mime_type?.startsWith('video') ? 'Video' : 'Audio'}
+                          </button>
+                        )
+                      )}
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {rec.google_drive_file_id && (
+                          <a href={`https://drive.google.com/uc?export=download&id=${rec.google_drive_file_id}`} target="_blank" rel="noopener noreferrer" className="btn-small btn-secondary" style={{ textDecoration: 'none', borderRadius: 16, fontSize: 12 }}>
+                            <i className="fas fa-download"></i> Download
+                          </a>
+                        )}
+                        <button className="btn-small btn-secondary" style={{ borderRadius: 16, fontSize: 12 }} onClick={() => openRecordingEditor(rec)}>
+                          <i className="fas fa-edit"></i> Edit
+                        </button>
+                        <button className="btn-small btn-danger" style={{ borderRadius: 16, fontSize: 12 }} onClick={() => handleDeleteRecording(rec)}>
+                          <i className="fas fa-trash"></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ====== PRACTICE RECORDINGS LISTING ====== */}
+            <div style={{ marginTop: 40, borderTop: '2px solid rgba(0,0,0,0.06)', paddingTop: 30 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+                  <i className="fas fa-music" style={{ color: '#926C15', marginRight: 8 }}></i>Practice Recordings
+                </h3>
+                <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'rgba(146,108,21,0.12)', color: '#926C15' }}>P&W</span>
+              </div>
+
+              {!practiceRecordingsListing || practiceRecordingsListing.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>
+                  <i className="fas fa-music" style={{ fontSize: 36, opacity: 0.3, marginBottom: 10 }}></i>
+                  <p style={{ margin: 0 }}>No practice recordings yet. P&W song leaders can record practice sessions from the Praise & Worship section.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {practiceRecordingsListing.map((group) => (
+                    <div key={group.schedule_id} style={{ background: 'var(--card-bg, #fff)', borderRadius: 14, overflow: 'hidden', boxShadow: 'var(--shadow, 0 4px 12px rgba(0,0,0,0.08))', border: '1px solid rgba(0,0,0,0.06)' }}>
+                      <div style={{ padding: '14px 18px', background: 'linear-gradient(135deg, rgba(146,108,21,0.06), rgba(255,195,0,0.03))', borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
+                            ⛪ Sunday {group.schedule_date ? new Date(group.schedule_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Schedule'}
+                          </h4>
+                          {group.song_leader && <p style={{ margin: '2px 0 0', fontSize: 12, color: '#888' }}><i className="fas fa-microphone"></i> Led by {group.song_leader}</p>}
+                        </div>
+                        <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'rgba(40,167,69,0.1)', color: '#28a745' }}>
+                          {group.recordings?.length || 0} recording{(group.recordings?.length || 0) !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div style={{ padding: '12px 18px' }}>
+                        {(group.recordings || []).map((rec) => (
+                          <div key={rec.id} style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.04)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                            <div style={{ width: 36, height: 36, borderRadius: 10, background: rec.song_type === 'Fast Song' ? 'rgba(229,57,53,0.08)' : 'rgba(21,101,192,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <i className={rec.song_type === 'Fast Song' ? 'fas fa-bolt' : 'fas fa-dove'} style={{ color: rec.song_type === 'Fast Song' ? '#e53935' : '#1565c0', fontSize: 14 }}></i>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 120 }}>
+                              <p style={{ margin: '0 0 2px', fontSize: 14, fontWeight: 600 }}>{rec.title}</p>
+                              <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#999' }}>
+                                <span style={{ color: rec.song_type === 'Fast Song' ? '#e53935' : '#1565c0' }}>{rec.song_type}</span>
+                                <span><i className="fas fa-user"></i> {rec.recorded_by_name}</span>
+                                {rec.file_size_bytes && <span>{formatFileSize(rec.file_size_bytes)}</span>}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {practicePlayingId === rec.id ? (
+                                <button style={{ padding: '6px 14px', borderRadius: 16, background: '#333', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => setPracticePlayingId(null)}>
+                                  <i className="fas fa-stop"></i> Stop
+                                </button>
+                              ) : (
+                                <button style={{ padding: '6px 14px', borderRadius: 16, background: rec.song_type === 'Fast Song' ? '#e53935' : '#1565c0', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => setPracticePlayingId(rec.id)}>
+                                  <i className="fas fa-play"></i> Play
+                                </button>
+                              )}
+                            </div>
+                            {practicePlayingId === rec.id && rec.google_drive_file_id && (
+                              <div style={{ width: '100%', marginTop: 6 }}>
+                                <audio controls autoPlay src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* ========== MESSAGES ========== */}
           <section className={`content-section ${activeSection === 'messages' ? 'active' : ''}`}>
             <h2 className="section-title">Messages</h2>
@@ -7787,6 +8632,9 @@ Examples:
                   <i className="fas fa-file-audio"></i> Lyrics
                 </button>
               )}
+              <button className={`paw-tab ${pawTab === 'practice' ? 'active' : ''}`} onClick={() => { setPawTab('practice'); loadPracticeRecordings(); loadPawSchedules(); }}>
+                <i className="fas fa-microphone"></i> Practice
+              </button>
             </div>
 
             {/* SCHEDULES TAB */}
@@ -8401,6 +9249,298 @@ Examples:
                         {!notif.is_read && <span className="paw-notif-dot"></span>}
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* PRACTICE TAB */}
+            {pawTab === 'practice' && (
+              <div>
+                <div style={{ marginBottom: 24 }}>
+                  <h3 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 700 }}><i className="fas fa-microphone" style={{ color: '#e53935', marginRight: 8 }}></i>Practice Recordings</h3>
+                  <p style={{ margin: 0, fontSize: 13, color: '#888' }}>Record practice sessions for upcoming Sunday lineups. Song leaders can record or grant recording access to team members.</p>
+                </div>
+
+                {practiceRecordingsLoading ? (
+                  <div style={{ textAlign: 'center', padding: 40, color: '#888' }}><i className="fas fa-spinner fa-spin" style={{ fontSize: 24 }}></i><p>Loading...</p></div>
+                ) : (
+                  <div>
+                    {getUpcomingPracticeSchedules().length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: 50, color: '#888' }}>
+                        <i className="fas fa-calendar-times" style={{ fontSize: 48, opacity: 0.3, marginBottom: 15 }}></i>
+                        <h4 style={{ margin: '0 0 8px' }}>No upcoming schedules</h4>
+                        <p style={{ margin: 0 }}>Practice recordings will appear here when there are upcoming Sunday lineups.</p>
+                      </div>
+                    ) : (
+                      getUpcomingPracticeSchedules().map((schedule) => {
+                        const schedId = schedule.scheduleId || schedule.schedule_id;
+                        const schedDate = schedule.scheduleDate || schedule.schedule_date;
+                        const practiceDate = schedule.practiceDate || schedule.practice_date;
+                        const slowSongs = schedule.slowSongs || schedule.slow_songs || [];
+                        const fastSongs = schedule.fastSongs || schedule.fast_songs || [];
+                        const leader = schedule.songLeader || schedule.song_leader || 'Unknown';
+                        const backups = schedule.backupSingers || schedule.backup_singers || [];
+                        const schedRecs = getPracticeRecordingsForSchedule(schedId);
+                        const slowRecs = schedRecs.filter(r => r.song_type === 'Slow Song');
+                        const fastRecs = schedRecs.filter(r => r.song_type === 'Fast Song');
+                        const canRecord = canRecordPractice(schedule);
+
+                        return (
+                          <div key={schedId} style={{ marginBottom: 32, background: 'var(--card-bg, #fff)', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--shadow, 0 4px 12px rgba(0,0,0,0.08))', border: '1px solid rgba(0,0,0,0.06)' }}>
+                            {/* Schedule Header */}
+                            <div style={{ padding: '18px 22px', background: 'linear-gradient(135deg, rgba(146,108,21,0.08), rgba(255,195,0,0.05))', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <span style={{ fontSize: 22 }}>⛪</span>
+                                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                                      Sunday {new Date(schedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                                    </h3>
+                                  </div>
+                                  {practiceDate && (
+                                    <p style={{ margin: '2px 0 0', fontSize: 13, color: '#888' }}>
+                                      <i className="fas fa-calendar-check" style={{ marginRight: 4 }}></i>
+                                      Practice: {new Date(practiceDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                    </p>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'rgba(146,108,21,0.12)', color: '#926C15' }}>
+                                    <i className="fas fa-microphone"></i> {leader}
+                                  </span>
+                                  {backups.length > 0 && (
+                                    <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, background: 'rgba(23,162,184,0.1)', color: '#17a2b8' }}>
+                                      <i className="fas fa-users"></i> {backups.length} Backup{backups.length > 1 ? 's' : ''}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ padding: '20px 22px' }}>
+                              {/* ====== FAST SONG SECTION ====== */}
+                              <div style={{ marginBottom: 28 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                  <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#e53935' }}>
+                                    <i className="fas fa-bolt" style={{ marginRight: 6 }}></i>Fast Song{fastSongs.length > 1 ? 's' : ''}
+                                  </h4>
+                                  {canRecord && !practiceIsRecording && (
+                                    <button style={{ padding: '6px 16px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'linear-gradient(135deg, #e53935, #d32f2f)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                                      onClick={() => startPracticeRecording(schedule, 'Fast Song')}>
+                                      <i className="fas fa-microphone"></i> Record Fast Song
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Song list */}
+                                {fastSongs.length > 0 ? (
+                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                                    {fastSongs.map((song, i) => (
+                                      <div key={i} style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(229,57,53,0.06)', border: '1px solid rgba(229,57,53,0.12)', fontSize: 13 }}>
+                                        <i className="fas fa-music" style={{ color: '#e53935', marginRight: 6 }}></i>
+                                        {song.title || `Song ${i + 1}`}
+                                        {song.link && <a href={song.link} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, color: '#e53935' }}><i className="fas fa-external-link-alt" style={{ fontSize: 10 }}></i></a>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : <p style={{ fontSize: 13, color: '#aaa', margin: '0 0 12px' }}>No fast songs assigned yet</p>}
+
+                                {/* Fast song recorder UI (if actively recording this type) */}
+                                {practiceIsRecording && practiceRecordingSongType === 'Fast Song' && practiceRecordingSchedule?.scheduleId === schedId && (
+                                  <div style={{ padding: 16, background: 'rgba(229,57,53,0.04)', borderRadius: 12, border: '1px solid rgba(229,57,53,0.15)', marginBottom: 12 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(229,57,53,0.1)', border: '2px solid #e53935', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 1.5s infinite' }}>
+                                        <i className="fas fa-microphone" style={{ color: '#e53935', fontSize: 18 }}></i>
+                                      </div>
+                                      <div style={{ flex: 1 }}>
+                                        <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'monospace', color: '#e53935' }}>{formatRecordingTime(practiceRecordingTime)}</span>
+                                        <p style={{ margin: 0, fontSize: 12, color: '#e53935' }}><i className="fas fa-circle" style={{ fontSize: 6, marginRight: 4, animation: 'pulse 1s infinite' }}></i>Recording Fast Song...</p>
+                                      </div>
+                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#333', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={stopPracticeRecording}>
+                                        <i className="fas fa-stop"></i> Stop
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Fast song preview (after stopping) */}
+                                {!practiceIsRecording && practiceAudioPreview && practiceRecordingSongType === 'Fast Song' && practiceRecordingSchedule?.scheduleId === schedId && (
+                                  <div style={{ padding: 16, background: 'rgba(40,167,69,0.04)', borderRadius: 12, border: '1px solid rgba(40,167,69,0.15)', marginBottom: 12 }}>
+                                    <p style={{ fontSize: 13, color: '#28a745', fontWeight: 600, margin: '0 0 8px' }}>
+                                      <i className="fas fa-check"></i> Fast Song recording complete — {formatRecordingTime(practiceRecordingTime)}
+                                    </p>
+                                    <audio controls src={practiceAudioPreview} style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />
+                                    {practiceRecordingUploading && (
+                                      <div style={{ marginBottom: 10 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 12, color: '#888' }}>Saving to Google Drive...</span><span style={{ fontSize: 12, fontWeight: 600 }}>{practiceRecordingProgress}%</span></div>
+                                        <div style={{ height: 6, background: '#eee', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${practiceRecordingProgress}%`, height: '100%', background: 'linear-gradient(90deg, #e53935, #28a745)', borderRadius: 3, transition: 'width 0.3s' }}></div></div>
+                                      </div>
+                                    )}
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#28a745', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={() => savePracticeRecording()} disabled={practiceRecordingUploading}>
+                                        {practiceRecordingUploading ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> Save Recording</>}
+                                      </button>
+                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#eee', color: '#333', border: 'none', cursor: 'pointer', fontSize: 13 }} onClick={discardPracticeRecording} disabled={practiceRecordingUploading}>
+                                        <i className="fas fa-redo"></i> Re-record
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Existing fast song recordings */}
+                                {fastRecs.length > 0 && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {fastRecs.map((rec) => (
+                                      <div key={rec.id} style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                        <div style={{ flex: 1, minWidth: 150 }}>
+                                          <p style={{ margin: '0 0 2px', fontSize: 14, fontWeight: 600 }}>{rec.title}</p>
+                                          <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#999' }}>
+                                            <span><i className="fas fa-user"></i> {rec.recorded_by_name}</span>
+                                            <span><i className="fas fa-clock"></i> {new Date(rec.created_at).toLocaleDateString()}</span>
+                                            {rec.file_size_bytes && <span><i className="fas fa-hdd"></i> {formatFileSize(rec.file_size_bytes)}</span>}
+                                          </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                          {practicePlayingId === rec.id ? (
+                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: '#333', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => setPracticePlayingId(null)}>
+                                              <i className="fas fa-stop"></i> Stop
+                                            </button>
+                                          ) : (
+                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: '#e53935', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => setPracticePlayingId(rec.id)}>
+                                              <i className="fas fa-play"></i> Play
+                                            </button>
+                                          )}
+                                          {canManagePracticeRecording(rec) && (
+                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: 'rgba(220,53,69,0.1)', color: '#dc3545', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => deletePracticeRecording(rec)}>
+                                              <i className="fas fa-trash"></i>
+                                            </button>
+                                          )}
+                                        </div>
+                                        {practicePlayingId === rec.id && rec.google_drive_file_id && (
+                                          <div style={{ width: '100%', marginTop: 6 }}>
+                                            <audio controls autoPlay src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* ====== SLOW SONG SECTION ====== */}
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                  <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1565c0' }}>
+                                    <i className="fas fa-dove" style={{ marginRight: 6 }}></i>Slow Song{slowSongs.length > 1 ? 's' : ''}
+                                  </h4>
+                                  {canRecord && !practiceIsRecording && (
+                                    <button style={{ padding: '6px 16px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'linear-gradient(135deg, #1565c0, #0d47a1)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                                      onClick={() => startPracticeRecording(schedule, 'Slow Song')}>
+                                      <i className="fas fa-microphone"></i> Record Slow Song
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Song list */}
+                                {slowSongs.length > 0 ? (
+                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                                    {slowSongs.map((song, i) => (
+                                      <div key={i} style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(21,101,192,0.06)', border: '1px solid rgba(21,101,192,0.12)', fontSize: 13 }}>
+                                        <i className="fas fa-music" style={{ color: '#1565c0', marginRight: 6 }}></i>
+                                        {song.title || `Song ${i + 1}`}
+                                        {song.link && <a href={song.link} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, color: '#1565c0' }}><i className="fas fa-external-link-alt" style={{ fontSize: 10 }}></i></a>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : <p style={{ fontSize: 13, color: '#aaa', margin: '0 0 12px' }}>No slow songs assigned yet</p>}
+
+                                {/* Slow song recorder UI */}
+                                {practiceIsRecording && practiceRecordingSongType === 'Slow Song' && practiceRecordingSchedule?.scheduleId === schedId && (
+                                  <div style={{ padding: 16, background: 'rgba(21,101,192,0.04)', borderRadius: 12, border: '1px solid rgba(21,101,192,0.15)', marginBottom: 12 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(21,101,192,0.1)', border: '2px solid #1565c0', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 1.5s infinite' }}>
+                                        <i className="fas fa-microphone" style={{ color: '#1565c0', fontSize: 18 }}></i>
+                                      </div>
+                                      <div style={{ flex: 1 }}>
+                                        <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'monospace', color: '#1565c0' }}>{formatRecordingTime(practiceRecordingTime)}</span>
+                                        <p style={{ margin: 0, fontSize: 12, color: '#1565c0' }}><i className="fas fa-circle" style={{ fontSize: 6, marginRight: 4, animation: 'pulse 1s infinite' }}></i>Recording Slow Song...</p>
+                                      </div>
+                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#333', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={stopPracticeRecording}>
+                                        <i className="fas fa-stop"></i> Stop
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Slow song preview */}
+                                {!practiceIsRecording && practiceAudioPreview && practiceRecordingSongType === 'Slow Song' && practiceRecordingSchedule?.scheduleId === schedId && (
+                                  <div style={{ padding: 16, background: 'rgba(40,167,69,0.04)', borderRadius: 12, border: '1px solid rgba(40,167,69,0.15)', marginBottom: 12 }}>
+                                    <p style={{ fontSize: 13, color: '#28a745', fontWeight: 600, margin: '0 0 8px' }}>
+                                      <i className="fas fa-check"></i> Slow Song recording complete — {formatRecordingTime(practiceRecordingTime)}
+                                    </p>
+                                    <audio controls src={practiceAudioPreview} style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />
+                                    {practiceRecordingUploading && (
+                                      <div style={{ marginBottom: 10 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 12, color: '#888' }}>Saving to Google Drive...</span><span style={{ fontSize: 12, fontWeight: 600 }}>{practiceRecordingProgress}%</span></div>
+                                        <div style={{ height: 6, background: '#eee', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${practiceRecordingProgress}%`, height: '100%', background: 'linear-gradient(90deg, #1565c0, #28a745)', borderRadius: 3, transition: 'width 0.3s' }}></div></div>
+                                      </div>
+                                    )}
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#28a745', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={() => savePracticeRecording()} disabled={practiceRecordingUploading}>
+                                        {practiceRecordingUploading ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> Save Recording</>}
+                                      </button>
+                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#eee', color: '#333', border: 'none', cursor: 'pointer', fontSize: 13 }} onClick={discardPracticeRecording} disabled={practiceRecordingUploading}>
+                                        <i className="fas fa-redo"></i> Re-record
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Existing slow song recordings */}
+                                {slowRecs.length > 0 && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {slowRecs.map((rec) => (
+                                      <div key={rec.id} style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                        <div style={{ flex: 1, minWidth: 150 }}>
+                                          <p style={{ margin: '0 0 2px', fontSize: 14, fontWeight: 600 }}>{rec.title}</p>
+                                          <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#999' }}>
+                                            <span><i className="fas fa-user"></i> {rec.recorded_by_name}</span>
+                                            <span><i className="fas fa-clock"></i> {new Date(rec.created_at).toLocaleDateString()}</span>
+                                            {rec.file_size_bytes && <span><i className="fas fa-hdd"></i> {formatFileSize(rec.file_size_bytes)}</span>}
+                                          </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                          {practicePlayingId === rec.id ? (
+                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: '#333', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => setPracticePlayingId(null)}>
+                                              <i className="fas fa-stop"></i> Stop
+                                            </button>
+                                          ) : (
+                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: '#1565c0', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => setPracticePlayingId(rec.id)}>
+                                              <i className="fas fa-play"></i> Play
+                                            </button>
+                                          )}
+                                          {canManagePracticeRecording(rec) && (
+                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: 'rgba(220,53,69,0.1)', color: '#dc3545', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => deletePracticeRecording(rec)}>
+                                              <i className="fas fa-trash"></i>
+                                            </button>
+                                          )}
+                                        </div>
+                                        {practicePlayingId === rec.id && rec.google_drive_file_id && (
+                                          <div style={{ width: '100%', marginTop: 6 }}>
+                                            <audio controls autoPlay src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 )}
               </div>
