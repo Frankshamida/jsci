@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { uploadToGoogleDrive, deleteFromGoogleDrive } from '@/lib/googleDrive';
+import { uploadBufferToCloudinary, deleteFromCloudinary, isCloudinaryUrl } from '@/lib/cloudinary';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,7 +84,7 @@ export async function GET(request) {
 }
 
 // ==================== POST ====================
-// Upload a practice recording (audio file) to Google Drive
+// Upload a practice recording (audio file) to Cloudinary
 export async function POST(request) {
   try {
     const contentType = request.headers.get('content-type') || '';
@@ -111,8 +111,13 @@ export async function POST(request) {
     const fileName = `Practice_${songType.replace(/\s/g, '')}_${scheduleDate}_${Date.now()}.${file.name.split('.').pop() || 'webm'}`;
     const mimeType = file.type || 'audio/webm';
 
-    // Upload to Google Drive
-    const driveResult = await uploadToGoogleDrive(arrayBuffer, fileName, mimeType);
+    // Upload to Cloudinary
+    const cloudinary = await uploadBufferToCloudinary(arrayBuffer, {
+      fileName,
+      mimeType,
+      folder: 'JSCI-System/practice-recordings',
+      resourceType: 'auto',
+    });
 
     // Save metadata to Supabase
     const { data, error } = await supabase.from('practice_recordings').insert({
@@ -121,8 +126,8 @@ export async function POST(request) {
       song_type: songType,
       title: title.trim(),
       description: description.trim(),
-      google_drive_file_id: driveResult.id,
-      google_drive_url: driveResult.webViewLink,
+      google_drive_file_id: cloudinary.publicId,
+      google_drive_url: cloudinary.secureUrl,
       file_name: file.name,
       file_size_bytes: file.size,
       mime_type: mimeType,
@@ -131,7 +136,7 @@ export async function POST(request) {
     }).select().single();
 
     if (error) {
-      try { await deleteFromGoogleDrive(driveResult.id); } catch (e) {}
+      try { await deleteFromCloudinary(cloudinary.publicId, cloudinary.resourceType); } catch (e) {}
       throw error;
     }
 
@@ -173,16 +178,23 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, message: 'Recording ID is required' }, { status: 400 });
     }
 
-    // Get recording to find Drive file
-    let driveFileId = null;
+    // Get recording to find Cloudinary public ID
+    let cloudPublicId = null;
+    let cloudUrl = null;
+    let mimeType = null;
     try {
-      const { data: rec } = await supabase.from('practice_recordings').select('google_drive_file_id').eq('id', id).single();
-      driveFileId = rec?.google_drive_file_id;
+      const { data: rec } = await supabase.from('practice_recordings').select('google_drive_file_id, google_drive_url, mime_type').eq('id', id).single();
+      cloudPublicId = rec?.google_drive_file_id;
+      cloudUrl = rec?.google_drive_url;
+      mimeType = rec?.mime_type || '';
     } catch (e) {}
 
-    // Delete from Google Drive
-    if (driveFileId) {
-      try { await deleteFromGoogleDrive(driveFileId); } catch (e) { console.warn('Drive delete warning:', e.message); }
+    // Delete from Cloudinary
+    if (cloudPublicId && isCloudinaryUrl(cloudUrl || '')) {
+      try {
+        const hintedType = mimeType.startsWith('image/') ? 'image' : (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) ? 'video' : 'raw';
+        await deleteFromCloudinary(cloudPublicId, hintedType);
+      } catch (e) { console.warn('Cloudinary delete warning:', e.message); }
     }
 
     // Delete from Supabase

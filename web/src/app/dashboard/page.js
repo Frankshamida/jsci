@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
+import SmartImage from '@/components/SmartImage';
 import './dashboard.css';
 
 const Cropper = dynamic(() => import('react-easy-crop'), { ssr: false });
@@ -256,6 +257,10 @@ const GATHERINGS = [
   { title: 'ISOM', desc: 'International School of Ministry training for leadership development and ministry equipping', photo: '/assets/isom-training.jpg' },
 ];
 
+const CLOUDINARY_FREE_STORAGE_BYTES = 25 * 1024 * 1024 * 1024; // 25 GB
+const CLOUDINARY_FREE_BANDWIDTH_BYTES = 25 * 1024 * 1024 * 1024; // 25 GB
+const CLOUDINARY_FREE_CREDITS = 25; // free plan credits
+
 // ============================================
 // DASHBOARD COMPONENT
 // ============================================
@@ -277,6 +282,9 @@ export default function DashboardPage() {
   const [darkMode, setDarkMode] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+  const [cloudUsage, setCloudUsage] = useState(null);
+  const [cloudUsageLoading, setCloudUsageLoading] = useState(false);
+  const [cloudUsageError, setCloudUsageError] = useState('');
 
   // Pastors carousel
   const [pastorCarouselIndex, setPastorCarouselIndex] = useState(0);
@@ -405,7 +413,27 @@ export default function DashboardPage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatMemoryLoaded, setChatMemoryLoaded] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceSpeakingEnabled, setVoiceSpeakingEnabled] = useState(true);
+  const [voiceName, setVoiceName] = useState('');
+  const [voiceStatus, setVoiceStatus] = useState('');
   const chatEndRef = useRef(null);
+  const speechRecognitionRef = useRef(null);
+  const speechFinalTranscriptRef = useRef('');
+  const voiceKeepListeningRef = useRef(false);
+  const lastSpokenMessageRef = useRef('');
+
+  const getAssistantUserName = useCallback(() => {
+    if (userData?.firstname && userData.firstname.trim()) return userData.firstname.trim();
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
+        if (stored?.firstname && String(stored.firstname).trim()) return String(stored.firstname).trim();
+      } catch { /* silent */ }
+    }
+    return 'there';
+  }, [userData]);
 
   // Birthdays
   const [birthdayData, setBirthdayData] = useState([]);
@@ -482,7 +510,42 @@ export default function DashboardPage() {
   const [editRemoveImageIds, setEditRemoveImageIds] = useState([]);
   const [photoViewerOpen, setPhotoViewerOpen] = useState(null);
   const [photoViewerIndex, setPhotoViewerIndex] = useState(0);
+  const [photoViewerScrollY, setPhotoViewerScrollY] = useState(0);
   const [communityImgLoaded, setCommunityImgLoaded] = useState({});
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') setPhotoViewerOpen(null); };
+    if (photoViewerOpen) {
+      if (typeof window !== 'undefined') {
+        const y = window.scrollY || window.pageYOffset || 0;
+        setPhotoViewerScrollY(y);
+        document.body.style.position = 'fixed';
+        document.body.style.top = `-${y}px`;
+        document.body.style.width = '100%';
+        document.body.style.overflow = 'hidden';
+      }
+      window.addEventListener('keydown', handleKey);
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+      if (typeof window !== 'undefined') {
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.width = '';
+        document.body.style.overflow = '';
+        window.scrollTo(0, photoViewerScrollY || 0);
+      }
+    };
+  }, [photoViewerOpen, photoViewerScrollY]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedY = Number(sessionStorage.getItem('communityScrollY'));
+      if (!Number.isNaN(savedY) && savedY >= 0) {
+        window.scrollTo(0, savedY);
+        sessionStorage.removeItem('communityScrollY');
+      }
+    }
+  }, []);
   // Bible Verse Share
   const [showVerseShareModal, setShowVerseShareModal] = useState(false);
   const [verseShareRef, setVerseShareRef] = useState('');
@@ -635,7 +698,7 @@ export default function DashboardPage() {
   const [showLiveShareModal, setShowLiveShareModal] = useState(false);
   const [liveShareCopied, setLiveShareCopied] = useState(false);
 
-  // Recordings (Google Drive)
+  // Recordings (Cloudinary)
   const [recordings, setRecordings] = useState([]);
   const [recordingsCount, setRecordingsCount] = useState(0);
   const [recordingsSearch, setRecordingsSearch] = useState('');
@@ -812,6 +875,88 @@ export default function DashboardPage() {
   }, [router]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hasRecognition = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    const hasSynthesis = !!(window.speechSynthesis && window.SpeechSynthesisUtterance);
+    setVoiceSupported(hasRecognition && hasSynthesis);
+
+    const savedVoicePref = localStorage.getItem('spiritualAssistantVoiceSpeak');
+    if (savedVoicePref !== null) {
+      setVoiceSpeakingEnabled(savedVoicePref === 'true');
+    }
+
+    const pickVoice = (voices) => {
+      if (!Array.isArray(voices) || voices.length === 0) return '';
+      const savedVoice = localStorage.getItem('spiritualAssistantVoiceName') || '';
+      if (savedVoice) {
+        const matchedSaved = voices.find((v) => v.name === savedVoice);
+        if (matchedSaved?.name) return matchedSaved.name;
+      }
+
+      const preferredNames = [
+        'Google US English',
+        'Microsoft Aria Online (Natural) - English (United States)',
+        'Microsoft Jenny Online (Natural) - English (United States)',
+        'Microsoft Zira - English (United States)',
+        'Samantha',
+      ];
+
+      for (const name of preferredNames) {
+        const found = voices.find((v) => v.name === name);
+        if (found?.name) return found.name;
+      }
+
+      const usEnglish = voices.find((v) => /en-us/i.test(v.lang));
+      if (usEnglish?.name) return usEnglish.name;
+
+      const anyEnglish = voices.find((v) => /en/i.test(v.lang));
+      if (anyEnglish?.name) return anyEnglish.name;
+
+      return voices[0]?.name || '';
+    };
+
+    const syncVoices = () => {
+      const voices = window.speechSynthesis?.getVoices?.() || [];
+      const bestVoiceName = pickVoice(voices);
+      if (bestVoiceName) {
+        setVoiceName(bestVoiceName);
+        localStorage.setItem('spiritualAssistantVoiceName', bestVoiceName);
+      }
+    };
+
+    syncVoices();
+    window.speechSynthesis?.addEventListener?.('voiceschanged', syncVoices);
+
+    return () => {
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.stop(); } catch { /* silent */ }
+      }
+      window.speechSynthesis?.removeEventListener?.('voiceschanged', syncVoices);
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  useEffect(() => {
+    const assistantName = getAssistantUserName();
+    if (!assistantName || assistantName === 'there') return;
+    setChatMessages((prev) => {
+      let changed = false;
+      const updated = prev.map((msg) => {
+        if (msg.role !== 'assistant' || typeof msg.content !== 'string') return msg;
+        const nextContent = msg.content
+          .replace(/Hello friend!/gi, `Hello ${assistantName}!`)
+          .replace(/Hello friend,/gi, `Hello ${assistantName},`);
+        if (nextContent !== msg.content) {
+          changed = true;
+          return { ...msg, content: nextContent };
+        }
+        return msg;
+      });
+      return changed ? updated : prev;
+    });
+  }, [getAssistantUserName]);
 
   // Persist chat memory to localStorage
   useEffect(() => {
@@ -1065,7 +1210,7 @@ export default function DashboardPage() {
     if (sectionId === 'community-events') loadBrowseUserEvents();
     if (sectionId === 'user-events-oversight') loadAllUserEventsForPastor();
     if (sectionId === 'spiritual-assistant' && chatMessages.length === 0) {
-      setChatMessages([{ role: 'assistant', content: `Hello ${userData?.firstname || 'friend'}! 🙏 I'm your Spiritual AI Assistant. How can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
+      setChatMessages([{ role: 'assistant', content: `Hello ${getAssistantUserName()}! 🙏 I'm your Spiritual AI Assistant. How can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
     }
   };
 
@@ -1251,6 +1396,13 @@ export default function DashboardPage() {
       if (data.success) setCommunityPosts(data.data || []);
     } catch (e) { console.warn('[Community] loadPosts error:', e.message); }
   };
+
+  // Ensure reactions reflect the logged-in user after auth refresh
+  useEffect(() => {
+    if (activeSection === 'community-hub' && userData?.id) {
+      loadCommunityPosts();
+    }
+  }, [activeSection, userData?.id]);
 
   // ============================================
   // FACEBOOK LIVE STREAMS
@@ -1494,7 +1646,7 @@ export default function DashboardPage() {
   }, [userData?.id, activeLiveStream?.id]);
 
   // ============================================
-  // RECORDINGS (Google Drive)
+  // RECORDINGS (Cloudinary)
   // ============================================
   const RECORDING_CATEGORIES = ['Worship', 'Sermon', 'Practice', 'Event', 'Meeting', 'Other'];
 
@@ -1567,7 +1719,7 @@ export default function DashboardPage() {
 
         const data = await res.json();
         if (data.success) {
-          showToast('Recording uploaded to Google Drive! 🎵', 'success');
+          showToast('Recording uploaded to Cloudinary! 🎵', 'success');
           setShowRecordingForm(false);
           setEditingRecording(null);
           setRecordingFile(null);
@@ -1585,7 +1737,7 @@ export default function DashboardPage() {
   };
 
   const handleDeleteRecording = async (rec) => {
-    if (!confirm(`Delete "${rec.title}"? This will also remove the file from Google Drive.`)) return;
+    if (!confirm(`Delete "${rec.title}"? This will also remove the file from Cloudinary.`)) return;
     try {
       const res = await fetch(`/api/recordings?id=${rec.id}`, { method: 'DELETE' });
       let data;
@@ -1686,6 +1838,11 @@ export default function DashboardPage() {
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
   };
 
+  const formatCredits = (credits) => {
+    if (credits === null || credits === undefined) return 'Unknown';
+    return `${credits.toFixed(2)} credits`;
+  };
+
   const formatDuration = (seconds) => {
     if (!seconds) return '';
     const hrs = Math.floor(seconds / 3600);
@@ -1695,6 +1852,33 @@ export default function DashboardPage() {
     return `${mins}:${String(secs).padStart(2, '0')}`;
   };
 
+  const usagePercent = (used, limit) => {
+    if (!limit || used <= 0) return 0;
+    return Math.min(100, (used / limit) * 100);
+  };
+
+  const usageBarColor = (percent) => {
+    if (percent >= 90) return '#d32f2f';
+    if (percent >= 75) return '#f9a825';
+    return '#2e7d32';
+  };
+
+  const fetchCloudUsage = useCallback(async (showSpinner = false) => {
+    if (userRole !== ROLES.SUPER_ADMIN) return;
+    if (showSpinner) setCloudUsageLoading(true);
+    try {
+      const res = await fetch('/api/cloudinary/usage');
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'Failed to load Cloudinary usage');
+      setCloudUsage(json.data || null);
+      setCloudUsageError('');
+    } catch (err) {
+      setCloudUsageError(err.message || 'Error loading Cloudinary usage');
+    } finally {
+      setCloudUsageLoading(false);
+    }
+  }, [userRole]);
+
   useEffect(() => {
     if (!userData?.id) return;
     const recSub = supabase.channel('recordings-realtime')
@@ -1702,6 +1886,19 @@ export default function DashboardPage() {
       .subscribe();
     return () => { supabase.removeChannel(recSub); };
   }, [userData?.id]);
+
+  // Poll Cloudinary usage for Super Admin
+  useEffect(() => {
+    if (userRole !== ROLES.SUPER_ADMIN) return undefined;
+    let cancelled = false;
+    const wrappedFetch = async (showSpinner = false) => {
+      if (cancelled) return;
+      await fetchCloudUsage(showSpinner);
+    };
+    wrappedFetch(true);
+    const pollTimer = setInterval(() => wrappedFetch(false), 45000);
+    return () => { cancelled = true; clearInterval(pollTimer); };
+  }, [userRole, fetchCloudUsage]);
 
   const loadMessages = async () => {
     try {
@@ -2952,6 +3149,14 @@ export default function DashboardPage() {
   // ============================================
   // COMMUNITY POST ALGORITHM
   // ============================================
+  const handleOpenImageViewer = (post, imageIndex = 0) => {
+    if (!post) return;
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('communityScrollY', `${window.scrollY || 0}`);
+    }
+    router.push(`/community/image/${post.id}?idx=${imageIndex || 0}`);
+  };
+
   const getAlgorithmSortedPosts = (posts) => {
     if (!posts || posts.length === 0) return [];
     const userId = userData?.id;
@@ -4389,6 +4594,12 @@ Examples:
 
   const sendChatMessage = async () => {
     if (!chatInput.trim()) return;
+    if (voiceListening && speechRecognitionRef.current) {
+      try { speechRecognitionRef.current.stop(); } catch { /* silent */ }
+      setVoiceListening(false);
+      setVoiceStatus('');
+      voiceKeepListeningRef.current = false;
+    }
     const msg = chatInput.trim();
     setChatInput('');
     setChatMessages((p) => [...p, { role: 'user', content: msg }]);
@@ -4399,7 +4610,7 @@ Examples:
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [
-          { role: 'system', content: `You are a compassionate Christian spiritual AI advisor for ${userData?.firstname || 'a believer'} who serves in ${userData?.ministry || 'ministry'}. Provide biblical guidance, prayer support, and encouragement. Use Scripture references when appropriate. You have memory of previous conversations with this user — use the conversation history to provide personalized and contextual responses. Always remind yourself: you are an AI assistant; encourage the user to also seek God directly through prayer and His Word.` },
+          { role: 'system', content: `You are a compassionate Christian spiritual AI advisor for ${userData?.firstname || 'a believer'} who serves in ${userData?.ministry || 'ministry'}. Speak and write like a real caring person in live conversation: warm, friendly, relatable, and natural. Avoid robotic or overly formal phrasing. Use simple everyday language and slightly varied sentence lengths. Occasionally use natural conversational fillers when they fit (for example: "well," "you know," "let me think") but do not overuse them. Add subtle emotional tone based on context: friendly, empathetic, or excited when appropriate. Keep a smooth conversational flow and avoid sounding scripted. Keep replies concise by default unless the user asks for depth. Provide biblical guidance, prayer support, and encouragement, with Scripture references when appropriate. You have memory of previous conversations with this user — use that context to personalize responses. Be transparent that you are an AI assistant, and gently encourage the user to also seek God directly through prayer and His Word.` },
           ...historyMessages,
           { role: 'user', content: msg }
         ], temperature: 0.7, max_tokens: 1000 }),
@@ -4416,8 +4627,186 @@ Examples:
   const clearChatMemory = () => {
     const chatKey = `chatMemory_${userData?.email || userData?.id}`;
     localStorage.removeItem(chatKey);
-    setChatMessages([{ role: 'assistant', content: `Chat history cleared! 🙏 Hello ${userData?.firstname || 'friend'}, how can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
+    setChatMessages([{ role: 'assistant', content: `Chat history cleared! 🙏 Hello ${getAssistantUserName()}, how can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
     showToast('Chat history cleared', 'success');
+  };
+
+  const sanitizeForSpeech = useCallback((text = '') => {
+    return text
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`[^`]*`/g, ' ')
+      .replace(/[\u{1F300}-\u{1FAFF}]/gu, ' ')
+      .replace(/[*_#>|~]/g, ' ')
+      .replace(/\n+/g, '. ')
+      .replace(/\s([,:;!?])/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }, []);
+
+  const getSpeechProsody = useCallback((chunk = '', index = 0) => {
+    let rate = 0.99;
+    let pitch = 1;
+    const len = chunk.length;
+
+    if (len < 35) rate += 0.03;
+    if (len > 140) rate -= 0.04;
+    if (/[!?]$/.test(chunk)) pitch += 0.03;
+    if (/\b(sorry|hurt|pain|grief|loss|anxious|worried)\b/i.test(chunk)) {
+      rate -= 0.03;
+      pitch -= 0.02;
+    }
+
+    // Tiny deterministic variation so speech does not sound flat.
+    if (index % 2 === 1) rate += 0.01;
+
+    return {
+      rate: Math.min(1.08, Math.max(0.9, rate)),
+      pitch: Math.min(1.1, Math.max(0.9, pitch)),
+    };
+  }, []);
+
+  const speakAssistantMessage = useCallback((text) => {
+    if (!voiceSpeakingEnabled || typeof window === 'undefined') return;
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
+
+    const message = sanitizeForSpeech(text);
+    if (!message) return;
+
+    const voices = window.speechSynthesis.getVoices() || [];
+    const selectedVoice = voices.find((v) => v.name === voiceName)
+      || voices.find((v) => /en-us/i.test(v.lang))
+      || voices.find((v) => /en/i.test(v.lang))
+      || null;
+
+    const chunks = (message.match(/[^.!?]+[.!?]?/g) || [message])
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (chunks.length === 0) return;
+
+    window.speechSynthesis.cancel();
+    setVoiceStatus('Speaking...');
+
+    chunks.forEach((chunk, index) => {
+      const prosody = getSpeechProsody(chunk, index);
+      const utterance = new window.SpeechSynthesisUtterance(chunk);
+      utterance.lang = selectedVoice?.lang || 'en-US';
+      utterance.rate = prosody.rate;
+      utterance.pitch = prosody.pitch;
+      utterance.volume = 1;
+      if (selectedVoice) utterance.voice = selectedVoice;
+      if (index === chunks.length - 1) {
+        utterance.onend = () => setVoiceStatus('');
+        utterance.onerror = () => setVoiceStatus('');
+      }
+      window.speechSynthesis.speak(utterance);
+    });
+  }, [getSpeechProsody, sanitizeForSpeech, voiceName, voiceSpeakingEnabled]);
+
+  useEffect(() => {
+    const lastMessage = chatMessages[chatMessages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'assistant') return;
+    if (!chatMemoryLoaded) return;
+
+    const marker = `${chatMessages.length}:${lastMessage.content}`;
+    if (marker === lastSpokenMessageRef.current) return;
+    lastSpokenMessageRef.current = marker;
+
+    speakAssistantMessage(lastMessage.content);
+  }, [chatMessages, chatMemoryLoaded, speakAssistantMessage]);
+
+  const toggleVoiceSpeaking = () => {
+    setVoiceSpeakingEnabled((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('spiritualAssistantVoiceSpeak', String(next));
+        if (!next) window.speechSynthesis?.cancel();
+      }
+      showToast(next ? 'Spoken replies enabled' : 'Spoken replies muted', 'success');
+      return next;
+    });
+  };
+
+  const toggleVoiceInput = () => {
+    if (typeof window === 'undefined') return;
+    if (!voiceSupported) {
+      showToast('Voice input is not supported in this browser', 'warning');
+      return;
+    }
+
+    if (voiceListening && speechRecognitionRef.current) {
+      voiceKeepListeningRef.current = false;
+      try { speechRecognitionRef.current.stop(); } catch { /* silent */ }
+      setVoiceListening(false);
+      setVoiceStatus('');
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showToast('Voice input is not available on this browser', 'warning');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    speechRecognitionRef.current = recognition;
+    speechFinalTranscriptRef.current = '';
+
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      voiceKeepListeningRef.current = true;
+      setVoiceListening(true);
+      setVoiceStatus('Listening...');
+    };
+
+    recognition.onresult = (event) => {
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0]?.transcript || '';
+        if (event.results[i].isFinal) {
+          speechFinalTranscriptRef.current += ` ${transcript}`;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      const finalTranscript = speechFinalTranscriptRef.current.trim();
+      const combined = `${finalTranscript} ${interimTranscript}`.trim();
+      if (combined) setChatInput(combined);
+    };
+
+    recognition.onerror = (event) => {
+      if (!voiceKeepListeningRef.current) {
+        setVoiceListening(false);
+        setVoiceStatus('');
+      }
+      if (event?.error && event.error !== 'aborted' && event.error !== 'no-speech') {
+        showToast('Voice input failed. Please try again.', 'warning');
+      }
+    };
+
+    recognition.onend = () => {
+      const finalTranscript = speechFinalTranscriptRef.current.trim();
+      if (finalTranscript) setChatInput(finalTranscript);
+      if (voiceKeepListeningRef.current) {
+        try { recognition.start(); } catch { setVoiceListening(false); setVoiceStatus(''); voiceKeepListeningRef.current = false; }
+      } else {
+        setVoiceListening(false);
+        setVoiceStatus('');
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setVoiceListening(false);
+      setVoiceStatus('');
+      showToast('Unable to start voice input. Please try again.', 'warning');
+    }
   };
 
   // ============================================
@@ -4886,7 +5275,7 @@ Examples:
           {/* Menu */}
           <nav className="sidebar-menu">
             <div className="menu-section-label">Menu</div>
-            {sidebarMenu.map((item) => {
+            {(userRole === ROLES.SUPER_ADMIN ? [...sidebarMenu, { id: 'cloudinary-usage', section: 'cloudinary-usage', label: 'Cloudinary Usage', icon: 'fas fa-cloud' }] : sidebarMenu).map((item) => {
               const isGuestRole = userRole === 'Guest';
               const isLocked = !isVerified && !isGuestRole && item.section !== 'home';
               return (
@@ -6153,7 +6542,7 @@ Examples:
                           <div className="community-photo-previews" style={{ marginTop: 8 }}>
                             {(post.images || []).filter(img => !editRemoveImageIds.includes(img.id)).map((img) => (
                               <div key={img.id} className="community-photo-preview-item">
-                                <img src={`/api/recordings/stream?fileId=${img.google_drive_file_id}`} alt="" />
+                                <img src={img.delivery_url || `/api/recordings/stream?fileId=${img.google_drive_file_id}`} alt="" />
                                 <button className="community-photo-remove" onClick={() => setEditRemoveImageIds(prev => [...prev, img.id])}><i className="fas fa-times"></i></button>
                               </div>
                             ))}
@@ -6184,15 +6573,24 @@ Examples:
                         {post.content && <div className="community-post-content" style={{ whiteSpace: 'pre-wrap' }}>{post.content}</div>}
                         {/* Photo collage display */}
                         {post.images && post.images.length > 0 && (
-                          <div className={`community-photo-collage collage-${Math.min(post.images.length, 5)}`} onClick={() => { setPhotoViewerOpen(post); setPhotoViewerIndex(0); }}>
+                          <div className={`community-photo-collage collage-${Math.min(post.images.length, 5)}`} onClick={() => handleOpenImageViewer(post, 0)}>
                             {post.images.slice(0, 5).map((img, imgIdx) => (
-                              <div key={img.id} className={`collage-item collage-item-${imgIdx}`} onClick={(e) => { e.stopPropagation(); setPhotoViewerOpen(post); setPhotoViewerIndex(imgIdx); }}>
+                              <div key={img.id} className={`collage-item collage-item-${imgIdx}`} onClick={(e) => { e.stopPropagation(); handleOpenImageViewer(post, imgIdx); }}>
                                 {!communityImgLoaded[img.id] && (
                                   <div className="community-img-loader">
                                     <img src="/assets/LOGO.png" alt="" className="community-img-loader-logo" />
                                   </div>
                                 )}
-                                <img src={`/api/recordings/stream?fileId=${img.google_drive_file_id}`} alt="" className={`collage-img${communityImgLoaded[img.id] ? ' loaded' : ''}`} onLoad={() => setCommunityImgLoaded(prev => ({ ...prev, [img.id]: true }))} onError={() => setCommunityImgLoaded(prev => ({ ...prev, [img.id]: true }))} />
+                                <SmartImage
+                                  src={img.delivery_url || `/api/recordings/stream?fileId=${img.google_drive_file_id}`}
+                                  alt=""
+                                  width={800}
+                                  height={800}
+                                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                  className={`collage-img${communityImgLoaded[img.id] ? ' loaded' : ''}`}
+                                  onLoadingComplete={() => setCommunityImgLoaded(prev => ({ ...prev, [img.id]: true }))}
+                                  onError={() => setCommunityImgLoaded(prev => ({ ...prev, [img.id]: true }))}
+                                />
                                 {imgIdx === 4 && post.images.length > 5 && (
                                   <div className="collage-more-overlay">+{post.images.length - 5}</div>
                                 )}
@@ -6497,50 +6895,7 @@ Examples:
               </div>
             )}
 
-            {/* Photo Viewer Modal */}
-            {photoViewerOpen && (
-              <div className="community-photo-viewer-overlay" onClick={() => setPhotoViewerOpen(null)}>
-                <div className="community-photo-viewer" onClick={(e) => e.stopPropagation()}>
-                  <button className="community-photo-viewer-close" onClick={() => setPhotoViewerOpen(null)}><i className="fas fa-times"></i></button>
-                  <div className="community-photo-viewer-main">
-                    {photoViewerOpen.images && photoViewerOpen.images[photoViewerIndex] && (
-                      <>
-                        {!communityImgLoaded[`viewer-${photoViewerOpen.images[photoViewerIndex].id}`] && (
-                          <div className="community-img-loader viewer-loader">
-                            <img src="/assets/LOGO.png" alt="" className="community-img-loader-logo" />
-                          </div>
-                        )}
-                        <img
-                          src={`/api/recordings/stream?fileId=${photoViewerOpen.images[photoViewerIndex].google_drive_file_id}`}
-                          alt=""
-                          className={`community-photo-viewer-img${communityImgLoaded[`viewer-${photoViewerOpen.images[photoViewerIndex].id}`] ? ' loaded' : ''}`}
-                          onLoad={() => setCommunityImgLoaded(prev => ({ ...prev, [`viewer-${photoViewerOpen.images[photoViewerIndex].id}`]: true }))}
-                          onError={() => setCommunityImgLoaded(prev => ({ ...prev, [`viewer-${photoViewerOpen.images[photoViewerIndex].id}`]: true }))}
-                        />
-                      </>
-                    )}
-                    {photoViewerIndex > 0 && (
-                      <button className="community-photo-viewer-nav prev" onClick={() => setPhotoViewerIndex(i => i - 1)}><i className="fas fa-chevron-left"></i></button>
-                    )}
-                    {photoViewerOpen.images && photoViewerIndex < photoViewerOpen.images.length - 1 && (
-                      <button className="community-photo-viewer-nav next" onClick={() => setPhotoViewerIndex(i => i + 1)}><i className="fas fa-chevron-right"></i></button>
-                    )}
-                  </div>
-                  <div className="community-photo-viewer-counter">
-                    {photoViewerIndex + 1} / {photoViewerOpen.images?.length || 0}
-                  </div>
-                  {photoViewerOpen.images && photoViewerOpen.images.length > 1 && (
-                    <div className="community-photo-viewer-thumbs">
-                      {photoViewerOpen.images.map((img, i) => (
-                        <div key={img.id} className={`community-photo-viewer-thumb${i === photoViewerIndex ? ' active' : ''}`} onClick={() => setPhotoViewerIndex(i)}>
-                          <img src={`/api/recordings/stream?fileId=${img.google_drive_file_id}`} alt="" />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Photo Viewer Modal (disabled in favor of dedicated route) */}
           </section>
 
           {/* ========== LIVE STREAM MANAGEMENT (Admin/SuperAdmin) ========== */}
@@ -6629,12 +6984,12 @@ Examples:
             </div>
           </section>
 
-          {/* ========== RECORDINGS (Google Drive) ========== */}
+          {/* ========== RECORDINGS (Cloudinary) ========== */}
           <section className={`content-section ${activeSection === 'recordings' ? 'active' : ''}`}>
             <h2 className="section-title"><i className="fas fa-microphone-alt" style={{ marginRight: 10, color: 'var(--accent)' }}></i>Recordings</h2>
             <p style={{ color: '#888', marginBottom: 20, fontSize: 14 }}>
               <i className="fab fa-google-drive" style={{ marginRight: 6 }}></i>
-              Files are saved to Google Drive automatically
+              Files are saved to Cloudinary automatically
             </p>
 
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -6662,7 +7017,7 @@ Examples:
                     </div>
                     <div>
                       <h3 style={{ margin: 0 }}>{editingRecording ? 'Edit Recording' : 'Upload Recording'}</h3>
-                      <p style={{ margin: 0, fontSize: 13, color: '#888' }}>{editingRecording ? 'Update recording details' : 'Upload audio/video to Google Drive'}</p>
+                      <p style={{ margin: 0, fontSize: 13, color: '#888' }}>{editingRecording ? 'Update recording details' : 'Upload audio/video to Cloudinary'}</p>
                     </div>
                     <button style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#888' }} onClick={() => { setShowRecordingForm(false); setEditingRecording(null); }}>✕</button>
                   </div>
@@ -6725,7 +7080,7 @@ Examples:
                   {recordingUploading && (
                     <div style={{ marginBottom: 20 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                        <span style={{ fontSize: 13, color: '#888' }}>Uploading to Google Drive...</span>
+                        <span style={{ fontSize: 13, color: '#888' }}>Uploading to Cloudinary...</span>
                         <span style={{ fontSize: 13, fontWeight: 600 }}>{recordingUploadProgress}%</span>
                       </div>
                       <div style={{ width: '100%', height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden' }}>
@@ -6736,7 +7091,7 @@ Examples:
 
                   <div style={{ display: 'flex', gap: 10 }}>
                     <button className="btn-primary" style={{ flex: 1, borderRadius: 22, padding: '12px 20px' }} onClick={handleRecordingSubmit} disabled={recordingUploading}>
-                      {recordingUploading ? (<><i className="fas fa-spinner fa-spin"></i> Uploading...</>) : editingRecording ? (<><i className="fas fa-save"></i> Save Changes</>) : (<><i className="fab fa-google-drive"></i> Upload to Google Drive</>)}
+                      {recordingUploading ? (<><i className="fas fa-spinner fa-spin"></i> Uploading...</>) : editingRecording ? (<><i className="fas fa-save"></i> Save Changes</>) : (<><i className="fas fa-cloud-upload-alt"></i> Upload to Cloudinary</>)}
                     </button>
                     <button className="btn-secondary" style={{ borderRadius: 22, padding: '12px 20px' }} onClick={() => { setShowRecordingForm(false); setEditingRecording(null); }} disabled={recordingUploading}>Cancel</button>
                   </div>
@@ -6752,7 +7107,7 @@ Examples:
                     <div style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #e53935, #d32f2f)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#fff' }}>🎙️</div>
                     <div>
                       <h3 style={{ margin: 0 }}>Audio Recorder</h3>
-                      <p style={{ margin: 0, fontSize: 13, color: '#888' }}>Record audio and save to Google Drive</p>
+                      <p style={{ margin: 0, fontSize: 13, color: '#888' }}>Record audio and save to Cloudinary</p>
                     </div>
                     <button style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#888' }} onClick={() => { if (!isRecording && !recordingUploading) { setShowAudioRecorder(false); discardAudioRecording(); } }}>✕</button>
                   </div>
@@ -6800,7 +7155,7 @@ Examples:
                   {audioPreviewUrl && !isRecording && (
                     <div style={{ marginBottom: 20, padding: 16, background: 'rgba(40,167,69,0.05)', borderRadius: 12, border: '1px solid rgba(40,167,69,0.15)' }}>
                       <p style={{ fontSize: 13, color: '#28a745', fontWeight: 600, margin: '0 0 10px' }}><i className="fas fa-check" style={{ marginRight: 6 }}></i>Recording complete — {formatRecordingTime(recordingTime)} • {recordingFile ? formatFileSize(recordingFile.size) : ''}</p>
-                      <audio controls src={audioPreviewUrl} style={{ width: '100%', borderRadius: 10 }} />
+                      <audio controls preload="none" src={audioPreviewUrl} style={{ width: '100%', borderRadius: 10 }} />
                     </div>
                   )}
 
@@ -6838,7 +7193,7 @@ Examples:
                       {recordingUploading && (
                         <div style={{ marginBottom: 20 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                            <span style={{ fontSize: 13, color: '#888' }}>Uploading to Google Drive...</span>
+                            <span style={{ fontSize: 13, color: '#888' }}>Uploading to Cloudinary...</span>
                             <span style={{ fontSize: 13, fontWeight: 600 }}>{recordingUploadProgress}%</span>
                           </div>
                           <div style={{ width: '100%', height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden' }}>
@@ -6868,13 +7223,13 @@ Examples:
                             clearInterval(progressInterval); setRecordingUploadProgress(100);
                             const data = await res.json();
                             if (data.success) {
-                              showToast('Audio recording saved to Google Drive! 🎙️', 'success');
+                              showToast('Audio recording saved to Cloudinary! 🎙️', 'success');
                               setShowAudioRecorder(false); discardAudioRecording(); loadRecordings();
                             } else { showToast(data.message || 'Upload failed', 'danger'); }
                           } catch (e) { showToast('Error: ' + e.message, 'danger'); }
                           setRecordingUploading(false); setRecordingUploadProgress(0);
                         }} disabled={recordingUploading}>
-                          {recordingUploading ? (<><i className="fas fa-spinner fa-spin"></i> Saving...</>) : (<><i className="fab fa-google-drive"></i> Save to Google Drive</>)}
+                          {recordingUploading ? (<><i className="fas fa-spinner fa-spin"></i> Saving...</>) : (<><i className="fas fa-cloud-upload-alt"></i> Save to Cloudinary</>)}
                         </button>
                         <button className="btn-secondary" style={{ borderRadius: 22, padding: '12px 20px' }} onClick={() => { setShowAudioRecorder(false); discardAudioRecording(); }} disabled={recordingUploading}>Cancel</button>
                       </div>
@@ -6934,6 +7289,7 @@ Examples:
                               <video
                                 controls
                                 autoPlay
+                                preload="metadata"
                                 style={{ width: '100%', borderRadius: 10, maxHeight: 240, background: '#000' }}
                                 src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`}
                                 onError={() => { alert('Playback error. Try downloading instead.'); setPlayingRecording(null); }}
@@ -6942,8 +7298,9 @@ Examples:
                               <audio
                                 controls
                                 autoPlay
+                                preload="none"
                                 style={{ width: '100%', borderRadius: 20 }}
-                                src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`}
+                                src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}&profile=audio-lite`}
                                 onError={() => { alert('Playback error. Try downloading instead.'); setPlayingRecording(null); }}
                               />
                             )}
@@ -6959,7 +7316,7 @@ Examples:
                       )}
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {rec.google_drive_file_id && (
-                          <a href={`https://drive.google.com/uc?export=download&id=${rec.google_drive_file_id}`} target="_blank" rel="noopener noreferrer" className="btn-small btn-secondary" style={{ textDecoration: 'none', borderRadius: 16, fontSize: 12 }}>
+                          <a href={`/api/recordings/stream?fileId=${encodeURIComponent(rec.google_drive_file_id)}`} target="_blank" rel="noopener noreferrer" className="btn-small btn-secondary" style={{ textDecoration: 'none', borderRadius: 16, fontSize: 12 }}>
                             <i className="fas fa-download"></i> Download
                           </a>
                         )}
@@ -7032,7 +7389,7 @@ Examples:
                             </div>
                             {practicePlayingId === rec.id && rec.google_drive_file_id && (
                               <div style={{ width: '100%', marginTop: 6 }}>
-                                <audio controls autoPlay src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
+                                <audio controls autoPlay preload="none" src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}&profile=audio-lite`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
                               </div>
                             )}
                           </div>
@@ -7869,6 +8226,75 @@ Examples:
             )}
           </section>
 
+          {/* ========== CLOUDINARY USAGE (Super Admin) ========== */}
+          <section className={`content-section ${activeSection === 'cloudinary-usage' ? 'active' : ''}`}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <h2 className="section-title" style={{ margin: 0 }}><i className="fas fa-cloud" style={{ marginRight: 10, color: 'var(--primary)' }}></i>Cloudinary Usage</h2>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button className="btn-secondary" style={{ borderRadius: 20, padding: '8px 14px', fontSize: 13 }} onClick={() => fetchCloudUsage(true)} disabled={cloudUsageLoading}>
+                  {cloudUsageLoading ? <><i className="fas fa-spinner fa-spin"></i> Refreshing...</> : <><i className="fas fa-sync"></i> Refresh</>}
+                </button>
+                <span style={{ fontSize: 12, color: '#6c757d' }}>Auto-refreshes every 45s</span>
+              </div>
+            </div>
+
+            {cloudUsageError && (
+              <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'rgba(211,47,47,0.08)', border: '1px solid rgba(211,47,47,0.2)', color: '#b71c1c', fontSize: 13 }}>
+                <i className="fas fa-exclamation-triangle" style={{ marginRight: 8 }}></i>{cloudUsageError}
+              </div>
+            )}
+
+            <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+              {(() => {
+                const storageUsed = cloudUsage?.storageBytes || 0;
+                const bandwidthUsed = cloudUsage?.bandwidthBytes || 0;
+                const creditsUsed = cloudUsage?.transformations || 0;
+
+                const cards = [
+                  {
+                    title: 'Storage',
+                    usedLabel: formatFileSize(storageUsed),
+                    pct: usagePercent(storageUsed, CLOUDINARY_FREE_STORAGE_BYTES),
+                    limitLabel: formatFileSize(CLOUDINARY_FREE_STORAGE_BYTES),
+                  },
+                  {
+                    title: 'Bandwidth',
+                    usedLabel: formatFileSize(bandwidthUsed),
+                    pct: usagePercent(bandwidthUsed, CLOUDINARY_FREE_BANDWIDTH_BYTES),
+                    limitLabel: formatFileSize(CLOUDINARY_FREE_BANDWIDTH_BYTES),
+                  },
+                  {
+                    title: 'Transformation Credits',
+                    usedLabel: formatCredits(creditsUsed),
+                    pct: usagePercent(creditsUsed, CLOUDINARY_FREE_CREDITS),
+                    limitLabel: `${CLOUDINARY_FREE_CREDITS} credits`,
+                  },
+                ];
+
+                return cards.map((card) => (
+                  <div key={card.title} style={{ padding: 16, borderRadius: 14, background: 'var(--card-bg, #fff)', boxShadow: 'var(--shadow, 0 4px 12px rgba(0,0,0,0.06))', border: '1px solid rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{card.title}</h3>
+                      <span style={{ fontSize: 12, color: '#6c757d' }}>{card.limitLabel} limit</span>
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>{card.usedLabel}</div>
+                    <div style={{ height: 12, borderRadius: 12, background: 'rgba(0,0,0,0.06)', overflow: 'hidden', position: 'relative' }}>
+                      <div style={{ width: `${card.pct}%`, height: '100%', background: usageBarColor(card.pct), transition: 'width 0.4s ease' }}></div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12, color: '#6c757d' }}>
+                      <span>{card.pct.toFixed(1)}% of free tier</span>
+                      {card.pct >= 75 && <span style={{ color: card.pct >= 90 ? '#d32f2f' : '#f9a825' }}>Approaching limit</span>}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+
+            <div style={{ marginTop: 14, fontSize: 12, color: '#6c757d', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span><i className="fas fa-info-circle"></i> Data pulled from Cloudinary Admin API. Respecting rate limits; values update roughly every 45 seconds.</span>
+            </div>
+          </section>
+
           {/* ========== SYSTEM CONFIG (Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'system-config' ? 'active' : ''}`}>
             <h2 className="section-title">System Configuration</h2>
@@ -8130,16 +8556,34 @@ Examples:
             <div className="chat-container">
               <div className="chat-header">
                 <span><i className="fas fa-cross"></i> Spiritual AI Assistant</span>
-                <button className="chat-clear-btn" onClick={clearChatMemory} title="Clear chat history">
-                  <i className="fas fa-trash-alt"></i> Clear History
-                </button>
+                <div className="chat-header-actions">
+                  <button
+                    className={`chat-voice-toggle-btn ${voiceSpeakingEnabled ? 'active' : ''}`}
+                    onClick={toggleVoiceSpeaking}
+                    title={voiceSpeakingEnabled ? 'Mute spoken replies' : 'Enable spoken replies'}
+                    disabled={!voiceSupported}
+                  >
+                    <i className={`fas ${voiceSpeakingEnabled ? 'fa-volume-up' : 'fa-volume-mute'}`}></i>
+                    {voiceSpeakingEnabled ? 'Voice On' : 'Voice Off'}
+                  </button>
+                  <button className="chat-clear-btn" onClick={clearChatMemory} title="Clear chat history">
+                    <i className="fas fa-trash-alt"></i> Clear History
+                  </button>
+                </div>
               </div>
               <div className="chat-messages">
                 {chatMessages.map((msg, i) => (
                   <div key={i} className={`chat-message ${msg.role === 'user' ? 'user-message' : 'assistant-message'}`}>
                     <div className="message-content">
                       {msg.role === 'assistant' && <div className="message-avatar"><i className="fas fa-cross"></i></div>}
-                      <div className="message-text"><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{msg.content}</pre></div>
+                      <div className="message-text-wrap">
+                        <div className="message-text"><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{msg.content}</pre></div>
+                        {msg.role === 'assistant' && voiceSupported && (
+                          <button className="message-speak-btn" onClick={() => speakAssistantMessage(msg.content)} title="Play this response">
+                            <i className="fas fa-volume-up"></i>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -8147,9 +8591,20 @@ Examples:
                 <div ref={chatEndRef}></div>
               </div>
               <div className="chat-input-container">
+                <button
+                  className={`chat-voice-btn ${voiceListening ? 'listening' : ''}`}
+                  onClick={toggleVoiceInput}
+                  disabled={chatLoading || !voiceSupported}
+                  title={voiceListening ? 'Stop listening' : 'Speak your question'}
+                >
+                  <i className={`fas ${voiceListening ? 'fa-stop' : 'fa-microphone'}`}></i>
+                </button>
                 <textarea className="chat-input" placeholder="Ask a spiritual question..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} rows={1}></textarea>
                 <button className="chat-send-btn" onClick={sendChatMessage} disabled={chatLoading}><i className="fas fa-paper-plane"></i></button>
               </div>
+              {(voiceStatus || !voiceSupported) && (
+                <div className="chat-voice-status">{voiceSupported ? voiceStatus : 'Voice chat is not supported in this browser.'}</div>
+              )}
             </div>
           </section>
 
@@ -9721,10 +10176,10 @@ Examples:
                                     <p style={{ fontSize: 13, color: '#28a745', fontWeight: 600, margin: '0 0 8px' }}>
                                       <i className="fas fa-check"></i> Fast Song recording complete — {formatRecordingTime(practiceRecordingTime)}
                                     </p>
-                                    <audio controls src={practiceAudioPreview} style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />
+                                    <audio controls preload="none" src={practiceAudioPreview} style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />
                                     {practiceRecordingUploading && (
                                       <div style={{ marginBottom: 10 }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 12, color: '#888' }}>Saving to Google Drive...</span><span style={{ fontSize: 12, fontWeight: 600 }}>{practiceRecordingProgress}%</span></div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 12, color: '#888' }}>Saving to Cloudinary...</span><span style={{ fontSize: 12, fontWeight: 600 }}>{practiceRecordingProgress}%</span></div>
                                         <div style={{ height: 6, background: '#eee', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${practiceRecordingProgress}%`, height: '100%', background: 'linear-gradient(90deg, #e53935, #28a745)', borderRadius: 3, transition: 'width 0.3s' }}></div></div>
                                       </div>
                                     )}
@@ -9770,7 +10225,7 @@ Examples:
                                         </div>
                                         {practicePlayingId === rec.id && rec.google_drive_file_id && (
                                           <div style={{ width: '100%', marginTop: 6 }}>
-                                            <audio controls autoPlay src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
+                                            <audio controls autoPlay preload="none" src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}&profile=audio-lite`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
                                           </div>
                                         )}
                                       </div>
@@ -9830,10 +10285,10 @@ Examples:
                                     <p style={{ fontSize: 13, color: '#28a745', fontWeight: 600, margin: '0 0 8px' }}>
                                       <i className="fas fa-check"></i> Slow Song recording complete — {formatRecordingTime(practiceRecordingTime)}
                                     </p>
-                                    <audio controls src={practiceAudioPreview} style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />
+                                    <audio controls preload="none" src={practiceAudioPreview} style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />
                                     {practiceRecordingUploading && (
                                       <div style={{ marginBottom: 10 }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 12, color: '#888' }}>Saving to Google Drive...</span><span style={{ fontSize: 12, fontWeight: 600 }}>{practiceRecordingProgress}%</span></div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 12, color: '#888' }}>Saving to Cloudinary...</span><span style={{ fontSize: 12, fontWeight: 600 }}>{practiceRecordingProgress}%</span></div>
                                         <div style={{ height: 6, background: '#eee', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${practiceRecordingProgress}%`, height: '100%', background: 'linear-gradient(90deg, #1565c0, #28a745)', borderRadius: 3, transition: 'width 0.3s' }}></div></div>
                                       </div>
                                     )}
@@ -9879,7 +10334,7 @@ Examples:
                                         </div>
                                         {practicePlayingId === rec.id && rec.google_drive_file_id && (
                                           <div style={{ width: '100%', marginTop: 6 }}>
-                                            <audio controls autoPlay src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
+                                            <audio controls autoPlay preload="none" src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}&profile=audio-lite`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
                                           </div>
                                         )}
                                       </div>

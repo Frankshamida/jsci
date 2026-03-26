@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { uploadToGoogleDrive, deleteFromGoogleDrive } from '@/lib/googleDrive';
+import { uploadBufferToCloudinary, deleteFromCloudinary, isCloudinaryUrl } from '@/lib/cloudinary';
 
 export const dynamic = 'force-dynamic';
 
@@ -123,13 +123,18 @@ export async function POST(request) {
         return safeJSON({ success: false, message: 'Failed to read uploaded file' }, 400);
       }
 
-      // Upload to Google Drive
-      let driveResult;
+      // Upload to Cloudinary
+      let cloudinaryResult;
       try {
-        driveResult = await uploadToGoogleDrive(arrayBuffer, fileName, mimeType);
+        cloudinaryResult = await uploadBufferToCloudinary(arrayBuffer, {
+          fileName,
+          mimeType,
+          folder: 'JSCI-System/recordings',
+          resourceType: 'auto',
+        });
       } catch (e) {
-        console.error('[recordings POST] Google Drive upload error:', safeMsg(e));
-        return safeJSON({ success: false, message: `Google Drive upload failed: ${safeMsg(e)}` }, 502);
+        console.error('[recordings POST] Cloudinary upload error:', safeMsg(e));
+        return safeJSON({ success: false, message: `Cloudinary upload failed: ${safeMsg(e)}` }, 502);
       }
 
       // Save metadata to Supabase
@@ -154,9 +159,9 @@ export async function POST(request) {
           file_name: file.name || fileName,
           file_size_bytes: file.size || 0,
           mime_type: mimeType,
-          google_drive_file_id: driveResult.id,
-          google_drive_url: driveResult.webViewLink,
-          google_drive_thumbnail: driveResult.thumbnailLink || null,
+          google_drive_file_id: cloudinaryResult.publicId,
+          google_drive_url: cloudinaryResult.secureUrl,
+          google_drive_thumbnail: cloudinaryResult.secureUrl,
           uploaded_by: uploadedBy,
           uploaded_by_name: uploadedByName,
           tags: parsedTags,
@@ -165,18 +170,18 @@ export async function POST(request) {
         }).select().single();
 
         if (error) {
-          // Cleanup Drive file on DB failure (best-effort)
-          try { await deleteFromGoogleDrive(driveResult.id); } catch (cleanupErr) {
-            console.warn('[recordings POST] Drive cleanup failed:', safeMsg(cleanupErr));
+          // Cleanup Cloudinary file on DB failure (best-effort)
+          try { await deleteFromCloudinary(cloudinaryResult.publicId, cloudinaryResult.resourceType); } catch (cleanupErr) {
+            console.warn('[recordings POST] Cloudinary cleanup failed:', safeMsg(cleanupErr));
           }
           console.error('[recordings POST] Supabase insert error:', error.message);
           return safeJSON({ success: false, message: 'Failed to save recording metadata' }, 500);
         }
 
-        return safeJSON({ success: true, data, message: 'Recording uploaded to Google Drive!' });
+        return safeJSON({ success: true, data, message: 'Recording uploaded to Cloudinary!' });
       } catch (e) {
-        // Cleanup Drive file on crash (best-effort)
-        try { await deleteFromGoogleDrive(driveResult.id); } catch {}
+        // Cleanup Cloudinary file on crash (best-effort)
+        try { await deleteFromCloudinary(cloudinaryResult.publicId, cloudinaryResult.resourceType); } catch {}
         console.error('[recordings POST] metadata save crash:', safeMsg(e));
         return safeJSON({ success: false, message: 'Failed to save recording' }, 500);
       }
@@ -288,19 +293,26 @@ export async function DELETE(request) {
       return safeJSON({ success: false, message: 'Recording ID is required' }, 400);
     }
 
-    // Get the record first to find the Drive file ID (best-effort)
-    let driveFileId = null;
+    // Get the record first to find the Cloudinary public ID (best-effort)
+    let cloudPublicId = null;
+    let cloudUrl = null;
+    let mimeType = null;
     try {
-      const { data: recording } = await supabase.from('recordings').select('google_drive_file_id').eq('id', id).single();
-      driveFileId = recording?.google_drive_file_id;
+      const { data: recording } = await supabase.from('recordings').select('google_drive_file_id, google_drive_url, mime_type').eq('id', id).single();
+      cloudPublicId = recording?.google_drive_file_id;
+      cloudUrl = recording?.google_drive_url;
+      mimeType = recording?.mime_type || '';
     } catch (e) {
-      console.warn('[recordings DELETE] Could not fetch recording for Drive cleanup:', safeMsg(e));
+      console.warn('[recordings DELETE] Could not fetch recording for Cloudinary cleanup:', safeMsg(e));
     }
 
-    // Delete from Google Drive (best-effort – never blocks Supabase delete)
-    if (driveFileId) {
-      try { await deleteFromGoogleDrive(driveFileId); } catch (e) {
-        console.warn('[recordings DELETE] Drive delete warning:', safeMsg(e));
+    // Delete from Cloudinary (best-effort – never blocks Supabase delete)
+    if (cloudPublicId && isCloudinaryUrl(cloudUrl || '')) {
+      try {
+        const hintedType = mimeType.startsWith('image/') ? 'image' : (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) ? 'video' : 'raw';
+        await deleteFromCloudinary(cloudPublicId, hintedType);
+      } catch (e) {
+        console.warn('[recordings DELETE] Cloudinary delete warning:', safeMsg(e));
       }
     }
 

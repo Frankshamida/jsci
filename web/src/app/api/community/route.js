@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { uploadToGoogleDrive, deleteFromGoogleDrive } from '@/lib/googleDrive';
+import { uploadBufferToCloudinary, deleteFromCloudinary, buildCloudinaryImageUrl, cloudinaryDefaults } from '@/lib/cloudinary';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,27 +14,52 @@ function safeMsg(e) {
   } catch { return 'Unknown error'; }
 }
 
-function safeJSON(data, status = 200) {
-  try { return NextResponse.json(data, { status }); }
-  catch { return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } }); }
+function safeJSON(data, status = 200, headers = {}) {
+  try { return NextResponse.json(data, { status, headers }); }
+  catch { return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...headers } }); }
+}
+
+// User-specific fields (liked/myReaction) make this response user-dependent.
+// Disable shared caching so each user gets fresh personalization.
+const FEED_CACHE_HEADERS = {
+  'Cache-Control': 'no-store',
+};
+
+const imageTransform = { ...cloudinaryDefaults.image, width: 1400 };
+
+function withDeliveryUrl(img) {
+  if (!img) return img;
+  return {
+    ...img,
+    delivery_url: buildCloudinaryImageUrl(img.google_drive_file_id, imageTransform),
+  };
 }
 
 // GET - Fetch community posts (optimized - single query with counts)
 export async function GET(request) {
   try {
-    let limit = 50, userId = null;
+    let limit = 50, userId = null, postId = null;
     try {
       const { searchParams } = new URL(request.url);
       limit = Math.min(Math.max(parseInt(searchParams.get('limit')) || 50, 1), 200);
       userId = searchParams.get('userId');
+      postId = searchParams.get('postId');
     } catch { /* use defaults */ }
 
-    const { data: posts, error } = await supabase.from('community_posts')
+    const postQuery = supabase.from('community_posts')
       .select('*, post_likes(count), post_comments(count)')
       .eq('is_active', true)
       .order('is_pinned', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(limit);
+      .order('created_at', { ascending: false });
+
+    let postsResp;
+    if (postId) {
+      postsResp = await postQuery.eq('id', postId).limit(1);
+    } else {
+      postsResp = await postQuery.limit(limit);
+    }
+
+    const { data: posts, error } = postsResp;
 
     if (error) {
       console.error('[community GET] query error:', error.message);
@@ -96,7 +121,7 @@ export async function GET(request) {
         if (images) {
           images.forEach(img => {
             if (!postImagesMap[img.post_id]) postImagesMap[img.post_id] = [];
-            postImagesMap[img.post_id].push(img);
+            postImagesMap[img.post_id].push(withDeliveryUrl(img));
           });
         }
       } catch { /* non-fatal */ }
@@ -115,7 +140,7 @@ export async function GET(request) {
       post_comments: undefined,
     }));
 
-    return safeJSON({ success: true, data: enriched });
+    return safeJSON({ success: true, data: enriched }, 200, FEED_CACHE_HEADERS);
   } catch (error) {
     console.error('[community GET] CRITICAL:', safeMsg(error));
     return safeJSON({ success: false, message: 'Internal server error' }, 500);
@@ -153,7 +178,7 @@ export async function POST(request) {
         post = postData;
       } catch (e) { return safeJSON({ success: false, message: 'Failed to create post' }, 500); }
 
-      // Upload images to Google Drive and save references
+      // Upload images to Cloudinary and save references
       const uploadedImages = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -162,18 +187,23 @@ export async function POST(request) {
           const arrayBuffer = await file.arrayBuffer();
           const fileName = `community_${post.id}_${Date.now()}_${i}_${(file.name || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
           const mimeType = file.type || 'image/jpeg';
-          const driveResult = await uploadToGoogleDrive(arrayBuffer, fileName, mimeType);
+          const cloudinary = await uploadBufferToCloudinary(arrayBuffer, {
+            fileName,
+            mimeType,
+            folder: 'JSCI-System/community',
+            resourceType: 'image',
+          });
 
           const { data: imgData, error: imgError } = await supabase.from('community_post_images').insert({
             post_id: post.id,
-            google_drive_file_id: driveResult.id,
+            google_drive_file_id: cloudinary.publicId,
             file_name: file.name || 'photo',
             mime_type: mimeType,
             file_size_bytes: file.size,
             display_order: i,
           }).select().single();
 
-          if (!imgError && imgData) uploadedImages.push(imgData);
+          if (!imgError && imgData) uploadedImages.push(withDeliveryUrl(imgData));
         } catch (uploadErr) {
           console.error('[community POST] Image upload error:', safeMsg(uploadErr));
         }
@@ -241,7 +271,7 @@ export async function PUT(request) {
           const { data: img } = await supabase.from('community_post_images')
             .select('google_drive_file_id').eq('id', imgId).single();
           if (img?.google_drive_file_id) {
-            try { await deleteFromGoogleDrive(img.google_drive_file_id); } catch (e) { console.warn('[community PUT] Drive delete warning:', safeMsg(e)); }
+            try { await deleteFromCloudinary(img.google_drive_file_id, 'image'); } catch (e) { console.warn('[community PUT] Cloudinary delete warning:', safeMsg(e)); }
           }
           await supabase.from('community_post_images').delete().eq('id', imgId);
         } catch (e) { console.warn('[community PUT] image remove error:', safeMsg(e)); }
@@ -262,9 +292,15 @@ export async function PUT(request) {
           const arrayBuffer = await file.arrayBuffer();
           const fileName = `community_${id}_${Date.now()}_${i}_${(file.name || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
           const mimeType = file.type || 'image/jpeg';
-          const driveResult = await uploadToGoogleDrive(arrayBuffer, fileName, mimeType);
+          const cloudinary = await uploadBufferToCloudinary(arrayBuffer, {
+            fileName,
+            mimeType,
+            folder: 'JSCI-System/community',
+            resourceType: 'image',
+          });
           await supabase.from('community_post_images').insert({
-            post_id: id, google_drive_file_id: driveResult.id,
+            post_id: id,
+            google_drive_file_id: cloudinary.publicId,
             file_name: file.name || 'photo', mime_type: mimeType,
             file_size_bytes: file.size, display_order: nextOrder++,
           });
@@ -324,13 +360,15 @@ export async function DELETE(request) {
     if (!post) return safeJSON({ success: false, message: 'Post not found' }, 404);
     if (post.author_id !== userId) return safeJSON({ success: false, message: 'You can only delete your own posts' }, 403);
 
-    // Delete images from Google Drive (best-effort)
+    // Delete images from Cloudinary (best-effort)
     try {
       const { data: images } = await supabase.from('community_post_images')
         .select('google_drive_file_id').eq('post_id', id);
       if (images) {
         for (const img of images) {
-          try { await deleteFromGoogleDrive(img.google_drive_file_id); } catch (e) { console.warn('[community DELETE] Drive cleanup:', safeMsg(e)); }
+          if (img?.google_drive_file_id) {
+            try { await deleteFromCloudinary(img.google_drive_file_id, 'image'); } catch (e) { console.warn('[community DELETE] Cloudinary cleanup:', safeMsg(e)); }
+          }
         }
       }
     } catch { /* non-fatal */ }

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 import { streamFromGoogleDrive } from '@/lib/googleDrive';
+import { isCloudinaryUrl, buildCloudinaryAudioUrl, buildCloudinaryImageUrl, cloudinaryDefaults } from '@/lib/cloudinary';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +28,29 @@ function errorToStatus(message) {
   return 500;
 }
 
+async function resolveCloudinaryAsset(fileId) {
+  const lookups = [
+    () => supabase.from('recordings').select('google_drive_url, google_drive_file_id, mime_type').eq('google_drive_file_id', fileId).limit(1).maybeSingle(),
+    () => supabase.from('practice_recordings').select('google_drive_url, google_drive_file_id, mime_type').eq('google_drive_file_id', fileId).limit(1).maybeSingle(),
+    () => supabase.from('community_post_images').select('google_drive_file_id, mime_type').eq('google_drive_file_id', fileId).limit(1).maybeSingle(),
+  ];
+
+  for (const query of lookups) {
+    try {
+      const { data } = await query();
+      if (!data) continue;
+      const mimeType = data.mime_type || '';
+      const url = data.google_drive_url || '';
+      const publicId = data.google_drive_file_id || fileId;
+      return { url, mimeType, publicId };
+    } catch {
+      // Try next source.
+    }
+  }
+
+  return null;
+}
+
 // Stream a Google Drive file for in-browser playback
 // Usage: /api/recordings/stream?fileId=GOOGLE_DRIVE_FILE_ID
 export async function GET(request) {
@@ -44,17 +69,69 @@ export async function GET(request) {
       return NextResponse.json({ success: false, message: 'fileId query parameter is required' }, { status: 400 });
     }
 
-    // Basic fileId sanity check (Google Drive IDs are alphanumeric + _ + -)
-    if (!/^[a-zA-Z0-9_-]{10,80}$/.test(fileId)) {
-      return NextResponse.json({ success: false, message: 'Invalid fileId format' }, { status: 400 });
-    }
-
     // --- Forward Range header for seeking ---
     let rangeHeader = null;
     try {
       rangeHeader = request.headers.get('range') || null;
     } catch {
       // ignore – proceed without range
+    }
+
+    // --- Cloudinary path for newly uploaded assets ---
+    const asset = await resolveCloudinaryAsset(fileId);
+    if (asset) {
+      const { mimeType = '', publicId } = asset;
+      const profile = (() => {
+        try {
+          const { searchParams } = new URL(request.url);
+          return searchParams.get('profile') || 'balanced';
+        } catch { return 'balanced'; }
+      })();
+
+      const isImage = mimeType.startsWith('image/');
+      const isAudioOrVideo = mimeType.startsWith('audio/') || mimeType.startsWith('video/');
+
+      const audioTransform = profile === 'audio-lite'
+        ? { ...cloudinaryDefaults.audio, bitrate: '64k', quality: 'auto:eco' }
+        : cloudinaryDefaults.audio;
+
+      const transformedUrl = isAudioOrVideo
+        ? buildCloudinaryAudioUrl(publicId, audioTransform)
+        : isImage
+          ? buildCloudinaryImageUrl(publicId, { ...cloudinaryDefaults.image, width: 1600 })
+          : null;
+
+      const deliveryUrl = transformedUrl || (isCloudinaryUrl(asset.url) ? asset.url : null);
+
+      if (deliveryUrl) {
+        try {
+          const upstream = await fetch(deliveryUrl, {
+            headers: rangeHeader ? { Range: rangeHeader } : {},
+          });
+
+          if (upstream.ok || upstream.status === 206) {
+            const responseHeaders = new Headers();
+            responseHeaders.set('Accept-Ranges', 'bytes');
+            responseHeaders.set('Cache-Control', 'public, max-age=86400, s-maxage=259200, stale-while-revalidate=604800');
+            responseHeaders.set('X-Content-Type-Options', 'nosniff');
+            if (upstream.headers.get('content-type')) responseHeaders.set('Content-Type', upstream.headers.get('content-type'));
+            if (upstream.headers.get('content-length')) responseHeaders.set('Content-Length', upstream.headers.get('content-length'));
+            if (upstream.headers.get('content-range')) responseHeaders.set('Content-Range', upstream.headers.get('content-range'));
+
+            return new Response(upstream.body, {
+              status: upstream.status || 200,
+              headers: responseHeaders,
+            });
+          }
+        } catch (e) {
+          console.warn('[stream] Cloudinary fetch failed, falling back to Drive:', safeErrorMessage(e));
+        }
+      }
+    }
+
+    // Basic fileId sanity check for legacy Google Drive IDs (alphanumeric + _ + -)
+    if (!/^[a-zA-Z0-9_-]{10,120}$/.test(fileId)) {
+      return NextResponse.json({ success: false, message: 'Invalid fileId format' }, { status: 400 });
     }
 
     // --- Stream from Google Drive with timeout ---
