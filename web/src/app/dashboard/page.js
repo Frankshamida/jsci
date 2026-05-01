@@ -12872,18 +12872,18 @@ Examples:
                          <div style={{ backgroundColor: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '15px' }}>
                            <p style={{ fontSize: '0.9em', marginBottom: '8px', color: '#666' }}>Original:</p>
                            <p style={{ fontSize: '0.85em', color: '#999', marginBottom: '15px', fontStyle: 'italic' }}>
-                             "{moderationResult.originalContent}"
+                             &quot;{moderationResult.originalContent}&quot;
                            </p>
                            <p style={{ fontSize: '0.9em', marginBottom: '8px', color: '#666' }}>Suggested Correction:</p>
                            <p style={{ fontSize: '0.85em', color: '#333', backgroundColor: '#fff', padding: '10px', borderRadius: '4px', border: '1px solid #ddd' }}>
-                             "{moderationResult.suggestion}"
+                             &quot;{moderationResult.suggestion}&quot;
                            </p>
                          </div>
                        )}
 
                        <div style={{ backgroundColor: '#e3f2fd', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #2196F3', marginBottom: '15px' }}>
                          <p style={{ fontSize: '0.85em', margin: 0, color: '#1565c0' }}>
-                           💡 We're keeping our community safe and respectful. Messages are checked for harmful or inappropriate content.
+                           💡 We&apos;re keeping our community safe and respectful. Messages are checked for harmful or inappropriate content.
                          </p>
                        </div>
                      </div>
