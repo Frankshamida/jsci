@@ -678,8 +678,8 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 @keyframes mainContentFadeIn {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .sidebar.collapsed ~ .main-content {
@@ -15251,7 +15251,10 @@ body.dark-mode .terms-editor-preview-btn:hover {
 /* Confirmation Modal */
 .perm-ctrl-confirm-overlay {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: rgba(0,0,0,0.5);
   z-index: 10000;
   display: flex;
@@ -15259,6 +15262,7 @@ body.dark-mode .terms-editor-preview-btn:hover {
   justify-content: center;
   padding: 20px;
   backdrop-filter: blur(4px);
+  overflow: auto;
 }
 
 .perm-ctrl-confirm-modal {
@@ -15268,8 +15272,10 @@ body.dark-mode .terms-editor-preview-btn:hover {
   max-width: 420px;
   width: 100%;
   text-align: center;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
   animation: modalSlideUp 0.25s ease;
+  margin: auto;
+  position: relative;
 }
 
 @keyframes modalSlideUp {

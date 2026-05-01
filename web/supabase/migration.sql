@@ -1,6 +1,6 @@
 -- ============================================
 -- SUPABASE DATABASE SCHEMA
--- Ministry Portal - Joyful Sound Church International
+-- Ministry Portal - SanctuaryHub
 -- ============================================
 
 -- 1. USERS TABLE

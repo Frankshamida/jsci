@@ -47,10 +47,9 @@ export default function PrivacyPolicyPage() {
               <span>Back</span>
             </button>
             <div className="terms-brand">
-              <img src="/assets/LOGO.png" alt="JSCI Logo" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
               <div className="terms-brand-text">
-                Joyful Sound Church
-                <span>International</span>
+                SanctuaryHub
               </div>
             </div>
           </div>
@@ -62,7 +61,7 @@ export default function PrivacyPolicyPage() {
               <p className="legal-effective-date"><strong>Effective Date:</strong> March 7, 2026</p>
 
               <p>
-                Joyful Sound Church International (&quot;JSCI&quot;, &quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) is committed to protecting the privacy of our members and users. This Privacy Policy explains how we collect, use, store, and protect your personal information when you use the JSCI Ministry Portal (&quot;Platform&quot;).
+                SanctuaryHub (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) is committed to protecting the privacy of our members and users. This Privacy Policy explains how we collect, use, store, and protect your personal information when you use the SanctuaryHub Ministry Portal (&quot;Platform&quot;).
               </p>
 
               <h3><i className="fas fa-database"></i> 1. Information We Collect</h3>
@@ -177,7 +176,7 @@ export default function PrivacyPolicyPage() {
               <span className="legal-footer-dot">•</span>
               <a href="/privacy-policy" className="active">Privacy Policy</a>
             </div>
-            <p>&copy; {new Date().getFullYear()} Joyful Sound Church International &mdash; All Rights Reserved</p>
+            <p>&copy; {new Date().getFullYear()} SanctuaryHub &mdash; All Rights Reserved</p>
           </div>
         </div>
       </div>

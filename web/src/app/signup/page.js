@@ -227,7 +227,7 @@ export default function SignupPage() {
             {/* Animated Logo */}
             <div className="signup-splash-logo-ring">
               <div className="signup-splash-logo-glow"></div>
-              <img src="/assets/LOGO.png" alt="JSCI" className="signup-splash-logo" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub" className="signup-splash-logo" />
             </div>
 
             {/* Animated Checkmark */}
@@ -276,10 +276,9 @@ export default function SignupPage() {
           {/* ---- LEFT PANEL ---- */}
           <div className="signup-panel-left">
             <div className="signup-panel-brand">
-              <img src="/assets/LOGO.png" alt="JSCI Logo" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
               <div className="signup-panel-brand-text">
-                Joyful Sound Church
-                <span>International</span>
+                SanctuaryHub
               </div>
             </div>
 
@@ -291,7 +290,7 @@ export default function SignupPage() {
             </div>
 
             <div className="signup-panel-footer">
-              &copy; {new Date().getFullYear()} JSCI &mdash; All Rights Reserved
+              &copy; {new Date().getFullYear()} SanctuaryHub &mdash; All Rights Reserved
             </div>
           </div>
 

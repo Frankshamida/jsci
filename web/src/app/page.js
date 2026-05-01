@@ -187,10 +187,9 @@ export default function HomePage() {
       {/* ---- NAVBAR ---- */}
       <nav className="hp-navbar">
         <a className="hp-navbar-brand" href="/">
-          <img src="/assets/LOGO.png" alt="JSCI Logo" className="hp-navbar-logo" />
+          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="hp-navbar-logo" />
           <div className="hp-navbar-title">
-            JOYFUL SOUND CHURCH
-            <span>INTERNATIONAL</span>
+            SanctuaryHub
           </div>
         </a>
 
@@ -225,9 +224,8 @@ export default function HomePage() {
         ))}
 
         <div className="hp-hero-overlay">
-          <img src="/assets/LOGO.png" alt="JSCI Logo" className="hp-hero-logo" />
-          <h1 className="hp-hero-heading">JOYFUL SOUND CHURCH</h1>
-          <p className="hp-hero-sub">INTERNATIONAL</p>
+          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="hp-hero-logo" />
+          <h1 className="hp-hero-heading">SanctuaryHub</h1>
           <p className="hp-hero-tagline">{HERO_SLIDES[heroIndex].sub}</p>
           <div className="hp-hero-buttons">
             <a href="/signup" className="hp-btn-primary">
@@ -272,7 +270,7 @@ export default function HomePage() {
           <div className="hp-welcome-text">
             <h3>Bringing the Joy of the Lord to Every Nation</h3>
             <p>
-              Joyful Sound Church International is a vibrant, Spirit-filled community 
+              SanctuaryHub is a vibrant, Spirit-filled community 
               committed to spreading the gospel of Jesus Christ. Under the leadership 
               of our Senior Pastors Dr. Weldon and Dr. Dorothy Pior, we are a family 
               that worships, grows, and serves together.
@@ -445,7 +443,7 @@ export default function HomePage() {
             <div className="hp-map-info-icon">
               <i className="fas fa-map-marker-alt"></i>
             </div>
-            <h3>Joyful Sound Church International</h3>
+            <h3>SanctuaryHub</h3>
             <p>Join us for Sunday Worship Service every week. Everyone is welcome!</p>
             <div className="hp-map-details">
               <div className="hp-map-detail-item">
@@ -472,7 +470,7 @@ export default function HomePage() {
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
               allow="accelerometer; gyroscope; magnetometer; fullscreen"
-              title="Joyful Sound Church International Location"
+              title="SanctuaryHub Location"
             ></iframe>
           </div>
         </div>
@@ -482,7 +480,7 @@ export default function HomePage() {
       <section className="hp-cta">
         <h2>Join Our Church Family Today</h2>
         <p>
-          We&apos;d love to welcome you! Whether online or in person, there&apos;s a place for you at Joyful Sound Church International.
+          We&apos;d love to welcome you! Whether online or in person, there&apos;s a place for you at SanctuaryHub.
         </p>
         <a href="/signup" className="hp-btn-primary">
           <i className="fas fa-user-plus"></i> Create an Account
@@ -495,10 +493,9 @@ export default function HomePage() {
           {/* About col */}
           <div className="hp-footer-about">
             <div className="hp-footer-brand">
-              <img src="/assets/LOGO.png" alt="JSCI" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub" />
               <h3>
-                JOYFUL SOUND CHURCH
-                <span>INTERNATIONAL</span>
+                SanctuaryHub
               </h3>
             </div>
             <p>
@@ -553,7 +550,7 @@ export default function HomePage() {
         </div>
 
         <div className="hp-footer-bottom">
-          <p>&copy; {new Date().getFullYear()} <span>Joyful Sound Church International</span>. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} <span>SanctuaryHub</span>. All rights reserved.</p>
         </div>
       </footer>
 

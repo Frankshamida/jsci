@@ -225,8 +225,7 @@ export default function ForgotPasswordPage() {
         <div className="forgot-container">
           <div className="forgot-header">
             <div className="logo"></div>
-            <h1>JOYFUL SOUND CHURCH</h1>
-            <p>INTERNATIONAL</p>
+            <h1>SanctuaryHub</h1>
           </div>
 
           <div className="forgot-body">
@@ -348,7 +347,7 @@ export default function ForgotPasswordPage() {
             <div className="forgot-footer">
               <p>Remember your password? <a href="/login">Back to Login</a></p>
               <p style={{ marginTop: '10px', fontSize: '0.8rem', color: '#999' }}>
-                &copy; {new Date().getFullYear()} Joyful Sound Church International. All rights reserved.
+                &copy; {new Date().getFullYear()} SanctuaryHub. All rights reserved.
               </p>
             </div>
           </div>

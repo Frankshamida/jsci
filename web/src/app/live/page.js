@@ -118,7 +118,7 @@ export default function LivePage() {
   };
 
   const shareToFacebook = () => {
-    const text = shareStream ? `🔴 Watch LIVE: ${shareStream.caption || 'Sunday Service'} at Joyful Sound Church International! 🙏✨` : '🔴 Watch LIVE at Joyful Sound Church International! 🙏✨';
+    const text = shareStream ? `🔴 Watch LIVE: ${shareStream.caption || 'Sunday Service'} at SanctuaryHub! 🙏✨` : '🔴 Watch LIVE at SanctuaryHub! 🙏✨';
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}&quote=${encodeURIComponent(text)}`, '_blank', 'width=600,height=400');
   };
 
@@ -127,12 +127,12 @@ export default function LivePage() {
   };
 
   const shareToWhatsApp = () => {
-    const text = shareStream ? `🔴 *LIVE NOW* - ${shareStream.caption || 'Sunday Service'} at Joyful Sound Church International!\n🙏 Watch here: ${shareUrl}` : `🔴 Watch LIVE at Joyful Sound Church International!\n🙏 ${shareUrl}`;
+    const text = shareStream ? `🔴 *LIVE NOW* - ${shareStream.caption || 'Sunday Service'} at SanctuaryHub!\n🙏 Watch here: ${shareUrl}` : `🔴 Watch LIVE at SanctuaryHub!\n🙏 ${shareUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const shareToTelegram = () => {
-    const text = shareStream ? `🔴 LIVE NOW - ${shareStream.caption || 'Sunday Service'} at Joyful Sound Church International!` : '🔴 Watch LIVE at Joyful Sound Church International!';
+    const text = shareStream ? `🔴 LIVE NOW - ${shareStream.caption || 'Sunday Service'} at SanctuaryHub!` : '🔴 Watch LIVE at SanctuaryHub!';
     window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -140,8 +140,8 @@ export default function LivePage() {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Joyful Sound Church International - Live',
-          text: shareStream ? `🔴 Watch LIVE: ${shareStream.caption || 'Sunday Service'}` : '🔴 Watch LIVE at Joyful Sound Church International!',
+          title: 'SanctuaryHub - Live',
+          text: shareStream ? `🔴 Watch LIVE: ${shareStream.caption || 'Sunday Service'}` : '🔴 Watch LIVE at SanctuaryHub!',
           url: shareUrl,
         });
       } catch { /* user cancelled */ }
@@ -165,10 +165,9 @@ export default function LivePage() {
       {/* NAVBAR */}
       <nav className="live-navbar">
         <a className="live-navbar-brand" href="/">
-          <img src="/assets/LOGO.png" alt="JSCI Logo" className="live-navbar-logo" />
+          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="live-navbar-logo" />
           <div className="live-navbar-title">
-            JOYFUL SOUND CHURCH
-            <span>INTERNATIONAL</span>
+            SanctuaryHub
           </div>
         </a>
         <div className="live-navbar-right">
@@ -232,10 +231,10 @@ export default function LivePage() {
             <div className="live-info-bar">
               <div className="live-info-left">
                 <div className="live-info-avatar">
-                  <img src="/assets/LOGO.png" alt="JSCI" />
+                  <img src="/assets/LOGO.png" alt="SanctuaryHub" />
                 </div>
                 <div className="live-info-details">
-                  <h3>Joyful Sound Church International</h3>
+                  <h3>SanctuaryHub</h3>
                   <p>Posted by {activeStream.posted_by_name} • {formatDateTime(activeStream.created_at)}</p>
                 </div>
               </div>
@@ -347,9 +346,9 @@ export default function LivePage() {
       <footer className="live-footer">
         <div className="live-footer-inner">
           <div className="live-footer-brand">
-            <img src="/assets/LOGO.png" alt="JSCI" />
+            <img src="/assets/LOGO.png" alt="SanctuaryHub" />
             <div>
-              <strong>Joyful Sound Church International</strong>
+              <strong>SanctuaryHub</strong>
               <span>A Spirit-filled community of believers</span>
             </div>
           </div>
@@ -360,7 +359,7 @@ export default function LivePage() {
             <a href="/terms"><i className="fas fa-file-contract"></i> Terms</a>
             <a href="/privacy-policy"><i className="fas fa-shield-alt"></i> Privacy</a>
           </div>
-          <p className="live-footer-copy">&copy; {new Date().getFullYear()} Joyful Sound Church International. All rights reserved.</p>
+          <p className="live-footer-copy">&copy; {new Date().getFullYear()} SanctuaryHub. All rights reserved.</p>
         </div>
       </footer>
 
@@ -379,7 +378,7 @@ export default function LivePage() {
             <div className="live-share-modal-body">
               {/* Preview Card */}
               <div className="live-share-preview">
-                <img src="/assets/LOGO.png" alt="JSCI" className="live-share-preview-logo" />
+                <img src="/assets/LOGO.png" alt="SanctuaryHub" className="live-share-preview-logo" />
                 <div className="live-share-preview-info">
                   <span className="live-share-preview-badge"><i className="fas fa-circle"></i> LIVE</span>
                   <strong>{shareStream?.caption || 'Sunday Service Live'}</strong>

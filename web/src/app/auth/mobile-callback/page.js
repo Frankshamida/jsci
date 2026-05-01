@@ -121,7 +121,7 @@ export default function MobileCallbackPage() {
           letterSpacing: '2px',
         }}
       >
-        JSCI
+        SanctuaryHub
       </h1>
       <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>
         Mobile Sign-In
@@ -195,7 +195,7 @@ export default function MobileCallbackPage() {
                   boxShadow: '0 4px 16px rgba(201,152,11,0.3)',
                 }}
               >
-                Open JSCI App
+                Open SanctuaryHub App
               </a>
               <p
                 style={{

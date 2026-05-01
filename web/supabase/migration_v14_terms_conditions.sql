@@ -16,7 +16,7 @@ INSERT INTO terms_conditions (content, updated_by) VALUES (
 <p><strong>Last Updated:</strong> ' || TO_CHAR(NOW(), 'Month DD, YYYY') || '</p>
 
 <h3>1. Acceptance of Terms</h3>
-<p>By creating an account and using the Joyful Sound Church International (JSCI) platform, you agree to be bound by these Terms and Conditions. If you do not agree, please do not create an account.</p>
+<p>By creating an account and using the SanctuaryHub (JSCI) platform, you agree to be bound by these Terms and Conditions. If you do not agree, please do not create an account.</p>
 
 <h3>2. Account Registration</h3>
 <p>You must provide accurate and complete information when creating your account. You are responsible for maintaining the confidentiality of your login credentials and for all activities that occur under your account.</p>

@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Joyful Sound Church International',
-  description: 'Ministry Portal - Joyful Sound Church International',
+  title: 'SanctuaryHub',
+  description: 'Ministry Portal - SanctuaryHub',
 }
 
 export default function RootLayout({ children }) {
