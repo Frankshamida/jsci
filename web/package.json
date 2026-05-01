@@ -2,7 +2,7 @@
   "name": "ministry-portal",
   "version": "2.0.0",
   "private": true,
-  "description": "Ministry Portal for Joyful Sound Church International - Next.js + Supabase",
+  "description": "Ministry Portal for SanctuaryHub - Next.js + Supabase",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

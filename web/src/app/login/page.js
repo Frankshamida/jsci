@@ -169,7 +169,7 @@ function LoginContent() {
           <div className="login-splash-content">
             <div className="login-splash-logo-ring">
               <div className="login-splash-logo-glow" />
-              <img src="/assets/LOGO.png" alt="JSCI" className="login-splash-logo" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub" className="login-splash-logo" />
             </div>
             <div className="login-splash-check">
               <svg viewBox="0 0 52 52" className="login-splash-check-svg">
@@ -205,10 +205,9 @@ function LoginContent() {
           {/* Left Panel - Image & Branding */}
           <div className="login-panel-left">
             <div className="login-panel-brand">
-              <img src="/assets/LOGO.png" alt="JSCI Logo" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
               <div className="login-panel-brand-text">
-                Joyful Sound Church
-                <span>International</span>
+                SanctuaryHub
               </div>
             </div>
 
@@ -220,7 +219,7 @@ function LoginContent() {
             </div>
 
             <div className="login-panel-footer">
-              &copy; {new Date().getFullYear()} Joyful Sound Church International
+              &copy; {new Date().getFullYear()} SanctuaryHub
             </div>
           </div>
 

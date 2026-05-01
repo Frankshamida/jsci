@@ -241,7 +241,7 @@ function AuthCallbackContent() {
               animation: 'splashLogoIn 0.8s cubic-bezier(0.34,1.56,0.64,1) forwards',
               boxShadow: '0 0 40px rgba(255,195,0,0.15)',
             }}>
-              <img src="/assets/LOGO.png" alt="JSCI" style={{ width: 60, height: 60, objectFit: 'contain' }} />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub" style={{ width: 60, height: 60, objectFit: 'contain' }} />
             </div>
 
             {/* Checkmark */}
@@ -312,7 +312,7 @@ function AuthCallbackContent() {
             textAlign: 'center', padding: '40px', maxWidth: 400, width: '90%',
           }}>
             <div style={{ width: 70, height: 70, margin: '0 auto 24px' }}>
-              <img src="/assets/LOGO.png" alt="JSCI" style={{ width: '100%', height: '100%', objectFit: 'contain', animation: 'splashPulse 2s ease-in-out infinite' }} />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub" style={{ width: '100%', height: '100%', objectFit: 'contain', animation: 'splashPulse 2s ease-in-out infinite' }} />
             </div>
             <div style={{
               width: 40, height: 40, border: '3px solid rgba(255,255,255,0.1)', borderTop: '3px solid #FFC300',
@@ -341,7 +341,7 @@ export default function AuthCallbackPage() {
         background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
       }}>
         <div style={{ textAlign: 'center' }}>
-          <img src="/assets/LOGO.png" alt="JSCI" style={{ width: 60, height: 60, objectFit: 'contain', opacity: 0.7, marginBottom: 16 }} />
+          <img src="/assets/LOGO.png" alt="SanctuaryHub" style={{ width: 60, height: 60, objectFit: 'contain', opacity: 0.7, marginBottom: 16 }} />
           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem' }}>Loading...</p>
         </div>
       </div>

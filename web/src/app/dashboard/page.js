@@ -1603,7 +1603,7 @@ export default function DashboardPage() {
   };
 
   const shareLiveToFacebook = () => {
-    const text = activeLiveStream ? `🔴 Watch LIVE: ${activeLiveStream.caption || 'Sunday Service'} at Joyful Sound Church International! 🙏✨` : '🔴 Watch LIVE at Joyful Sound Church International! 🙏✨';
+    const text = activeLiveStream ? `🔴 Watch LIVE: ${activeLiveStream.caption || 'Sunday Service'} at SanctuaryHub! 🙏✨` : '🔴 Watch LIVE at SanctuaryHub! 🙏✨';
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(liveShareUrl)}&quote=${encodeURIComponent(text)}`, '_blank', 'width=600,height=400');
   };
 
@@ -1612,12 +1612,12 @@ export default function DashboardPage() {
   };
 
   const shareLiveToWhatsApp = () => {
-    const text = activeLiveStream ? `🔴 *LIVE NOW* - ${activeLiveStream.caption || 'Sunday Service'} at Joyful Sound Church International!\n🙏 Watch here: ${liveShareUrl}` : `🔴 Watch LIVE at Joyful Sound Church International!\n🙏 ${liveShareUrl}`;
+    const text = activeLiveStream ? `🔴 *LIVE NOW* - ${activeLiveStream.caption || 'Sunday Service'} at SanctuaryHub!\n🙏 Watch here: ${liveShareUrl}` : `🔴 Watch LIVE at SanctuaryHub!\n🙏 ${liveShareUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const shareLiveToTelegram = () => {
-    const text = activeLiveStream ? `🔴 LIVE NOW - ${activeLiveStream.caption || 'Sunday Service'} at Joyful Sound Church International!` : '🔴 Watch LIVE at Joyful Sound Church International!';
+    const text = activeLiveStream ? `🔴 LIVE NOW - ${activeLiveStream.caption || 'Sunday Service'} at SanctuaryHub!` : '🔴 Watch LIVE at SanctuaryHub!';
     window.open(`https://t.me/share/url?url=${encodeURIComponent(liveShareUrl)}&text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -1625,8 +1625,8 @@ export default function DashboardPage() {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Joyful Sound Church International - Live',
-          text: activeLiveStream ? `🔴 Watch LIVE: ${activeLiveStream.caption || 'Sunday Service'}` : '🔴 Watch LIVE at Joyful Sound Church International!',
+          title: 'SanctuaryHub - Live',
+          text: activeLiveStream ? `🔴 Watch LIVE: ${activeLiveStream.caption || 'Sunday Service'}` : '🔴 Watch LIVE at SanctuaryHub!',
           url: liveShareUrl,
         });
       } catch { /* user cancelled */ }
@@ -5042,7 +5042,7 @@ Examples:
     return (
       <div className="dashboard-loading-screen">
         <div className="dashboard-loading-logo">
-          <img src="/assets/LOGO.png" alt="JSCI" />
+          <img src="/assets/LOGO.png" alt="SanctuaryHub" />
         </div>
         <div className="dashboard-loading-spinner"></div>
         <p className="dashboard-loading-text">Preparing your dashboard...</p>
@@ -5079,7 +5079,7 @@ Examples:
           <div className="account-deleted-content">
             <div className="account-deleted-logo-wrap">
               <div className="account-deleted-logo-glow"></div>
-              <img src="/assets/LOGO.png" alt="JSCI" className="account-deleted-logo" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub" className="account-deleted-logo" />
             </div>
             <div className="account-deleted-icon">
               <svg viewBox="0 0 64 64" className="account-deleted-heart-svg">
@@ -5139,7 +5139,7 @@ Examples:
             {/* Logo */}
             <div className="wm-logo-wrap">
               <div className="wm-logo-ring"></div>
-              <img src="/assets/LOGO.png" alt="JSCI" className="wm-logo" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub" className="wm-logo" />
             </div>
 
             {/* Greeting */}
@@ -5174,7 +5174,7 @@ Examples:
             </button>
 
             {/* Footer tagline */}
-            <p className="wm-footer">Joyful Sound Church International</p>
+            <p className="wm-footer">SanctuaryHub</p>
           </div>
         </div>
       )}
@@ -5246,7 +5246,7 @@ Examples:
       {/* Mobile Top Navbar */}
       <header className="mobile-topbar">
         <div className="mobile-topbar-left">
-          <img src="/assets/LOGO.png" alt="JSCI Logo" className="mobile-topbar-logo" />
+          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="mobile-topbar-logo" />
         </div>
         <button className="mobile-hamburger" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle menu">
           <span className={`hamburger-line ${sidebarOpen ? 'open' : ''}`}></span>
@@ -5263,11 +5263,10 @@ Examples:
           <div className="sidebar-top">
             <div className="sidebar-brand">
               <div className="logo">
-                <img src="/assets/LOGO.png" alt="JSCI Logo" />
+                <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
               </div>
               <div className="brand-text">
-                <span className="brand-name">JOYFUL SOUND CHURCH</span>
-                <span className="brand-sub">INTERNATIONAL</span>
+                <span className="brand-name">SanctuaryHub</span>
               </div>
             </div>
           </div>
@@ -6407,7 +6406,7 @@ Examples:
                   </div>
                   <div className="live-share-modal-body">
                     <div className="live-share-preview">
-                      <img src="/assets/LOGO.png" alt="JSCI" className="live-share-preview-logo" />
+                      <img src="/assets/LOGO.png" alt="SanctuaryHub" className="live-share-preview-logo" />
                       <div className="live-share-preview-info">
                         <span className="live-share-preview-badge"><i className="fas fa-circle"></i> LIVE</span>
                         <strong>{activeLiveStream?.caption || 'Sunday Service Live'}</strong>
