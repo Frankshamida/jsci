@@ -1,14 +1,29 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseAdmin } from '@/lib/supabase';
 
 // GET - Fetch ministries
 export async function GET() {
   try {
-    const { data, error } = await supabase.from('ministries')
-      .select('*').order('name', { ascending: true });
-    if (error) throw error;
-    return NextResponse.json({ success: true, data });
+    const client = supabaseAdmin || supabase;
+    
+    // Try lowercase first (standard)
+    let { data, error } = await client.from('ministries').select('*').order('name', { ascending: true });
+    
+    // If empty or error, try Capitalized just in case the user's DB is case-sensitive
+    if ((!data || data.length === 0) && !error) {
+       console.log('[API Ministries] Lowercase table empty, trying Capitalized "Ministries"...');
+       const { data: capData, error: capError } = await client.from('Ministries').select('*').order('name', { ascending: true });
+       if (!capError && capData && capData.length > 0) {
+         data = capData;
+       }
+    }
+
+    if (error && !data) throw error;
+    
+    console.log(`[API Ministries] Successfully fetched ${data?.length || 0} ministries`);
+    return NextResponse.json({ success: true, data: data || [] });
   } catch (error) {
+    console.error('[API Ministries] GET error:', error.message);
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }

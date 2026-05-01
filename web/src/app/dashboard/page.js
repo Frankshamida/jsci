@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
+import { moderateMessage, detectInappropriateWords } from '@/lib/contentModeration';
 import SmartImage from '@/components/SmartImage';
 import './dashboard.css';
 
@@ -141,6 +142,21 @@ const BIBLE_BOOKS = {
   '1 Timothy':6,'2 Timothy':4,'Titus':3,'Philemon':1,'Hebrews':13,'James':5,'1 Peter':5,'2 Peter':3,
   '1 John':5,'2 John':1,'3 John':1,'Jude':1,'Revelation':22,
 };
+
+const OLD_TESTAMENT_BOOKS = [
+  'Genesis','Exodus','Leviticus','Numbers','Deuteronomy','Joshua','Judges','Ruth',
+  '1 Samuel','2 Samuel','1 Kings','2 Kings','1 Chronicles','2 Chronicles','Ezra',
+  'Nehemiah','Esther','Job','Psalms','Proverbs','Ecclesiastes','Song of Solomon',
+  'Isaiah','Jeremiah','Lamentations','Ezekiel','Daniel','Hosea','Joel','Amos',
+  'Obadiah','Jonah','Micah','Nahum','Habakkuk','Zephaniah','Haggai','Zechariah','Malachi',
+];
+
+const NEW_TESTAMENT_BOOKS = [
+  'Matthew','Mark','Luke','John','Acts','Romans','1 Corinthians','2 Corinthians',
+  'Galatians','Ephesians','Philippians','Colossians','1 Thessalonians','2 Thessalonians',
+  '1 Timothy','2 Timothy','Titus','Philemon','Hebrews','James','1 Peter','2 Peter',
+  '1 John','2 John','3 John','Jude','Revelation',
+];
 
 // Verse count per chapter for each book (accurate per KJV canon)
 const VERSES_PER_CHAPTER = {
@@ -484,8 +500,9 @@ export default function DashboardPage() {
 
   // Meetings
   const [meetings, setMeetings] = useState([]);
-  const [meetingForm, setMeetingForm] = useState({ title: '', description: '', meetingDate: '', location: '' });
+  const [meetingForm, setMeetingForm] = useState({ title: '', description: '', meetingDate: '', location: '', ministry: '' });
   const [showMeetingForm, setShowMeetingForm] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState(null);
 
   // Community Hub
   const [communityPosts, setCommunityPosts] = useState([]);
@@ -556,10 +573,20 @@ export default function DashboardPage() {
 
   // Messages
   const [messages, setMessages] = useState([]);
-  const [messageTab, setMessageTab] = useState('inbox');
+  const [messageTab, setMessageTab] = useState('private');
   const [messageForm, setMessageForm] = useState({ receiverId: '', subject: '', content: '', isBroadcast: false, broadcastTarget: 'all' });
   const [showMessageForm, setShowMessageForm] = useState(false);
-  const [allUsers, setAllUsers] = useState([]);
+  const [chatUsers, setChatUsers] = useState([]);
+  const [selectedChatUserId, setSelectedChatUserId] = useState('');
+  const [chatMessageInput, setChatMessageInput] = useState('');
+  const [showModerationModal, setShowModerationModal] = useState(false);
+  const [moderationResult, setModerationResult] = useState(null);
+  const [pendingMessageToSend, setPendingMessageToSend] = useState(null);
+  const [chatFoulWarning, setChatFoulWarning] = useState(null);
+  const [unsendConfirmId, setUnsendConfirmId] = useState(null);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editMessageContent, setEditMessageContent] = useState('');
+  const [activeMessageMenuId, setActiveMessageMenuId] = useState(null);
 
   // Attendance
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -1194,7 +1221,7 @@ export default function DashboardPage() {
     if (sectionId === 'live-stream-management') loadLiveStreams();
     if (sectionId === 'recordings') { loadRecordings(); loadPracticeRecordingsListing(); }
     if (sectionId === 'messages') loadMessages();
-    if (sectionId === 'attendance-management') loadAttendance();
+    if (sectionId === 'attendance-management') { loadAttendance(); loadAdminUsers(); }
     if (sectionId === 'reports') loadReports();
     if (sectionId === 'user-management') loadAdminUsers();
     if (sectionId === 'ministry-management' || sectionId === 'ministry-oversight') loadMinistries();
@@ -1382,7 +1409,7 @@ export default function DashboardPage() {
 
   const loadMeetings = async () => {
     try {
-      const res = await fetch(`/api/meetings?upcoming=true`);
+      const res = await fetch(`/api/meetings?upcoming=true&ministry=${userData?.ministry || ''}&role=${userRole || ''}`);
       const data = await res.json();
       if (data.success) setMeetings(data.data);
     } catch { /* silent */ }
@@ -1402,6 +1429,10 @@ export default function DashboardPage() {
     if (activeSection === 'community-hub' && userData?.id) {
       loadCommunityPosts();
     }
+    if (activeSection === 'ministry-meetings' || activeSection === 'user-management' || activeSection === 'ministry-oversight' || activeSection === 'ministry-management') {
+      loadMeetings();
+    }
+    loadMinistries();
   }, [activeSection, userData?.id]);
 
   // ============================================
@@ -1900,17 +1931,88 @@ export default function DashboardPage() {
     return () => { cancelled = true; clearInterval(pollTimer); };
   }, [userRole, fetchCloudUsage]);
 
-  const loadMessages = async () => {
+  const loadChatUsers = async () => {
     try {
       if (!userData?.id) return;
-      const res = await fetch(`/api/messages?userId=${userData.id}&type=${messageTab}`);
+      const res = await fetch(`/api/messages?mode=users&userId=${userData.id}`);
       const data = await res.json();
-      if (data.success) setMessages(data.data);
+      if (data.success) {
+        const users = data.data || [];
+        setChatUsers(users);
+        if (!selectedChatUserId && users.length > 0) setSelectedChatUserId(users[0].id);
+        return users;
+      } else {
+        showToast(data.message || 'Unable to load chat users', 'warning');
+      }
+    } catch { /* silent */ }
+    return [];
+  };
+
+  const loadChatThread = async (withUserId = selectedChatUserId) => {
+    try {
+      if (!userData?.id || !withUserId) { setMessages([]); return; }
+      const res = await fetch(`/api/messages?mode=thread&userId=${userData.id}&withUserId=${withUserId}`);
+      const data = await res.json();
+      if (data.success) setMessages(data.data || []);
     } catch { /* silent */ }
   };
 
+  const loadMessages = async () => {
+    if (!userData?.id) return;
+    if (messageTab === 'broadcast') {
+      try {
+        const res = await fetch(`/api/messages?userId=${userData.id}&type=broadcast`);
+        const data = await res.json();
+        if (data.success) setMessages(data.data || []);
+      } catch { /* silent */ }
+      return;
+    }
+    const users = await loadChatUsers();
+    const targetUserId = selectedChatUserId || users[0]?.id;
+    await loadChatThread(targetUserId);
+  };
+
+  useEffect(() => {
+    if (!userData?.id) return undefined;
+    let disposed = false;
+    const heartbeat = async (isOnline = true) => {
+      if (disposed) return;
+      try {
+        await fetch('/api/messages', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: userData.id, isOnline }),
+          keepalive: !isOnline,
+        });
+      } catch { /* silent */ }
+    };
+    heartbeat(true);
+    const timer = setInterval(() => heartbeat(true), 30000);
+    const handleBeforeUnload = () => { heartbeat(false); };
+    if (typeof window !== 'undefined') window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+      if (typeof window !== 'undefined') window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [userData?.id]);
+
+  useEffect(() => {
+    if (activeSection !== 'messages' || !userData?.id) return undefined;
+    loadMessages();
+    const timer = setInterval(() => {
+      if (messageTab === 'broadcast') loadMessages();
+      else {
+        loadChatUsers();
+        if (selectedChatUserId) loadChatThread(selectedChatUserId);
+      }
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [activeSection, messageTab, userData?.id, selectedChatUserId]);
+
   const loadAttendance = async () => {
     try {
+      loadAdminUsers();
       const res = await fetch(`/api/attendance?eventDate=${attendanceDate}`);
       const data = await res.json();
       if (data.success) setAttendanceRecords(data.data);
@@ -1932,16 +2034,27 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/admin/users');
       const data = await res.json();
-      if (data.success) { setAdminUsers(data.data); setAllUsers(data.data); }
+      if (data.success) { setAdminUsers(data.data); }
     } catch { /* silent */ }
   };
 
   const loadMinistries = async () => {
     try {
       const res = await fetch('/api/admin/ministries');
+      if (!res.ok) {
+        console.error('[Ministries] API error:', res.status);
+        return;
+      }
       const data = await res.json();
-      if (data.success) setMinistriesList(data.data);
-    } catch { /* silent */ }
+      if (data.success) {
+        console.log('[Ministries] Loaded:', data.data?.length, 'ministries');
+        setMinistriesList(data.data || []);
+      } else {
+        console.error('[Ministries] Fetch failed:', data.message);
+      }
+    } catch (err) {
+      console.error('[Ministries] Connection error:', err.message);
+    }
   };
 
   const loadRoles = async () => {
@@ -2834,7 +2947,15 @@ export default function DashboardPage() {
         : { ...announcementForm, author: userData?.id, authorName: `${userData?.firstname} ${userData?.lastname}` };
       const res = await fetch('/api/announcements', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
-      if (data.success) { showToast(data.message, 'success'); setShowAnnouncementForm(false); setEditingAnnouncement(null); setAnnouncementForm({ title: '', content: '', isPinned: false }); loadAnnouncements(); }
+      if (data.success) {
+        showToast(data.message, 'success');
+        setShowAnnouncementForm(false);
+        setEditingAnnouncement(null);
+        setAnnouncementForm({ title: '', content: '', isPinned: false });
+        loadAnnouncements();
+      } else {
+        showToast(data.message || 'Failed to save announcement', 'danger');
+      }
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
   };
 
@@ -2967,10 +3088,39 @@ export default function DashboardPage() {
   // -- Meetings --
   const handleMeetingSubmit = async () => {
     try {
-      const body = { ...meetingForm, ministry: userData?.ministry, createdBy: userData?.id, createdByName: `${userData?.firstname} ${userData?.lastname}` };
-      const res = await fetch('/api/meetings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const isEditing = !!editingMeeting;
+      const method = isEditing ? 'PUT' : 'POST';
+      const body = { 
+        ...meetingForm, 
+        id: isEditing ? editingMeeting.id : undefined,
+        ministry: meetingForm.ministry, // Now comes from form selection
+        createdBy: userData?.id, 
+        createdByName: `${userData?.firstname} ${userData?.lastname}` 
+      };
+      
+      const res = await fetch('/api/meetings', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
-      if (data.success) { showToast(data.message, 'success'); setShowMeetingForm(false); setMeetingForm({ title: '', description: '', meetingDate: '', location: '' }); loadMeetings(); }
+      if (data.success) { 
+        showToast(data.message, 'success'); 
+        setShowMeetingForm(false); 
+        setEditingMeeting(null);
+        setMeetingForm({ title: '', description: '', meetingDate: '', location: '', ministry: userData?.ministry || '' }); 
+        loadMeetings(); 
+      } else {
+        showToast(data.message, 'danger');
+      }
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const handleDeleteMeeting = async (id) => {
+    if (!confirm('Are you sure you want to cancel this meeting?')) return;
+    try {
+      const res = await fetch(`/api/meetings?id=${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message, 'success');
+        loadMeetings();
+      }
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
   };
 
@@ -3523,10 +3673,184 @@ export default function DashboardPage() {
 
   // -- Messages --
   const handleSendMessage = async () => {
-    const body = { senderId: userData?.id, ...messageForm };
-    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await res.json();
-    if (data.success) { showToast(data.message, 'success'); setShowMessageForm(false); setMessageForm({ receiverId: '', subject: '', content: '', isBroadcast: false, broadcastTarget: 'all' }); loadMessages(); }
+    const isBroadcast = messageTab === 'broadcast' || messageForm.isBroadcast;
+    const contentToCheck = isBroadcast ? messageForm.content : chatMessageInput;
+
+    if (!contentToCheck.trim()) {
+      showToast('Please enter a message', 'warning');
+      return;
+    }
+
+    // Perform content moderation
+    try {
+      const modResult = await moderateMessage(contentToCheck);
+      
+      // Message is blocked
+      if (modResult.isBlocked) {
+        setModerationResult({
+          isBlocked: true,
+          reason: modResult.reason,
+          suggestion: null,
+        });
+        setShowModerationModal(true);
+        return;
+      }
+
+      // Message requires correction
+      if (modResult.isCorrected && modResult.correctedContent) {
+        setModerationResult({
+          isBlocked: false,
+          reason: modResult.reason,
+          suggestion: modResult.correctedContent,
+          originalContent: contentToCheck,
+        });
+        setShowModerationModal(true);
+        setPendingMessageToSend({
+          isBroadcast,
+          originalContent: contentToCheck,
+          correctedContent: modResult.correctedContent,
+        });
+        return;
+      }
+
+      // Message is safe, proceed with sending
+      const body = isBroadcast
+        ? { senderId: userData?.id, ...messageForm, isBroadcast: true }
+        : { senderId: userData?.id, receiverId: selectedChatUserId, content: chatMessageInput, isBroadcast: false };
+      
+      const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      
+      if (data.success) {
+        showToast('✅ Message sent safely!', 'success');
+        setChatMessageInput('');
+        setShowMessageForm(false);
+        setMessageForm({ receiverId: '', subject: '', content: '', isBroadcast: false, broadcastTarget: 'all' });
+        await loadMessages();
+        if (selectedChatUserId) await loadChatThread(selectedChatUserId);
+      }
+    } catch (err) {
+      console.error('Error in handleSendMessage:', err);
+      // If moderation check fails, allow sending (fail-open for UX)
+      const body = isBroadcast
+        ? { senderId: userData?.id, ...messageForm, isBroadcast: true }
+        : { senderId: userData?.id, receiverId: selectedChatUserId, content: chatMessageInput, isBroadcast: false };
+      
+      const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      
+      if (data.success) {
+        showToast('Message sent!', 'success');
+        setChatMessageInput('');
+        setShowMessageForm(false);
+        setMessageForm({ receiverId: '', subject: '', content: '', isBroadcast: false, broadcastTarget: 'all' });
+        await loadMessages();
+        if (selectedChatUserId) await loadChatThread(selectedChatUserId);
+      }
+    }
+  };
+
+  const handleSelectChatUser = async (targetUserId) => {
+    setSelectedChatUserId(targetUserId);
+    await loadChatThread(targetUserId);
+  };
+
+  const handleSendCorrectedMessage = async () => {
+    if (!pendingMessageToSend || !moderationResult?.suggestion) {
+      setShowModerationModal(false);
+      return;
+    }
+
+    const { isBroadcast, correctedContent } = pendingMessageToSend;
+
+    try {
+      const body = isBroadcast
+        ? { senderId: userData?.id, ...messageForm, content: correctedContent, isBroadcast: true }
+        : { senderId: userData?.id, receiverId: selectedChatUserId, content: correctedContent, isBroadcast: false };
+      
+      const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      
+      if (data.success) {
+        showToast('✅ Corrected message sent!', 'success');
+        setChatMessageInput('');
+        setShowMessageForm(false);
+        setMessageForm({ receiverId: '', subject: '', content: '', isBroadcast: false, broadcastTarget: 'all' });
+        setShowModerationModal(false);
+        setModerationResult(null);
+        setPendingMessageToSend(null);
+        await loadMessages();
+        if (selectedChatUserId) await loadChatThread(selectedChatUserId);
+      } else {
+        showToast(data.message || 'Failed to send corrected message', 'danger');
+      }
+    } catch (err) {
+      console.error('Error sending corrected message:', err);
+      showToast('Error sending message', 'danger');
+    }
+  };
+
+  const handleRejectCorrectedMessage = () => {
+    setShowModerationModal(false);
+    setModerationResult(null);
+    setPendingMessageToSend(null);
+  };
+
+  const handleUnsendMessage = async (messageId) => {
+    try {
+      const res = await fetch(`/api/messages?messageId=${messageId}&senderId=${userData?.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Message unsent', 'success');
+        setUnsendConfirmId(null);
+        setActiveMessageMenuId(null);
+        await loadChatThread(selectedChatUserId);
+        await loadChatUsers();
+      } else {
+        showToast(data.message || 'Failed to unsend message', 'danger');
+      }
+    } catch {
+      showToast('Error unsending message', 'danger');
+    }
+  };
+
+  const handleEditMessage = async (messageId) => {
+    if (!editMessageContent.trim()) return;
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, content: editMessageContent, senderId: userData?.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Message updated', 'success');
+        setEditingMessageId(null);
+        setEditMessageContent('');
+        await loadChatThread(selectedChatUserId);
+      } else {
+        showToast(data.message || 'Failed to update message', 'danger');
+      }
+    } catch {
+      showToast('Error updating message', 'danger');
+    }
+  };
+
+  const handleChatInputChange = (value) => {
+    setChatMessageInput(value);
+    if (value.trim()) {
+      const check = detectInappropriateWords(value);
+      if (check.isInappropriate) {
+        setChatFoulWarning({
+          type: check.type || 'inappropriate',
+          matches: check.matches,
+        });
+      } else {
+        setChatFoulWarning(null);
+      }
+    } else {
+      setChatFoulWarning(null);
+    }
   };
 
   // -- Attendance (Admin) --
@@ -5021,6 +5345,8 @@ Examples:
   const formatDate = (dateStr) => { if (!dateStr) return ''; return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); };
   const formatDateTime = (dateStr) => { if (!dateStr) return ''; return new Date(dateStr).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
   const extractYouTubeId = (url) => { if (!url) return null; const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m ? m[1] : null; };
+  const getChatUserName = (u) => `${u?.firstname || ''} ${u?.lastname || ''}`.trim() || 'Unknown User';
+  const getNameInitials = (name) => (name || '').split(' ').filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U';
 
   const getTodaysBirthdays = () => {
     const today = new Date(); const m = today.getMonth() + 1; const d = today.getDate();
@@ -5059,6 +5385,7 @@ Examples:
     return isSidebarItemEnabled(userRole, item.section, permissionOverrides);
   });
   const canManage = (module) => hasPermission(userRole, module);
+  const selectedChatUser = chatUsers.find((u) => u.id === selectedChatUserId) || null;
 
   // ============================================
   // RENDER
@@ -5850,29 +6177,44 @@ Examples:
 
             <div className="events-grid">
               {events.map((evt) => (
-                <div key={evt.id} className="event-card" style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }}>
-                  <h3 style={{ color: 'var(--primary)', marginBottom: 8 }}>{evt.title}</h3>
-                  {evt.description && <p style={{ color: '#6c757d', marginBottom: 8 }}>{evt.description}</p>}
-                  <p><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
-                  {evt.location && <p><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                    {canManage(MODULES.RSVP_EVENT) && featureOn('events.rsvp') && (
-                      <>
-                        <button className="btn-small btn-success" onClick={() => handleEventRSVP(evt.id, 'Going')}>Going</button>
-                        <button className="btn-small btn-warning" onClick={() => handleEventRSVP(evt.id, 'Maybe')}>Maybe</button>
-                        <button className="btn-small btn-secondary" onClick={() => handleEventRSVP(evt.id, 'Not Going')}>Not Going</button>
-                      </>
-                    )}
-                    {canManage(MODULES.UPDATE_EVENTS) && featureOn('events.edit') && (
-                      <button className="btn-small btn-primary" onClick={() => { setEditingEvent(evt); setEventForm({ title: evt.title, description: evt.description || '', eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '' }); setShowEventForm(true); }}><i className="fas fa-edit"></i></button>
-                    )}
-                    {canManage(MODULES.DELETE_EVENTS) && featureOn('events.delete') && (
-                      <button className="btn-small btn-danger" onClick={() => handleDeleteEvent(evt.id)}><i className="fas fa-trash"></i></button>
+                <div key={evt.id} className="event-card">
+                  <div className="event-card-header">
+                    <h3 className="event-card-title">{evt.title}</h3>
+                    <div className="event-card-actions">
+                      {canManage(MODULES.UPDATE_EVENTS) && featureOn('events.edit') && (
+                        <button className="event-action-btn edit" onClick={() => { setEditingEvent(evt); setEventForm({ title: evt.title, description: evt.description || '', eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '' }); setShowEventForm(true); }} title="Edit Event"><i className="fas fa-edit"></i></button>
+                      )}
+                      {canManage(MODULES.DELETE_EVENTS) && featureOn('events.delete') && (
+                        <button className="event-action-btn delete" onClick={() => handleDeleteEvent(evt.id)} title="Delete Event"><i className="fas fa-trash"></i></button>
+                      )}
+                    </div>
+                  </div>
+
+                  {evt.description && <p className="event-card-description">{evt.description}</p>}
+                  
+                  <div className="event-card-details">
+                    <div className="event-detail-item">
+                      <div className="event-detail-icon"><i className="fas fa-clock"></i></div>
+                      <span>{formatDateTime(evt.event_date)}</span>
+                    </div>
+                    {evt.location && (
+                      <div className="event-detail-item">
+                        <div className="event-detail-icon"><i className="fas fa-map-marker-alt"></i></div>
+                        <span>{evt.location}</span>
+                      </div>
                     )}
                   </div>
+
+                  {canManage(MODULES.RSVP_EVENT) && featureOn('events.rsvp') && (
+                    <div className="event-card-footer">
+                      <button className="btn-rsvp going" onClick={() => handleEventRSVP(evt.id, 'Going')}>Going</button>
+                      <button className="btn-rsvp maybe" onClick={() => handleEventRSVP(evt.id, 'Maybe')}>Maybe</button>
+                      <button className="btn-rsvp no" onClick={() => handleEventRSVP(evt.id, 'Not Going')}>Not Going</button>
+                    </div>
+                  )}
                 </div>
               ))}
-              {events.length === 0 && <p style={{ color: '#6c757d' }}>No events found.</p>}
+              {events.length === 0 && <p className="events-empty-msg">No events found.</p>}
             </div>
           </section>
 
@@ -6052,17 +6394,34 @@ Examples:
             )}
 
             {announcements.map((ann) => (
-              <div key={ann.id} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.08)', borderLeft: ann.is_pinned ? '4px solid var(--accent)' : 'none' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <h3 style={{ color: 'var(--primary)' }}>{ann.is_pinned && <i className="fas fa-thumbtack" style={{ marginRight: 8, color: 'var(--accent)' }}></i>}{ann.title}</h3>
-                    <p style={{ color: '#6c757d', margin: '8px 0' }}>{ann.content}</p>
-                    <small style={{ color: '#adb5bd' }}>By {ann.author_name || 'Admin'} • {formatDateTime(ann.created_at)}</small>
+              <div key={ann.id} className={`announcement-card ${ann.is_pinned ? 'pinned' : ''}`}>
+                <div className="announcement-card-header">
+                  <div className="announcement-card-main">
+                    <h3 className="announcement-card-title">
+                      {ann.is_pinned && <i className="fas fa-thumbtack pinned-icon"></i>}
+                      {ann.title}
+                    </h3>
+                    <p className="announcement-card-content">{ann.content}</p>
+                    <div className="announcement-card-meta">
+                      <span className="announcement-author">
+                        <i className="fas fa-user-edit"></i> By {ann.author_name || 'Admin'}
+                      </span>
+                      <span className="announcement-date">
+                        <i className="fas fa-calendar-day"></i> {formatDateTime(ann.created_at)}
+                      </span>
+                    </div>
                   </div>
+                  
                   {canManage(MODULES.UPDATE_ANNOUNCEMENTS) && featureOn('announcements.edit') && (
-                    <div style={{ display: 'flex', gap: 5 }}>
-                      <button className="btn-small btn-primary" onClick={() => { setEditingAnnouncement(ann); setAnnouncementForm({ title: ann.title, content: ann.content, isPinned: ann.is_pinned }); setShowAnnouncementForm(true); }}><i className="fas fa-edit"></i></button>
-                      {canManage(MODULES.DELETE_ANNOUNCEMENTS) && featureOn('announcements.delete') && <button className="btn-small btn-danger" onClick={() => handleDeleteAnnouncement(ann.id)}><i className="fas fa-trash"></i></button>}
+                    <div className="announcement-card-actions">
+                      <button className="announcement-action-btn edit" onClick={() => { setEditingAnnouncement(ann); setAnnouncementForm({ title: ann.title, content: ann.content, isPinned: ann.is_pinned }); setShowAnnouncementForm(true); }} title="Edit Announcement">
+                        <i className="fas fa-edit"></i>
+                      </button>
+                      {canManage(MODULES.DELETE_ANNOUNCEMENTS) && featureOn('announcements.delete') && (
+                        <button className="announcement-action-btn delete" onClick={() => handleDeleteAnnouncement(ann.id)} title="Delete Announcement">
+                          <i className="fas fa-trash"></i>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -6095,45 +6454,195 @@ Examples:
 
           {/* ========== MINISTRY MEETINGS ========== */}
           <section className={`content-section ${activeSection === 'ministry-meetings' ? 'active' : ''}`}>
-            <h2 className="section-title">Ministry Meetings</h2>
-
-            {canManage(MODULES.CREATE_MINISTRY_MEETING) && featureOn('meetings.create') && (
-              <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => setShowMeetingForm(true)}>
-                <i className="fas fa-plus"></i> Schedule Meeting
-              </button>
-            )}
+            <div className="section-header-row" style={{ marginBottom: 25 }}>
+              <h2 className="section-title"><i className="fas fa-handshake"></i> Ministry Meetings</h2>
+              {canManage(MODULES.CREATE_MINISTRY_MEETING) && (
+                <button className="btn-primary" onClick={() => { 
+                  setEditingMeeting(null);
+                  setMeetingForm({ title: '', description: '', meetingDate: '', location: '', ministry: userData?.ministry || '' });
+                  setShowMeetingForm(true); 
+                }}>
+                  <i className="fas fa-plus"></i> Schedule Meeting
+                </button>
+              )}
+            </div>
 
             {showMeetingForm && (
-              <div className="form-card" style={{ marginBottom: 20, padding: 20, background: 'var(--bg-card)', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                <h3>Schedule New Meeting</h3>
-                <div className="form-group"><label>Title *</label><input className="form-control" style={{ padding: '10px 15px' }} value={meetingForm.title} onChange={(e) => setMeetingForm({ ...meetingForm, title: e.target.value })} /></div>
-                <div className="form-group"><label>Description</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={3} value={meetingForm.description} onChange={(e) => setMeetingForm({ ...meetingForm, description: e.target.value })} /></div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group"><label>Date & Time *</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={meetingForm.meetingDate} onChange={(e) => setMeetingForm({ ...meetingForm, meetingDate: e.target.value })} /></div>
-                  <div className="form-group"><label>Location</label><input className="form-control" style={{ padding: '10px 15px' }} value={meetingForm.location} onChange={(e) => setMeetingForm({ ...meetingForm, location: e.target.value })} /></div>
+              <div className="modernized-form" style={{ marginTop: 25, marginBottom: 40 }}>
+                <div className="form-header">
+                  <h3><i className="fas fa-calendar-plus" style={{ marginRight: 10, color: 'var(--secondary)' }}></i> {editingMeeting ? 'Edit Meeting' : 'Schedule New Meeting'}</h3>
+                  <button className="close-form-btn" onClick={() => setShowMeetingForm(false)} title="Close"><i className="fas fa-times"></i></button>
                 </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button className="btn-primary" onClick={handleMeetingSubmit}><i className="fas fa-save"></i> Create</button>
+                <div className="form-body">
+                  <div className="form-group">
+                    <label>Meeting Title *</label>
+                    <input className="form-control" placeholder="Enter meeting purpose..." value={meetingForm.title} onChange={(e) => setMeetingForm({ ...meetingForm, title: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label>Description</label>
+                    <textarea className="form-control" rows={3} placeholder="What is this meeting about?" value={meetingForm.description} onChange={(e) => setMeetingForm({ ...meetingForm, description: e.target.value })} />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Date & Time *</label>
+                      <input type="datetime-local" className="form-control" value={meetingForm.meetingDate} onChange={(e) => setMeetingForm({ ...meetingForm, meetingDate: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label>Location</label>
+                      <input className="form-control" placeholder="e.g. Main Hall, Zoom" value={meetingForm.location} onChange={(e) => setMeetingForm({ ...meetingForm, location: e.target.value })} />
+                    </div>
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Target Ministries *</label>
+                    <div className="ministry-chips">
+                      {(meetingForm.ministry || '').split(',').filter(m => m.trim()).map((m, idx) => (
+                        <span key={idx} className="ministry-chip">
+                          {m.trim()}
+                          <i className="fas fa-times remove-chip" onClick={() => {
+                            const current = (meetingForm.ministry || '').split(',').map(s => s.trim()).filter(s => s);
+                            const updated = current.filter(s => s !== m.trim());
+                            setMeetingForm({ ...meetingForm, ministry: updated.join(', ') });
+                          }}></i>
+                        </span>
+                      ))}
+                      {(!meetingForm.ministry || meetingForm.ministry.trim() === '') && <span style={{ color: '#999', fontSize: '0.9rem' }}>No ministries selected</span>}
+                    </div>
+                    <div className="ministry-options">
+                      {/* Select All Toggle */}
+                      <div 
+                        className={`ministry-option select-all ${((meetingForm.ministry || '').split(',').filter(m => m.trim()).length === ministriesList.length && ministriesList.length > 0) ? 'selected' : ''}`}
+                        onClick={() => {
+                          const allNames = ministriesList.map(m => typeof m === 'string' ? m : m.name);
+                          const current = (meetingForm.ministry || '').split(',').map(s => s.trim()).filter(s => s);
+                          if (current.length === allNames.length) {
+                            setMeetingForm({ ...meetingForm, ministry: '' });
+                          } else {
+                            setMeetingForm({ ...meetingForm, ministry: allNames.join(', ') });
+                          }
+                        }}
+                      >
+                        <i className={`fas ${((meetingForm.ministry || '').split(',').filter(m => m.trim()).length === ministriesList.length && ministriesList.length > 0) ? 'fa-check-square' : 'fa-square'}`}></i> All Ministries
+                      </div>
+
+                      {ministriesList.map((min) => {
+                        const mname = typeof min === 'string' ? min : min.name;
+                        const isSelected = (meetingForm.ministry || '').split(',').map(s => s.trim()).includes(mname);
+                        return (
+                          <div 
+                            key={mname} 
+                            className={`ministry-option ${isSelected ? 'selected' : ''}`}
+                            onClick={() => {
+                              const current = (meetingForm.ministry || '').split(',').map(s => s.trim()).filter(s => s);
+                              let updated;
+                              if (isSelected) {
+                                updated = current.filter(s => s !== mname);
+                              } else {
+                                updated = [...current, mname];
+                              }
+                              setMeetingForm({ ...meetingForm, ministry: updated.join(', ') });
+                            }}
+                          >
+                            <i className={`fas ${isSelected ? 'fa-check-square' : 'fa-square'}`}></i> {mname}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div className="form-footer">
+                  <button className="btn-primary" onClick={handleMeetingSubmit} disabled={!meetingForm.title || !meetingForm.meetingDate || !meetingForm.ministry}>
+                    <i className={editingMeeting ? 'fas fa-save' : 'fas fa-check'}></i> {editingMeeting ? 'Update Meeting' : 'Schedule Meeting'}
+                  </button>
                   <button className="btn-secondary" onClick={() => setShowMeetingForm(false)}>Cancel</button>
                 </div>
               </div>
             )}
 
-            {meetings.map((mtg) => (
-              <div key={mtg.id} style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }}>
-                <h3 style={{ color: 'var(--primary)' }}>{mtg.title}</h3>
-                {mtg.description && <p style={{ color: '#6c757d', margin: '8px 0' }}>{mtg.description}</p>}
-                <p><i className="fas fa-clock"></i> {formatDateTime(mtg.meeting_date)} <span className={`badge badge-${mtg.status === 'Scheduled' ? 'primary' : mtg.status === 'Completed' ? 'success' : 'danger'}`} style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 12, fontSize: '0.75rem' }}>{mtg.status}</span></p>
-                {mtg.location && <p><i className="fas fa-map-marker-alt"></i> {mtg.location}</p>}
-                <small style={{ color: '#adb5bd' }}>By {mtg.created_by_name} • {mtg.ministry}</small>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button className="btn-small btn-success" onClick={() => handleMeetingRSVP(mtg.id, 'Going')}>Going</button>
-                  <button className="btn-small btn-warning" onClick={() => handleMeetingRSVP(mtg.id, 'Maybe')}>Maybe</button>
-                  <button className="btn-small btn-secondary" onClick={() => handleMeetingRSVP(mtg.id, 'Not Going')}>Not Going</button>
+            <div className="meetings-list">
+              {meetings.map((mtg) => {
+                const mtgDate = new Date(mtg.meeting_date);
+                const day = mtgDate.getDate();
+                const month = mtgDate.toLocaleString('en-US', { month: 'short' });
+                const time = mtgDate.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                
+                return (
+                  <div key={mtg.id} className="mtg-card">
+                    <div className="mtg-date-strip">
+                      <span className="mtg-month">{month}</span>
+                      <span className="mtg-day">{day}</span>
+                      <span className="mtg-time">{time}</span>
+                    </div>
+                    <div className="mtg-main-content">
+                      <div className="mtg-header-row">
+                        <h3 className="mtg-title">{mtg.title}</h3>
+                        <span className={`mtg-status-badge mtg-status-${mtg.status.toLowerCase()}`}>
+                          {mtg.status}
+                        </span>
+                      </div>
+                      
+                      <p className="mtg-desc">{mtg.description || 'No description provided.'}</p>
+                      
+                      <div className="mtg-footer-meta">
+                        <div className="mtg-meta-item">
+                          <i className="fas fa-map-marker-alt"></i>
+                          <span>{mtg.location || 'No location set'}</span>
+                        </div>
+                        <div className="mtg-meta-item">
+                          <i className="fas fa-users"></i>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {mtg.ministry.split(',').map((m, i) => (
+                              <span key={i} className="mtg-ministry-tag">{m.trim()}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="mtg-meta-item">
+                          <i className="fas fa-user-edit"></i>
+                          <span>{mtg.created_by_name}</span>
+                        </div>
+                      </div>
+
+                      <div className="mtg-actions-row">
+                        <div className="mtg-rsvp-group">
+                          <button className="mtg-rsvp-btn mtg-rsvp-going" onClick={() => handleMeetingRSVP(mtg.id, 'Going')}>Going</button>
+                          <button className="mtg-rsvp-btn mtg-rsvp-maybe" onClick={() => handleMeetingRSVP(mtg.id, 'Maybe')}>Maybe</button>
+                          <button className="mtg-rsvp-btn mtg-rsvp-not" onClick={() => handleMeetingRSVP(mtg.id, 'Not Going')}>Not Going</button>
+                        </div>
+                        
+                        {(userData?.id === mtg.created_by || userRole === 'Admin' || userRole === 'Super Admin') && (
+                          <div className="mtg-manage-actions">
+                            <button className="mtg-manage-btn" title="Edit Meeting" onClick={() => {
+                              setEditingMeeting(mtg);
+                              setMeetingForm({
+                                title: mtg.title,
+                                description: mtg.description || '',
+                                meetingDate: mtg.meeting_date.substring(0, 16),
+                                location: mtg.location || '',
+                                ministry: mtg.ministry
+                              });
+                              setShowMeetingForm(true);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}>
+                              <i className="fas fa-edit"></i>
+                            </button>
+                            <button className="mtg-manage-btn delete" title="Cancel Meeting" onClick={() => handleDeleteMeeting(mtg.id)}>
+                              <i className="fas fa-trash-alt"></i>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {meetings.length === 0 && (
+                <div className="empty-state" style={{ padding: '40px 20px', textAlign: 'center', background: 'var(--bg-card)', borderRadius: 16 }}>
+                  <i className="fas fa-calendar-times" style={{ fontSize: '3rem', color: '#cbd5e1', marginBottom: 15 }}></i>
+                  <p style={{ color: '#94a3b8', fontSize: '1.1rem' }}>No upcoming meetings found for your ministries.</p>
                 </div>
-              </div>
-            ))}
-            {meetings.length === 0 && <p style={{ color: '#6c757d' }}>No upcoming meetings.</p>}
+              )}
+            </div>
           </section>
 
           {/* ========== COMMUNITY HUB ========== */}
@@ -7403,57 +7912,195 @@ Examples:
 
           {/* ========== MESSAGES ========== */}
           <section className={`content-section ${activeSection === 'messages' ? 'active' : ''}`}>
-            <h2 className="section-title">Messages</h2>
+            <h2 className="section-title">Chat</h2>
 
-            <div style={{ display: 'flex', gap: 10, marginBottom: 15, flexWrap: 'wrap' }}>
-              {['inbox', 'sent', 'broadcast'].map((tab) => (
-                <button key={tab} className={`btn-small ${messageTab === tab ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setMessageTab(tab); setTimeout(loadMessages, 100); }}>
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
-              {featureOn('messages.send') && (
-                <button className="btn-primary" onClick={() => { setShowMessageForm(true); if (allUsers.length === 0) loadAdminUsers(); }}>
-                  <i className="fas fa-pen"></i> Compose
-                </button>
-              )}
-              {canManage(MODULES.SEND_BROADCASTS) && featureOn('messages.broadcast') && (
-                <button className="btn-warning" onClick={() => { setShowMessageForm(true); setMessageForm((p) => ({ ...p, isBroadcast: true })); }}>
-                  <i className="fas fa-broadcast-tower"></i> Broadcast
-                </button>
-              )}
-            </div>
+            <div className="messages-chat-shell">
+              <aside className="messages-chat-list">
+                <div className="messages-chat-toolbar">
+                  <div className="messages-tab-row">
+                    {['private', ...(canManage(MODULES.SEND_BROADCASTS) && featureOn('messages.broadcast') ? ['broadcast'] : [])].map((tab) => (
+                      <button key={tab} className={`btn-small ${messageTab === tab ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setMessageTab(tab); setMessages([]); setShowMessageForm(false); setTimeout(loadMessages, 100); }}>
+                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            {showMessageForm && (
-              <div style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                <h3>{messageForm.isBroadcast ? 'Send Broadcast' : 'New Message'}</h3>
-                {!messageForm.isBroadcast && (
-                  <div className="form-group"><label>To</label>
-                    <select className="form-select" style={{ padding: '10px 15px' }} value={messageForm.receiverId} onChange={(e) => setMessageForm({ ...messageForm, receiverId: e.target.value })}>
-                      <option value="">Select recipient</option>
-                      {allUsers.filter((u) => u.id !== userData?.id).map((u) => (<option key={u.id} value={u.id}>{u.firstname} {u.lastname} ({u.role})</option>))}
-                    </select>
+                <div className="messages-chat-list-body">
+                  {messageTab === 'private' && chatUsers.map((u) => (
+                    <button key={u.id} className={`messages-chat-item ${selectedChatUserId === u.id ? 'active' : ''} ${u.unread_count > 0 ? 'unread' : ''}`} onClick={() => handleSelectChatUser(u.id)}>
+                      <span className="messages-chat-avatar">
+                        {u.profile_picture ? (
+                          <img src={u.profile_picture} alt={getChatUserName(u)} referrerPolicy="no-referrer" />
+                        ) : (
+                          getNameInitials(getChatUserName(u))
+                        )}
+                      </span>
+                      <span className="messages-chat-meta">
+                        <span className="messages-chat-name">{getChatUserName(u)}</span>
+                        <span className="messages-chat-preview">{u.last_message || 'No messages yet'}</span>
+                      </span>
+                      <span className="messages-chat-right">
+                        <span className={`messages-presence-dot ${u.is_online ? 'online' : 'offline'}`}></span>
+                        <span className="messages-chat-time">{u.last_message_at ? formatDateTime(u.last_message_at) : (u.is_online ? 'Online' : 'Offline')}</span>
+                        {u.unread_count > 0 && <span className="messages-unread-badge">{u.unread_count}</span>}
+                      </span>
+                    </button>
+                  ))}
+                  {messageTab === 'broadcast' && messages.map((msg) => (
+                    <div key={msg.id} className="messages-chat-item active">
+                      <span className="messages-chat-avatar">
+                        {msg.users?.profile_picture ? (
+                          <img src={msg.users.profile_picture} alt={`${msg.users?.firstname || ''} ${msg.users?.lastname || ''}`.trim() || 'Broadcast'} referrerPolicy="no-referrer" />
+                        ) : (
+                          getNameInitials(`${msg.users?.firstname || ''} ${msg.users?.lastname || ''}`.trim() || 'Broadcast')
+                        )}
+                      </span>
+                      <span className="messages-chat-meta">
+                        <span className="messages-chat-name">{`${msg.users?.firstname || ''} ${msg.users?.lastname || ''}`.trim() || 'Broadcast'}</span>
+                        <span className="messages-chat-subject">{msg.subject || '(No subject)'}</span>
+                        <span className="messages-chat-preview">{msg.content}</span>
+                      </span>
+                      <span className="messages-chat-time">{formatDateTime(msg.created_at)}</span>
+                    </div>
+                  ))}
+                  {((messageTab === 'private' && chatUsers.length === 0) || (messageTab === 'broadcast' && messages.length === 0)) && <p className="messages-empty">No chats yet.</p>}
+                </div>
+              </aside>
+
+              <div className="messages-chat-thread">
+                {messageTab === 'private' && selectedChatUser && (
+                  <div className="messages-thread-header">
+                    <span className="messages-chat-avatar">
+                      {selectedChatUser.profile_picture ? (
+                        <img src={selectedChatUser.profile_picture} alt={getChatUserName(selectedChatUser)} referrerPolicy="no-referrer" />
+                      ) : (
+                        getNameInitials(getChatUserName(selectedChatUser))
+                      )}
+                    </span>
+                    <div>
+                      <strong>{getChatUserName(selectedChatUser)}</strong>
+                      <p>{selectedChatUser.is_online ? 'Online' : 'Offline'}</p>
+                    </div>
                   </div>
                 )}
-                <div className="form-group"><label>Subject</label><input className="form-control" style={{ padding: '10px 15px' }} value={messageForm.subject} onChange={(e) => setMessageForm({ ...messageForm, subject: e.target.value })} /></div>
-                <div className="form-group"><label>Message *</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={4} value={messageForm.content} onChange={(e) => setMessageForm({ ...messageForm, content: e.target.value })} /></div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button className="btn-primary" onClick={handleSendMessage}><i className="fas fa-paper-plane"></i> Send</button>
-                  <button className="btn-secondary" onClick={() => { setShowMessageForm(false); setMessageForm({ receiverId: '', subject: '', content: '', isBroadcast: false, broadcastTarget: 'all' }); }}>Cancel</button>
-                </div>
-              </div>
-            )}
 
-            {messages.map((msg) => (
-              <div key={msg.id} style={{ padding: 15, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', opacity: msg.is_read ? 0.8 : 1, borderLeft: msg.is_read ? 'none' : '3px solid var(--accent)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>{msg.subject || '(No subject)'}</strong>
-                  <small style={{ color: '#adb5bd' }}>{formatDateTime(msg.created_at)}</small>
-                </div>
-                <p style={{ margin: '8px 0', color: '#6c757d' }}>{msg.content}</p>
-                {msg.is_broadcast && <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: 12, background: 'rgba(255,195,0,0.2)', color: 'var(--accent)' }}>Broadcast</span>}
+                {messageTab === 'private' ? (
+                  <>
+                    {selectedChatUser ? (
+                      <div className="messages-thread-body" onClick={() => setActiveMessageMenuId(null)}>
+                        {messages.map((msg) => (
+                          <div key={msg.id} className={`messages-thread-row ${msg.sender_id === userData?.id ? 'outgoing' : 'incoming'}`}>
+                            <div className={`messages-bubble ${msg.sender_id === userData?.id ? 'outgoing' : 'incoming'}${msg.is_unsent ? ' unsent' : ''}${editingMessageId === msg.id ? ' editing' : ''}`}>
+                              {msg.is_unsent ? (
+                                <p className="messages-unsent-text"><i className="fas fa-ban"></i> Message unsent</p>
+                              ) : (
+                                <>
+                                  {editingMessageId === msg.id ? (
+                                    <div className="messages-edit-area">
+                                      <textarea className="form-control" value={editMessageContent} onChange={(e) => setEditMessageContent(e.target.value)} autoFocus />
+                                      <div className="messages-edit-actions">
+                                        <button className="btn-save-edit" onClick={() => handleEditMessage(msg.id)}>Save</button>
+                                        <button className="btn-cancel-edit" onClick={() => setEditingMessageId(null)}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="messages-bubble-content">
+                                      <p>{msg.content}{msg.is_edited && <span className="messages-edited-tag">(edited)</span>}</p>
+                                      
+                                      {msg.sender_id === userData?.id && !editingMessageId && (
+                                        <div className="messages-options-wrap">
+                                          {activeMessageMenuId === msg.id ? (
+                                            <div className="messages-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                                              <button className="menu-item" onClick={() => { setEditingMessageId(msg.id); setEditMessageContent(msg.content); setActiveMessageMenuId(null); }}>
+                                                <i className="fas fa-edit"></i> Edit
+                                              </button>
+                                              <button className="menu-item delete" onClick={() => { setUnsendConfirmId(msg.id); setActiveMessageMenuId(null); }}>
+                                                <i className="fas fa-trash-alt"></i> Unsend
+                                              </button>
+                                            </div>
+                                          ) : unsendConfirmId === msg.id ? (
+                                            <div className="messages-unsend-confirm" onClick={(e) => e.stopPropagation()}>
+                                              <span>Unsend?</span>
+                                              <button className="messages-unsend-yes" onClick={() => handleUnsendMessage(msg.id)}><i className="fas fa-check"></i></button>
+                                              <button className="messages-unsend-no" onClick={() => setUnsendConfirmId(null)}><i className="fas fa-times"></i></button>
+                                            </div>
+                                          ) : (
+                                            <button className="messages-menu-btn" onClick={(e) => { e.stopPropagation(); setActiveMessageMenuId(msg.id); }}>
+                                              <i className="fas fa-ellipsis-v"></i>
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              <div className="messages-bubble-meta">
+                                <span>{formatDateTime(msg.created_at)}</span>
+                                {msg.sender_id === userData?.id && msg.is_read && !msg.is_unsent && <span className="messages-seen-tag"><i className="fas fa-check-double"></i> Seen</span>}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="messages-thread-empty">
+                        <i className="fas fa-comments"></i>
+                        <p>Select a user to start private chat.</p>
+                      </div>
+                    )}
+                    {selectedChatUser && featureOn('messages.send') && (
+                      <div className="messages-compose-card">
+                        {chatFoulWarning && (
+                          <div className="messages-foul-warning">
+                            <i className="fas fa-exclamation-triangle"></i>
+                            <span>
+                              {chatFoulWarning.type === 'harmful'
+                                ? 'Your message contains concerning language. If you\'re struggling, please reach out to someone who can help. ❤️'
+                                : chatFoulWarning.type === 'abusive'
+                                  ? 'Your message contains inappropriate language. Please keep our community respectful.'
+                                  : 'Your message may contain inappropriate content. Please review before sending.'}
+                            </span>
+                          </div>
+                        )}
+                        <div className="messages-private-input-row">
+                          <textarea className={`form-control${chatFoulWarning ? ' foul-detected' : ''}`} rows={2} placeholder={`Message ${getChatUserName(selectedChatUser)}...`} value={chatMessageInput} onChange={(e) => handleChatInputChange(e.target.value)} />
+                          <button className="btn-primary" disabled={!chatMessageInput.trim()} onClick={handleSendMessage}><i className="fas fa-paper-plane"></i> Send</button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="messages-thread-body">
+                    {messages.map((msg) => (
+                      <div key={msg.id} className="messages-thread-row incoming">
+                        <div className="messages-bubble incoming">
+                          <h4>{msg.subject || '(No subject)'}</h4>
+                          <p>{msg.content}</p>
+                          <div className="messages-bubble-meta">
+                            <span>{formatDateTime(msg.created_at)}</span>
+                            <span className="messages-broadcast-pill">Broadcast</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {(showMessageForm || messageTab === 'broadcast') && (
+                  <div className="messages-compose-card">
+                    <h3>Send Broadcast</h3>
+                    <div className="form-group"><label>Subject</label><input className="form-control" value={messageForm.subject} onChange={(e) => setMessageForm({ ...messageForm, subject: e.target.value, isBroadcast: true })} /></div>
+                    <div className="form-group"><label>Message *</label><textarea className="form-control" rows={4} value={messageForm.content} onChange={(e) => setMessageForm({ ...messageForm, content: e.target.value })} /></div>
+                    <div className="messages-compose-actions">
+                      <button className="btn-primary" onClick={handleSendMessage}><i className="fas fa-paper-plane"></i> Send</button>
+                      <button className="btn-secondary" onClick={() => { setShowMessageForm(false); setMessageForm({ receiverId: '', subject: '', content: '', isBroadcast: false, broadcastTarget: 'all' }); if (messageTab === 'broadcast') setMessageTab('private'); }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
               </div>
-            ))}
-            {messages.length === 0 && <p style={{ color: '#6c757d' }}>No messages.</p>}
+            </div>
           </section>
 
           {/* ========== ATTENDANCE MANAGEMENT ========== */}
@@ -7475,7 +8122,9 @@ Examples:
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead><tr><th style={{ padding: 8, borderBottom: '2px solid #dee2e6', textAlign: 'left' }}>Member</th><th style={{ padding: 8, borderBottom: '2px solid #dee2e6' }}>Ministry</th><th style={{ padding: 8, borderBottom: '2px solid #dee2e6' }}>Action</th></tr></thead>
                     <tbody>
-                      {adminUsers.filter((u) => u.status === 'Verified').map((u) => (
+                      {adminUsers
+                        .filter((u) => u.status !== 'Deactivated' && !attendanceRecords.some(r => r.user_id === u.id))
+                        .map((u) => (
                         <tr key={u.id}>
                           <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>{u.firstname} {u.lastname}</td>
                           <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>{u.ministry}</td>
@@ -7586,7 +8235,10 @@ Examples:
                   <div className="form-group"><label>Ministry</label>
                     <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value, sub_role: '' })}>
                       <option value="">— No Ministry —</option>
-                      {ALL_MINISTRIES.map((m) => <option key={m} value={m}>{m}</option>)}
+                      {ministriesList.map((m) => {
+                        const mname = typeof m === 'string' ? m : m.name;
+                        return <option key={mname} value={mname}>{mname}</option>;
+                      })}
                     </select>
                   </div>
                   <div className="form-group"><label>Ministry Roles</label>
@@ -7636,7 +8288,10 @@ Examples:
                       <div className="form-group"><label>Ministry</label>
                         <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value, sub_role: '' })}>
                           <option value="">— No Ministry —</option>
-                          {ALL_MINISTRIES.map((m) => <option key={m} value={m}>{m}</option>)}
+                          {ministriesList.map((m) => {
+                        const mname = typeof m === 'string' ? m : m.name;
+                        return <option key={mname} value={mname}>{mname}</option>;
+                      })}
                         </select>
                       </div>
                       <div className="form-group"><label>Ministry Roles</label>
@@ -7737,7 +8392,10 @@ Examples:
                 </select>
                 <select className="um-filter-select" value={userFilterMinistry} onChange={(e) => setUserFilterMinistry(e.target.value)}>
                   <option value="">All Ministries</option>
-                  {ALL_MINISTRIES.map(m => <option key={m} value={m}>{m}</option>)}
+                  {ministriesList.map(m => {
+                    const mname = typeof m === 'string' ? m : m.name;
+                    return <option key={mname} value={mname}>{mname}</option>;
+                  })}
                 </select>
                 <select className="um-filter-select" value={userFilterStatus} onChange={(e) => setUserFilterStatus(e.target.value)}>
                   <option value="">All Status</option>
@@ -8289,12 +8947,12 @@ Examples:
               })()}
             </div>
 
+
             <div style={{ marginTop: 14, fontSize: 12, color: '#6c757d', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span><i className="fas fa-info-circle"></i> Data pulled from Cloudinary Admin API. Respecting rate limits; values update roughly every 45 seconds.</span>
             </div>
           </section>
 
-          {/* ========== SYSTEM CONFIG (Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'system-config' ? 'active' : ''}`}>
             <h2 className="section-title">System Configuration</h2>
             {Object.entries(systemSettings).map(([key, value]) => (
@@ -8478,7 +9136,12 @@ Examples:
             <div className="bible-controls">
               <div className="form-group" style={{ flex: 2 }}><label>Book</label>
                 <select className="form-select" value={bibleBook} onChange={(e) => { setBibleBook(e.target.value); setBibleChapter(1); setBibleVerse(''); }} style={{ padding: '10px' }}>
-                  {Object.keys(BIBLE_BOOKS).map((b) => (<option key={b} value={b}>{b}</option>))}
+                  <optgroup label="Old Testament">
+                    {OLD_TESTAMENT_BOOKS.map((b) => (<option key={b} value={b}>{b}</option>))}
+                  </optgroup>
+                  <optgroup label="New Testament">
+                    {NEW_TESTAMENT_BOOKS.map((b) => (<option key={b} value={b}>{b}</option>))}
+                  </optgroup>
                 </select>
               </div>
               <div className="form-group" style={{ flex: 1 }}><label>Chapter</label>
@@ -10092,212 +10755,150 @@ Examples:
                         const canRecord = canRecordPractice(schedule);
 
                         return (
-                          <div key={schedId} style={{ marginBottom: 32, background: 'var(--card-bg, #fff)', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--shadow, 0 4px 12px rgba(0,0,0,0.08))', border: '1px solid rgba(0,0,0,0.06)' }}>
+                          <div key={schedId} className="sched-card-v2">
                             {/* Schedule Header */}
-                            <div style={{ padding: '18px 22px', background: 'linear-gradient(135deg, rgba(146,108,21,0.08), rgba(255,195,0,0.05))', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-                                <div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                    <span style={{ fontSize: 22 }}>⛪</span>
-                                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
-                                      Sunday {new Date(schedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                            <div className="sched-card-header">
+                              <div className="sched-header-main">
+                                <div className="sched-date-group">
+                                  <span className="sched-church-icon">⛪</span>
+                                  <div className="sched-date-info">
+                                    <h3 className="sched-date-text">
+                                      Sunday {new Date(schedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                     </h3>
+                                    {practiceDate && (
+                                      <p className="sched-practice-text">
+                                        <i className="fas fa-calendar-check"></i> Practice: {new Date(practiceDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                      </p>
+                                    )}
                                   </div>
-                                  {practiceDate && (
-                                    <p style={{ margin: '2px 0 0', fontSize: 13, color: '#888' }}>
-                                      <i className="fas fa-calendar-check" style={{ marginRight: 4 }}></i>
-                                      Practice: {new Date(practiceDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-                                    </p>
-                                  )}
                                 </div>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'rgba(146,108,21,0.12)', color: '#926C15' }}>
+                                <div className="sched-header-badges">
+                                  <span className="sched-badge leader">
                                     <i className="fas fa-microphone"></i> {leader}
                                   </span>
                                   {backups.length > 0 && (
-                                    <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, background: 'rgba(23,162,184,0.1)', color: '#17a2b8' }}>
-                                      <i className="fas fa-users"></i> {backups.length} Backup{backups.length > 1 ? 's' : ''}
+                                    <span className="sched-badge backups">
+                                      <i className="fas fa-users"></i> {backups.length}
                                     </span>
                                   )}
                                 </div>
                               </div>
                             </div>
 
-                            <div style={{ padding: '20px 22px' }}>
+                            <div className="sched-card-body">
                               {/* ====== FAST SONG SECTION ====== */}
-                              <div style={{ marginBottom: 28 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                  <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#e53935' }}>
-                                    <i className="fas fa-bolt" style={{ marginRight: 6 }}></i>Fast Song{fastSongs.length > 1 ? 's' : ''}
+                              <div className="sched-song-section fast">
+                                <div className="sched-section-header">
+                                  <h4 className="sched-section-title">
+                                    <i className="fas fa-bolt"></i> Fast Song{fastSongs.length > 1 ? 's' : ''}
                                   </h4>
                                   {canRecord && !practiceIsRecording && (
-                                    <button style={{ padding: '6px 16px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'linear-gradient(135deg, #e53935, #d32f2f)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-                                      onClick={() => startPracticeRecording(schedule, 'Fast Song')}>
-                                      <i className="fas fa-microphone"></i> Record Fast Song
+                                    <button className="sched-btn-record fast" onClick={() => startPracticeRecording(schedule, 'Fast Song')}>
+                                      <i className="fas fa-microphone"></i> Record
                                     </button>
                                   )}
                                 </div>
 
-                                {/* Song list */}
                                 {fastSongs.length > 0 ? (
-                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                                  <div className="sched-song-list">
                                     {fastSongs.map((song, i) => (
-                                      <div key={i} style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(229,57,53,0.06)', border: '1px solid rgba(229,57,53,0.12)', fontSize: 13 }}>
-                                        <i className="fas fa-music" style={{ color: '#e53935', marginRight: 6 }}></i>
-                                        {song.title || `Song ${i + 1}`}
-                                        {song.link && <a href={song.link} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, color: '#e53935' }}><i className="fas fa-external-link-alt" style={{ fontSize: 10 }}></i></a>}
+                                      <div key={i} className="sched-song-pill fast">
+                                        <span className="sched-song-title">{song.title || `Song ${i + 1}`}</span>
+                                        {song.link && <a href={song.link} target="_blank" rel="noopener noreferrer" className="sched-song-link"><i className="fas fa-external-link-alt"></i></a>}
                                       </div>
                                     ))}
                                   </div>
-                                ) : <p style={{ fontSize: 13, color: '#aaa', margin: '0 0 12px' }}>No fast songs assigned yet</p>}
+                                ) : <p className="sched-empty-text">No fast songs assigned yet</p>}
 
-                                {/* Fast song recorder UI (if actively recording this type) */}
+                                {/* Fast song recorder UI */}
                                 {practiceIsRecording && practiceRecordingSongType === 'Fast Song' && practiceRecordingSchedule?.scheduleId === schedId && (
-                                  <div style={{ padding: 16, background: 'rgba(229,57,53,0.04)', borderRadius: 12, border: '1px solid rgba(229,57,53,0.15)', marginBottom: 12 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(229,57,53,0.1)', border: '2px solid #e53935', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 1.5s infinite' }}>
-                                        <i className="fas fa-microphone" style={{ color: '#e53935', fontSize: 18 }}></i>
-                                      </div>
-                                      <div style={{ flex: 1 }}>
-                                        <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'monospace', color: '#e53935' }}>{formatRecordingTime(practiceRecordingTime)}</span>
-                                        <p style={{ margin: 0, fontSize: 12, color: '#e53935' }}><i className="fas fa-circle" style={{ fontSize: 6, marginRight: 4, animation: 'pulse 1s infinite' }}></i>Recording Fast Song...</p>
-                                      </div>
-                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#333', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={stopPracticeRecording}>
-                                        <i className="fas fa-stop"></i> Stop
-                                      </button>
+                                  <div className="sched-recording-ui fast">
+                                    <div className="sched-rec-visual">
+                                      <div className="sched-rec-dot"></div>
+                                      <span className="sched-rec-timer">{formatRecordingTime(practiceRecordingTime)}</span>
                                     </div>
+                                    <button className="sched-btn-stop" onClick={stopPracticeRecording}>
+                                      <i className="fas fa-stop"></i> Stop
+                                    </button>
                                   </div>
                                 )}
 
-                                {/* Fast song preview (after stopping) */}
+                                {/* Fast song preview */}
                                 {!practiceIsRecording && practiceAudioPreview && practiceRecordingSongType === 'Fast Song' && practiceRecordingSchedule?.scheduleId === schedId && (
-                                  <div style={{ padding: 16, background: 'rgba(40,167,69,0.04)', borderRadius: 12, border: '1px solid rgba(40,167,69,0.15)', marginBottom: 12 }}>
-                                    <p style={{ fontSize: 13, color: '#28a745', fontWeight: 600, margin: '0 0 8px' }}>
-                                      <i className="fas fa-check"></i> Fast Song recording complete — {formatRecordingTime(practiceRecordingTime)}
-                                    </p>
-                                    <audio controls preload="none" src={practiceAudioPreview} style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />
+                                  <div className="sched-preview-ui">
+                                    <p className="sched-preview-status"><i className="fas fa-check"></i> Recording Complete ({formatRecordingTime(practiceRecordingTime)})</p>
+                                    <audio controls src={practiceAudioPreview} className="sched-audio-player" />
                                     {practiceRecordingUploading && (
-                                      <div style={{ marginBottom: 10 }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 12, color: '#888' }}>Saving to Cloudinary...</span><span style={{ fontSize: 12, fontWeight: 600 }}>{practiceRecordingProgress}%</span></div>
-                                        <div style={{ height: 6, background: '#eee', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${practiceRecordingProgress}%`, height: '100%', background: 'linear-gradient(90deg, #e53935, #28a745)', borderRadius: 3, transition: 'width 0.3s' }}></div></div>
+                                      <div className="sched-upload-progress">
+                                        <div className="sched-progress-info"><span>Saving...</span><span>{practiceRecordingProgress}%</span></div>
+                                        <div className="sched-progress-bar"><div className="sched-progress-fill" style={{ width: `${practiceRecordingProgress}%` }}></div></div>
                                       </div>
                                     )}
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#28a745', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={() => savePracticeRecording()} disabled={practiceRecordingUploading}>
-                                        {practiceRecordingUploading ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> Save Recording</>}
+                                    <div className="sched-preview-actions">
+                                      <button className="sched-btn-save" onClick={() => savePracticeRecording()} disabled={practiceRecordingUploading}>
+                                        {practiceRecordingUploading ? <><i className="fas fa-spinner fa-spin"></i> Saving</> : <><i className="fas fa-save"></i> Save</>}
                                       </button>
-                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#eee', color: '#333', border: 'none', cursor: 'pointer', fontSize: 13 }} onClick={discardPracticeRecording} disabled={practiceRecordingUploading}>
-                                        <i className="fas fa-redo"></i> Re-record
-                                      </button>
+                                      <button className="sched-btn-discard" onClick={() => { setPracticeAudioPreview(null); setPracticeRecordingProgress(0); }} disabled={practiceRecordingUploading}>Discard</button>
                                     </div>
-                                  </div>
-                                )}
-
-                                {/* Existing fast song recordings */}
-                                {fastRecs.length > 0 && (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {fastRecs.map((rec) => (
-                                      <div key={rec.id} style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                                        <div style={{ flex: 1, minWidth: 150 }}>
-                                          <p style={{ margin: '0 0 2px', fontSize: 14, fontWeight: 600 }}>{rec.title}</p>
-                                          <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#999' }}>
-                                            <span><i className="fas fa-user"></i> {rec.recorded_by_name}</span>
-                                            <span><i className="fas fa-clock"></i> {new Date(rec.created_at).toLocaleDateString()}</span>
-                                            {rec.file_size_bytes && <span><i className="fas fa-hdd"></i> {formatFileSize(rec.file_size_bytes)}</span>}
-                                          </div>
-                                        </div>
-                                        <div style={{ display: 'flex', gap: 6 }}>
-                                          {practicePlayingId === rec.id ? (
-                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: '#333', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => setPracticePlayingId(null)}>
-                                              <i className="fas fa-stop"></i> Stop
-                                            </button>
-                                          ) : (
-                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: '#e53935', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => setPracticePlayingId(rec.id)}>
-                                              <i className="fas fa-play"></i> Play
-                                            </button>
-                                          )}
-                                          {canManagePracticeRecording(rec) && (
-                                            <button style={{ padding: '6px 14px', borderRadius: 16, background: 'rgba(220,53,69,0.1)', color: '#dc3545', border: 'none', cursor: 'pointer', fontSize: 12 }} onClick={() => deletePracticeRecording(rec)}>
-                                              <i className="fas fa-trash"></i>
-                                            </button>
-                                          )}
-                                        </div>
-                                        {practicePlayingId === rec.id && rec.google_drive_file_id && (
-                                          <div style={{ width: '100%', marginTop: 6 }}>
-                                            <audio controls autoPlay preload="none" src={`/api/recordings/stream?fileId=${rec.google_drive_file_id}&profile=audio-lite`} style={{ width: '100%', borderRadius: 10 }} onEnded={() => setPracticePlayingId(null)} />
-                                          </div>
-                                        )}
-                                      </div>
-                                    ))}
                                   </div>
                                 )}
                               </div>
 
+                              <div className="sched-divider"></div>
+
                               {/* ====== SLOW SONG SECTION ====== */}
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                  <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1565c0' }}>
-                                    <i className="fas fa-dove" style={{ marginRight: 6 }}></i>Slow Song{slowSongs.length > 1 ? 's' : ''}
+                              <div className="sched-song-section slow">
+                                <div className="sched-section-header">
+                                  <h4 className="sched-section-title">
+                                    <i className="fas fa-dove"></i> Slow Song{slowSongs.length > 1 ? 's' : ''}
                                   </h4>
                                   {canRecord && !practiceIsRecording && (
-                                    <button style={{ padding: '6px 16px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'linear-gradient(135deg, #1565c0, #0d47a1)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-                                      onClick={() => startPracticeRecording(schedule, 'Slow Song')}>
-                                      <i className="fas fa-microphone"></i> Record Slow Song
+                                    <button className="sched-btn-record slow" onClick={() => startPracticeRecording(schedule, 'Slow Song')}>
+                                      <i className="fas fa-microphone"></i> Record
                                     </button>
                                   )}
                                 </div>
 
-                                {/* Song list */}
                                 {slowSongs.length > 0 ? (
-                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                                  <div className="sched-song-list">
                                     {slowSongs.map((song, i) => (
-                                      <div key={i} style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(21,101,192,0.06)', border: '1px solid rgba(21,101,192,0.12)', fontSize: 13 }}>
-                                        <i className="fas fa-music" style={{ color: '#1565c0', marginRight: 6 }}></i>
-                                        {song.title || `Song ${i + 1}`}
-                                        {song.link && <a href={song.link} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, color: '#1565c0' }}><i className="fas fa-external-link-alt" style={{ fontSize: 10 }}></i></a>}
+                                      <div key={i} className="sched-song-pill slow">
+                                        <span className="sched-song-title">{song.title || `Song ${i + 1}`}</span>
+                                        {song.link && <a href={song.link} target="_blank" rel="noopener noreferrer" className="sched-song-link"><i className="fas fa-external-link-alt"></i></a>}
                                       </div>
                                     ))}
                                   </div>
-                                ) : <p style={{ fontSize: 13, color: '#aaa', margin: '0 0 12px' }}>No slow songs assigned yet</p>}
+                                ) : <p className="sched-empty-text">No slow songs assigned yet</p>}
 
                                 {/* Slow song recorder UI */}
                                 {practiceIsRecording && practiceRecordingSongType === 'Slow Song' && practiceRecordingSchedule?.scheduleId === schedId && (
-                                  <div style={{ padding: 16, background: 'rgba(21,101,192,0.04)', borderRadius: 12, border: '1px solid rgba(21,101,192,0.15)', marginBottom: 12 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(21,101,192,0.1)', border: '2px solid #1565c0', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 1.5s infinite' }}>
-                                        <i className="fas fa-microphone" style={{ color: '#1565c0', fontSize: 18 }}></i>
-                                      </div>
-                                      <div style={{ flex: 1 }}>
-                                        <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'monospace', color: '#1565c0' }}>{formatRecordingTime(practiceRecordingTime)}</span>
-                                        <p style={{ margin: 0, fontSize: 12, color: '#1565c0' }}><i className="fas fa-circle" style={{ fontSize: 6, marginRight: 4, animation: 'pulse 1s infinite' }}></i>Recording Slow Song...</p>
-                                      </div>
-                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#333', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={stopPracticeRecording}>
-                                        <i className="fas fa-stop"></i> Stop
-                                      </button>
+                                  <div className="sched-recording-ui slow">
+                                    <div className="sched-rec-visual">
+                                      <div className="sched-rec-dot"></div>
+                                      <span className="sched-rec-timer">{formatRecordingTime(practiceRecordingTime)}</span>
                                     </div>
+                                    <button className="sched-btn-stop" onClick={stopPracticeRecording}>
+                                      <i className="fas fa-stop"></i> Stop
+                                    </button>
                                   </div>
                                 )}
 
                                 {/* Slow song preview */}
                                 {!practiceIsRecording && practiceAudioPreview && practiceRecordingSongType === 'Slow Song' && practiceRecordingSchedule?.scheduleId === schedId && (
-                                  <div style={{ padding: 16, background: 'rgba(40,167,69,0.04)', borderRadius: 12, border: '1px solid rgba(40,167,69,0.15)', marginBottom: 12 }}>
-                                    <p style={{ fontSize: 13, color: '#28a745', fontWeight: 600, margin: '0 0 8px' }}>
-                                      <i className="fas fa-check"></i> Slow Song recording complete — {formatRecordingTime(practiceRecordingTime)}
-                                    </p>
-                                    <audio controls preload="none" src={practiceAudioPreview} style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />
+                                  <div className="sched-preview-ui">
+                                    <p className="sched-preview-status"><i className="fas fa-check"></i> Recording Complete ({formatRecordingTime(practiceRecordingTime)})</p>
+                                    <audio controls src={practiceAudioPreview} className="sched-audio-player" />
                                     {practiceRecordingUploading && (
-                                      <div style={{ marginBottom: 10 }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ fontSize: 12, color: '#888' }}>Saving to Cloudinary...</span><span style={{ fontSize: 12, fontWeight: 600 }}>{practiceRecordingProgress}%</span></div>
-                                        <div style={{ height: 6, background: '#eee', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${practiceRecordingProgress}%`, height: '100%', background: 'linear-gradient(90deg, #1565c0, #28a745)', borderRadius: 3, transition: 'width 0.3s' }}></div></div>
+                                      <div className="sched-upload-progress">
+                                        <div className="sched-progress-info"><span>Saving...</span><span>{practiceRecordingProgress}%</span></div>
+                                        <div className="sched-progress-bar"><div className="sched-progress-fill" style={{ width: `${practiceRecordingProgress}%` }}></div></div>
                                       </div>
                                     )}
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#28a745', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={() => savePracticeRecording()} disabled={practiceRecordingUploading}>
-                                        {practiceRecordingUploading ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> Save Recording</>}
+                                    <div className="sched-preview-actions">
+                                      <button className="sched-btn-save" onClick={() => savePracticeRecording()} disabled={practiceRecordingUploading}>
+                                        {practiceRecordingUploading ? <><i className="fas fa-spinner fa-spin"></i> Saving</> : <><i className="fas fa-save"></i> Save</>}
                                       </button>
-                                      <button style={{ padding: '8px 20px', borderRadius: 20, background: '#eee', color: '#333', border: 'none', cursor: 'pointer', fontSize: 13 }} onClick={discardPracticeRecording} disabled={practiceRecordingUploading}>
-                                        <i className="fas fa-redo"></i> Re-record
-                                      </button>
+                                      <button className="sched-btn-discard" onClick={() => { setPracticeAudioPreview(null); setPracticeRecordingProgress(0); }} disabled={practiceRecordingUploading}>Discard</button>
                                     </div>
                                   </div>
                                 )}
@@ -12250,7 +12851,70 @@ Examples:
                   )}
                 </div>
               )}
-            </section>
+
+             {/* Moderation Modal */}
+             {showModerationModal && moderationResult && (
+               <div className="modal active" style={{ display: 'block', zIndex: 2000 }}>
+                 <div className="modal-dialog modal-dialog-centered">
+                   <div className="modal-content">
+                     <div className="modal-header">
+                       <h5 className="modal-title">
+                         {moderationResult.isBlocked ? '🚫 Message Blocked' : '✏️ Suggested Correction'}
+                       </h5>
+                       <button type="button" className="btn-close" onClick={() => setShowModerationModal(false)}></button>
+                     </div>
+                     <div className="modal-body" style={{ padding: '20px' }}>
+                       <p style={{ marginBottom: '15px', color: moderationResult.isBlocked ? '#d32f2f' : '#f9a825' }}>
+                         <strong>{moderationResult.reason}</strong>
+                       </p>
+
+                       {moderationResult.suggestion && !moderationResult.isBlocked && (
+                         <div style={{ backgroundColor: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '15px' }}>
+                           <p style={{ fontSize: '0.9em', marginBottom: '8px', color: '#666' }}>Original:</p>
+                           <p style={{ fontSize: '0.85em', color: '#999', marginBottom: '15px', fontStyle: 'italic' }}>
+                             &quot;{moderationResult.originalContent}&quot;
+                           </p>
+                           <p style={{ fontSize: '0.9em', marginBottom: '8px', color: '#666' }}>Suggested Correction:</p>
+                           <p style={{ fontSize: '0.85em', color: '#333', backgroundColor: '#fff', padding: '10px', borderRadius: '4px', border: '1px solid #ddd' }}>
+                             &quot;{moderationResult.suggestion}&quot;
+                           </p>
+                         </div>
+                       )}
+
+                       <div style={{ backgroundColor: '#e3f2fd', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #2196F3', marginBottom: '15px' }}>
+                         <p style={{ fontSize: '0.85em', margin: 0, color: '#1565c0' }}>
+                           💡 We&apos;re keeping our community safe and respectful. Messages are checked for harmful or inappropriate content.
+                         </p>
+                       </div>
+                     </div>
+                     <div className="modal-footer">
+                       {moderationResult.isBlocked ? (
+                         <>
+                           <button type="button" className="btn btn-secondary" onClick={() => setShowModerationModal(false)}>
+                             Close
+                           </button>
+                         </>
+                       ) : (
+                         <>
+                           <button type="button" className="btn btn-secondary" onClick={handleRejectCorrectedMessage}>
+                             Edit Message
+                           </button>
+                           <button type="button" className="btn btn-primary" onClick={handleSendCorrectedMessage}>
+                             Send Corrected
+                           </button>
+                         </>
+                       )}
+                     </div>
+                   </div>
+                 </div>
+               </div>
+             )}
+
+             {showModerationModal && (
+               <div className="modal-backdrop fade" style={{ display: 'block', zIndex: 1999 }} onClick={() => setShowModerationModal(false)}></div>
+             )}
+
+           </section>
           )}
 
         </main>

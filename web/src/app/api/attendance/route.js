@@ -28,11 +28,18 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'User ID and event date required' }, { status: 400 });
     }
 
-    const { data, error } = await supabase.from('attendance').upsert({
+    // Check if attendance for this user and date already exists; update if so, insert otherwise.
+    const { data: existing } = await supabase.from('attendance').select('*').eq('user_id', userId).eq('event_date', eventDate).single();
+    if (existing && existing.id) {
+      const { data, error } = await supabase.from('attendance').update({ status: status || existing.status || 'Present', notes }).eq('id', existing.id).select().single();
+      if (error) throw error;
+      return NextResponse.json({ success: true, data, message: 'Attendance updated' });
+    }
+
+    const { data, error } = await supabase.from('attendance').insert([{
       user_id: userId, schedule_id: scheduleId || null, event_date: eventDate,
       status: status || 'Present', marked_by: markedBy, notes,
-    }).select().single();
-
+    }]).select().single();
     if (error) throw error;
     return NextResponse.json({ success: true, data, message: 'Attendance recorded' });
   } catch (error) {
