@@ -45,6 +45,14 @@ const NEWS_ITEMS = [
   { title: 'VBS – Vacation Bible School', date: 'June 2026', desc: 'A week of fun, games, worship, and Bible lessons for kids ages 5-12. Volunteers needed!', icon: 'fa-children' },
 ];
 
+const ISOM_SLIDES = [
+  '/assets/isom-training.jpg',
+  '/assets/christian-leadership-conference.jpg',
+  '/assets/friday-bible-study.jpg',
+  '/assets/worship-service.jpg',
+  '/assets/community-outreach.jpg',
+];
+
 const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -56,10 +64,19 @@ export default function HomePage() {
   const [darkMode, setDarkMode] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
-  const [scrollTop, setScrollTop] = useState(false);
   const [dailyVerse, setDailyVerse] = useState({ verse: '', reference: '' });
   const [hasActiveLive, setHasActiveLive] = useState(false);
   const heroTimer = useRef(null);
+  const [isomIndex, setIsomIndex] = useState(0);
+
+  // ---- Chatbot (Joy AI Assistant) ----
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    { role: 'assistant', content: "Hello, I'm **Joy**, your SanctuaryHub assistant. 😊\n\nI'd be glad to help you with:\n- **Service times** and weekly gatherings\n- **ISOM** enrollment and details\n- Upcoming **events** and announcements\n- Getting connected or creating an account\n\nHow may I assist you today?" },
+  ]);
+  const chatBodyRef = useRef(null);
 
   // ---- Check logged in & catch OAuth hash redirect ----
   useEffect(() => {
@@ -88,6 +105,14 @@ export default function HomePage() {
     return () => clearInterval(heroTimer.current);
   }, []);
 
+  // ---- ISOM carousel auto-rotate ----
+  useEffect(() => {
+    const t = setInterval(() => {
+      setIsomIndex(prev => (prev + 1) % ISOM_SLIDES.length);
+    }, 4000);
+    return () => clearInterval(t);
+  }, []);
+
   // ---- Check for active live streams ----
   useEffect(() => {
     const checkLiveStreams = async () => {
@@ -108,7 +133,6 @@ export default function HomePage() {
   // ---- Scroll listener ----
   useEffect(() => {
     const handleScroll = () => {
-      setScrollTop(window.scrollY > 400);
       // Intersection-style animation
       document.querySelectorAll('.hp-animate:not(.visible)').forEach(el => {
         const rect = el.getBoundingClientRect();
@@ -156,6 +180,124 @@ export default function HomePage() {
 
   useEffect(() => { fetchDailyVerse(); }, [fetchDailyVerse]);
 
+  // ---- Chatbot: auto-scroll to newest message ----
+  useEffect(() => {
+    if (chatBodyRef.current) {
+      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+    }
+  }, [chatMessages, chatLoading, chatOpen]);
+
+  const CHAT_SYSTEM_PROMPT = `You are "Joy", the professional AI assistant for SanctuaryHub — the online ministry portal of Jesus Sanctuary Christian International (JSCI).
+
+TONE & STYLE:
+- Write in a warm but professional and polished tone, like a helpful ministry representative.
+- Be concise and well-organized. Prefer short paragraphs (1-2 sentences) separated by a blank line.
+- When listing details (times, steps, options), use bullet points starting with "- ".
+- Emphasize the most important words or key terms using **bold** markdown (e.g. **Sunday 9:00 AM**, **ISOM**, **August 2026**). Bold sparingly and purposefully — only the key terms, not whole sentences.
+- Use emojis very sparingly — at most ONE per reply, and only when it genuinely adds warmth. Many replies should have none.
+- Do NOT use markdown headings (#) or tables. Only **bold**, plain paragraphs, and "- " bullets.
+
+KEY FACTS:
+- Worship Service: **Sunday 9:00 AM**. Bible Study: **Friday 7:00 PM**. Youth Fellowship: **Saturday 2:00 PM**.
+- Senior Pastors: **Dr. Weldon Pior** and **Dr. Dorothy Pior**.
+- ISOM (International School of Ministries) is a ministry-training program. Classes begin **August 2026**. People enroll by signing up / clicking "Enroll Now".
+- Users can sign up or log in from the navbar buttons, and watch live streams when a service is live.
+
+If you don't know something specific, professionally encourage the user to contact the church office or visit in person. Keep answers focused (usually 2-4 short paragraphs or a short list). Never invent doctrine; refer spiritual counsel to a pastor.`;
+
+  // Render a single line, converting **bold** markdown into <strong> spans
+  const renderInline = (text, keyPrefix) => {
+    const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={`${keyPrefix}-${i}`} className="hp-chat-em">{part.slice(2, -2)}</strong>;
+      }
+      return <span key={`${keyPrefix}-${i}`}>{part}</span>;
+    });
+  };
+
+  // Convert Joy's reply (bold, paragraphs, "- " bullets) into formatted JSX
+  const renderRichText = (content) => {
+    const lines = content.split('\n');
+    const blocks = [];
+    let bullets = [];
+    const flushBullets = (key) => {
+      if (bullets.length) {
+        blocks.push(
+          <ul className="hp-chat-list" key={`ul-${key}`}>
+            {bullets.map((b, i) => <li key={i}>{renderInline(b, `li-${key}-${i}`)}</li>)}
+          </ul>
+        );
+        bullets = [];
+      }
+    };
+    lines.forEach((raw, idx) => {
+      const line = raw.trim();
+      if (/^[-•]\s+/.test(line)) {
+        bullets.push(line.replace(/^[-•]\s+/, ''));
+      } else if (line === '') {
+        flushBullets(idx);
+      } else {
+        flushBullets(idx);
+        blocks.push(<p className="hp-chat-p" key={`p-${idx}`}>{renderInline(line, `p-${idx}`)}</p>);
+      }
+    });
+    flushBullets('end');
+    return blocks;
+  };
+
+  // Detect sign-up / sign-in intent in a reply and attach clickable buttons
+  const buildChatActions = (reply) => {
+    const t = reply.toLowerCase();
+    const actions = [];
+    if (/(sign\s?up|signup|register|enroll|create an account|join)/.test(t)) {
+      actions.push({ label: 'Sign Up', href: '/signup', icon: 'fa-user-plus' });
+    }
+    if (/(sign\s?in|signin|log\s?in|login|log in to)/.test(t)) {
+      actions.push({ label: 'Sign In', href: '/login', icon: 'fa-sign-in-alt' });
+    }
+    return actions;
+  };
+
+  const sendChatMessage = async () => {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
+
+    const newMessages = [...chatMessages, { role: 'user', content: text }];
+    setChatMessages(newMessages);
+    setChatInput('');
+    setChatLoading(true);
+
+    if (!GROQ_API_KEY) {
+      const fallback = "I'm not fully connected right now, but here's what I can share: our Worship Service is Sunday 9 AM, and ISOM classes begin August 2026. You can sign up or sign in anytime below. 🙏";
+      setChatMessages([...newMessages, { role: 'assistant', content: fallback, actions: buildChatActions(fallback + ' sign up sign in') }]);
+      setChatLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: CHAT_SYSTEM_PROMPT },
+            ...newMessages.slice(-8).map(m => ({ role: m.role, content: m.content })),
+          ],
+          temperature: 0.7, max_tokens: 400,
+        }),
+      });
+      const data = await res.json();
+      const reply = data.choices?.[0]?.message?.content?.trim() || "Sorry, I didn't quite catch that. Could you rephrase? 😊";
+      setChatMessages([...newMessages, { role: 'assistant', content: reply, actions: buildChatActions(reply) }]);
+    } catch {
+      setChatMessages([...newMessages, { role: 'assistant', content: "I'm having trouble connecting right now. Please try again in a moment, or contact the church office. 🙏" }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   // ---- Helpers ----
   const toggleDarkMode = () => {
     const next = !darkMode;
@@ -187,11 +329,24 @@ export default function HomePage() {
       {/* ---- NAVBAR ---- */}
       <nav className="hp-navbar">
         <a className="hp-navbar-brand" href="/">
-          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="hp-navbar-logo" />
+          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="hp-navbar-logo" fetchPriority="high" decoding="async" />
           <div className="hp-navbar-title">
             SanctuaryHub
           </div>
         </a>
+
+        <div className={`hp-navbar-links ${mobileNavOpen ? 'open' : ''}`}>
+          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('about'); }}>About</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('services'); }}>Services</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('activities'); }}>Activities</a>
+          <a href="#" className="hp-nav-isom" onClick={(e) => { e.preventDefault(); scrollToSection('isom'); }}><i className="fas fa-graduation-cap"></i> ISOM</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>News</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
+          {hasActiveLive && <a href="/live" className="hp-btn-live"><i className="fas fa-broadcast-tower"></i> Watch Live</a>}
+          <a href="/login" className="hp-btn-login"><i className="fas fa-sign-in-alt"></i> Login</a>
+          <a href="/signup" className="hp-btn-signup"><i className="fas fa-user-plus"></i> Sign Up</a>
+        </div>
 
         <div className="hp-navbar-actions">
           <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode">
@@ -200,18 +355,6 @@ export default function HomePage() {
           <button className="hp-nav-toggle" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
             <i className={`fas ${mobileNavOpen ? 'fa-times' : 'fa-bars'}`}></i>
           </button>
-        </div>
-
-        <div className={`hp-navbar-links ${mobileNavOpen ? 'open' : ''}`}>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('about'); }}>About</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('services'); }}>Services</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('activities'); }}>Activities</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>News</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
-          {hasActiveLive && <a href="/live" className="hp-btn-live"><i className="fas fa-broadcast-tower"></i> Watch Live</a>}
-          <a href="/login" className="hp-btn-login"><i className="fas fa-sign-in-alt"></i> Login</a>
-          <a href="/signup" className="hp-btn-signup"><i className="fas fa-user-plus"></i> Sign Up</a>
         </div>
       </nav>
 
@@ -261,7 +404,7 @@ export default function HomePage() {
 
         <div className="hp-welcome-grid hp-animate">
           <div className="hp-welcome-img-wrapper">
-            <img src="/assets/worship-service.jpg" alt="Church worship" />
+            <img src="/assets/worship-service.jpg" alt="Church worship" loading="lazy" decoding="async" />
             <div className="hp-welcome-img-badge">
               <i className="fas fa-church"></i>&nbsp; Est. by God&apos;s Grace
             </div>
@@ -359,7 +502,7 @@ export default function HomePage() {
             {ACTIVITIES.map((a, i) => (
               <div className="hp-activity-card hp-animate" key={i} style={{ transitionDelay: `${i * 0.1}s` }}>
                 <div className="hp-activity-img-wrapper">
-                  <img src={a.photo} alt={a.title} className="hp-activity-img" />
+                  <img src={a.photo} alt={a.title} className="hp-activity-img" loading="lazy" decoding="async" />
                   <div className="hp-activity-badge">{a.badge}</div>
                 </div>
                 <div className="hp-activity-body">
@@ -374,6 +517,75 @@ export default function HomePage() {
           </div>
         </section>
       </div>
+
+      {/* ---- ISOM ---- */}
+      <section id="isom" className="hp-isom">
+        <div className="hp-isom-bg"></div>
+        <div className="hp-isom-overlay"></div>
+
+        <div className="hp-isom-inner">
+          <div className="hp-isom-header hp-animate">
+            <span className="hp-isom-eyebrow"><i className="fas fa-star"></i> Now Enrolling</span>
+            <img src="/assets/ISOM_Logo.png" alt="ISOM Logo" className="hp-isom-logo" loading="lazy" decoding="async" />
+            <h2>International School of Ministries</h2>
+            <p className="hp-isom-sub">
+              Be equipped, empowered, and sent — a Spirit-filled ministry training program
+              raising up the next generation of kingdom leaders.
+            </p>
+          </div>
+
+          <div className="hp-isom-body hp-animate">
+            <div className="hp-isom-carousel">
+              {ISOM_SLIDES.map((src, i) => (
+                <img
+                  key={i}
+                  src={src}
+                  alt={`ISOM ${i + 1}`}
+                  loading="lazy"
+                  decoding="async"
+                  className={`hp-isom-slide ${i === isomIndex ? 'active' : ''}`}
+                />
+              ))}
+              <button className="hp-isom-arrow left" aria-label="Previous"
+                onClick={() => setIsomIndex((isomIndex - 1 + ISOM_SLIDES.length) % ISOM_SLIDES.length)}>
+                <i className="fas fa-chevron-left"></i>
+              </button>
+              <button className="hp-isom-arrow right" aria-label="Next"
+                onClick={() => setIsomIndex((isomIndex + 1) % ISOM_SLIDES.length)}>
+                <i className="fas fa-chevron-right"></i>
+              </button>
+              <div className="hp-isom-dots">
+                {ISOM_SLIDES.map((_, i) => (
+                  <button key={i} className={`hp-isom-dot ${i === isomIndex ? 'active' : ''}`}
+                    aria-label={`Slide ${i + 1}`} onClick={() => setIsomIndex(i)} />
+                ))}
+              </div>
+            </div>
+
+            <div className="hp-isom-side">
+              <ul className="hp-isom-points">
+                <li><i className="fas fa-book-bible"></i> Solid biblical foundation & sound doctrine</li>
+                <li><i className="fas fa-hands-praying"></i> Spirit-empowered prayer & worship</li>
+                <li><i className="fas fa-people-group"></i> Hands-on leadership & ministry training</li>
+                <li><i className="fas fa-globe"></i> A heart to reach the nations for Christ</li>
+              </ul>
+
+              <div className="hp-isom-cta">
+                <div className="hp-isom-date">
+                  <i className="fas fa-calendar-day"></i>
+                  <div>
+                    <span className="hp-isom-date-label">Classes Begin</span>
+                    <span className="hp-isom-date-value">August 2026</span>
+                  </div>
+                </div>
+                <a href="/signup" className="hp-isom-btn">
+                  <i className="fas fa-graduation-cap"></i> Enroll Now
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ---- NEWS & UPDATES ---- */}
       <section id="news" className="hp-section">
@@ -420,7 +632,7 @@ export default function HomePage() {
             {PASTORS.map((p, i) => (
               <div className="hp-pastor-card" key={i}>
                 <div className="hp-pastor-photo-wrapper">
-                  <img src={p.photo} alt={p.name} />
+                  <img src={p.photo} alt={p.name} loading="lazy" decoding="async" />
                 </div>
                 <h4>{p.name}</h4>
                 <div className="hp-pastor-role">{p.title}</div>
@@ -493,7 +705,7 @@ export default function HomePage() {
           {/* About col */}
           <div className="hp-footer-about">
             <div className="hp-footer-brand">
-              <img src="/assets/LOGO.png" alt="SanctuaryHub" />
+              <img src="/assets/LOGO.png" alt="SanctuaryHub" loading="lazy" decoding="async" />
               <h3>
                 SanctuaryHub
               </h3>
@@ -554,14 +766,74 @@ export default function HomePage() {
         </div>
       </footer>
 
-      {/* ---- SCROLL TO TOP ---- */}
-      <button
-        className={`hp-scroll-top ${scrollTop ? 'visible' : ''}`}
-        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-        title="Back to top"
-      >
-        <i className="fas fa-arrow-up"></i>
-      </button>
+      {/* ---- JOY AI CHATBOT ---- */}
+      <div className={`hp-chat ${chatOpen ? 'open' : ''}`}>
+        <div className="hp-chat-window" role="dialog" aria-label="Joy AI Assistant">
+          <div className="hp-chat-header">
+            <div className="hp-chat-header-info">
+              <img src="/assets/Joy_Mascot.webp" alt="Joy" className="hp-chat-avatar" loading="lazy" decoding="async" />
+              <div>
+                <span className="hp-chat-name">Joy</span>
+                <span className="hp-chat-status"><i className="fas fa-circle"></i> AI Assistant</span>
+              </div>
+            </div>
+            <button className="hp-chat-close" onClick={() => setChatOpen(false)} aria-label="Close chat">
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+
+          <div className="hp-chat-body" ref={chatBodyRef}>
+            {chatMessages.map((m, i) => (
+              <div key={i} className={`hp-chat-msg ${m.role}`}>
+                <div className="hp-chat-bubble">
+                  {m.role === 'assistant' ? renderRichText(m.content) : m.content}
+                </div>
+                {m.actions && m.actions.length > 0 && (
+                  <div className="hp-chat-actions">
+                    {m.actions.map((a, j) => (
+                      <a key={j} href={a.href} className="hp-chat-action-btn">
+                        <i className={`fas ${a.icon}`}></i> {a.label}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="hp-chat-msg assistant">
+                <div className="hp-chat-bubble hp-chat-typing">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <form
+            className="hp-chat-input"
+            onSubmit={(e) => { e.preventDefault(); sendChatMessage(); }}
+          >
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Ask Joy anything..."
+              aria-label="Message"
+            />
+            <button type="submit" disabled={!chatInput.trim() || chatLoading} aria-label="Send">
+              <i className="fas fa-paper-plane"></i>
+            </button>
+          </form>
+        </div>
+
+        <button
+          className="hp-chat-launcher"
+          onClick={() => setChatOpen(o => !o)}
+          title="Chat with Joy"
+          aria-label="Chat with Joy, our AI Assistant"
+        >
+          <img src="/assets/Joy_Mascot.webp" alt="Joy AI Assistant" draggable="false" loading="lazy" decoding="async" fetchPriority="low" />
+        </button>
+      </div>
     </>
   );
 }

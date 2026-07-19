@@ -3,6 +3,11 @@ import './globals.css';
 export const metadata = {
   title: 'SanctuaryHub',
   description: 'Ministry Portal - SanctuaryHub',
+  icons: {
+    icon: '/assets/LOGO.png',
+    shortcut: '/assets/LOGO.png',
+    apple: '/assets/LOGO.png',
+  },
 }
 
 export default function RootLayout({ children }) {
