@@ -459,6 +459,9 @@ export default function DashboardPage() {
   const [eventForm, setEventForm] = useState({ title: '', description: '', eventDate: '', endDate: '', location: '' });
   const [showEventForm, setShowEventForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
+  const [eventImageFile, setEventImageFile] = useState(null);
+  const [eventImagePreview, setEventImagePreview] = useState('');
+  const [eventSaving, setEventSaving] = useState(false);
 
   // User-Created Events (enabled by admin)
   const [userEvents, setUserEvents] = useState([]);
@@ -2911,17 +2914,52 @@ export default function DashboardPage() {
   // ============================================
 
   // -- Events --
+  const resetEventForm = () => {
+    setShowEventForm(false);
+    setEditingEvent(null);
+    setEventForm({ title: '', description: '', eventDate: '', endDate: '', location: '' });
+    setEventImageFile(null);
+    setEventImagePreview('');
+  };
+
+  const handleEventImagePick = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'danger'); return; }
+    if (file.size > 5 * 1024 * 1024) { showToast('Image must be under 5MB', 'danger'); return; }
+    setEventImageFile(file);
+    setEventImagePreview(URL.createObjectURL(file));
+  };
+
   const handleEventSubmit = async () => {
+    if (!eventForm.title || !eventForm.eventDate) { showToast('Title and event date are required', 'danger'); return; }
+    setEventSaving(true);
     try {
       const method = editingEvent ? 'PUT' : 'POST';
-      const body = editingEvent
-        ? { id: editingEvent.id, title: eventForm.title, description: eventForm.description, eventDate: eventForm.eventDate, endDate: eventForm.endDate, location: eventForm.location }
-        : { ...eventForm, createdBy: userData?.id };
-      const res = await fetch('/api/events', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      let res;
+      // Send multipart when a new image is picked so it uploads to Cloudinary
+      if (eventImageFile) {
+        const fd = new FormData();
+        if (editingEvent) fd.append('id', editingEvent.id);
+        else fd.append('createdBy', userData?.id || '');
+        fd.append('title', eventForm.title);
+        fd.append('description', eventForm.description || '');
+        fd.append('eventDate', eventForm.eventDate);
+        fd.append('endDate', eventForm.endDate || '');
+        fd.append('location', eventForm.location || '');
+        fd.append('image', eventImageFile);
+        res = await fetch('/api/events', { method, body: fd });
+      } else {
+        const body = editingEvent
+          ? { id: editingEvent.id, title: eventForm.title, description: eventForm.description, eventDate: eventForm.eventDate, endDate: eventForm.endDate, location: eventForm.location }
+          : { ...eventForm, createdBy: userData?.id };
+        res = await fetch('/api/events', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      }
       const data = await res.json();
-      if (data.success) { showToast(data.message, 'success'); setShowEventForm(false); setEditingEvent(null); setEventForm({ title: '', description: '', eventDate: '', endDate: '', location: '' }); loadEvents(); }
+      if (data.success) { showToast(data.message, 'success'); resetEventForm(); loadEvents(); }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setEventSaving(false); }
   };
 
   const handleDeleteEvent = async (id) => {
@@ -6153,7 +6191,7 @@ Examples:
             <h2 className="section-title">Events</h2>
 
             {canManage(MODULES.CREATE_EVENTS) && featureOn('events.create') && (
-              <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowEventForm(true); setEditingEvent(null); setEventForm({ title: '', description: '', eventDate: '', endDate: '', location: '' }); }}>
+              <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowEventForm(true); setEditingEvent(null); setEventForm({ title: '', description: '', eventDate: '', endDate: '', location: '' }); setEventImageFile(null); setEventImagePreview(''); }}>
                 <i className="fas fa-plus"></i> Create Event
               </button>
             )}
@@ -6161,16 +6199,41 @@ Examples:
             {showEventForm && (
               <div className="form-card" style={{ marginBottom: 20, padding: 20, background: 'var(--bg-card)', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                 <h3>{editingEvent ? 'Edit Event' : 'New Event'}</h3>
+                <p style={{ marginTop: -6, marginBottom: 14, fontSize: '0.85rem', opacity: 0.7 }}>
+                  <i className="fas fa-globe"></i> Upcoming events appear in the <strong>News &amp; Upcoming Events</strong> section of the public homepage.
+                </p>
                 <div className="form-group"><label>Title *</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.title} onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })} /></div>
                 <div className="form-group"><label>Description</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={3} value={eventForm.description} onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })} /></div>
+
+                <div className="form-group">
+                  <label>Picture</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    <div style={{ width: 140, height: 90, borderRadius: 10, overflow: 'hidden', background: 'rgba(146,108,21,0.08)', border: '1px dashed rgba(146,108,21,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {(eventImagePreview || editingEvent?.image_url)
+                        ? <img src={eventImagePreview || editingEvent?.image_url} alt="Event" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <i className="fas fa-image" style={{ fontSize: '1.6rem', opacity: 0.4 }}></i>}
+                    </div>
+                    <div>
+                      <input id="event-image-input" type="file" accept="image/*" onChange={handleEventImagePick} style={{ display: 'none' }} />
+                      <label htmlFor="event-image-input" className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <i className="fas fa-upload"></i> {(eventImagePreview || editingEvent?.image_url) ? 'Change Picture' : 'Upload Picture'}
+                      </label>
+                      {(eventImagePreview || eventImageFile) && (
+                        <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => { setEventImageFile(null); setEventImagePreview(''); }}>Remove</button>
+                      )}
+                      <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: 6 }}>JPG/PNG, up to 5MB. Recommended 800×450.</div>
+                    </div>
+                  </div>
+                </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group"><label>Event Date *</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.eventDate} onChange={(e) => setEventForm({ ...eventForm, eventDate: e.target.value })} /></div>
+                  <div className="form-group"><label>Start Date &amp; Time *</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.eventDate} onChange={(e) => setEventForm({ ...eventForm, eventDate: e.target.value })} /></div>
                   <div className="form-group"><label>End Date</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.endDate} onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })} /></div>
                 </div>
                 <div className="form-group"><label>Location</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} /></div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button className="btn-primary" onClick={handleEventSubmit}><i className="fas fa-save"></i> {editingEvent ? 'Update' : 'Create'}</button>
-                  <button className="btn-secondary" onClick={() => setShowEventForm(false)}>Cancel</button>
+                  <button className="btn-primary" onClick={handleEventSubmit} disabled={eventSaving}><i className={`fas ${eventSaving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> {eventSaving ? 'Saving...' : (editingEvent ? 'Update' : 'Create')}</button>
+                  <button className="btn-secondary" onClick={resetEventForm} disabled={eventSaving}>Cancel</button>
                 </div>
               </div>
             )}
@@ -6182,7 +6245,7 @@ Examples:
                     <h3 className="event-card-title">{evt.title}</h3>
                     <div className="event-card-actions">
                       {canManage(MODULES.UPDATE_EVENTS) && featureOn('events.edit') && (
-                        <button className="event-action-btn edit" onClick={() => { setEditingEvent(evt); setEventForm({ title: evt.title, description: evt.description || '', eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '' }); setShowEventForm(true); }} title="Edit Event"><i className="fas fa-edit"></i></button>
+                        <button className="event-action-btn edit" onClick={() => { setEditingEvent(evt); setEventForm({ title: evt.title, description: evt.description || '', eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '' }); setEventImageFile(null); setEventImagePreview(''); setShowEventForm(true); }} title="Edit Event"><i className="fas fa-edit"></i></button>
                       )}
                       {canManage(MODULES.DELETE_EVENTS) && featureOn('events.delete') && (
                         <button className="event-action-btn delete" onClick={() => handleDeleteEvent(evt.id)} title="Delete Event"><i className="fas fa-trash"></i></button>

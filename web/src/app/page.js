@@ -68,6 +68,7 @@ export default function HomePage() {
   const [hasActiveLive, setHasActiveLive] = useState(false);
   const heroTimer = useRef(null);
   const [isomIndex, setIsomIndex] = useState(0);
+  const [newsEvents, setNewsEvents] = useState([]);
 
   // ---- Chatbot (Joy AI Assistant) ----
   const [chatOpen, setChatOpen] = useState(false);
@@ -113,6 +114,34 @@ export default function HomePage() {
     return () => clearInterval(t);
   }, []);
 
+  // ---- Load events for the News section (upcoming first, then most recent) ----
+  useEffect(() => {
+    const loadNews = async () => {
+      try {
+        const res = await fetch('/api/events?limit=20');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data)) {
+            const now = Date.now();
+            const sorted = [...json.data].sort((a, b) => {
+              const da = new Date(a.event_date).getTime();
+              const db = new Date(b.event_date).getTime();
+              const aUpcoming = da >= now;
+              const bUpcoming = db >= now;
+              // Upcoming events first (soonest first), then past events (most recent first)
+              if (aUpcoming && bUpcoming) return da - db;
+              if (aUpcoming) return -1;
+              if (bUpcoming) return 1;
+              return db - da;
+            });
+            setNewsEvents(sorted.slice(0, 8));
+          }
+        }
+      } catch { /* fall back to defaults */ }
+    };
+    loadNews();
+  }, []);
+
   // ---- Check for active live streams ----
   useEffect(() => {
     const checkLiveStreams = async () => {
@@ -147,23 +176,37 @@ export default function HomePage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // ---- Daily verse ----
+  // ---- Daily verse (cached 24h in localStorage) ----
   const fetchDailyVerse = useCallback(async () => {
+    const FALLBACK = { verse: '"For I know the plans I have for you," declares the Lord, "plans to prosper you and not to harm you, plans to give you hope and a future."', reference: 'Jeremiah 29:11 (NIV)' };
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+
+    // 1) Serve a cached verse if it's less than 24h old
+    try {
+      const cached = JSON.parse(localStorage.getItem('dailyVerse') || 'null');
+      if (cached && cached.verse && cached.savedAt && (Date.now() - cached.savedAt) < ONE_DAY) {
+        setDailyVerse({ verse: cached.verse, reference: cached.reference });
+        return;
+      }
+    } catch { /* ignore corrupt cache */ }
+
     if (!GROQ_API_KEY) {
-      setDailyVerse({ verse: '"For I know the plans I have for you," declares the Lord, "plans to prosper you and not to harm you, plans to give you hope and a future."', reference: 'Jeremiah 29:11 (NIV)' });
+      setDailyVerse(FALLBACK);
       return;
     }
+
+    // 2) Otherwise fetch a fresh verse from Groq and cache it for the day
     try {
       const res = await fetch(GROQ_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.3-70b-versatile',
           messages: [
-            { role: 'system', content: 'You are a Bible verse provider. Respond ONLY with JSON: {"verse":"...","reference":"Book Chapter:Verse (NIV)"}' },
-            { role: 'user', content: `Provide an inspiring Bible verse for today (${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}). Return JSON only.` },
+            { role: 'system', content: 'You are a Bible verse provider. Respond ONLY with valid JSON in the exact form {"verse":"...","reference":"Book Chapter:Verse (NIV)"} and nothing else.' },
+            { role: 'user', content: `Provide a single inspiring, uplifting Bible verse for today (${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}). Vary the book and choose an encouraging verse. Return JSON only.` },
           ],
-          temperature: 0.9, max_tokens: 250,
+          temperature: 1.0, max_tokens: 250,
         }),
       });
       const data = await res.json();
@@ -171,10 +214,15 @@ export default function HomePage() {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        setDailyVerse({ verse: parsed.verse, reference: parsed.reference });
+        if (parsed.verse && parsed.reference) {
+          setDailyVerse({ verse: parsed.verse, reference: parsed.reference });
+          localStorage.setItem('dailyVerse', JSON.stringify({ verse: parsed.verse, reference: parsed.reference, savedAt: Date.now() }));
+          return;
+        }
       }
+      setDailyVerse(FALLBACK);
     } catch {
-      setDailyVerse({ verse: '"For I know the plans I have for you," declares the Lord, "plans to prosper you and not to harm you, plans to give you hope and a future."', reference: 'Jeremiah 29:11 (NIV)' });
+      setDailyVerse(FALLBACK);
     }
   }, []);
 
@@ -596,26 +644,52 @@ If you don't know something specific, professionally encourage the user to conta
         </div>
 
         <div className="hp-activities-grid">
-          {NEWS_ITEMS.map((n, i) => (
-            <div className="hp-activity-card hp-animate" key={i} style={{ transitionDelay: `${i * 0.1}s` }}>
-              <div style={{
-                height: 160,
-                background: `linear-gradient(135deg, var(--primary), #3e2e08)`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-                <i className={`fas ${n.icon}`} style={{ fontSize: '3.5rem', color: 'var(--accent)', opacity: 0.7 }}></i>
-              </div>
-              <div className="hp-activity-body">
-                <h4>{n.title}</h4>
-                <p>{n.desc}</p>
-                <div className="hp-activity-meta">
-                  <i className="fas fa-calendar-check"></i> {n.date}
+          {newsEvents.length > 0 ? (
+            newsEvents.map((evt, i) => {
+              const start = evt.event_date ? new Date(evt.event_date) : null;
+              const dateLabel = start
+                ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                : '';
+              return (
+                <div className="hp-activity-card hp-animate" key={evt.id || i} style={{ transitionDelay: `${i * 0.1}s` }}>
+                  {evt.image_url ? (
+                    <div className="hp-activity-img-wrapper">
+                      <img src={evt.image_url} alt={evt.title} className="hp-activity-img" loading="lazy" decoding="async" />
+                    </div>
+                  ) : (
+                    <div style={{ height: 160, background: 'linear-gradient(135deg, var(--primary), #3e2e08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <i className="fas fa-calendar-day" style={{ fontSize: '3.5rem', color: 'var(--accent)', opacity: 0.7 }}></i>
+                    </div>
+                  )}
+                  <div className="hp-activity-body">
+                    <h4>{evt.title}</h4>
+                    {evt.description && <p>{evt.description}</p>}
+                    {evt.location && (
+                      <div className="hp-activity-meta"><i className="fas fa-location-dot"></i> {evt.location}</div>
+                    )}
+                    {dateLabel && (
+                      <div className="hp-activity-meta"><i className="fas fa-calendar-check"></i> {dateLabel}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            NEWS_ITEMS.map((n, i) => (
+              <div className="hp-activity-card hp-animate" key={i} style={{ transitionDelay: `${i * 0.1}s` }}>
+                <div style={{ height: 160, background: 'linear-gradient(135deg, var(--primary), #3e2e08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className={`fas ${n.icon}`} style={{ fontSize: '3.5rem', color: 'var(--accent)', opacity: 0.7 }}></i>
+                </div>
+                <div className="hp-activity-body">
+                  <h4>{n.title}</h4>
+                  <p>{n.desc}</p>
+                  <div className="hp-activity-meta">
+                    <i className="fas fa-calendar-check"></i> {n.date}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </section>
 
