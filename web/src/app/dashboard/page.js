@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
@@ -288,6 +289,10 @@ export default function DashboardPage() {
   const [userRole, setUserRole] = useState('Guest');
   const [activeSection, setActiveSection] = useState(() => {
     if (typeof window !== 'undefined') {
+      // Section comes from the URL path (e.g. /bible-reader). /dashboard = home.
+      const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+      if (slug && slug !== 'dashboard') return slug;
+      // Backward-compat: still honor an old #section hash if present
       const hash = window.location.hash.replace('#', '');
       return hash || 'home';
     }
@@ -296,6 +301,16 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+
+  // Keep the active section in sync with browser back/forward navigation
+  useEffect(() => {
+    const onPopState = () => {
+      const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+      setActiveSection(slug && slug !== 'dashboard' ? slug : 'home');
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
   const [isVerified, setIsVerified] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
   const [cloudUsage, setCloudUsage] = useState(null);
@@ -377,6 +392,9 @@ export default function DashboardPage() {
   // Profile
   const [profileTab, setProfileTab] = useState('personal');
   const [profileForm, setProfileForm] = useState({ firstname: '', lastname: '', birthdate: '', life_verse: '' });
+  // Edit-mode toggles: fields are read-only until the user clicks Edit
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editingPassword, setEditingPassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [setPasswordFormData, setSetPasswordFormData] = useState({ newPassword: '', confirmPassword: '' });
   const [hasLocalPassword, setHasLocalPassword] = useState(true);
@@ -462,6 +480,9 @@ export default function DashboardPage() {
   const [eventImageFile, setEventImageFile] = useState(null);
   const [eventImagePreview, setEventImagePreview] = useState('');
   const [eventSaving, setEventSaving] = useState(false);
+  // Sidebar collapsible category groups (accordion: one open at a time)
+  // null = follow the active section's group; '' = all closed; else the open group key
+  const [openSidebarGroup, setOpenSidebarGroup] = useState(null);
 
   // User-Created Events (enabled by admin)
   const [userEvents, setUserEvents] = useState([]);
@@ -509,10 +530,29 @@ export default function DashboardPage() {
 
   // Community Hub
   const [communityPosts, setCommunityPosts] = useState([]);
+  // Stable feed order — computed only when the set of posts changes (load),
+  // NOT on every reaction, so reacting doesn't reshuffle/hide the post.
+  const [communityPostOrder, setCommunityPostOrder] = useState([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [commentInputs, setCommentInputs] = useState({});
   const [postComments, setPostComments] = useState({});
   const [showComments, setShowComments] = useState({});
+  // Facebook-style image lightbox modal (image + reactions + comments)
+  const [imageViewerPostId, setImageViewerPostId] = useState(null);
+  const [imageViewerIndex, setImageViewerIndex] = useState(0);
+
+  // Image lightbox: lock page scroll + close on Escape while open
+  useEffect(() => {
+    if (!imageViewerPostId) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setImageViewerPostId(null); };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [imageViewerPostId]);
   const [editingPost, setEditingPost] = useState(null);
   const [editPostContent, setEditPostContent] = useState('');
   const [editingComment, setEditingComment] = useState(null);
@@ -861,11 +901,14 @@ export default function DashboardPage() {
     loadBirthdays();
     if (stored.id) loadNotifications(stored.id);
 
-    // Restore section from URL hash and load its data
-    const hashSection = window.location.hash.replace('#', '');
-    if (hashSection && hashSection !== 'home') {
+    // Restore section from the URL path (e.g. /bible-reader) and load its data
+    const pathSlug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    const restored = (pathSlug && pathSlug !== 'dashboard')
+      ? pathSlug
+      : window.location.hash.replace('#', ''); // backward-compat with old #hash links
+    if (restored && restored !== 'home') {
       // Defer to let state settle, then trigger data load for restored section
-      setTimeout(() => { showSection(hashSection); }, 300);
+      setTimeout(() => { showSection(restored); }, 300);
     }
 
     // Fetch life verse full text for banner
@@ -1220,9 +1263,12 @@ export default function DashboardPage() {
     }
     setActiveSection(sectionId);
     setSidebarOpen(false);
-    // Persist section in URL hash for refresh persistence
+    // Reflect the section as a clean top-level URL (e.g. /bible-reader). Home = /dashboard.
     if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', sectionId === 'home' ? window.location.pathname : `#${sectionId}`);
+      const targetPath = sectionId === 'home' ? '/dashboard' : `/${sectionId}`;
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, '', targetPath);
+      }
     }
 
     // Load data on section visit
@@ -1270,7 +1316,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: `You provide daily Bible verses for church ministry members (${ministry || 'general'} ministry). Return ONLY a JSON object: {"verse":"...", "reference":"Book Chapter:Verse", "explanation":"brief 1-2 sentence explanation"}` },
             { role: 'user', content: `Provide an encouraging Bible verse for ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.` },
@@ -1364,7 +1410,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: 'You are a warm, loving church elder who gives heartfelt, encouraging feedback when someone shares their life verse. Be personal, warm, and uplifting. Keep it to 3-4 sentences. Use emojis sparingly but meaningfully.' },
             { role: 'user', content: `Someone just chose "${verse}" as their life verse. Give them a heartwarming, encouraging response about what a beautiful choice that is and what it means for their spiritual journey.` },
@@ -1432,7 +1478,17 @@ export default function DashboardPage() {
 
   const loadCommunityPosts = async () => {
     try {
-      const res = await fetch(`/api/community${userData?.id ? `?userId=${userData.id}` : ''}`);
+      // Always resolve a userId so the server can return the viewer's own
+      // reaction (myReaction/liked) — falls back to stored session if state
+      // isn't hydrated yet (prevents the reaction resetting after refresh).
+      let uid = userData?.id;
+      if (!uid && typeof window !== 'undefined') {
+        try {
+          const stored = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
+          uid = stored?.id;
+        } catch { /* ignore */ }
+      }
+      const res = await fetch(`/api/community${uid ? `?userId=${uid}` : ''}`);
       if (!res.ok) { console.warn('[Community] API returned', res.status); return; }
       const data = await res.json();
       if (data.success) setCommunityPosts(data.data || []);
@@ -1914,7 +1970,8 @@ export default function DashboardPage() {
     if (showSpinner) setCloudUsageLoading(true);
     try {
       const res = await fetch('/api/cloudinary/usage');
-      const json = await res.json();
+      if (!res.ok) throw new Error(`Service unavailable (HTTP ${res.status}). Try refreshing.`);
+      const json = await res.json().catch(() => { throw new Error('Unexpected response from server.'); });
       if (!json.success) throw new Error(json.message || 'Failed to load Cloudinary usage');
       setCloudUsage(json.data || null);
       setCloudUsageError('');
@@ -2995,7 +3052,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: `You provide encouraging Bible verses specifically for church ministry members serving as "${roleLabel}" in Praise and Worship ministry. The verse should relate to their role and encourage them in their service. Return ONLY a JSON object: {"verse":"the actual verse text", "reference":"Book Chapter:Verse", "encouragement":"a brief 1-2 sentence encouragement specifically for this role"}` },
             { role: 'user', content: `Provide an encouraging Bible verse for a ${roleLabel} in the Praise and Worship ministry for today, ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.` },
@@ -3400,7 +3457,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: 'You are a Bible verse provider. Given a Bible reference, return ONLY the verse text in NIV translation. No commentary, no headings — just the verse text. If the reference is invalid, say "Verse not found. Please check the reference."' },
             { role: 'user', content: `Provide the full text of ${verseShareRef.trim()} in NIV.` }
@@ -3446,11 +3503,13 @@ export default function DashboardPage() {
   // ============================================
   const handleOpenImageViewer = (post, imageIndex = 0) => {
     if (!post) return;
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('communityScrollY', `${window.scrollY || 0}`);
-    }
-    router.push(`/community/image/${post.id}?idx=${imageIndex || 0}`);
+    // Open an in-page lightbox modal (no navigation, no feed refresh)
+    setImageViewerPostId(post.id);
+    setImageViewerIndex(imageIndex || 0);
+    if (!postComments[post.id]) loadPostComments(post.id);
   };
+
+  const closeImageViewer = () => setImageViewerPostId(null);
 
   const getAlgorithmSortedPosts = (posts) => {
     if (!posts || posts.length === 0) return [];
@@ -3489,6 +3548,24 @@ export default function DashboardPage() {
     scored.sort((a, b) => b._score - a._score || new Date(b.created_at) - new Date(a.created_at));
     return [...pinned, ...scored];
   };
+
+  // Recompute the feed order ONLY when posts are added/removed (a fresh load),
+  // never on reaction/like changes — this keeps posts from jumping around.
+  const communityIdSignature = communityPosts.map(p => p.id).join(',');
+  useEffect(() => {
+    setCommunityPostOrder(getAlgorithmSortedPosts(communityPosts).map(p => p.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [communityIdSignature]);
+
+  // Posts rendered in the stable order; any new/missing ones handled gracefully.
+  const orderedCommunityPosts = (() => {
+    const byId = new Map(communityPosts.map(p => [p.id, p]));
+    const ordered = communityPostOrder.map(id => byId.get(id)).filter(Boolean);
+    // Append any posts not yet in the saved order (e.g. just added)
+    const known = new Set(communityPostOrder);
+    const extras = communityPosts.filter(p => !known.has(p.id));
+    return [...ordered, ...extras];
+  })();
 
   // Mark posts as viewed when they render
   const markPostViewed = (postId) => {
@@ -4172,7 +4249,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.3-70b-versatile',
           messages: [
             {
               role: 'system',
@@ -4261,7 +4338,7 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.3-70b-versatile',
           messages: [
             {
               role: 'system',
@@ -4939,7 +5016,7 @@ Examples:
     try {
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `You are a Bible text provider. Provide the full text of the requested Bible chapter or verse. Use the ${versionLabel} translation. Include verse numbers. If the translation is Cebuano, provide the Cebuano version (Ang Pulong Sa Dios or similar). If Tagalog, provide the Tagalog version (Ang Salita ng Dios or similar). Be accurate to the requested translation.` }, { role: 'user', content: `Provide the full text of ${b} chapter ${c}${verseReq} in the ${versionLabel} translation.` }], temperature: 0.1, max_tokens: 4000 }),
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: `You are a Bible text provider. Provide the full text of the requested Bible chapter or verse. Use the ${versionLabel} translation. Include verse numbers. If the translation is Cebuano, provide the Cebuano version (Ang Pulong Sa Dios or similar). If Tagalog, provide the Tagalog version (Ang Salita ng Dios or similar). Be accurate to the requested translation.` }, { role: 'user', content: `Provide the full text of ${b} chapter ${c}${verseReq} in the ${versionLabel} translation.` }], temperature: 0.1, max_tokens: 4000 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
@@ -4979,7 +5056,7 @@ Examples:
     try {
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: bibleQuestion }], temperature: 0.7, max_tokens: 1000 }),
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: bibleQuestion }], temperature: 0.7, max_tokens: 1000 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
@@ -5041,7 +5118,7 @@ Examples:
     const versionLabel = BIBLE_VERSIONS.find(bv => bv.value === bibleVersion)?.fullName || bibleVersion;
     fetch(GROQ_API_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: question }], temperature: 0.7, max_tokens: 1000 }),
+      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: question }], temperature: 0.7, max_tokens: 1000 }),
     }).then(r => r.json()).then(data => {
       setBibleAnswer(data?.choices?.[0]?.message?.content || 'Error. Please try again.');
     }).catch(() => setBibleAnswer('Error. Please try again.'));
@@ -5051,7 +5128,7 @@ Examples:
     try {
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: 'Generate an inspiring Christian quote. Format: QUOTE|AUTHOR' }, { role: 'user', content: 'Give me one inspiring Christian quote for today.' }], temperature: 0.9, max_tokens: 200 }),
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: 'Generate an inspiring Christian quote. Format: QUOTE|AUTHOR' }, { role: 'user', content: 'Give me one inspiring Christian quote for today.' }], temperature: 0.9, max_tokens: 200 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
@@ -5078,7 +5155,7 @@ Examples:
       const historyMessages = chatMessages.slice(-20).map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [
           { role: 'system', content: `You are a compassionate Christian spiritual AI advisor for ${userData?.firstname || 'a believer'} who serves in ${userData?.ministry || 'ministry'}. Speak and write like a real caring person in live conversation: warm, friendly, relatable, and natural. Avoid robotic or overly formal phrasing. Use simple everyday language and slightly varied sentence lengths. Occasionally use natural conversational fillers when they fit (for example: "well," "you know," "let me think") but do not overuse them. Add subtle emotional tone based on context: friendly, empathetic, or excited when appropriate. Keep a smooth conversational flow and avoid sounding scripted. Keep replies concise by default unless the user asks for depth. Provide biblical guidance, prayer support, and encouragement, with Scripture references when appropriate. You have memory of previous conversations with this user — use that context to personalize responses. Be transparent that you are an AI assistant, and gently encourage the user to also seek God directly through prayer and His Word.` },
           ...historyMessages,
           { role: 'user', content: msg }
@@ -5400,7 +5477,7 @@ Examples:
 
       const res = await fetch('/api/profile/update-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userData.email, newPassword: passwordForm.newPassword }) });
       const data = await res.json();
-      if (data.success) { showToast('Password updated!', 'success'); setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); }
+      if (data.success) { showToast('Password updated!', 'success'); setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); setEditingPassword(false); }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); } finally { setProfileLoading(false); }
   };
@@ -5453,7 +5530,7 @@ Examples:
     try {
       const res = await fetch(GROQ_API_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'system', content: `You are a Bible text provider. Provide ONLY the verse text, nothing else. No verse numbers, no book name, no quotes. Just the pure verse text in the ${versionLabel} translation. If Cebuano, use Ang Pulong Sa Dios. If Tagalog, use Ang Salita ng Dios.` }, { role: 'user', content: `Provide the text of ${verseInput.trim()} in ${versionLabel}.` }], temperature: 0.1, max_tokens: 300 }),
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: `You are a Bible text provider. Provide ONLY the verse text, nothing else. No verse numbers, no book name, no quotes. Just the pure verse text in the ${versionLabel} translation. If Cebuano, use Ang Pulong Sa Dios. If Tagalog, use Ang Salita ng Dios.` }, { role: 'user', content: `Provide the text of ${verseInput.trim()} in ${versionLabel}.` }], temperature: 0.1, max_tokens: 300 }),
       });
       const data = await res.json();
       const text = data?.choices?.[0]?.message?.content?.trim().replace(/^"|"$/g, '').replace(/^\u201c|\u201d$/g, '');
@@ -5529,6 +5606,36 @@ Examples:
   const sidebarMenu = rawSidebarMenu.filter((item) => {
     return isSidebarItemEnabled(userRole, item.section, permissionOverrides);
   });
+
+  // ---- Group sidebar items into collapsible categories ----
+  // 'home' stays pinned at top, 'profile' pinned at bottom; everything else groups.
+  const SIDEBAR_GROUPS = [
+    { key: 'people',    label: 'People & Roles',    icon: 'fas fa-users-cog',      ids: ['users', 'roles', 'ministries', 'attendance'] },
+    { key: 'worship',   label: 'Worship & Schedule', icon: 'fas fa-hands-praying',  ids: ['schedule', 'praise-worship', 'lineup', 'meetings'] },
+    { key: 'content',   label: 'Events & Content',   icon: 'fas fa-calendar-alt',   ids: ['events', 'community-events', 'announcements', 'community', 'my-created-events', 'user-events-oversight'] },
+    { key: 'media',     label: 'Media & Messages',   icon: 'fas fa-photo-film',     ids: ['live-stream-mgmt', 'recordings', 'messages'] },
+    { key: 'insights',  label: 'Insights',           icon: 'fas fa-chart-bar',      ids: ['reports', 'audit'] },
+    { key: 'system',    label: 'System',             icon: 'fas fa-cogs',           ids: ['permissions-control', 'system', 'terms-conditions', 'cloudinary-usage'] },
+    { key: 'resources', label: 'Resources',          icon: 'fas fa-book-open',      ids: ['bible', 'assistant'] },
+  ];
+  const fullMenu = userRole === ROLES.SUPER_ADMIN
+    ? [...sidebarMenu, { id: 'cloudinary-usage', section: 'cloudinary-usage', label: 'Cloudinary Usage', icon: 'fas fa-cloud' }]
+    : sidebarMenu;
+  const homeItem = fullMenu.find((m) => m.id === 'home');
+  const profileItem = fullMenu.find((m) => m.id === 'profile');
+  const groupedSidebar = SIDEBAR_GROUPS
+    .map((g) => ({ ...g, items: fullMenu.filter((m) => g.ids.includes(m.id)) }))
+    .filter((g) => g.items.length > 0);
+  // Any item not pinned and not in a defined group falls into a catch-all "More"
+  const groupedIds = new Set(['home', 'profile', ...SIDEBAR_GROUPS.flatMap((g) => g.ids)]);
+  const ungrouped = fullMenu.filter((m) => !groupedIds.has(m.id));
+  if (ungrouped.length > 0) groupedSidebar.push({ key: 'more', label: 'More', icon: 'fas fa-ellipsis', items: ungrouped });
+  const activeGroupKey = groupedSidebar.find((g) => g.items.some((it) => it.section === activeSection))?.key;
+  // Accordion: only one group open at a time. Default follows the active section.
+  const effectiveOpenGroup = openSidebarGroup === null ? activeGroupKey : openSidebarGroup;
+  const isGroupOpen = (key) => effectiveOpenGroup === key;
+  const toggleSidebarGroup = (key) => setOpenSidebarGroup(effectiveOpenGroup === key ? '' : key);
+
   const canManage = (module) => hasPermission(userRole, module);
   const selectedChatUser = chatUsers.find((u) => u.id === selectedChatUserId) || null;
 
@@ -5741,52 +5848,96 @@ Examples:
                 <span className="brand-name">SanctuaryHub</span>
               </div>
             </div>
+            <button
+              className="sidebar-collapse-arrow"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              title={sidebarCollapsed ? 'Expand' : 'Collapse'}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <i className={`fas fa-chevron-${sidebarCollapsed ? 'right' : 'left'}`}></i>
+            </button>
           </div>
 
           {/* Menu */}
           <nav className="sidebar-menu">
-            <div className="menu-section-label">Menu</div>
-            {(userRole === ROLES.SUPER_ADMIN ? [...sidebarMenu, { id: 'cloudinary-usage', section: 'cloudinary-usage', label: 'Cloudinary Usage', icon: 'fas fa-cloud' }] : sidebarMenu).map((item) => {
+            {(() => {
               const isGuestRole = userRole === 'Guest';
-              const isLocked = !isVerified && !isGuestRole && item.section !== 'home';
-              return (
-                <a key={item.id}
-                  className={`menu-item ${activeSection === item.section ? 'active' : ''} ${isLocked ? 'disabled' : ''}`}
-                  onClick={() => showSection(item.section)}
-                  title={sidebarCollapsed ? item.label : (isLocked ? '🔒 Account verification needed' : '')}
-                  onMouseEnter={(e) => {
-                    if (isLocked) {
+              const renderItem = (item) => {
+                const isLocked = !isVerified && !isGuestRole && item.section !== 'home';
+                return (
+                  <a key={item.id}
+                    className={`menu-item ${activeSection === item.section ? 'active' : ''} ${isLocked ? 'disabled' : ''}`}
+                    onClick={() => showSection(item.section)}
+                    title={sidebarCollapsed ? item.label : (isLocked ? '🔒 Account verification needed' : '')}
+                    onMouseEnter={(e) => {
+                      if (isLocked) {
+                        const tip = e.currentTarget.querySelector('.sidebar-lock-tooltip');
+                        if (tip) tip.style.opacity = '1';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
                       const tip = e.currentTarget.querySelector('.sidebar-lock-tooltip');
-                      if (tip) tip.style.opacity = '1';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    const tip = e.currentTarget.querySelector('.sidebar-lock-tooltip');
-                    if (tip) tip.style.opacity = '0';
-                  }}
-                >
-                  <span className="menu-icon"><i className={item.icon}></i></span>
-                  <span className="menu-label">{item.label}</span>
-                  {item.section === 'messages' && unreadCount > 0 && (
-                    <span className="notification-badge">{unreadCount}</span>
-                  )}
-                  {isLocked && (
-                    <>
-                      <span className="menu-lock"><i className="fas fa-lock"></i></span>
-                      <div className="sidebar-lock-tooltip">🔒 Account verification needed</div>
-                    </>
-                  )}
-                </a>
+                      if (tip) tip.style.opacity = '0';
+                    }}
+                  >
+                    <span className="menu-icon"><i className={item.icon}></i></span>
+                    <span className="menu-label">{item.label}</span>
+                    {item.section === 'messages' && unreadCount > 0 && (
+                      <span className="notification-badge">{unreadCount}</span>
+                    )}
+                    {isLocked && (
+                      <>
+                        <span className="menu-lock"><i className="fas fa-lock"></i></span>
+                        <div className="sidebar-lock-tooltip">🔒 Account verification needed</div>
+                      </>
+                    )}
+                  </a>
+                );
+              };
+
+              // Collapsed rail OR Guest (few items): show a simple flat list, no groups
+              if (sidebarCollapsed || isGuestRole) {
+                return (
+                  <>
+                    <div className="menu-section-label">Menu</div>
+                    {fullMenu.map(renderItem)}
+                  </>
+                );
+              }
+
+              // Expanded: pinned Home, collapsible category groups, pinned Profile
+              return (
+                <>
+                  {homeItem && renderItem(homeItem)}
+                  {groupedSidebar.map((group) => {
+                    const open = isGroupOpen(group.key);
+                    const hasActive = group.items.some((it) => it.section === activeSection);
+                    return (
+                      <div key={group.key} className={`menu-group ${open ? 'open' : ''}`}>
+                        <button
+                          type="button"
+                          className={`menu-group-header ${hasActive ? 'has-active' : ''}`}
+                          onClick={() => toggleSidebarGroup(group.key)}
+                          aria-expanded={open}
+                        >
+                          <span className="menu-icon"><i className={group.icon}></i></span>
+                          <span className="menu-label">{group.label}</span>
+                          <i className={`fas fa-chevron-down menu-group-chevron ${open ? 'rot' : ''}`}></i>
+                        </button>
+                        <div className="menu-group-items" style={{ maxHeight: open ? `${group.items.length * 52 + 8}px` : '0px' }}>
+                          {group.items.map(renderItem)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {profileItem && renderItem(profileItem)}
+                </>
               );
-            })}
+            })()}
           </nav>
 
-          {/* Bottom: Collapse toggle + User card + Logout + Theme */}
+          {/* Bottom: User card + Logout */}
           <div className="sidebar-bottom">
-            <button className="collapse-toggle" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? 'Expand' : 'Collapse'}>
-              <i className={`fas fa-chevron-${sidebarCollapsed ? 'right' : 'left'}`}></i>
-              <span className="collapse-label">{sidebarCollapsed ? 'Expand' : 'Collapse'}</span>
-            </button>
             <div className={`sidebar-user-card ${(!isVerified && userRole !== 'Guest') ? 'locked' : ''}`}
               onClick={() => {
                 if (!isVerified && userRole !== 'Guest') {
@@ -5827,15 +5978,6 @@ Examples:
               <i className="fas fa-sign-out-alt"></i>
               <span className="logout-label">Logout</span>
             </button>
-
-            <div className="sidebar-theme-toggle">
-              <button className={`theme-btn ${!darkMode ? 'active' : ''}`} onClick={() => { if (darkMode) toggleDarkMode(); }}>
-                <i className="fas fa-sun"></i> <span className="theme-label">Light</span>
-              </button>
-              <button className={`theme-btn ${darkMode ? 'active' : ''}`} onClick={() => { if (!darkMode) toggleDarkMode(); }}>
-                <i className="fas fa-moon"></i> <span className="theme-label">Dark</span>
-              </button>
-            </div>
           </div>
         </aside>
 
@@ -7162,7 +7304,7 @@ Examples:
                   </div>
                 )}
 
-                {getAlgorithmSortedPosts(communityPosts).map((post, idx) => {
+                {orderedCommunityPosts.map((post, idx) => {
                   // Mark as viewed when rendered
                   if (!viewedPosts.includes(post.id)) {
                     setTimeout(() => markPostViewed(post.id), 1500);
@@ -7426,6 +7568,145 @@ Examples:
                 </div>
               </div>
             </div>
+
+            {/* Facebook-style Image Lightbox: image + reactions + comments */}
+            {imageViewerPostId && (() => {
+              const vp = communityPosts.find(p => p.id === imageViewerPostId);
+              if (!vp) return null;
+              const imgs = vp.images || [];
+              const cur = imgs[imageViewerIndex] || imgs[0];
+              const curSrc = cur ? (cur.delivery_url || `/api/recordings/stream?fileId=${cur.google_drive_file_id}`) : null;
+              const rc = vp.reactionCounts || { heart: 0, fire: 0, praise: 0, total: 0 };
+              const comments = postComments[vp.id] || [];
+              if (typeof document === 'undefined') return null;
+              return createPortal(
+                <div className="cimg-overlay" onClick={closeImageViewer}>
+                  <button className="cimg-close" onClick={closeImageViewer} aria-label="Close"><i className="fas fa-times"></i></button>
+                  <div className="cimg-modal" onClick={(e) => e.stopPropagation()}>
+                    {/* Image stage */}
+                    <div className="cimg-stage">
+                      {curSrc && <img src={curSrc} alt="" className="cimg-photo" referrerPolicy="no-referrer" />}
+                      {imgs.length > 1 && (
+                        <>
+                          <button className="cimg-nav left" onClick={() => setImageViewerIndex((imageViewerIndex - 1 + imgs.length) % imgs.length)} aria-label="Previous"><i className="fas fa-chevron-left"></i></button>
+                          <button className="cimg-nav right" onClick={() => setImageViewerIndex((imageViewerIndex + 1) % imgs.length)} aria-label="Next"><i className="fas fa-chevron-right"></i></button>
+                          <div className="cimg-counter">{imageViewerIndex + 1} / {imgs.length}</div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Side panel: header, content, reactions, comments */}
+                    <div className="cimg-panel">
+                      <div className="cimg-panel-top">
+                        <button className="cimg-back-btn" onClick={closeImageViewer}>
+                          <i className="fas fa-arrow-left"></i> Back
+                        </button>
+                      </div>
+                      <div className="cimg-panel-scroll">
+                        <div className="cimg-post-head">
+                          <div className="community-post-author-avatar cimg-avatar" onClick={() => handleViewProfile(vp.author_id, vp.author_name, vp.author_picture)} style={{ cursor: 'pointer' }} title="View profile">
+                            {vp.author_picture ? (
+                              <img src={vp.author_picture} alt="" referrerPolicy="no-referrer" />
+                            ) : (
+                              <span>{vp.author_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</span>
+                            )}
+                          </div>
+                          <div>
+                            <div className="cimg-author">{vp.author_name}</div>
+                            <div className="cimg-date">{formatDateTime(vp.created_at)}</div>
+                          </div>
+                        </div>
+
+                        {vp.content && <p className="cimg-text">{vp.content}</p>}
+
+                        {rc.total > 0 && (
+                          <div className="community-reaction-summary" onClick={() => handleViewReactions(vp.id)} style={{ marginTop: 4 }}>
+                            <div className="community-reaction-badges">
+                              {rc.heart > 0 && <span className="reaction-badge heart">❤️</span>}
+                              {rc.fire > 0 && <span className="reaction-badge fire">🔥</span>}
+                              {rc.praise > 0 && <span className="reaction-badge praise">🙌</span>}
+                            </div>
+                            <span className="community-reaction-count">{rc.total}</span>
+                          </div>
+                        )}
+
+                        {featureOn('community.like_comment') && (
+                          <div className="cimg-actions">
+                            <div className="cimg-react-wrap">
+                              {reactionPickerOpen === `modal-${vp.id}` && (
+                                <div className="community-reaction-picker cimg-picker" onMouseLeave={() => setReactionPickerOpen(null)}>
+                                  {['heart', 'fire', 'praise'].map(rType => (
+                                    <button key={rType} className={`reaction-picker-item${vp.myReaction === rType ? ' active' : ''}`} onClick={() => { handleReactPost(vp.id, rType); setReactionPickerOpen(null); }} title={REACTION_LABELS[rType]}>
+                                      <span className="reaction-picker-emoji">{REACTION_EMOJIS[rType]}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              <button
+                                className={`cimg-action-btn${vp.liked ? ` liked ${vp.myReaction || 'heart'}` : ''}`}
+                                onClick={() => handleReactPost(vp.id, vp.myReaction || 'heart')}
+                                onContextMenu={(e) => { e.preventDefault(); setReactionPickerOpen(`modal-${vp.id}`); }}
+                              >
+                                <span className="react-btn-emoji">{vp.myReaction ? REACTION_EMOJIS[vp.myReaction] : '🤍'}</span>
+                                <span>{vp.myReaction ? REACTION_LABELS[vp.myReaction] : 'React'}</span>
+                              </button>
+                            </div>
+                            <button className="cimg-action-btn" onClick={() => setReactionPickerOpen(reactionPickerOpen === `modal-${vp.id}` ? null : `modal-${vp.id}`)} title="Pick a reaction">
+                              <i className="far fa-smile"></i>
+                              <span>Reactions</span>
+                            </button>
+                            <button className="cimg-action-btn" style={{ pointerEvents: 'none' }}>
+                              <i className="far fa-comment"></i>
+                              <span>{comments.length || vp.commentCount || 0}</span>
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="cimg-comments">
+                          {comments.map((c) => (
+                            <div key={c.id} className="community-comment">
+                              <div className="community-comment-avatar" onClick={() => handleViewProfile(c.author_id, c.author_name, c.author_picture)} style={{ cursor: 'pointer' }}>
+                                {c.author_picture ? (
+                                  <img src={c.author_picture} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                                ) : (
+                                  <span>{c.author_name?.split(' ').map(n => n[0]).join('').slice(0, 2)}</span>
+                                )}
+                              </div>
+                              <div className="community-comment-body">
+                                <div className="community-comment-bubble">
+                                  <strong className="community-comment-name">{c.author_name}</strong>
+                                  <p className="community-comment-text">{c.content}</p>
+                                </div>
+                                <div className="community-comment-actions-row">
+                                  <span className="community-comment-time">{formatDateTime(c.created_at)}</span>
+                                  <button className={`community-comment-like-btn${c.liked ? ' liked' : ''}`} onClick={() => handleLikeComment(c.id, vp.id)}>
+                                    <i className={`${c.liked ? 'fas' : 'far'} fa-heart`}></i> {c.likeCount > 0 && <span>{c.likeCount}</span>}
+                                  </button>
+                                  {userData?.id === c.author_id && (
+                                    <button className="community-comment-action-btn delete" onClick={() => handleDeleteComment(c.id, vp.id)} title="Delete"><i className="fas fa-trash-alt"></i></button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {comments.length === 0 && <div className="community-no-comments">No comments yet. Be the first!</div>}
+                        </div>
+                      </div>
+
+                      {featureOn('community.like_comment') && (
+                        <div className="cimg-comment-input-row">
+                          <input className="community-comment-input" placeholder="Write a comment..." value={commentInputs[vp.id] || ''} onChange={(e) => setCommentInputs((p) => ({ ...p, [vp.id]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(vp.id); }} />
+                          <button className="community-comment-send" onClick={() => handleAddComment(vp.id)} disabled={!commentInputs[vp.id]?.trim()}>
+                            <i className="fas fa-paper-plane"></i>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              );
+            })()}
 
             {/* Bible Verse Share Modal */}
             {showVerseShareModal && (
@@ -9701,23 +9982,24 @@ Examples:
                 <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
                   <div className="form-group profile-field-editable">
                     <label>First Name</label>
-                    <input className="form-control" style={{ padding: '12px 16px' }} value={profileForm.firstname} onChange={(e) => setProfileForm({ ...profileForm, firstname: e.target.value })} />
+                    <input className="form-control" style={{ padding: '12px 16px' }} value={profileForm.firstname} onChange={(e) => setProfileForm({ ...profileForm, firstname: e.target.value })} disabled={!editingProfile} />
                   </div>
                   <div className="form-group profile-field-editable">
                     <label>Last Name</label>
-                    <input className="form-control" style={{ padding: '12px 16px' }} value={profileForm.lastname} onChange={(e) => setProfileForm({ ...profileForm, lastname: e.target.value })} />
+                    <input className="form-control" style={{ padding: '12px 16px' }} value={profileForm.lastname} onChange={(e) => setProfileForm({ ...profileForm, lastname: e.target.value })} disabled={!editingProfile} />
                   </div>
                 </div>
                 <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
                   <div className="form-group profile-field-editable">
                     <label><i className="fas fa-birthday-cake" style={{ marginRight: 6, color: 'var(--primary)' }}></i>Birthdate</label>
-                    <input type="date" className="form-control" style={{ padding: '12px 16px' }} value={profileForm.birthdate || ''} onChange={(e) => setProfileForm({ ...profileForm, birthdate: e.target.value })} />
+                    <input type="date" className="form-control" style={{ padding: '12px 16px' }} value={profileForm.birthdate || ''} onChange={(e) => setProfileForm({ ...profileForm, birthdate: e.target.value })} disabled={!editingProfile} />
                   </div>
                   <div className="form-group profile-field-editable">
                     <label><i className="fas fa-bible" style={{ marginRight: 6, color: 'var(--primary)' }}></i>Life Verse</label>
                     <div className="life-verse-input-row">
                     <select
                       className="life-verse-version-select"
+                      disabled={!editingProfile}
                       value={lifeVerseVersion}
                       onChange={(e) => {
                         setLifeVerseVersion(e.target.value);
@@ -9733,7 +10015,7 @@ Examples:
                         <option key={v.value} value={v.value}>{v.label}</option>
                       ))}
                     </select>
-                    <input className="form-control" style={{ padding: '12px 16px', flex: 1 }} placeholder='e.g. Ephesians 6:1 or Jeremiah 29:11 - For I know the plans...' value={profileForm.life_verse || ''} onChange={(e) => setProfileForm({ ...profileForm, life_verse: e.target.value })} />
+                    <input className="form-control" style={{ padding: '12px 16px', flex: 1 }} placeholder='e.g. Ephesians 6:1 or Jeremiah 29:11 - For I know the plans...' value={profileForm.life_verse || ''} onChange={(e) => setProfileForm({ ...profileForm, life_verse: e.target.value })} disabled={!editingProfile} />
                   </div>
                     <small style={{ color: '#6c757d', fontSize: '0.78rem', marginTop: 4, display: 'block' }}>Enter a reference like &quot;Ephesians 6:1&quot; or include the text with &quot;Jeremiah 29:11 - For I know the plans...&quot;</small>
                   </div>
@@ -9769,7 +10051,14 @@ Examples:
                   </>
                 )}
                 {featureOn('profile.update') && (
-                  <button className="btn-primary profile-save-btn" onClick={saveProfile} disabled={profileLoading}>{profileLoading ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> Save Changes</>}</button>
+                  editingProfile ? (
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button className="btn-primary profile-save-btn" onClick={async () => { await saveProfile(); setEditingProfile(false); }} disabled={profileLoading}>{profileLoading ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> Save Changes</>}</button>
+                      <button className="btn-secondary profile-save-btn" onClick={() => { setEditingProfile(false); setProfileForm({ firstname: userData.firstname || '', lastname: userData.lastname || '', birthdate: userData.birthdate || '', life_verse: userData.life_verse || '' }); }} disabled={profileLoading}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button className="btn-primary profile-save-btn" onClick={() => setEditingProfile(true)}><i className="fas fa-edit"></i> Edit Profile</button>
+                  )
                 )}
               </div>
             )}
@@ -9822,8 +10111,8 @@ Examples:
                     <div className="form-group">
                       <label>Current Password</label>
                       <div className="password-input-wrapper">
-                        <input type={showCurrentPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder="Enter current password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} />
-                        <button type="button" className="password-eye-btn" onClick={() => setShowCurrentPassword(!showCurrentPassword)} tabIndex={-1}>
+                        <input type={showCurrentPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder={editingPassword ? 'Enter current password' : 'Click "Change Password" to edit'} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} disabled={!editingPassword} />
+                        <button type="button" className="password-eye-btn" onClick={() => setShowCurrentPassword(!showCurrentPassword)} tabIndex={-1} disabled={!editingPassword}>
                           <i className={`fas fa-eye${showCurrentPassword ? '-slash' : ''}`}></i>
                         </button>
                       </div>
@@ -9831,8 +10120,8 @@ Examples:
                     <div className="form-group">
                       <label>New Password</label>
                       <div className="password-input-wrapper">
-                        <input type={showNewPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder="At least 8 characters" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} />
-                        <button type="button" className="password-eye-btn" onClick={() => setShowNewPassword(!showNewPassword)} tabIndex={-1}>
+                        <input type={showNewPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder={passwordForm.currentPassword ? 'At least 8 characters' : 'Enter current password first'} value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} disabled={!editingPassword || !passwordForm.currentPassword} />
+                        <button type="button" className="password-eye-btn" onClick={() => setShowNewPassword(!showNewPassword)} tabIndex={-1} disabled={!editingPassword || !passwordForm.currentPassword}>
                           <i className={`fas fa-eye${showNewPassword ? '-slash' : ''}`}></i>
                         </button>
                       </div>
@@ -9848,14 +10137,21 @@ Examples:
                     <div className="form-group">
                       <label>Confirm New Password</label>
                       <div className="password-input-wrapper">
-                        <input type={showConfirmPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder="Re-enter new password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} />
-                        <button type="button" className="password-eye-btn" onClick={() => setShowConfirmPassword(!showConfirmPassword)} tabIndex={-1}>
+                        <input type={showConfirmPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder={passwordForm.currentPassword ? 'Re-enter new password' : 'Enter current password first'} value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} disabled={!editingPassword || !passwordForm.currentPassword} />
+                        <button type="button" className="password-eye-btn" onClick={() => setShowConfirmPassword(!showConfirmPassword)} tabIndex={-1} disabled={!editingPassword || !passwordForm.currentPassword}>
                           <i className={`fas fa-eye${showConfirmPassword ? '-slash' : ''}`}></i>
                         </button>
                       </div>
                     </div>
                     {passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword && <p className="password-mismatch-msg"><i className="fas fa-exclamation-circle"></i> Passwords do not match</p>}
-                    <button className="btn-primary profile-save-btn" onClick={changePassword} disabled={profileLoading}>{profileLoading ? <><i className="fas fa-spinner fa-spin"></i> Updating...</> : <><i className="fas fa-key"></i> Update Password</>}</button>
+                    {editingPassword ? (
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button className="btn-primary profile-save-btn" onClick={async () => { await changePassword(); }} disabled={profileLoading}>{profileLoading ? <><i className="fas fa-spinner fa-spin"></i> Updating...</> : <><i className="fas fa-key"></i> Update Password</>}</button>
+                        <button className="btn-secondary profile-save-btn" onClick={() => { setEditingPassword(false); setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); }} disabled={profileLoading}>Cancel</button>
+                      </div>
+                    ) : (
+                      <button className="btn-primary profile-save-btn" onClick={() => setEditingPassword(true)}><i className="fas fa-edit"></i> Change Password</button>
+                    )}
                   </>
                 )}
               </div>
@@ -9921,9 +10217,34 @@ Examples:
 
             {profileTab === 'preferences' && (
               <div className="profile-form profile-form-v2">
-                <div className="preference-item">
-                  <div><strong>Dark Mode</strong><p style={{ color: '#6c757d', fontSize: '0.85rem' }}>Toggle dark theme for the dashboard</p></div>
-                  <label className="switch"><input type="checkbox" checked={darkMode} onChange={toggleDarkMode} /><span className="slider round"></span></label>
+                <div className="theme-pref-card">
+                  <div className="theme-pref-head">
+                    <div className="theme-pref-icon"><i className={`fas ${darkMode ? 'fa-moon' : 'fa-sun'}`}></i></div>
+                    <div>
+                      <strong>Appearance</strong>
+                      <p>Choose how SanctuaryHub looks to you</p>
+                    </div>
+                  </div>
+                  <div className="theme-pref-options">
+                    <button
+                      type="button"
+                      className={`theme-pref-btn ${!darkMode ? 'active' : ''}`}
+                      onClick={() => { if (darkMode) toggleDarkMode(); }}
+                    >
+                      <i className="fas fa-sun"></i>
+                      <span>Light</span>
+                      {!darkMode && <i className="fas fa-check-circle theme-pref-check"></i>}
+                    </button>
+                    <button
+                      type="button"
+                      className={`theme-pref-btn ${darkMode ? 'active' : ''}`}
+                      onClick={() => { if (!darkMode) toggleDarkMode(); }}
+                    >
+                      <i className="fas fa-moon"></i>
+                      <span>Dark</span>
+                      {darkMode && <i className="fas fa-check-circle theme-pref-check"></i>}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

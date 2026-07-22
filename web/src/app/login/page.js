@@ -53,14 +53,17 @@ function LoginContent() {
       router.replace('/dashboard');
       return;
     }
-    // Load saved credentials
-    const savedEmail = localStorage.getItem('savedEmail');
-    const savedPassword = localStorage.getItem('savedPassword');
-    if (savedEmail && savedPassword) {
-      setEmail(savedEmail);
-      setPassword(savedPassword);
-      setRememberMe(true);
-    }
+    // Load saved credentials (Remember me) — survives logout so the fields
+    // are pre-filled with the last account. Wrapped for private-browsing safety.
+    try {
+      if (localStorage.getItem('rememberMe') === 'true') {
+        const savedEmail = localStorage.getItem('savedEmail') || '';
+        const savedPassword = localStorage.getItem('savedPassword') || '';
+        if (savedEmail) setEmail(savedEmail);
+        if (savedPassword) setPassword(savedPassword);
+        setRememberMe(true);
+      }
+    } catch { /* storage unavailable — skip pre-fill */ }
     // Pre-fill email from signup redirect (takes priority over saved credentials)
     const emailParam = searchParams.get('email');
     if (emailParam) {
@@ -115,13 +118,17 @@ function LoginContent() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (rememberMe) {
-      localStorage.setItem('savedEmail', email);
-      localStorage.setItem('savedPassword', password);
-    } else {
-      localStorage.removeItem('savedEmail');
-      localStorage.removeItem('savedPassword');
-    }
+    try {
+      if (rememberMe) {
+        localStorage.setItem('rememberMe', 'true');
+        localStorage.setItem('savedEmail', email.trim());
+        localStorage.setItem('savedPassword', password);
+      } else {
+        localStorage.removeItem('rememberMe');
+        localStorage.removeItem('savedEmail');
+        localStorage.removeItem('savedPassword');
+      }
+    } catch { /* storage unavailable — proceed without remembering */ }
 
     setLoading(true);
     setAlert({ message: '', type: '' });
@@ -266,7 +273,7 @@ function LoginContent() {
               <div className="login-options-row">
                 <label className="login-remember">
                   <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
-                  <span>Remember session</span>
+                  <span>Remember me</span>
                 </label>
                 <a href="/forgot-password" className="login-forgot">Forgot Password?</a>
               </div>

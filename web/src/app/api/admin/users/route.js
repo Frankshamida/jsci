@@ -109,7 +109,13 @@ export async function PUT(request) {
     }
 
     if (action === 'assign-role') {
-      const { error } = await supabase.from('users').update({ role: updates.role }).eq('id', id);
+      const roleUpdate = { role: updates.role };
+      // A Guest belongs to no ministry — clear ministry and sub-role automatically.
+      if (updates.role === 'Guest') {
+        roleUpdate.ministry = null;
+        roleUpdate.sub_role = null;
+      }
+      const { error } = await supabase.from('users').update(roleUpdate).eq('id', id);
       if (error) throw error;
       return NextResponse.json({ success: true, message: `Role updated to ${updates.role}` });
     }
@@ -127,6 +133,11 @@ export async function PUT(request) {
     if (updates.ministry !== undefined) updateData.ministry = updates.ministry || null;
     if (updates.sub_role !== undefined) updateData.sub_role = updates.sub_role || null;
     if (updates.role) updateData.role = updates.role;
+    // A Guest belongs to no ministry — always clear it regardless of form input.
+    if (updates.role === 'Guest') {
+      updateData.ministry = null;
+      updateData.sub_role = null;
+    }
     if (updates.status) updateData.status = updates.status;
     if (updates.allowed_event_types !== undefined) updateData.allowed_event_types = updates.allowed_event_types;
 

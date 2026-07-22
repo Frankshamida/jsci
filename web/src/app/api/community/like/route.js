@@ -64,31 +64,35 @@ export async function POST(request) {
 
     const type = VALID_REACTIONS.includes(reactionType) ? reactionType : 'heart';
 
-    // Check if user already reacted to this post
-    let existing = null;
+    // Fetch ALL existing reaction rows for this user+post (there may be stray
+    // duplicates from older races). Using this instead of .single() avoids
+    // errors when more than one row exists, and lets us self-heal duplicates.
+    let existingRows = [];
     try {
       const { data } = await supabase.from('post_likes')
-        .select('id, reaction_type').eq('post_id', postId).eq('user_id', userId).single();
-      existing = data;
-    } catch { /* no existing reaction */ }
+        .select('id, reaction_type')
+        .eq('post_id', postId)
+        .eq('user_id', userId);
+      existingRows = data || [];
+    } catch { /* treat as none */ }
 
-    if (existing) {
-      if (existing.reaction_type === type) {
-        // Same reaction = toggle off (unreact)
-        try { await supabase.from('post_likes').delete().eq('id', existing.id); } catch {}
-        return safeJSON({ success: true, liked: false, reactionType: null, message: 'Reaction removed' });
-      } else {
-        // Different reaction = change type
-        try { await supabase.from('post_likes').update({ reaction_type: type }).eq('id', existing.id); } catch {}
-        return safeJSON({ success: true, liked: true, reactionType: type, message: 'Reaction changed' });
-      }
-    } else {
-      // New reaction
-      try {
-        await supabase.from('post_likes').insert({ post_id: postId, user_id: userId, reaction_type: type });
-      } catch (e) { console.error('[community/like POST] insert error:', e?.message); }
-      return safeJSON({ success: true, liked: true, reactionType: type, message: 'Reacted' });
+    const currentType = existingRows.length > 0 ? existingRows[0].reaction_type : null;
+
+    // Toggle off: user tapped the same reaction they already have -> remove all
+    if (existingRows.length > 0 && currentType === type) {
+      try { await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', userId); } catch {}
+      return safeJSON({ success: true, liked: false, reactionType: null, message: 'Reaction removed' });
     }
+
+    // Otherwise: ensure EXACTLY ONE row with the new type.
+    // Clear any existing rows first (removes duplicates), then insert one.
+    if (existingRows.length > 0) {
+      try { await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', userId); } catch {}
+    }
+    try {
+      await supabase.from('post_likes').insert({ post_id: postId, user_id: userId, reaction_type: type });
+    } catch (e) { console.error('[community/like POST] insert error:', e?.message); }
+    return safeJSON({ success: true, liked: true, reactionType: type, message: currentType ? 'Reaction changed' : 'Reacted' });
   } catch (error) {
     console.error('[community/like POST] CRITICAL:', error?.message);
     return safeJSON({ success: false, message: 'Internal server error' }, 500);

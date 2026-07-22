@@ -69,30 +69,40 @@ export async function GET(request) {
     const safePosts = posts || [];
     const postIds = safePosts.map(p => p.id);
 
-    // Get user's reaction types in one query
+    // Get user's reaction types in one query (latest wins if duplicates exist)
     let userReactionsMap = {};
     if (userId) {
       try {
         const { data: likes } = await supabase.from('post_likes')
-          .select('post_id, reaction_type')
-          .eq('user_id', userId);
+          .select('post_id, reaction_type, created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true }); // later rows overwrite earlier => latest wins
         if (likes) likes.forEach(l => { userReactionsMap[l.post_id] = l.reaction_type || 'heart'; });
       } catch { /* non-fatal */ }
     }
 
-    // Get reaction counts grouped by type for all posts
+    // Get reaction counts grouped by type for all posts.
+    // Dedupe per (post, user): each user counts once (their latest reaction),
+    // so stray duplicate rows can never inflate the badges.
     let postReactionCounts = {};
     if (postIds.length > 0) {
       try {
         const { data: allLikes } = await supabase.from('post_likes')
-          .select('post_id, reaction_type')
-          .in('post_id', postIds);
+          .select('post_id, user_id, reaction_type, created_at')
+          .in('post_id', postIds)
+          .order('created_at', { ascending: true });
         if (allLikes) {
+          // Keep only the latest reaction per (post_id, user_id)
+          const latestByUser = {}; // key: `${post_id}|${user_id}` -> reaction_type
           allLikes.forEach(l => {
-            if (!postReactionCounts[l.post_id]) postReactionCounts[l.post_id] = { heart: 0, fire: 0, praise: 0, total: 0 };
-            const rType = l.reaction_type || 'heart';
-            if (postReactionCounts[l.post_id][rType] !== undefined) postReactionCounts[l.post_id][rType]++;
-            postReactionCounts[l.post_id].total++;
+            const key = `${l.post_id}|${l.user_id}`;
+            latestByUser[key] = l.reaction_type || 'heart';
+          });
+          Object.entries(latestByUser).forEach(([key, rType]) => {
+            const postId = key.split('|')[0];
+            if (!postReactionCounts[postId]) postReactionCounts[postId] = { heart: 0, fire: 0, praise: 0, total: 0 };
+            if (postReactionCounts[postId][rType] !== undefined) postReactionCounts[postId][rType]++;
+            postReactionCounts[postId].total++;
           });
         }
       } catch { /* non-fatal */ }
@@ -218,14 +228,14 @@ export async function POST(request) {
       return safeJSON({ success: false, message: 'Invalid JSON body' }, 400);
     }
 
-    const { authorId, authorName, content, imageUrl } = body || {};
+    const { authorId, authorName, content } = body || {};
     if (!content) {
       return safeJSON({ success: false, message: 'Content required' }, 400);
     }
 
     try {
       const { data, error } = await supabase.from('community_posts').insert({
-        author_id: authorId, author_name: authorName, content, image_url: imageUrl || null,
+        author_id: authorId, author_name: authorName, content,
       }).select().single();
 
       if (error) { console.error('[community POST] insert error:', error.message); return safeJSON({ success: false, message: 'Failed to create post' }, 500); }
