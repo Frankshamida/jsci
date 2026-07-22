@@ -1,0 +1,419 @@
+/* ============================================
+   ISOM PAGE
+   SanctuaryHub
+   ============================================ */
+
+.isom-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 30px;
+  background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 50%, #16213e 100%);
+  font-family: 'Poppins', sans-serif;
+}
+
+.isom-container {
+  width: 100%;
+  max-width: 900px;
+  margin: 20px auto;
+  background: #fff;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 80px rgba(146, 108, 21, 0.08);
+  animation: isomSlideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes isomSlideIn {
+  from { opacity: 0; transform: translateY(30px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---- HEADER ---- */
+.isom-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 32px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-bottom: 3px solid var(--accent, #ffc300);
+}
+
+.isom-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.85);
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Poppins', sans-serif;
+}
+
+.isom-back-btn:hover {
+  background: rgba(255, 195, 0, 0.15);
+  border-color: var(--accent, #ffc300);
+  color: var(--accent, #ffc300);
+}
+
+.isom-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.isom-brand img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.isom-brand-text {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #fff;
+}
+
+/* ---- LOADING ---- */
+.isom-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  gap: 16px;
+}
+
+.isom-loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(146, 108, 21, 0.15);
+  border-top-color: var(--accent, #ffc300);
+  border-radius: 50%;
+  animation: isomSpin 0.8s linear infinite;
+}
+
+@keyframes isomSpin {
+  to { transform: rotate(360deg); }
+}
+
+.isom-loading p {
+  color: #999;
+  font-size: 0.9rem;
+}
+
+/* ---- HERO ---- */
+.isom-hero {
+  text-align: center;
+  padding: 40px 40px 20px;
+}
+
+.isom-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--accent, #ffc300), var(--secondary, #c9980b));
+  color: #1e1e1e;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.isom-logo {
+  display: block;
+  margin: 18px auto 12px;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  border-radius: 50%;
+}
+
+.isom-hero h1 {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 800;
+  font-size: 1.7rem;
+  color: #1a1a2e;
+  margin: 0 0 10px;
+}
+
+.isom-sub {
+  max-width: 560px;
+  margin: 0 auto;
+  color: #666;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+/* ---- CAROUSEL ---- */
+.isom-carousel {
+  position: relative;
+  width: calc(100% - 80px);
+  margin: 10px 40px 30px;
+  height: 320px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #111;
+}
+
+.isom-slide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.isom-slide.active {
+  opacity: 1;
+}
+
+.isom-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.25s ease;
+  z-index: 2;
+}
+
+.isom-arrow:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.isom-arrow.left { left: 12px; }
+.isom-arrow.right { right: 12px; }
+
+.isom-dots {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+}
+
+.isom-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.25s ease;
+}
+
+.isom-dot.active {
+  background: var(--accent, #ffc300);
+  width: 22px;
+  border-radius: 5px;
+}
+
+/* ---- ABOUT ---- */
+.isom-about {
+  padding: 0 40px;
+  color: #333;
+  font-size: 0.92rem;
+  line-height: 1.75;
+}
+
+.isom-about h3 {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--primary, #926c15);
+  margin: 0 0 10px;
+}
+
+.isom-about p {
+  margin: 0 0 12px;
+}
+
+/* ---- HIGHLIGHT POINTS ---- */
+.isom-points {
+  list-style: none;
+  margin: 10px 40px 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.isom-points li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+  color: #444;
+  background: rgba(146, 108, 21, 0.05);
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+
+.isom-points li i {
+  color: var(--accent, #ffc300);
+}
+
+/* ---- CTA ---- */
+.isom-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 28px 40px 36px;
+  padding: 20px 24px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(146, 108, 21, 0.06), rgba(255, 195, 0, 0.04));
+  border: 1px solid rgba(146, 108, 21, 0.15);
+}
+
+.isom-date {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.isom-date i {
+  font-size: 1.4rem;
+  color: var(--accent, #ffc300);
+}
+
+.isom-date-label {
+  display: block;
+  font-size: 0.75rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.isom-date-value {
+  display: block;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  color: #1a1a2e;
+}
+
+.isom-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 26px;
+  border-radius: 30px;
+  background: linear-gradient(135deg, var(--accent, #ffc300), var(--secondary, #c9980b));
+  color: #1e1e1e;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 800;
+  font-size: 0.95rem;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: 0 10px 28px rgba(255, 195, 0, 0.4);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.isom-btn:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 14px 38px rgba(255, 195, 0, 0.6);
+}
+
+/* ---- FOOTER ---- */
+.isom-footer {
+  padding: 16px 32px 24px;
+  text-align: center;
+  border-top: 1px solid #eee;
+}
+
+.isom-footer p {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #999;
+  letter-spacing: 0.5px;
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+
+body.dark-mode .isom-container {
+  background: #1e1e36;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+}
+
+body.dark-mode .isom-header {
+  background: linear-gradient(135deg, #151528 0%, #1a1a2e 100%);
+}
+
+body.dark-mode .isom-hero h1 {
+  color: #f0f0f0;
+}
+
+body.dark-mode .isom-sub {
+  color: #aaa;
+}
+
+body.dark-mode .isom-about {
+  color: #d0d0d0;
+}
+
+body.dark-mode .isom-about h3 {
+  color: var(--accent, #ffc300);
+}
+
+body.dark-mode .isom-points li {
+  background: rgba(255, 195, 0, 0.06);
+  color: #ccc;
+}
+
+body.dark-mode .isom-cta {
+  background: linear-gradient(135deg, rgba(146, 108, 21, 0.1), rgba(255, 195, 0, 0.05));
+  border-color: rgba(255, 195, 0, 0.15);
+}
+
+body.dark-mode .isom-date-value {
+  color: #f0f0f0;
+}
+
+body.dark-mode .isom-footer {
+  border-top-color: #3a3a5c;
+}
+
+body.dark-mode .isom-footer p {
+  color: #666;
+}
+
+/* ---- RESPONSIVE ---- */
+@media (max-width: 768px) {
+  .isom-page { padding: 0; align-items: stretch; }
+  .isom-container { border-radius: 0; max-width: 100%; min-height: 100vh; min-height: 100dvh; margin: 0; animation: none; }
+  .isom-header { padding: 16px 20px; }
+  .isom-hero { padding: 30px 20px 16px; }
+  .isom-carousel { width: calc(100% - 40px); margin: 10px 20px 24px; height: 220px; }
+  .isom-about { padding: 0 20px; }
+  .isom-points { margin: 10px 20px 0; grid-template-columns: 1fr; }
+  .isom-cta { margin: 24px 20px 28px; flex-direction: column; align-items: flex-start; }
+  .isom-btn { width: 100%; justify-content: center; }
+}

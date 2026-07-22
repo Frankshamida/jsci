@@ -639,6 +639,17 @@ export default function DashboardPage() {
   const [termsSaving, setTermsSaving] = useState(false);
   const [termsLastUpdated, setTermsLastUpdated] = useState('');
 
+  // ISOM Management (Super Admin)
+  const [isomSubtitle, setIsomSubtitle] = useState('');
+  const [isomAboutHtml, setIsomAboutHtml] = useState('');
+  const [isomBullets, setIsomBullets] = useState([]);
+  const [isomClassStartDate, setIsomClassStartDate] = useState('');
+  const [isomSlides, setIsomSlides] = useState([]);
+  const [isomLoading, setIsomLoading] = useState(false);
+  const [isomSaving, setIsomSaving] = useState(false);
+  const [isomUploading, setIsomUploading] = useState(false);
+  const [isomLastUpdated, setIsomLastUpdated] = useState('');
+
   // Super Admin: Permissions Control (real-time)
   const [permissionOverrides, setPermissionOverrides] = useState({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
@@ -1232,6 +1243,7 @@ export default function DashboardPage() {
     if (sectionId === 'audit-logs') loadAuditLogs();
     if (sectionId === 'system-config') loadSystemSettings();
     if (sectionId === 'terms-conditions') loadTermsConditions();
+    if (sectionId === 'isom-management') loadIsomContent();
     if (sectionId === 'permissions-control') { loadPermissionOverrides(); } else { setPermCtrlUnlocked(false); setPermCtrlPasswordInput(''); setPermCtrlPasswordError(''); }
     if (sectionId === 'create-lineup') { loadScheduleData(); loadLineupExcuses(); loadSubRequests(); loadPawMembers(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
     if (sectionId === 'my-lineups') loadScheduleData();
@@ -2118,6 +2130,101 @@ export default function DashboardPage() {
     } catch (err) {
       showToast('❌ Error saving Terms & Conditions', 'error');
     } finally { setTermsSaving(false); }
+  };
+
+  // ISOM Management
+  const loadIsomContent = async () => {
+    setIsomLoading(true);
+    try {
+      const res = await fetch('/api/admin/isom');
+      const data = await res.json();
+      if (data.success) {
+        setIsomSubtitle(data.data.subtitle || '');
+        setIsomAboutHtml(data.data.about_html || '');
+        setIsomBullets(Array.isArray(data.data.bullets) ? data.data.bullets : []);
+        setIsomClassStartDate(data.data.class_start_date || '');
+        setIsomSlides(Array.isArray(data.data.slides) ? data.data.slides : []);
+        setIsomLastUpdated(data.data.updated_at || '');
+      }
+    } catch { /* silent */ }
+    finally { setIsomLoading(false); }
+  };
+
+  const saveIsomContent = async () => {
+    setIsomSaving(true);
+    try {
+      const res = await fetch('/api/admin/isom', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subtitle: isomSubtitle,
+          aboutHtml: isomAboutHtml,
+          bullets: isomBullets,
+          classStartDate: isomClassStartDate,
+          updatedBy: userData?.email || 'Admin',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('✅ ISOM content saved successfully!', 'success');
+        setIsomLastUpdated(new Date().toISOString());
+      } else {
+        showToast('❌ Failed to save: ' + data.message, 'error');
+      }
+    } catch (err) {
+      showToast('❌ Error saving ISOM content', 'error');
+    } finally { setIsomSaving(false); }
+  };
+
+  const handleIsomBulletChange = (index, value) => {
+    setIsomBullets((prev) => prev.map((b, i) => (i === index ? value : b)));
+  };
+
+  const handleAddIsomBullet = () => setIsomBullets((prev) => [...prev, '']);
+
+  const handleRemoveIsomBullet = (index) => {
+    setIsomBullets((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleIsomSlideUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'danger'); return; }
+    if (file.size > 5 * 1024 * 1024) { showToast('Image must be under 5MB', 'danger'); return; }
+    setIsomUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      const res = await fetch('/api/admin/isom', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) {
+        setIsomSlides(Array.isArray(data.data.slides) ? data.data.slides : []);
+        showToast('Slide uploaded! 🖼️', 'success');
+      } else {
+        showToast('❌ ' + data.message, 'error');
+      }
+    } catch (err) {
+      showToast('❌ Error uploading slide', 'error');
+    } finally {
+      setIsomUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDeleteIsomSlide = async (index) => {
+    if (!confirm('Remove this slide image?')) return;
+    try {
+      const res = await fetch(`/api/admin/isom?index=${index}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setIsomSlides(Array.isArray(data.data.slides) ? data.data.slides : []);
+        showToast('Slide removed', 'success');
+      } else {
+        showToast('❌ ' + data.message, 'error');
+      }
+    } catch (err) {
+      showToast('❌ Error removing slide', 'error');
+    }
   };
 
   // Permission Controls
@@ -9127,6 +9234,128 @@ Examples:
                 </div>
               </div>
             </div>
+          </section>
+
+          {/* ========== ISOM MANAGEMENT (Super Admin) ========== */}
+          <section className={`content-section ${activeSection === 'isom-management' ? 'active' : ''}`}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <h2 className="section-title"><i className="fas fa-graduation-cap" style={{ marginRight: 10, color: 'var(--accent)' }}></i>ISOM Management</h2>
+              <a href="/isom" target="_blank" className="terms-editor-preview-btn">
+                <i className="fas fa-external-link-alt"></i> Preview ISOM Page
+              </a>
+            </div>
+
+            {isomLoading ? (
+              <div className="terms-editor-loading">
+                <i className="fas fa-spinner fa-spin"></i> Loading ISOM content...
+              </div>
+            ) : (
+              <div className="terms-editor-container" style={{ padding: 20 }}>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Subtitle (shown on homepage & ISOM page)</label>
+                  <textarea
+                    value={isomSubtitle}
+                    onChange={(e) => setIsomSubtitle(e.target.value)}
+                    rows={2}
+                    style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd', fontFamily: 'inherit' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Classes Begin (date label)</label>
+                  <input
+                    type="text"
+                    value={isomClassStartDate}
+                    onChange={(e) => setIsomClassStartDate(e.target.value)}
+                    placeholder="e.g. August 2026"
+                    style={{ width: '100%', maxWidth: 300, padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Highlight Bullets</label>
+                  {isomBullets.map((b, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                      <input
+                        type="text"
+                        value={b}
+                        onChange={(e) => handleIsomBulletChange(i, e.target.value)}
+                        style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
+                      />
+                      <button type="button" className="terms-editor-preview-btn" onClick={() => handleRemoveIsomBullet(i)}>
+                        <i className="fas fa-trash"></i>
+                      </button>
+                    </div>
+                  ))}
+                  <button type="button" className="terms-editor-preview-btn" onClick={handleAddIsomBullet}>
+                    <i className="fas fa-plus"></i> Add Bullet
+                  </button>
+                </div>
+
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>About ISOM</label>
+                  <div className="terms-editor-toolbar">
+                    <div className="terms-editor-toolbar-group">
+                      <button type="button" title="Bold" onMouseDown={(e) => { e.preventDefault(); document.execCommand('bold'); }}><i className="fas fa-bold"></i></button>
+                      <button type="button" title="Italic" onMouseDown={(e) => { e.preventDefault(); document.execCommand('italic'); }}><i className="fas fa-italic"></i></button>
+                    </div>
+                    <div className="terms-editor-toolbar-divider"></div>
+                    <div className="terms-editor-toolbar-group">
+                      <button type="button" title="Heading 3" onMouseDown={(e) => { e.preventDefault(); document.execCommand('formatBlock', false, 'h3'); }}>H3</button>
+                      <button type="button" title="Paragraph" onMouseDown={(e) => { e.preventDefault(); document.execCommand('formatBlock', false, 'p'); }}>P</button>
+                    </div>
+                    <div className="terms-editor-toolbar-divider"></div>
+                    <div className="terms-editor-toolbar-group">
+                      <button type="button" title="Bulleted List" onMouseDown={(e) => { e.preventDefault(); document.execCommand('insertUnorderedList'); }}><i className="fas fa-list-ul"></i></button>
+                    </div>
+                  </div>
+                  <div
+                    className="terms-editor-area"
+                    contentEditable
+                    suppressContentEditableWarning
+                    dangerouslySetInnerHTML={{ __html: isomAboutHtml }}
+                    onInput={(e) => setIsomAboutHtml(e.currentTarget.innerHTML)}
+                    style={{ minHeight: 200 }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontWeight: 600, marginBottom: 10 }}>Carousel Images</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+                    {isomSlides.map((slide, i) => (
+                      <div key={i} style={{ position: 'relative', width: 140, height: 100, borderRadius: 10, overflow: 'hidden', border: '1px solid #ddd' }}>
+                        <img src={slide.url} alt={`Slide ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteIsomSlide(i)}
+                          style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: 6, width: 26, height: 26, cursor: 'pointer' }}
+                          title="Remove slide"
+                        >
+                          <i className="fas fa-times"></i>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <label className="terms-editor-preview-btn" style={{ cursor: 'pointer', display: 'inline-flex' }}>
+                    {isomUploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading...</> : <><i className="fas fa-cloud-upload-alt"></i> Add Slide Image</>}
+                    <input type="file" accept="image/*" onChange={handleIsomSlideUpload} disabled={isomUploading} style={{ display: 'none' }} />
+                  </label>
+                </div>
+
+                <div className="terms-editor-footer">
+                  <div className="terms-editor-meta">
+                    {isomLastUpdated && (
+                      <span><i className="fas fa-clock"></i> Last updated: {new Date(isomLastUpdated).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    )}
+                  </div>
+                  <div className="terms-editor-actions">
+                    <button className="terms-editor-save-btn" onClick={saveIsomContent} disabled={isomSaving}>
+                      {isomSaving ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> Save Changes</>}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* ========== AUDIT LOGS (Super Admin) ========== */}

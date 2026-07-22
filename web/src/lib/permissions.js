@@ -374,6 +374,7 @@ export function getSidebarMenu(role, userData) {
       { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', section: 'reports' },
       { id: 'permissions-control', icon: 'fas fa-toggle-on', label: 'Permissions Control', section: 'permissions-control' },
       { id: 'system', icon: 'fas fa-cogs', label: 'System Config', section: 'system-config' },
+      { id: 'isom', icon: 'fas fa-graduation-cap', label: 'ISOM Management', section: 'isom-management' },
       { id: 'terms-conditions', icon: 'fas fa-file-contract', label: 'Terms & Conditions', section: 'terms-conditions' },
       { id: 'audit', icon: 'fas fa-history', label: 'Audit Logs', section: 'audit-logs' },
       { id: 'bible', icon: 'fas fa-bible', label: 'Bible Reader', section: 'bible-reader' },

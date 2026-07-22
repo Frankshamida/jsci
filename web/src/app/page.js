@@ -27,9 +27,11 @@ const ACTIVITIES = [
   { title: 'Sunday Worship Service', desc: 'Our church family united in powerful worship and biblical teaching every Sunday morning.', photo: '/assets/worship-service.jpg', badge: 'Weekly' },
   { title: 'Friday Bible Study', desc: 'In-depth Bible study and discussion for spiritual growth and deeper understanding of God\'s Word.', photo: '/assets/friday-bible-study.jpg', badge: 'Weekly' },
   { title: 'ISOM Training', desc: 'International School of Ministry — equipping leaders for effective kingdom work and ministry.', photo: '/assets/isom-training.jpg', badge: 'Ongoing' },
+  { title: 'Online Midweek Service', desc: 'Join us online every Wednesday for worship, teaching, and fellowship from wherever you are.', photo: '/assets/Midweek_Service.png', badge: 'Weekly' },
   { title: 'Youth Ministry', desc: 'Dynamic gatherings filled with fun, fellowship, games, and spiritual growth for the youth.', photo: '/assets/youth-event.jpg', badge: 'Monthly' },
   { title: 'Community Outreach', desc: 'Serving our community with practical needs and sharing the good news of Jesus Christ.', photo: '/assets/community-outreach.jpg', badge: 'Quarterly' },
   { title: 'Pastor Appreciation', desc: 'Honoring and celebrating our dedicated pastors for their faithful service and leadership.', photo: '/assets/pastor-appreciation.jpg', badge: 'Annual' },
+  { title: 'Leadership Conference', desc: 'Equipping and empowering believers to raise up the next generation of kingdom leaders.', photo: '/assets/Leadership Conference.jpg', badge: 'Annual' },
 ];
 
 const SERVICE_TIMES = [
@@ -68,6 +70,17 @@ export default function HomePage() {
   const [hasActiveLive, setHasActiveLive] = useState(false);
   const heroTimer = useRef(null);
   const [isomIndex, setIsomIndex] = useState(0);
+  const [isomData, setIsomData] = useState({
+    subtitle: 'Be equipped, empowered, and sent — a Spirit-filled ministry training program raising up the next generation of kingdom leaders.',
+    bullets: [
+      'Solid biblical foundation & sound doctrine',
+      'Spirit-empowered prayer & worship',
+      'Hands-on leadership & ministry training',
+      'A heart to reach the nations for Christ',
+    ],
+    class_start_date: 'August 2026',
+    slides: ISOM_SLIDES.map((url) => ({ url })),
+  });
   const [newsEvents, setNewsEvents] = useState([]);
 
   // ---- Chatbot (Joy AI Assistant) ----
@@ -109,9 +122,31 @@ export default function HomePage() {
   // ---- ISOM carousel auto-rotate ----
   useEffect(() => {
     const t = setInterval(() => {
-      setIsomIndex(prev => (prev + 1) % ISOM_SLIDES.length);
+      setIsomIndex(prev => (prev + 1) % (isomData.slides.length || 1));
     }, 4000);
     return () => clearInterval(t);
+  }, [isomData.slides.length]);
+
+  // ---- Load ISOM content (dynamic, editable via SuperAdmin) ----
+  useEffect(() => {
+    const loadIsom = async () => {
+      try {
+        const res = await fetch('/api/admin/isom');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setIsomData({
+              subtitle: json.data.subtitle || isomData.subtitle,
+              bullets: Array.isArray(json.data.bullets) && json.data.bullets.length ? json.data.bullets : isomData.bullets,
+              class_start_date: json.data.class_start_date || isomData.class_start_date,
+              slides: Array.isArray(json.data.slides) && json.data.slides.length ? json.data.slides : isomData.slides,
+            });
+          }
+        }
+      } catch { /* keep defaults */ }
+    };
+    loadIsom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- Load events for the News section (upcoming first, then most recent) ----
@@ -577,17 +612,16 @@ If you don't know something specific, professionally encourage the user to conta
             <img src="/assets/ISOM_Logo.png" alt="ISOM Logo" className="hp-isom-logo" loading="lazy" decoding="async" />
             <h2>International School of Ministries</h2>
             <p className="hp-isom-sub">
-              Be equipped, empowered, and sent — a Spirit-filled ministry training program
-              raising up the next generation of kingdom leaders.
+              {isomData.subtitle}
             </p>
           </div>
 
           <div className="hp-isom-body hp-animate">
             <div className="hp-isom-carousel">
-              {ISOM_SLIDES.map((src, i) => (
+              {isomData.slides.map((slide, i) => (
                 <img
                   key={i}
-                  src={src}
+                  src={slide.url}
                   alt={`ISOM ${i + 1}`}
                   loading="lazy"
                   decoding="async"
@@ -595,15 +629,15 @@ If you don't know something specific, professionally encourage the user to conta
                 />
               ))}
               <button className="hp-isom-arrow left" aria-label="Previous"
-                onClick={() => setIsomIndex((isomIndex - 1 + ISOM_SLIDES.length) % ISOM_SLIDES.length)}>
+                onClick={() => setIsomIndex((isomIndex - 1 + isomData.slides.length) % isomData.slides.length)}>
                 <i className="fas fa-chevron-left"></i>
               </button>
               <button className="hp-isom-arrow right" aria-label="Next"
-                onClick={() => setIsomIndex((isomIndex + 1) % ISOM_SLIDES.length)}>
+                onClick={() => setIsomIndex((isomIndex + 1) % isomData.slides.length)}>
                 <i className="fas fa-chevron-right"></i>
               </button>
               <div className="hp-isom-dots">
-                {ISOM_SLIDES.map((_, i) => (
+                {isomData.slides.map((_, i) => (
                   <button key={i} className={`hp-isom-dot ${i === isomIndex ? 'active' : ''}`}
                     aria-label={`Slide ${i + 1}`} onClick={() => setIsomIndex(i)} />
                 ))}
@@ -612,10 +646,9 @@ If you don't know something specific, professionally encourage the user to conta
 
             <div className="hp-isom-side">
               <ul className="hp-isom-points">
-                <li><i className="fas fa-book-bible"></i> Solid biblical foundation & sound doctrine</li>
-                <li><i className="fas fa-hands-praying"></i> Spirit-empowered prayer & worship</li>
-                <li><i className="fas fa-people-group"></i> Hands-on leadership & ministry training</li>
-                <li><i className="fas fa-globe"></i> A heart to reach the nations for Christ</li>
+                {isomData.bullets.map((b, i) => (
+                  <li key={i}><i className="fas fa-check-circle"></i> {b}</li>
+                ))}
               </ul>
 
               <div className="hp-isom-cta">
@@ -623,13 +656,16 @@ If you don't know something specific, professionally encourage the user to conta
                   <i className="fas fa-calendar-day"></i>
                   <div>
                     <span className="hp-isom-date-label">Classes Begin</span>
-                    <span className="hp-isom-date-value">August 2026</span>
+                    <span className="hp-isom-date-value">{isomData.class_start_date}</span>
                   </div>
                 </div>
                 <a href="/signup" className="hp-isom-btn">
                   <i className="fas fa-graduation-cap"></i> Enroll Now
                 </a>
               </div>
+              <a href="/isom" className="hp-isom-learn-more">
+                <i className="fas fa-arrow-right"></i> Learn More About ISOM
+              </a>
             </div>
           </div>
         </div>

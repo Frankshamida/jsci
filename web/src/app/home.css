@@ -2063,6 +2063,24 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
   box-shadow: 0 14px 38px rgba(255, 195, 0, 0.6);
 }
 
+.hp-isom-learn-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  color: var(--accent, #ffc300);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-decoration: none;
+  transition: gap 0.25s ease, opacity 0.25s ease;
+}
+
+.hp-isom-learn-more:hover {
+  gap: 12px;
+  opacity: 0.85;
+}
+
 @media (max-width: 860px) {
   .hp-isom-body { grid-template-columns: 1fr; }
   .hp-isom-carousel { min-height: 240px; }
