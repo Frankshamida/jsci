@@ -156,11 +156,14 @@ body.dark-mode .dashboard-loading-text {
   flex-shrink: 0;
 }
 
-/* Circular collapse/expand arrow at the very top of the sidebar */
+/* Circular collapse/expand arrow at the very top of the sidebar.
+   Anchored a fixed distance from the right edge (not centered via
+   transform math) so it can never render outside the sidebar's own
+   width, at any collapsed/expanded size. */
 .sidebar-collapse-arrow {
   position: absolute;
   top: 14px;
-  right: 12px;
+  right: 14px;
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -173,24 +176,29 @@ body.dark-mode .dashboard-loading-text {
   color: #fff;
   background: linear-gradient(135deg, var(--primary), var(--secondary));
   box-shadow: 0 3px 10px rgba(146,108,21,0.4);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, top 0.3s ease, right 0.3s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, top 0.3s ease;
   z-index: 3;
 }
 .sidebar-collapse-arrow:hover {
   transform: scale(1.12);
   box-shadow: 0 5px 16px rgba(146,108,21,0.6);
 }
-/* When collapsed, center the arrow above the logo */
+/* When collapsed, only the top padding shifts to clear the logo — the
+   arrow stays pinned 14px from the right edge, which always fits
+   inside var(--sidebar-collapsed) (76px). */
 .sidebar.collapsed .sidebar-top {
   padding-top: 44px;
 }
 .sidebar.collapsed .sidebar-collapse-arrow {
   top: 10px;
-  right: 50%;
-  transform: translateX(50%);
 }
-.sidebar.collapsed .sidebar-collapse-arrow:hover {
-  transform: translateX(50%) scale(1.12);
+
+/* Mobile has its own hamburger toggle for opening/closing the sidebar,
+   so the desktop collapse arrow is unnecessary there — remove it. */
+@media (max-width: 768px) {
+  .sidebar-collapse-arrow {
+    display: none !important;
+  }
 }
 
 .sidebar-brand {
@@ -573,6 +581,261 @@ body.dark-mode .sidebar-lock-tooltip {
   padding: 12px 10px 14px;
   border-top: 1px solid var(--sidebar-border);
   flex-shrink: 0;
+}
+
+/* Notifications bell (sidebar bottom) */
+.sidebar-notif-bell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  margin-bottom: 10px;
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.sidebar-notif-bell:hover {
+  background: rgba(146,108,21,0.08);
+}
+
+.sidebar-notif-bell i.fa-bell {
+  font-size: 1rem;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sidebar.collapsed .sidebar-notif-bell {
+  justify-content: center;
+  padding: 11px;
+}
+
+.sidebar.collapsed .sidebar-notif-bell span:not(.sidebar-notif-badge) {
+  display: none;
+}
+
+.sidebar-notif-badge {
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  margin-left: auto;
+}
+
+.sidebar.collapsed .sidebar-notif-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  margin-left: 0;
+}
+
+/* Notifications modal */
+.notif-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.notif-modal {
+  width: 100%;
+  max-width: 420px;
+  max-height: min(600px, 80vh);
+  background: var(--sidebar-bg, #1a1a2e);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: modalSlideIn 0.25s ease;
+}
+
+.notif-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--sidebar-border);
+  flex-shrink: 0;
+}
+
+.notif-modal-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--sidebar-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notif-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.notif-modal-mark-all {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.notif-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.notif-modal-close:hover {
+  background: rgba(220,53,69,0.15);
+  color: #dc3545;
+}
+
+.notif-modal-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.notif-modal-empty {
+  padding: 50px 20px;
+  text-align: center;
+  color: #6c757d;
+}
+
+.notif-modal-empty i {
+  font-size: 2rem;
+  margin-bottom: 10px;
+  display: block;
+  opacity: 0.5;
+}
+
+.notif-modal-empty p {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.notif-modal-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 20px;
+  border: none;
+  border-bottom: 1px solid var(--sidebar-border);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+.notif-modal-item:last-child { border-bottom: none; }
+
+.notif-modal-item:hover {
+  background: var(--sidebar-hover);
+}
+
+.notif-modal-item.unread {
+  background: rgba(146,108,21,0.06);
+}
+
+.notif-modal-item-icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(146,108,21,0.12);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+
+.notif-modal-item-body {
+  flex: 1;
+  min-width: 0;
+  padding-right: 14px;
+}
+
+.notif-modal-item-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--sidebar-text);
+  margin-bottom: 3px;
+}
+
+.notif-modal-item-message {
+  font-size: 0.78rem;
+  color: #8a8a9a;
+  margin-bottom: 5px;
+  line-height: 1.35;
+}
+
+.notif-modal-item-time {
+  font-size: 0.68rem;
+  color: #6c757d;
+}
+
+.notif-modal-item-dot {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  /* Keep it a centered floating modal (like desktop) rather than a
+     bottom sheet — just trim the side padding and cap the height. */
+  .notif-modal-overlay { padding: 16px; align-items: center; }
+  .notif-modal {
+    max-width: 100%;
+    width: 100%;
+    max-height: 80vh;
+    border-radius: 18px;
+  }
 }
 
 /* User card */
@@ -15033,6 +15296,13 @@ body.dark-mode .um-clear-filters {
   .um-toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+  .um-search-box {
+    /* In a column flex container, flex-basis sets height, not width —
+       without this reset "flex: 1 1 420px" (meant for the row layout)
+       stretches the search box to ~420px tall on mobile. */
+    flex: none;
+    width: 100%;
   }
   .um-filters {
     flex-direction: column;

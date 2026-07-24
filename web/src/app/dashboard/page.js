@@ -638,6 +638,7 @@ export default function DashboardPage() {
   // Notifications
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
 
   // Reports
   const [reportData, setReportData] = useState(null);
@@ -805,6 +806,30 @@ export default function DashboardPage() {
 
   // Logout
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  // Generic confirm modal (used for deletes and other destructive actions)
+  const [confirmModal, setConfirmModal] = useState({ open: false, title: '', subtitle: '', message: '', confirmLabel: 'Delete', icon: 'fa-trash', onConfirm: null, requireText: null });
+  const [confirmTypedText, setConfirmTypedText] = useState('');
+  const askConfirm = (message, onConfirm, opts = {}) => {
+    setConfirmTypedText('');
+    setConfirmModal({
+      open: true,
+      title: opts.title || 'Confirm Action',
+      subtitle: opts.subtitle || 'Ministry Portal',
+      message,
+      confirmLabel: opts.confirmLabel || 'Delete',
+      icon: opts.icon || 'fa-trash',
+      onConfirm,
+      requireText: opts.requireText || null,
+    });
+  };
+  const closeConfirm = () => { setConfirmModal((c) => ({ ...c, open: false, onConfirm: null })); setConfirmTypedText(''); };
+  const handleConfirmAccept = async () => {
+    if (confirmModal.requireText && confirmTypedText !== confirmModal.requireText) return;
+    const action = confirmModal.onConfirm;
+    closeConfirm();
+    if (action) await action();
+  };
 
   // Welcome Modal (for new users)
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -1189,7 +1214,7 @@ export default function DashboardPage() {
         loadPawNotifications();
         // Show a toast with the notification title
         if (notif && notif.title) {
-          showToast(notif.title, 'info');
+          showToast(notif.title, notif.type || 'info');
         }
       })
       .subscribe();
@@ -1452,6 +1477,27 @@ export default function DashboardPage() {
     } catch { /* silent */ }
   };
 
+  const handleNotificationClick = async (notif) => {
+    if (!notif.is_read) {
+      setNotifications((prev) => prev.map((n) => (n.id === notif.id ? { ...n, is_read: true } : n)));
+      setUnreadCount((c) => Math.max(0, c - 1));
+      try {
+        await fetch('/api/notifications', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: notif.id }) });
+      } catch { /* silent */ }
+    }
+    if (notif.link) showSection(notif.link);
+    setShowNotifPanel(false);
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    if (!userData?.id) return;
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setUnreadCount(0);
+    try {
+      await fetch('/api/notifications', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markAll: true, userId: userData.id }) });
+    } catch { /* silent */ }
+  };
+
   const loadEvents = async () => {
     try {
       const res = await fetch('/api/events');
@@ -1568,12 +1614,13 @@ export default function DashboardPage() {
   };
 
   const handleDeleteLiveStream = async (id) => {
-    if (!confirm('Are you sure you want to delete this live stream?')) return;
-    try {
-      await fetch(`/api/live-streams?id=${id}`, { method: 'DELETE' });
-      showToast('Live stream removed', 'success');
-      loadLiveStreams();
-    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    askConfirm('Are you sure you want to delete this live stream?', async () => {
+      try {
+        await fetch(`/api/live-streams?id=${id}`, { method: 'DELETE' });
+        showToast('Live stream removed', 'success');
+        loadLiveStreams();
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    });
   };
 
   const loadLiveStreamComments = async (streamId) => {
@@ -1839,19 +1886,20 @@ export default function DashboardPage() {
   };
 
   const handleDeleteRecording = async (rec) => {
-    if (!confirm(`Delete "${rec.title}"? This will also remove the file from Cloudinary.`)) return;
-    try {
-      const res = await fetch(`/api/recordings?id=${rec.id}`, { method: 'DELETE' });
-      let data;
-      const text = await res.text();
-      try { data = JSON.parse(text); } catch { data = { success: res.ok, message: text || 'Unknown error' }; }
-      if (data.success) {
-        showToast('Recording deleted', 'success');
-        loadRecordings();
-      } else {
-        showToast(data.message || 'Delete failed', 'danger');
-      }
-    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    askConfirm(`Delete "${rec.title}"? This will also remove the file from Cloudinary.`, async () => {
+      try {
+        const res = await fetch(`/api/recordings?id=${rec.id}`, { method: 'DELETE' });
+        let data;
+        const text = await res.text();
+        try { data = JSON.parse(text); } catch { data = { success: res.ok, message: text || 'Unknown error' }; }
+        if (data.success) {
+          showToast('Recording deleted', 'success');
+          loadRecordings();
+        } else {
+          showToast(data.message || 'Delete failed', 'danger');
+        }
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    });
   };
 
   const openRecordingEditor = (rec = null) => {
@@ -2269,19 +2317,20 @@ export default function DashboardPage() {
   };
 
   const handleDeleteIsomSlide = async (index) => {
-    if (!confirm('Remove this slide image?')) return;
-    try {
-      const res = await fetch(`/api/admin/isom?index=${index}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setIsomSlides(Array.isArray(data.data.slides) ? data.data.slides : []);
-        showToast('Slide removed', 'success');
-      } else {
-        showToast('❌ ' + data.message, 'error');
+    askConfirm('Remove this slide image?', async () => {
+      try {
+        const res = await fetch(`/api/admin/isom?index=${index}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          setIsomSlides(Array.isArray(data.data.slides) ? data.data.slides : []);
+          showToast('Slide removed', 'success');
+        } else {
+          showToast('❌ ' + data.message, 'error');
+        }
+      } catch (err) {
+        showToast('❌ Error removing slide', 'error');
       }
-    } catch (err) {
-      showToast('❌ Error removing slide', 'error');
-    }
+    });
   };
 
   // Permission Controls
@@ -2728,19 +2777,20 @@ export default function DashboardPage() {
   };
 
   const deletePracticeRecording = async (rec) => {
-    if (!confirm(`Delete "${rec.title}"?`)) return;
-    try {
-      const res = await fetch(`/api/practice-recordings?id=${rec.id}`, { method: 'DELETE' });
-      const text = await res.text();
-      let data;
-      try { data = JSON.parse(text); } catch { data = { success: res.ok, message: text }; }
-      if (data.success) {
-        showToast('Practice recording deleted', 'success');
-        loadPracticeRecordings();
-      } else {
-        showToast(data.message || 'Delete failed', 'danger');
-      }
-    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    askConfirm(`Delete "${rec.title}"?`, async () => {
+      try {
+        const res = await fetch(`/api/practice-recordings?id=${rec.id}`, { method: 'DELETE' });
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch { data = { success: res.ok, message: text }; }
+        if (data.success) {
+          showToast('Practice recording deleted', 'success');
+          loadPracticeRecordings();
+        } else {
+          showToast(data.message || 'Delete failed', 'danger');
+        }
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    });
   };
 
   // Get the upcoming/next practice schedule (Saturday before Sunday)
@@ -2882,13 +2932,14 @@ export default function DashboardPage() {
   };
 
   const handleLyricsDelete = async (id) => {
-    if (!confirm('Delete this lyrics entry?')) return;
-    try {
-      const res = await fetch(`/api/lyrics/library?id=${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) { showToast('Lyrics deleted!', 'success'); loadLyricsLibrary(); }
-      else showToast(data.message, 'danger');
-    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    askConfirm('Delete this lyrics entry?', async () => {
+      try {
+        const res = await fetch(`/api/lyrics/library?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { showToast('Lyrics deleted!', 'success'); loadLyricsLibrary(); }
+        else showToast(data.message, 'danger');
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    });
   };
 
   const handleLyricsLinkToSchedule = async (lyricsId, scheduleDate) => {
@@ -3126,12 +3177,13 @@ export default function DashboardPage() {
     finally { setEventSaving(false); }
   };
 
-  const handleDeleteEvent = async (id) => {
-    if (!confirm('Delete this event?')) return;
-    const res = await fetch(`/api/events?id=${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    showToast(data.message, data.success ? 'success' : 'danger');
-    if (data.success) loadEvents();
+  const handleDeleteEvent = async (evt) => {
+    askConfirm(`This will permanently delete the event. Please type the event title to confirm.`, async () => {
+      const res = await fetch(`/api/events?id=${evt.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      showToast(data.message, data.success ? 'success' : 'danger');
+      if (data.success) loadEvents();
+    }, { title: 'Delete Event', subtitle: evt.title, requireText: evt.title });
   };
 
   const handleEventRSVP = async (eventId, status) => {
@@ -3162,11 +3214,12 @@ export default function DashboardPage() {
   };
 
   const handleDeleteAnnouncement = async (id) => {
-    if (!confirm('Delete this announcement?')) return;
-    const res = await fetch(`/api/announcements?id=${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    showToast(data.message, data.success ? 'success' : 'danger');
-    if (data.success) loadAnnouncements();
+    askConfirm('Delete this announcement?', async () => {
+      const res = await fetch(`/api/announcements?id=${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      showToast(data.message, data.success ? 'success' : 'danger');
+      if (data.success) loadAnnouncements();
+    });
   };
 
   // -- Birthday Greetings --
@@ -3315,15 +3368,16 @@ export default function DashboardPage() {
   };
 
   const handleDeleteMeeting = async (id) => {
-    if (!confirm('Are you sure you want to cancel this meeting?')) return;
-    try {
-      const res = await fetch(`/api/meetings?id=${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        showToast(data.message, 'success');
-        loadMeetings();
-      }
-    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    askConfirm('Are you sure you want to cancel this meeting?', async () => {
+      try {
+        const res = await fetch(`/api/meetings?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast(data.message, 'success');
+          loadMeetings();
+        }
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    }, { confirmLabel: 'Cancel Meeting', icon: 'fa-calendar-times' });
   };
 
   const handleMeetingRSVP = async (meetingId, status) => {
@@ -3382,15 +3436,16 @@ export default function DashboardPage() {
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
   };
 
-  const handleDeleteUserEvent = async (id) => {
-    if (!confirm('Delete this event?')) return;
-    const res = await fetch(`/api/user-events?id=${id}&userId=${userData?.id}&userRole=${userRole}`, { method: 'DELETE' });
-    const data = await res.json();
-    showToast(data.message, data.success ? 'success' : 'danger');
-    if (data.success) {
-      loadUserEvents();
-      if (activeSection === 'user-events-oversight') loadAllUserEventsForPastor();
-    }
+  const handleDeleteUserEvent = async (evt) => {
+    askConfirm(`This will permanently delete the event. Please type the event title to confirm.`, async () => {
+      const res = await fetch(`/api/user-events?id=${evt.id}&userId=${userData?.id}&userRole=${userRole}`, { method: 'DELETE' });
+      const data = await res.json();
+      showToast(data.message, data.success ? 'success' : 'danger');
+      if (data.success) {
+        loadUserEvents();
+        if (activeSection === 'user-events-oversight') loadAllUserEventsForPastor();
+      }
+    }, { title: 'Delete Event', subtitle: evt.title, requireText: evt.title });
   };
 
   const handleUserEventRSVP = async (eventId, status) => {
@@ -3707,18 +3762,19 @@ export default function DashboardPage() {
   };
 
   const handleDeletePost = async (postId) => {
-    if (!confirm('Are you sure you want to delete this post?')) return;
-    setDeletingPost(postId);
-    setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/community?id=${postId}&userId=${userData?.id}`, { method: 'DELETE' });
-        if (!res.ok) { showToast('Failed to delete post', 'error'); setDeletingPost(null); return; }
-        const data = await res.json();
-        if (data.success) { setCommunityPosts(prev => prev.filter(p => p.id !== postId)); showToast('Post deleted', 'success'); }
-        else { showToast(data.message || 'Failed to delete', 'error'); }
-      } catch (e) { showToast('Failed to delete post', 'error'); }
-      setDeletingPost(null);
-    }, 300);
+    askConfirm('Are you sure you want to delete this post?', async () => {
+      setDeletingPost(postId);
+      setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/community?id=${postId}&userId=${userData?.id}`, { method: 'DELETE' });
+          if (!res.ok) { showToast('Failed to delete post', 'error'); setDeletingPost(null); return; }
+          const data = await res.json();
+          if (data.success) { setCommunityPosts(prev => prev.filter(p => p.id !== postId)); showToast('Post deleted', 'success'); }
+          else { showToast(data.message || 'Failed to delete', 'error'); }
+        } catch (e) { showToast('Failed to delete post', 'error'); }
+        setDeletingPost(null);
+      }, 300);
+    });
   };
 
   const loadPostComments = async (postId) => {
@@ -3753,14 +3809,15 @@ export default function DashboardPage() {
   };
 
   const handleDeleteComment = async (commentId, postId) => {
-    if (!confirm('Delete this comment?')) return;
-    try {
-      const res = await fetch(`/api/community/comments?id=${commentId}&userId=${userData?.id}`, { method: 'DELETE' });
-      if (!res.ok) { showToast('Failed to delete comment', 'error'); return; }
-      const data = await res.json();
-      if (data.success) { loadPostComments(postId); loadCommunityPosts(); showToast('Comment deleted', 'success'); }
-      else showToast('Failed to delete comment', 'error');
-    } catch { showToast('Failed to delete comment', 'error'); }
+    askConfirm('Delete this comment?', async () => {
+      try {
+        const res = await fetch(`/api/community/comments?id=${commentId}&userId=${userData?.id}`, { method: 'DELETE' });
+        if (!res.ok) { showToast('Failed to delete comment', 'error'); return; }
+        const data = await res.json();
+        if (data.success) { loadPostComments(postId); loadCommunityPosts(); showToast('Comment deleted', 'success'); }
+        else showToast('Failed to delete comment', 'error');
+      } catch { showToast('Failed to delete comment', 'error'); }
+    });
   };
 
   const handleLikeComment = async (commentId, postId) => {
@@ -5777,6 +5834,48 @@ Examples:
         </div>
       )}
 
+      {/* Generic Confirm Modal (deletes / destructive actions) */}
+      {confirmModal.open && (
+        <div className="logout-modal" style={{ display: 'flex' }}>
+          <div className="logout-modal-content">
+            <div className="logout-modal-header">
+              <div className="logout-modal-icon"><i className={`fas ${confirmModal.icon}`}></i></div>
+              <h3>{confirmModal.title}</h3><p>{confirmModal.subtitle}</p>
+            </div>
+            <div className="logout-modal-body">
+              <p>{confirmModal.message}</p>
+              {confirmModal.requireText && (
+                <div style={{ textAlign: 'left', marginBottom: 15 }}>
+                  <p style={{ margin: '0 0 8px' }}>
+                    Please type <strong>{confirmModal.requireText}</strong> to confirm.
+                  </p>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={confirmTypedText}
+                    onChange={(e) => setConfirmTypedText(e.target.value)}
+                    placeholder={confirmModal.requireText}
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === 'Enter' && confirmTypedText === confirmModal.requireText) handleConfirmAccept(); }}
+                  />
+                </div>
+              )}
+              <div className="logout-modal-actions">
+                <button className="logout-modal-btn logout-modal-cancel" onClick={closeConfirm}><i className="fas fa-times"></i> Cancel</button>
+                <button
+                  className="logout-modal-btn logout-modal-confirm"
+                  onClick={handleConfirmAccept}
+                  disabled={confirmModal.requireText ? confirmTypedText !== confirmModal.requireText : false}
+                  style={confirmModal.requireText && confirmTypedText !== confirmModal.requireText ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                >
+                  <i className="fas fa-trash"></i> {confirmModal.confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Schedule Detail Modal */}
       {selectedSchedule && (
         <div className="schedule-modal" style={{ display: 'flex' }} onClick={() => setSelectedSchedule(null)}>
@@ -5938,6 +6037,59 @@ Examples:
 
           {/* Bottom: User card + Logout */}
           <div className="sidebar-bottom">
+            <button
+              className="sidebar-notif-bell"
+              onClick={() => setShowNotifPanel(true)}
+              aria-label="Notifications"
+              title="Notifications"
+            >
+              <i className="fas fa-bell"></i>
+              <span>Notifications</span>
+              {unreadCount > 0 && <span className="sidebar-notif-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+            </button>
+
+            {showNotifPanel && (
+              <div className="notif-modal-overlay" onClick={() => setShowNotifPanel(false)}>
+                <div className="notif-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="notif-modal-header">
+                    <h4><i className="fas fa-bell"></i> Notifications</h4>
+                    <div className="notif-modal-header-actions">
+                      {unreadCount > 0 && (
+                        <button className="notif-modal-mark-all" onClick={handleMarkAllNotificationsRead}>Mark all read</button>
+                      )}
+                      <button className="notif-modal-close" onClick={() => setShowNotifPanel(false)} aria-label="Close"><i className="fas fa-times"></i></button>
+                    </div>
+                  </div>
+                  <div className="notif-modal-list">
+                    {notifications.length === 0 ? (
+                      <div className="notif-modal-empty">
+                        <i className="fas fa-bell-slash"></i>
+                        <p>No notifications yet.</p>
+                      </div>
+                    ) : (
+                      notifications.map((notif) => (
+                        <button
+                          key={notif.id}
+                          className={`notif-modal-item ${!notif.is_read ? 'unread' : ''}`}
+                          onClick={() => handleNotificationClick(notif)}
+                        >
+                          <div className="notif-modal-item-icon">
+                            <i className={`fas ${notif.type === 'success' ? 'fa-check-circle' : notif.type === 'warning' ? 'fa-exclamation-triangle' : notif.type === 'danger' ? 'fa-times-circle' : 'fa-info-circle'}`}></i>
+                          </div>
+                          <div className="notif-modal-item-body">
+                            <div className="notif-modal-item-title">{notif.title}</div>
+                            {notif.message && <div className="notif-modal-item-message">{notif.message}</div>}
+                            <div className="notif-modal-item-time">{formatDateTime(notif.created_at)}</div>
+                          </div>
+                          {!notif.is_read && <span className="notif-modal-item-dot"></span>}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className={`sidebar-user-card ${(!isVerified && userRole !== 'Guest') ? 'locked' : ''}`}
               onClick={() => {
                 if (!isVerified && userRole !== 'Guest') {
@@ -6497,7 +6649,7 @@ Examples:
                         <button className="event-action-btn edit" onClick={() => { setEditingEvent(evt); setEventForm({ title: evt.title, description: evt.description || '', eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '' }); setEventImageFile(null); setEventImagePreview(''); setShowEventForm(true); }} title="Edit Event"><i className="fas fa-edit"></i></button>
                       )}
                       {canManage(MODULES.DELETE_EVENTS) && featureOn('events.delete') && (
-                        <button className="event-action-btn delete" onClick={() => handleDeleteEvent(evt.id)} title="Delete Event"><i className="fas fa-trash"></i></button>
+                        <button className="event-action-btn delete" onClick={() => handleDeleteEvent(evt)} title="Delete Event"><i className="fas fa-trash"></i></button>
                       )}
                     </div>
                   </div>
@@ -6517,7 +6669,7 @@ Examples:
                     )}
                   </div>
 
-                  {canManage(MODULES.RSVP_EVENT) && featureOn('events.rsvp') && (
+                  {canManage(MODULES.RSVP_EVENT) && featureOn('events.rsvp') && userRole !== 'Admin' && userRole !== 'Super Admin' && (
                     <div className="event-card-footer">
                       <button className="btn-rsvp going" onClick={() => handleEventRSVP(evt.id, 'Going')}>Going</button>
                       <button className="btn-rsvp maybe" onClick={() => handleEventRSVP(evt.id, 'Maybe')}>Maybe</button>
@@ -10476,7 +10628,7 @@ Examples:
                       });
                       setShowUserEventForm(true);
                     }}><i className="fas fa-edit"></i> Edit</button>
-                    <button className="btn-small btn-danger" onClick={() => handleDeleteUserEvent(evt.id)}><i className="fas fa-trash"></i> Delete</button>
+                    <button className="btn-small btn-danger" onClick={() => handleDeleteUserEvent(evt)}><i className="fas fa-trash"></i> Delete</button>
                   </div>
                 </div>
               ))}
@@ -10645,7 +10797,7 @@ Examples:
                       });
                       setShowUserEventForm(true);
                     }}><i className="fas fa-edit"></i> Edit</button>
-                    <button className="btn-small btn-danger" onClick={() => handleDeleteUserEvent(evt.id)}><i className="fas fa-trash"></i> Delete</button>
+                    <button className="btn-small btn-danger" onClick={() => handleDeleteUserEvent(evt)}><i className="fas fa-trash"></i> Delete</button>
                   </div>
                 </div>
               ))}

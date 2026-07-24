@@ -97,6 +97,16 @@ export async function PUT(request) {
     if (action === 'verify') {
       const { error } = await supabase.from('users').update({ status: 'Verified' }).eq('id', id);
       if (error) throw error;
+
+      const { error: notifError } = await supabase.from('notifications').insert({
+        user_id: id,
+        title: '🎉 Your Account Has Been Verified',
+        message: "Great news! Your account has been reviewed and verified by our team. You now have full access to all ministry features — welcome aboard!",
+        type: 'success',
+        link: 'my-profile',
+      });
+      if (notifError) console.error('Failed to send verification notification:', notifError.message);
+
       return NextResponse.json({ success: true, message: 'User verified' });
     }
 
@@ -109,6 +119,9 @@ export async function PUT(request) {
     }
 
     if (action === 'assign-role') {
+      const { data: existingUser } = await supabase.from('users').select('role').eq('id', id).single();
+      const previousRole = existingUser?.role;
+
       const roleUpdate = { role: updates.role };
       // A Guest belongs to no ministry — clear ministry and sub-role automatically.
       if (updates.role === 'Guest') {
@@ -117,6 +130,18 @@ export async function PUT(request) {
       }
       const { error } = await supabase.from('users').update(roleUpdate).eq('id', id);
       if (error) throw error;
+
+      if (previousRole && previousRole !== updates.role) {
+        const { error: notifError } = await supabase.from('notifications').insert({
+          user_id: id,
+          title: '🔔 Your Role Has Been Updated',
+          message: `Your role has been changed from "${previousRole}" to "${updates.role}" by an administrator. Some features and permissions may have changed accordingly.`,
+          type: 'info',
+          link: 'my-profile',
+        });
+        if (notifError) console.error('Failed to send role-change notification:', notifError.message);
+      }
+
       return NextResponse.json({ success: true, message: `Role updated to ${updates.role}` });
     }
 
@@ -127,6 +152,12 @@ export async function PUT(request) {
     }
 
     // General update
+    let previousRoleForUpdate = null;
+    if (updates.role) {
+      const { data: existingUser } = await supabase.from('users').select('role').eq('id', id).single();
+      previousRoleForUpdate = existingUser?.role;
+    }
+
     const updateData = {};
     if (updates.firstname) updateData.firstname = updates.firstname;
     if (updates.lastname) updateData.lastname = updates.lastname;
@@ -144,6 +175,17 @@ export async function PUT(request) {
     const { data, error } = await supabase.from('users').update(updateData).eq('id', id)
       .select('id, member_id, firstname, lastname, email, ministry, sub_role, role, status, is_active, allowed_event_types').single();
     if (error) throw error;
+
+    if (updates.role && previousRoleForUpdate && previousRoleForUpdate !== updates.role) {
+      const { error: notifError } = await supabase.from('notifications').insert({
+        user_id: id,
+        title: '🔔 Your Role Has Been Updated',
+        message: `Your role has been changed from "${previousRoleForUpdate}" to "${updates.role}" by an administrator. Some features and permissions may have changed accordingly.`,
+        type: 'info',
+        link: 'my-profile',
+      });
+      if (notifError) console.error('Failed to send role-change notification:', notifError.message);
+    }
 
     return NextResponse.json({ success: true, data, message: 'User updated' });
   } catch (error) {
