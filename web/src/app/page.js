@@ -67,7 +67,6 @@ export default function HomePage() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
   const [dailyVerse, setDailyVerse] = useState({ verse: '', reference: '' });
-  const [hasActiveLive, setHasActiveLive] = useState(false);
   const heroTimer = useRef(null);
   const [isomIndex, setIsomIndex] = useState(0);
   const [isomData, setIsomData] = useState({
@@ -82,6 +81,17 @@ export default function HomePage() {
     slides: ISOM_SLIDES.map((url) => ({ url })),
   });
   const [newsEvents, setNewsEvents] = useState([]);
+  const [detailEvent, setDetailEvent] = useState(null);
+
+  // Public register: not logged in -> create account first (remember the event)
+  const handlePublicRegister = (evt) => {
+    try {
+      if (typeof window !== 'undefined' && evt?.id) {
+        localStorage.setItem('pendingEventRegistration', JSON.stringify({ id: evt.id, title: evt.title }));
+      }
+    } catch { /* ignore */ }
+    router.push('/signup?next=events');
+  };
 
   // ---- Chatbot (Joy AI Assistant) ----
   const [chatOpen, setChatOpen] = useState(false);
@@ -153,7 +163,7 @@ export default function HomePage() {
   useEffect(() => {
     const loadNews = async () => {
       try {
-        const res = await fetch('/api/events?limit=20');
+        const res = await fetch('/api/events?limit=20&published=true');
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.data)) {
@@ -177,22 +187,6 @@ export default function HomePage() {
     loadNews();
   }, []);
 
-  // ---- Check for active live streams ----
-  useEffect(() => {
-    const checkLiveStreams = async () => {
-      try {
-        const res = await fetch('/api/live-streams/public');
-        if (res.ok) {
-          const data = await res.json();
-          setHasActiveLive(Array.isArray(data) && data.length > 0);
-        }
-      } catch { /* silent */ }
-    };
-    checkLiveStreams();
-    // Re-check every 30s
-    const liveCheckInterval = setInterval(checkLiveStreams, 30000);
-    return () => clearInterval(liveCheckInterval);
-  }, []);
 
   // ---- Scroll listener ----
   useEffect(() => {
@@ -426,7 +420,6 @@ If you don't know something specific, professionally encourage the user to conta
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>News</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
-          {hasActiveLive && <a href="/live" className="hp-btn-live"><i className="fas fa-broadcast-tower"></i> Watch Live</a>}
           <a href="/login" className="hp-btn-login"><i className="fas fa-sign-in-alt"></i> Login</a>
           <a href="/signup" className="hp-btn-signup"><i className="fas fa-user-plus"></i> Sign Up</a>
         </div>
@@ -679,33 +672,67 @@ If you don't know something specific, professionally encourage the user to conta
           <p>Stay updated with what&apos;s happening in our church community</p>
         </div>
 
-        <div className="hp-activities-grid">
+        <div className="hp-invite-grid">
           {newsEvents.length > 0 ? (
             newsEvents.map((evt, i) => {
               const start = evt.event_date ? new Date(evt.event_date) : null;
-              const dateLabel = start
-                ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-                : '';
+              const dateLabel = start ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'TBA';
+              const dayLabel = start ? start.toLocaleDateString('en-US', { weekday: 'long' }) : '';
+              const timeLabel = start ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
               return (
-                <div className="hp-activity-card hp-animate" key={evt.id || i} style={{ transitionDelay: `${i * 0.1}s` }}>
-                  {evt.image_url ? (
-                    <div className="hp-activity-img-wrapper">
-                      <img src={evt.image_url} alt={evt.title} className="hp-activity-img" loading="lazy" decoding="async" />
+                <div className="hp-invite-card hp-animate" key={evt.id || i} style={{ transitionDelay: `${i * 0.08}s` }}>
+                  {/* Hero */}
+                  <div className="hp-invite-hero">
+                    {evt.image_url && <img src={evt.image_url} alt={evt.title} className="hp-invite-hero-img" loading="lazy" decoding="async" />}
+                    <div className="hp-invite-hero-overlay"></div>
+                    <div className="hp-invite-dots"></div>
+                    <span className="hp-invite-pill"><i className="fas fa-star"></i> UPCOMING EVENT</span>
+                    <div className="hp-invite-hero-text">
+                      <span className="hp-invite-script">You&apos;re Invited!</span>
+                      <p className="hp-invite-tagline">Join us for a meaningful gathering filled with worship, fellowship, and blessing.</p>
                     </div>
-                  ) : (
-                    <div style={{ height: 160, background: 'linear-gradient(135deg, var(--primary), #3e2e08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <i className="fas fa-calendar-day" style={{ fontSize: '3.5rem', color: 'var(--accent)', opacity: 0.7 }}></i>
+                  </div>
+
+                  {/* Info card */}
+                  <div className="hp-invite-info">
+                    <h3 className="hp-invite-title">{evt.title}</h3>
+                    {evt.description && <p className="hp-invite-desc">{evt.description}</p>}
+                    <span className="hp-invite-rule"></span>
+
+                    <div className="hp-invite-details">
+                      <div className="hp-invite-left">
+                        <div className="hp-invite-row">
+                          <span className="hp-invite-ico"><i className="fas fa-location-dot"></i></span>
+                          <div>
+                            <strong>{(evt.location || evt.loc_city || 'To be announced').toUpperCase()}</strong>
+                            <span>{[evt.loc_city, evt.loc_province || 'Philippines'].filter(Boolean).join(', ')}</span>
+                          </div>
+                        </div>
+                        <div className="hp-invite-row">
+                          <span className="hp-invite-ico"><i className="fas fa-calendar-days"></i></span>
+                          <div>
+                            <strong>{dateLabel.toUpperCase()}</strong>
+                            <span>{[dayLabel, timeLabel].filter(Boolean).join(' • ')}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className={`hp-invite-fee ${evt.has_fee ? 'paid' : 'free'}`}>
+                        <span className="hp-invite-fee-label">{evt.has_fee ? 'REGISTRATION FEE' : 'ADMISSION'}</span>
+                        <span className="hp-invite-fee-value">{evt.has_fee ? `₱${evt.registration_fee}` : 'FREE'}</span>
+                      </div>
                     </div>
-                  )}
-                  <div className="hp-activity-body">
-                    <h4>{evt.title}</h4>
-                    {evt.description && <p>{evt.description}</p>}
-                    {evt.location && (
-                      <div className="hp-activity-meta"><i className="fas fa-location-dot"></i> {evt.location}</div>
-                    )}
-                    {dateLabel && (
-                      <div className="hp-activity-meta"><i className="fas fa-calendar-check"></i> {dateLabel}</div>
-                    )}
+
+                    <div className="hp-invite-actions">
+                      <button className="hp-invite-btn outline" onClick={() => setDetailEvent(evt)}><i className="fas fa-circle-info"></i> View Details</button>
+                      {evt.registration_required !== false && (
+                        <button className="hp-invite-btn solid" onClick={() => handlePublicRegister(evt)}><i className="fas fa-user-plus"></i> Register Now</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div className="hp-invite-foot">
+                    <img src="/assets/LOGO.png" alt="" /> Let&apos;s grow, learn, and make a difference together.
                   </div>
                 </div>
               );
@@ -728,6 +755,79 @@ If you don't know something specific, professionally encourage the user to conta
           )}
         </div>
       </section>
+
+      {/* ---- EVENT DETAILS MODAL ---- */}
+      {detailEvent && (
+        <div className="hp-evt-overlay" onClick={() => setDetailEvent(null)}>
+          <div className="hp-evt-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="hp-evt-close" onClick={() => setDetailEvent(null)} aria-label="Close"><i className="fas fa-times"></i></button>
+
+            {detailEvent.image_url ? (
+              <img src={detailEvent.image_url} alt={detailEvent.title} className="hp-evt-banner" />
+            ) : (
+              <div className="hp-evt-banner placeholder"><i className="fas fa-calendar-day"></i></div>
+            )}
+
+            <div className="hp-evt-content">
+              <div className="hp-evt-badges">
+                <span className={`hp-event-fee ${detailEvent.has_fee ? 'paid' : 'free'}`}>{detailEvent.has_fee ? `₱${detailEvent.registration_fee}` : 'Free Event'}</span>
+                {detailEvent.allowed_roles && detailEvent.allowed_roles.length > 0 && <span className="hp-event-roles">{detailEvent.allowed_roles.join(', ')} only</span>}
+              </div>
+
+              <h2 className="hp-evt-title">{detailEvent.title}</h2>
+              {detailEvent.description && <p className="hp-evt-text">{detailEvent.description}</p>}
+
+              <div className="hp-evt-info">
+                <div className="hp-evt-info-row">
+                  <i className="fas fa-calendar-check"></i>
+                  <div>
+                    <span className="hp-evt-info-label">When</span>
+                    <span>{detailEvent.event_date ? new Date(detailEvent.event_date).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'TBA'}
+                      {detailEvent.end_date ? ` – ${new Date(detailEvent.end_date).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}</span>
+                  </div>
+                </div>
+                {(detailEvent.location || detailEvent.loc_city) && (
+                  <div className="hp-evt-info-row">
+                    <i className="fas fa-location-dot"></i>
+                    <div>
+                      <span className="hp-evt-info-label">Where</span>
+                      <span>{[detailEvent.location, detailEvent.loc_barangay, detailEvent.loc_city, detailEvent.loc_province].filter(Boolean).join(', ')}</span>
+                      {detailEvent.latitude && detailEvent.longitude && (
+                        <a className="hp-evt-directions" href={`https://www.google.com/maps/dir/?api=1&destination=${detailEvent.latitude},${detailEvent.longitude}`} target="_blank" rel="noreferrer"><i className="fas fa-directions"></i> Get Directions</a>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {detailEvent.max_participants && (
+                  <div className="hp-evt-info-row">
+                    <i className="fas fa-users"></i>
+                    <div><span className="hp-evt-info-label">Capacity</span><span>{detailEvent.max_participants} participants</span></div>
+                  </div>
+                )}
+                {detailEvent.registration_deadline && (
+                  <div className="hp-evt-info-row">
+                    <i className="fas fa-hourglass-half"></i>
+                    <div><span className="hp-evt-info-label">Register By</span><span>{new Date(detailEvent.registration_deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span></div>
+                  </div>
+                )}
+                {detailEvent.has_fee && detailEvent.payment_instructions && (
+                  <div className="hp-evt-info-row">
+                    <i className="fas fa-money-check-dollar"></i>
+                    <div><span className="hp-evt-info-label">Payment</span><span style={{ whiteSpace: 'pre-wrap' }}>{detailEvent.payment_instructions}</span></div>
+                  </div>
+                )}
+              </div>
+
+              {detailEvent.registration_required !== false && (
+                <button className="hp-evt-register" onClick={() => handlePublicRegister(detailEvent)}>
+                  <i className="fas fa-user-plus"></i> Register for this Event
+                </button>
+              )}
+              <p className="hp-evt-note"><i className="fas fa-circle-info"></i> You&apos;ll create a free account first, then complete your registration.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ---- PASTORS ---- */}
       <div className="hp-section-dark">
@@ -841,7 +941,6 @@ If you don't know something specific, professionally encourage the user to conta
               <li><a href="#activities"><i className="fas fa-chevron-right"></i> Activities</a></li>
               <li><a href="#news"><i className="fas fa-chevron-right"></i> News & Events</a></li>
               <li><a href="#pastors"><i className="fas fa-chevron-right"></i> Our Pastors</a></li>
-              {hasActiveLive && <li><a href="/live"><i className="fas fa-broadcast-tower"></i> Watch Live</a></li>}
               <li><a href="#location"><i className="fas fa-chevron-right"></i> Visit Us</a></li>
             </ul>
           </div>

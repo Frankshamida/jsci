@@ -15,8 +15,10 @@
     "bcryptjs": "^2.4.3",
     "browser-image-compression": "^2.0.2",
     "html2canvas": "^1.4.1",
+    "leaflet": "^1.9.4",
     "next": "^14.2.0",
     "pdf-parse": "^2.4.5",
+    "qrcode": "^1.5.3",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-easy-crop": "^5.5.6"

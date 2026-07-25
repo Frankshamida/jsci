@@ -11,12 +11,32 @@ import SmartImage from '@/components/SmartImage';
 import './dashboard.css';
 
 const Cropper = dynamic(() => import('react-easy-crop'), { ssr: false });
+const EventLocationPicker = dynamic(() => import('@/components/EventLocationPicker'), { ssr: false });
 
 // ============================================
 // CONSTANTS
 // ============================================
 const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+// Known dashboard sections reachable via clean URLs (e.g. /bible-reader).
+// Any other/unknown path resolves to 'home' so the content is never blank.
+const VALID_SECTIONS = new Set([
+  'home', 'announcements', 'announcements-management', 'attendance-management', 'audit-logs',
+  'bible-reader', 'cloudinary-usage', 'community-events', 'community-hub', 'create-lineup',
+  'daily-quote', 'events', 'events-management', 'isom-management', 'live-stream-management',
+  'messages', 'ministry-management', 'ministry-meetings', 'ministry-oversight', 'my-created-events',
+  'my-profile', 'permissions-control', 'praise-worship', 'recordings', 'reports', 'roles-permissions',
+  'spiritual-assistant', 'system-config', 'terms-conditions', 'user-events-oversight',
+  'user-management', 'weekly-schedule',
+]);
+const resolveSectionFromPath = () => {
+  if (typeof window === 'undefined') return 'home';
+  const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+  if (slug && slug !== 'dashboard' && VALID_SECTIONS.has(slug)) return slug;
+  const hash = window.location.hash.replace('#', '');
+  return (hash && VALID_SECTIONS.has(hash)) ? hash : 'home';
+};
 
 const ALL_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor', 'Admin', 'Super Admin'];
 const ALL_MINISTRIES = ['Praise And Worship', 'Media', 'Dancers', 'Ashers', 'Pastors', 'Teachers'];
@@ -287,17 +307,7 @@ export default function DashboardPage() {
   // Core state
   const [userData, setUserData] = useState(null);
   const [userRole, setUserRole] = useState('Guest');
-  const [activeSection, setActiveSection] = useState(() => {
-    if (typeof window !== 'undefined') {
-      // Section comes from the URL path (e.g. /bible-reader). /dashboard = home.
-      const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
-      if (slug && slug !== 'dashboard') return slug;
-      // Backward-compat: still honor an old #section hash if present
-      const hash = window.location.hash.replace('#', '');
-      return hash || 'home';
-    }
-    return 'home';
-  });
+  const [activeSection, setActiveSection] = useState(resolveSectionFromPath);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -305,8 +315,7 @@ export default function DashboardPage() {
   // Keep the active section in sync with browser back/forward navigation
   useEffect(() => {
     const onPopState = () => {
-      const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
-      setActiveSection(slug && slug !== 'dashboard' ? slug : 'home');
+      setActiveSection(resolveSectionFromPath());
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -474,7 +483,38 @@ export default function DashboardPage() {
 
   // Events
   const [events, setEvents] = useState([]);
-  const [eventForm, setEventForm] = useState({ title: '', description: '', eventDate: '', endDate: '', location: '' });
+  const EMPTY_EVENT_FORM = {
+    title: '', description: '', eventDate: '', endDate: '', location: '',
+    // Audience & visibility
+    audience: 'all', allowedRoles: [], isPublished: true,
+    // Map location
+    latitude: null, longitude: null, loc_country: '', loc_region: '', loc_province: '', loc_city: '', loc_barangay: '',
+    // Registration & payment config
+    registrationRequired: true, maxParticipants: '', registrationDeadline: '',
+    hasFee: false, registrationFee: '', earlyBirdPrice: '', earlyBirdDeadline: '',
+    paymentDeadline: '', paymentInstructions: '', refundPolicy: '',
+    paymentMethods: [], gcashName: '', gcashNumber: '', gcashQrUrl: '',
+    bankName: '', bankAccountName: '', bankAccountNumber: '',
+  };
+  const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
+  const [eventGcashQrFile, setEventGcashQrFile] = useState(null);
+  // Registrations viewer (admin) + member registration modal
+  const [eventRegsModal, setEventRegsModal] = useState(null); // event object
+  const [eventRegs, setEventRegs] = useState([]);
+  const [eventRegsLoading, setEventRegsLoading] = useState(false);
+  const [registerModal, setRegisterModal] = useState(null); // event object
+  const [registerForm, setRegisterForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '' });
+  const [registerProofFile, setRegisterProofFile] = useState(null);
+  const [registerSubmitting, setRegisterSubmitting] = useState(false);
+  // My registrations (poster view + QR) & register-once tracking
+  const [eventsTab, setEventsTab] = useState('all'); // 'all' | 'mine'
+  const [eventDetail, setEventDetail] = useState(null); // event shown in details modal
+  const [eventActionMenu, setEventActionMenu] = useState(null); // event id whose Manage menu is open
+  const [eventMenuAnchor, setEventMenuAnchor] = useState(null); // {top,left} for the portal menu
+  const [eventsView, setEventsView] = useState('list'); // 'list' | 'grid'
+  const [myRegistrations, setMyRegistrations] = useState([]);
+  const [myRegIds, setMyRegIds] = useState(new Set()); // event ids the user is registered for
+  const [regQrCodes, setRegQrCodes] = useState({}); // registrationId -> data URL
   const [showEventForm, setShowEventForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [eventImageFile, setEventImageFile] = useState(null);
@@ -650,6 +690,7 @@ export default function DashboardPage() {
   const [editingUser, setEditingUser] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
+  const [userPage, setUserPage] = useState(1);
   const [userFilterRole, setUserFilterRole] = useState('');
   const [userFilterMinistry, setUserFilterMinistry] = useState('');
   const [userFilterStatus, setUserFilterStatus] = useState('');
@@ -694,6 +735,17 @@ export default function DashboardPage() {
   // Super Admin: Permissions Control (real-time)
   const [permissionOverrides, setPermissionOverrides] = useState({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Failsafe: never let the dashboard get stuck on the loading screen.
+  // If permissions haven't loaded within 9s (slow/failed network), reveal
+  // the dashboard anyway using default permissions.
+  useEffect(() => {
+    const t = setTimeout(() => setPermissionsLoaded(true), 9000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Reset user-table pagination whenever a filter/search changes
+  useEffect(() => { setUserPage(1); }, [userSearch, userFilterRole, userFilterMinistry, userFilterStatus]);
   const [permCtrlLoading, setPermCtrlLoading] = useState(false);
   const [permCtrlRole, setPermCtrlRole] = useState('Guest');
   const [permCtrlSearch, setPermCtrlSearch] = useState('');
@@ -926,15 +978,20 @@ export default function DashboardPage() {
     loadBirthdays();
     if (stored.id) loadNotifications(stored.id);
 
-    // Restore section from the URL path (e.g. /bible-reader) and load its data
-    const pathSlug = window.location.pathname.replace(/^\/+|\/+$/g, '');
-    const restored = (pathSlug && pathSlug !== 'dashboard')
-      ? pathSlug
-      : window.location.hash.replace('#', ''); // backward-compat with old #hash links
+    // Restore section from the URL path (e.g. /bible-reader) and load its data.
+    // Only act on a known section — unknown paths stay on 'home'.
+    const restored = resolveSectionFromPath();
     if (restored && restored !== 'home') {
       // Defer to let state settle, then trigger data load for restored section
       setTimeout(() => { showSection(restored); }, 300);
     }
+
+    // If the user came from the public site to register for an event, take them there
+    try {
+      if (localStorage.getItem('pendingEventRegistration')) {
+        setTimeout(() => showSection('events'), 400);
+      }
+    } catch { /* ignore */ }
 
     // Fetch life verse full text for banner
     if (stored.life_verse) {
@@ -1298,7 +1355,7 @@ export default function DashboardPage() {
 
     // Load data on section visit
     if (sectionId === 'daily-quote') fetchDailyQuote();
-    if (sectionId === 'events' || sectionId === 'events-management') loadEvents();
+    if (sectionId === 'events' || sectionId === 'events-management') { loadEvents(); loadMyRegistrations(); }
     if (sectionId === 'announcements' || sectionId === 'announcements-management') loadAnnouncements();
     if (sectionId === 'ministry-meetings') loadMeetings();
     if (sectionId === 'community-hub') loadCommunityPosts();
@@ -2336,7 +2393,11 @@ export default function DashboardPage() {
   // Permission Controls
   const loadPermissionOverrides = async () => {
     try {
-      const res = await fetch('/api/admin/permissions-control');
+      // Abort the request if it hangs so the dashboard is never stuck loading
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch('/api/admin/permissions-control', { signal: controller.signal });
+      clearTimeout(timeout);
       const data = await res.json();
       if (data.success) {
         const map = {};
@@ -2345,7 +2406,7 @@ export default function DashboardPage() {
         });
         setPermissionOverrides(map);
       }
-    } catch { /* silent */ } finally {
+    } catch { /* silent — fall back to default (all enabled) permissions */ } finally {
       setPermissionsLoaded(true);
     }
   };
@@ -3132,9 +3193,31 @@ export default function DashboardPage() {
   const resetEventForm = () => {
     setShowEventForm(false);
     setEditingEvent(null);
-    setEventForm({ title: '', description: '', eventDate: '', endDate: '', location: '' });
+    setEventForm(EMPTY_EVENT_FORM);
     setEventImageFile(null);
     setEventImagePreview('');
+    setEventGcashQrFile(null);
+  };
+
+  // Open the full-page event editor for creating (evt=null) or editing an event
+  const openEventEditor = (evt = null) => {
+    setEditingEvent(evt);
+    setEventForm(evt ? {
+      ...EMPTY_EVENT_FORM,
+      title: evt.title, description: evt.description || '',
+      eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '',
+      latitude: evt.latitude ?? null, longitude: evt.longitude ?? null,
+      loc_country: evt.loc_country || '', loc_region: evt.loc_region || '', loc_province: evt.loc_province || '', loc_city: evt.loc_city || '', loc_barangay: evt.loc_barangay || '',
+      audience: (evt.allowed_roles && evt.allowed_roles.length) ? 'specific' : 'all', allowedRoles: evt.allowed_roles || [], isPublished: evt.is_published !== false,
+      registrationRequired: evt.registration_required !== false, maxParticipants: evt.max_participants ?? '', registrationDeadline: evt.registration_deadline?.slice(0, 16) || '',
+      hasFee: !!evt.has_fee, registrationFee: evt.registration_fee ?? '', earlyBirdPrice: evt.early_bird_price ?? '', earlyBirdDeadline: evt.early_bird_deadline?.slice(0, 16) || '',
+      paymentDeadline: evt.payment_deadline?.slice(0, 16) || '', paymentInstructions: evt.payment_instructions || '', refundPolicy: evt.refund_policy || '',
+      paymentMethods: evt.payment_methods || [], gcashName: evt.gcash_name || '', gcashNumber: evt.gcash_number || '', gcashQrUrl: evt.gcash_qr_url || '',
+      bankName: evt.bank_name || '', bankAccountName: evt.bank_account_name || '', bankAccountNumber: evt.bank_account_number || '',
+    } : EMPTY_EVENT_FORM);
+    setEventImageFile(null); setEventImagePreview(''); setEventGcashQrFile(null);
+    setShowEventForm(true);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleEventImagePick = (e) => {
@@ -3151,25 +3234,45 @@ export default function DashboardPage() {
     setEventSaving(true);
     try {
       const method = editingEvent ? 'PUT' : 'POST';
-      let res;
-      // Send multipart when a new image is picked so it uploads to Cloudinary
-      if (eventImageFile) {
-        const fd = new FormData();
-        if (editingEvent) fd.append('id', editingEvent.id);
-        else fd.append('createdBy', userData?.id || '');
-        fd.append('title', eventForm.title);
-        fd.append('description', eventForm.description || '');
-        fd.append('eventDate', eventForm.eventDate);
-        fd.append('endDate', eventForm.endDate || '');
-        fd.append('location', eventForm.location || '');
-        fd.append('image', eventImageFile);
-        res = await fetch('/api/events', { method, body: fd });
-      } else {
-        const body = editingEvent
-          ? { id: editingEvent.id, title: eventForm.title, description: eventForm.description, eventDate: eventForm.eventDate, endDate: eventForm.endDate, location: eventForm.location }
-          : { ...eventForm, createdBy: userData?.id };
-        res = await fetch('/api/events', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      }
+      // Always send multipart so banner + GCash QR uploads and all config fields go together
+      const fd = new FormData();
+      if (editingEvent) { fd.append('id', editingEvent.id); fd.append('actorId', userData?.id || ''); }
+      else fd.append('createdBy', userData?.id || '');
+      const f = eventForm;
+      fd.append('title', f.title);
+      fd.append('description', f.description || '');
+      fd.append('eventDate', f.eventDate);
+      fd.append('endDate', f.endDate || '');
+      fd.append('location', f.location || '');
+      fd.append('latitude', f.latitude ?? '');
+      fd.append('longitude', f.longitude ?? '');
+      fd.append('locCountry', f.loc_country || '');
+      fd.append('locRegion', f.loc_region || '');
+      fd.append('locProvince', f.loc_province || '');
+      fd.append('locCity', f.loc_city || '');
+      fd.append('locBarangay', f.loc_barangay || '');
+      fd.append('allowedRoles', f.audience === 'all' ? '' : (f.allowedRoles || []).join(','));
+      fd.append('isPublished', String(f.isPublished));
+      fd.append('registrationRequired', String(f.registrationRequired));
+      fd.append('maxParticipants', f.maxParticipants || '');
+      fd.append('registrationDeadline', f.registrationDeadline || '');
+      fd.append('hasFee', String(f.hasFee));
+      fd.append('registrationFee', f.registrationFee || '');
+      fd.append('earlyBirdPrice', f.earlyBirdPrice || '');
+      fd.append('earlyBirdDeadline', f.earlyBirdDeadline || '');
+      fd.append('paymentDeadline', f.paymentDeadline || '');
+      fd.append('paymentInstructions', f.paymentInstructions || '');
+      fd.append('refundPolicy', f.refundPolicy || '');
+      fd.append('paymentMethods', (f.paymentMethods || []).join(','));
+      fd.append('gcashName', f.gcashName || '');
+      fd.append('gcashNumber', f.gcashNumber || '');
+      fd.append('gcashQrUrl', f.gcashQrUrl || '');
+      fd.append('bankName', f.bankName || '');
+      fd.append('bankAccountName', f.bankAccountName || '');
+      fd.append('bankAccountNumber', f.bankAccountNumber || '');
+      if (eventImageFile) fd.append('image', eventImageFile);
+      if (eventGcashQrFile) fd.append('gcashQr', eventGcashQrFile);
+      const res = await fetch('/api/events', { method, body: fd });
       const data = await res.json();
       if (data.success) { showToast(data.message, 'success'); resetEventForm(); loadEvents(); }
       else showToast(data.message, 'danger');
@@ -3177,9 +3280,113 @@ export default function DashboardPage() {
     finally { setEventSaving(false); }
   };
 
+  // ---- Event registrations (member register + admin verify) ----
+  const togglePaymentMethod = (m) => setEventForm((f) => ({
+    ...f, paymentMethods: f.paymentMethods.includes(m) ? f.paymentMethods.filter(x => x !== m) : [...f.paymentMethods, m],
+  }));
+  const toggleAllowedRole = (r) => setEventForm((f) => ({
+    ...f, allowedRoles: f.allowedRoles.includes(r) ? f.allowedRoles.filter(x => x !== r) : [...f.allowedRoles, r],
+  }));
+
+  const openEventRegistrations = async (evt) => {
+    setEventRegsModal(evt);
+    setEventRegsLoading(true);
+    try {
+      const res = await fetch(`/api/events/registrations?eventId=${evt.id}`);
+      const data = await res.json();
+      setEventRegs(data.success ? data.data : []);
+    } catch { setEventRegs([]); }
+    setEventRegsLoading(false);
+  };
+
+  const verifyRegistration = async (regId, status) => {
+    try {
+      const res = await fetch('/api/events/registrations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: regId, actorId: userData?.id, status }) });
+      const data = await res.json();
+      if (data.success) { showToast('Registration updated', 'success'); if (eventRegsModal) openEventRegistrations(eventRegsModal); }
+      else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const openRegisterModal = (evt) => {
+    if (myRegIds.has(evt.id)) { showToast('You are already registered for this event.', 'warning'); return; }
+    setRegisterModal(evt);
+    setRegisterForm({
+      attendeeName: `${userData?.firstname || ''} ${userData?.lastname || ''}`.trim(),
+      attendeeEmail: userData?.email || '', attendeeMobile: '',
+      paymentMethod: (evt.payment_methods && evt.payment_methods[0]) || '', paymentReference: '',
+    });
+    setRegisterProofFile(null);
+  };
+
+  const submitRegistration = async () => {
+    if (!registerModal) return;
+    if (!registerForm.attendeeName.trim()) { showToast('Your name is required', 'danger'); return; }
+    setRegisterSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('eventId', registerModal.id);
+      fd.append('userId', userData?.id || '');
+      fd.append('attendeeName', registerForm.attendeeName);
+      fd.append('attendeeEmail', registerForm.attendeeEmail || '');
+      fd.append('attendeeMobile', registerForm.attendeeMobile || '');
+      if (registerModal.has_fee) {
+        fd.append('paymentMethod', registerForm.paymentMethod || '');
+        fd.append('paymentReference', registerForm.paymentReference || '');
+        if (registerProofFile) fd.append('proof', registerProofFile);
+      }
+      const res = await fetch('/api/events/registrations', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) { showToast(data.message, 'success'); setRegisterModal(null); loadMyRegistrations(); try { localStorage.removeItem('pendingEventRegistration'); } catch { /* ignore */ } }
+      else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setRegisterSubmitting(false); }
+  };
+
+  // Load the current user's registrations (for the "My Registrations" poster view + register-once)
+  const loadMyRegistrations = useCallback(async () => {
+    if (!userData?.id) return;
+    try {
+      const res = await fetch(`/api/events/registrations?userId=${userData.id}`);
+      const data = await res.json();
+      if (data.success) {
+        const regs = data.data || [];
+        setMyRegistrations(regs);
+        setMyRegIds(new Set(regs.map((r) => r.event_id)));
+        // Generate QR codes (encode the registration id) for attendance scanning
+        const QRCode = (await import('qrcode')).default;
+        const codes = {};
+        for (const r of regs) {
+          try { codes[r.id] = await QRCode.toDataURL(`SANCTUARYHUB-REG:${r.id}`, { width: 240, margin: 1, color: { dark: '#3e2e08', light: '#ffffff' } }); }
+          catch { /* skip */ }
+        }
+        setRegQrCodes(codes);
+      }
+    } catch { /* silent */ }
+  }, [userData?.id]);
+
+  // Keep the viewer's registration status in sync whenever events are shown,
+  // so "All Events" correctly shows Registered vs Join Now without needing to
+  // visit "My Registrations" first.
+  useEffect(() => {
+    if (userData?.id && events.length) loadMyRegistrations();
+  }, [userData?.id, events.length, loadMyRegistrations]);
+
+  // After a public sign-up, auto-open the register modal for the pending event
+  useEffect(() => {
+    if (!events.length || registerModal) return;
+    let pending;
+    try { pending = JSON.parse(localStorage.getItem('pendingEventRegistration') || 'null'); } catch { pending = null; }
+    if (pending?.id) {
+      const evt = events.find((e) => e.id === pending.id);
+      if (evt) openRegisterModal(evt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
+
   const handleDeleteEvent = async (evt) => {
     askConfirm(`This will permanently delete the event. Please type the event title to confirm.`, async () => {
-      const res = await fetch(`/api/events?id=${evt.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/events?id=${evt.id}&actorId=${userData?.id || ''}`, { method: 'DELETE' });
       const data = await res.json();
       showToast(data.message, data.success ? 'success' : 'danger');
       if (data.success) loadEvents();
@@ -4205,6 +4412,12 @@ export default function DashboardPage() {
     const matchesStatus = !userFilterStatus || u.status === userFilterStatus;
     return matchesSearch && matchesRole && matchesMinistry && matchesStatus;
   });
+
+  // -- User table pagination (15 per page) --
+  const USERS_PER_PAGE = 15;
+  const totalUserPages = Math.max(1, Math.ceil(filteredAdminUsers.length / USERS_PER_PAGE));
+  const currentUserPage = Math.min(userPage, totalUserPages);
+  const pagedAdminUsers = filteredAdminUsers.slice((currentUserPage - 1) * USERS_PER_PAGE, currentUserPage * USERS_PER_PAGE);
 
   // -- Admin: Ministry Management --
   const handleMinistrySubmit = async () => {
@@ -6589,22 +6802,77 @@ Examples:
 
           {/* ========== EVENTS ========== */}
           <section className={`content-section ${(activeSection === 'events' || activeSection === 'events-management') ? 'active' : ''}`}>
-            <h2 className="section-title">Events</h2>
-
-            {canManage(MODULES.CREATE_EVENTS) && featureOn('events.create') && (
-              <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowEventForm(true); setEditingEvent(null); setEventForm({ title: '', description: '', eventDate: '', endDate: '', location: '' }); setEventImageFile(null); setEventImagePreview(''); }}>
-                <i className="fas fa-plus"></i> Create Event
-              </button>
+            {!showEventForm && (
+              <>
+                {(userRole === 'Admin' || userRole === 'Super Admin') ? (
+                  <div className="um-hero evt-hero">
+                    <div className="um-hero-bg"></div>
+                    <div className="um-hero-content">
+                      <h2 className="um-hero-title">Events</h2>
+                      <p className="um-hero-sub">Create, publish, and manage church events — set audience, pricing, location, and review registrations from one place.</p>
+                      {canManage(MODULES.CREATE_EVENTS) && featureOn('events.create') && (
+                        <button className="um-hero-btn" onClick={() => openEventEditor(null)}>
+                          <i className="fas fa-plus"></i> Create Event
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="section-title" style={{ margin: '0 0 12px' }}>Events</h2>
+                    <div className="evt-tabs">
+                      <button className={`evt-tab ${eventsTab === 'all' ? 'active' : ''}`} onClick={() => setEventsTab('all')}><i className="fas fa-calendar"></i> All Events</button>
+                      <button className={`evt-tab ${eventsTab === 'mine' ? 'active' : ''}`} onClick={() => { setEventsTab('mine'); loadMyRegistrations(); }}><i className="fas fa-ticket"></i> My Registrations {myRegistrations.length > 0 && <span className="evt-tab-count">{myRegistrations.length}</span>}</button>
+                    </div>
+                  </>
+                )}
+              </>
             )}
 
             {showEventForm && (
-              <div className="form-card" style={{ marginBottom: 20, padding: 20, background: 'var(--bg-card)', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                <h3>{editingEvent ? 'Edit Event' : 'New Event'}</h3>
+              <div className="form-card evt-editor-page" style={{ marginBottom: 20, padding: 22, background: 'var(--bg-card)', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                <div className="evt-editor-head">
+                  <button className="evt-back-btn" onClick={resetEventForm}><i className="fas fa-arrow-left"></i> Back to Events</button>
+                  <h3 style={{ margin: 0 }}>{editingEvent ? 'Edit Event' : 'Create Event'}</h3>
+                </div>
                 <p style={{ marginTop: -6, marginBottom: 14, fontSize: '0.85rem', opacity: 0.7 }}>
                   <i className="fas fa-globe"></i> Upcoming events appear in the <strong>News &amp; Upcoming Events</strong> section of the public homepage.
                 </p>
                 <div className="form-group"><label>Title *</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.title} onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })} /></div>
                 <div className="form-group"><label>Description</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={3} value={eventForm.description} onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })} /></div>
+
+                {/* ---- Visibility ---- */}
+                <div className="evt-config-title"><i className="fas fa-eye"></i> Visibility</div>
+                <div className="evt-visibility-row">
+                  <button type="button" className={`evt-vis-btn ${eventForm.isPublished ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, isPublished: true })}>
+                    <i className="fas fa-globe"></i> Published <small>Visible to everyone</small>
+                  </button>
+                  <button type="button" className={`evt-vis-btn ${!eventForm.isPublished ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, isPublished: false })}>
+                    <i className="fas fa-eye-slash"></i> Draft / Hidden <small>Only admins can see it</small>
+                  </button>
+                </div>
+
+                {/* ---- Audience ---- */}
+                <div className="evt-config-title"><i className="fas fa-user-shield"></i> Who Can Join</div>
+                <div className="evt-visibility-row">
+                  <button type="button" className={`evt-vis-btn ${eventForm.audience === 'all' ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'all' })}>
+                    <i className="fas fa-users"></i> All Roles
+                  </button>
+                  <button type="button" className={`evt-vis-btn ${eventForm.audience === 'specific' ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'specific' })}>
+                    <i className="fas fa-user-tag"></i> Specific Roles
+                  </button>
+                </div>
+                {eventForm.audience === 'specific' && (
+                  <div className="evt-methods" style={{ marginTop: 4, marginBottom: 6 }}>
+                    {['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor'].map(r => (
+                      <label key={r} className={`evt-method-chip ${eventForm.allowedRoles.includes(r) ? 'on' : ''}`}>
+                        <input type="checkbox" checked={eventForm.allowedRoles.includes(r)} onChange={() => toggleAllowedRole(r)} />
+                        {r}
+                      </label>
+                    ))}
+                    {eventForm.allowedRoles.length === 0 && <span className="evt-muted" style={{ fontSize: '0.8rem' }}>Select at least one role, or switch to &quot;All Roles&quot;.</span>}
+                  </div>
+                )}
 
                 <div className="form-group">
                   <label>Picture</label>
@@ -6631,55 +6899,459 @@ Examples:
                   <div className="form-group"><label>Start Date &amp; Time *</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.eventDate} onChange={(e) => setEventForm({ ...eventForm, eventDate: e.target.value })} /></div>
                   <div className="form-group"><label>End Date</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.endDate} onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })} /></div>
                 </div>
-                <div className="form-group"><label>Location</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} /></div>
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div className="form-group"><label>Venue Name / Notes</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="e.g. Family Park Cebu, Main Hall" /></div>
+
+                <div className="evt-config-title"><i className="fas fa-map-marked-alt"></i> Location on Map</div>
+                <EventLocationPicker
+                  value={{ latitude: eventForm.latitude, longitude: eventForm.longitude, loc_country: eventForm.loc_country, loc_region: eventForm.loc_region, loc_province: eventForm.loc_province, loc_city: eventForm.loc_city, loc_barangay: eventForm.loc_barangay }}
+                  onChange={(loc) => setEventForm((f) => ({
+                    ...f,
+                    latitude: loc.latitude ?? f.latitude, longitude: loc.longitude ?? f.longitude,
+                    loc_country: loc.loc_country ?? f.loc_country, loc_region: loc.loc_region ?? f.loc_region,
+                    loc_province: loc.loc_province ?? f.loc_province, loc_city: loc.loc_city ?? f.loc_city,
+                    loc_barangay: loc.loc_barangay ?? f.loc_barangay,
+                    location: f.location || loc.address || f.location,
+                  }))}
+                />
+
+                {/* ---- Registration & Payment ---- */}
+                <div className="evt-config-title"><i className="fas fa-clipboard-list"></i> Registration</div>
+                <label className="evt-toggle-row">
+                  <input type="checkbox" checked={eventForm.registrationRequired} onChange={(e) => setEventForm({ ...eventForm, registrationRequired: e.target.checked })} />
+                  <span>Require registration for this event</span>
+                </label>
+                {eventForm.registrationRequired && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                    <div className="form-group"><label>Max Participants (blank = unlimited)</label><input type="number" min="1" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.maxParticipants} onChange={(e) => setEventForm({ ...eventForm, maxParticipants: e.target.value })} /></div>
+                    <div className="form-group"><label>Registration Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationDeadline} onChange={(e) => setEventForm({ ...eventForm, registrationDeadline: e.target.value })} /></div>
+                  </div>
+                )}
+
+                <div className="evt-config-title"><i className="fas fa-peso-sign"></i> Pricing</div>
+                <label className="evt-toggle-row">
+                  <input type="checkbox" checked={eventForm.hasFee} onChange={(e) => setEventForm({ ...eventForm, hasFee: e.target.checked })} />
+                  <span>This event has a registration fee</span>
+                </label>
+                {!eventForm.hasFee ? (
+                  <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event. Attendees register instantly.</p>
+                ) : (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                      <div className="form-group"><label>Registration Fee (PHP) *</label><input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationFee} onChange={(e) => setEventForm({ ...eventForm, registrationFee: e.target.value })} /></div>
+                      <div className="form-group"><label>Early Bird Price (optional)</label><input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.earlyBirdPrice} onChange={(e) => setEventForm({ ...eventForm, earlyBirdPrice: e.target.value })} /></div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                      <div className="form-group"><label>Early Bird Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.earlyBirdDeadline} onChange={(e) => setEventForm({ ...eventForm, earlyBirdDeadline: e.target.value })} /></div>
+                      <div className="form-group"><label>Payment Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.paymentDeadline} onChange={(e) => setEventForm({ ...eventForm, paymentDeadline: e.target.value })} /></div>
+                    </div>
+                    <div className="form-group"><label>Payment Instructions</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={2} value={eventForm.paymentInstructions} onChange={(e) => setEventForm({ ...eventForm, paymentInstructions: e.target.value })} placeholder="e.g. Send payment then upload your receipt." /></div>
+                    <div className="form-group"><label>Refund Policy (optional)</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.refundPolicy} onChange={(e) => setEventForm({ ...eventForm, refundPolicy: e.target.value })} /></div>
+
+                    <div className="form-group">
+                      <label>Payment Methods</label>
+                      <div className="evt-methods">
+                        {['GCash', 'Bank Transfer', 'Cash', 'Pay at Church', 'Credit/Debit Card', 'Other'].map(m => (
+                          <label key={m} className={`evt-method-chip ${eventForm.paymentMethods.includes(m) ? 'on' : ''}`}>
+                            <input type="checkbox" checked={eventForm.paymentMethods.includes(m)} onChange={() => togglePaymentMethod(m)} />
+                            {m}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {eventForm.paymentMethods.includes('GCash') && (
+                      <div className="evt-pay-box">
+                        <strong><i className="fas fa-mobile-alt"></i> GCash Details</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginTop: 8 }}>
+                          <div className="form-group"><label>Account Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.gcashName} onChange={(e) => setEventForm({ ...eventForm, gcashName: e.target.value })} /></div>
+                          <div className="form-group"><label>Mobile Number</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.gcashNumber} onChange={(e) => setEventForm({ ...eventForm, gcashNumber: e.target.value })} /></div>
+                        </div>
+                        <div className="form-group">
+                          <label>GCash QR Code</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            {(eventGcashQrFile || eventForm.gcashQrUrl) && <img src={eventGcashQrFile ? URL.createObjectURL(eventGcashQrFile) : eventForm.gcashQrUrl} alt="QR" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 8 }} />}
+                            <input id="evt-gcash-qr" type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) setEventGcashQrFile(f); }} />
+                            <label htmlFor="evt-gcash-qr" className="btn-secondary" style={{ cursor: 'pointer' }}><i className="fas fa-upload"></i> Upload QR</label>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {eventForm.paymentMethods.includes('Bank Transfer') && (
+                      <div className="evt-pay-box">
+                        <strong><i className="fas fa-university"></i> Bank Details</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 8 }}>
+                          <div className="form-group"><label>Bank Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankName} onChange={(e) => setEventForm({ ...eventForm, bankName: e.target.value })} /></div>
+                          <div className="form-group"><label>Account Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankAccountName} onChange={(e) => setEventForm({ ...eventForm, bankAccountName: e.target.value })} /></div>
+                          <div className="form-group"><label>Account Number</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankAccountNumber} onChange={(e) => setEventForm({ ...eventForm, bankAccountNumber: e.target.value })} /></div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
                   <button className="btn-primary" onClick={handleEventSubmit} disabled={eventSaving}><i className={`fas ${eventSaving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> {eventSaving ? 'Saving...' : (editingEvent ? 'Update' : 'Create')}</button>
                   <button className="btn-secondary" onClick={resetEventForm} disabled={eventSaving}>Cancel</button>
                 </div>
               </div>
             )}
 
-            <div className="events-grid">
-              {events.map((evt) => (
-                <div key={evt.id} className="event-card">
-                  <div className="event-card-header">
-                    <h3 className="event-card-title">{evt.title}</h3>
-                    <div className="event-card-actions">
-                      {canManage(MODULES.UPDATE_EVENTS) && featureOn('events.edit') && (
-                        <button className="event-action-btn edit" onClick={() => { setEditingEvent(evt); setEventForm({ title: evt.title, description: evt.description || '', eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '' }); setEventImageFile(null); setEventImagePreview(''); setShowEventForm(true); }} title="Edit Event"><i className="fas fa-edit"></i></button>
-                      )}
-                      {canManage(MODULES.DELETE_EVENTS) && featureOn('events.delete') && (
-                        <button className="event-action-btn delete" onClick={() => handleDeleteEvent(evt)} title="Delete Event"><i className="fas fa-trash"></i></button>
-                      )}
-                    </div>
-                  </div>
+            {!showEventForm && eventsTab === 'all' && (() => {
+              const isAdmin = userRole === 'Admin' || userRole === 'Super Admin';
+              const visible = events.filter((evt) => isAdmin || evt.is_published !== false);
+              const eventStatus = (evt) => {
+                const now = Date.now();
+                const start = evt.event_date ? new Date(evt.event_date).getTime() : null;
+                const end = evt.end_date ? new Date(evt.end_date).getTime() : start;
+                if (evt.is_published === false) return { label: 'Draft', cls: 'draft' };
+                if (start && now < start) return { label: 'Upcoming', cls: 'upcoming' };
+                if (start && end && now >= start && now <= end) return { label: 'Ongoing', cls: 'ongoing' };
+                if (end && now > end) return { label: 'Completed', cls: 'completed' };
+                return { label: 'Published', cls: 'published' };
+              };
+              if (visible.length === 0) return <p className="events-empty-msg">No events found.</p>;
 
-                  {evt.description && <p className="event-card-description">{evt.description}</p>}
-                  
-                  <div className="event-card-details">
-                    <div className="event-detail-item">
-                      <div className="event-detail-icon"><i className="fas fa-clock"></i></div>
-                      <span>{formatDateTime(evt.event_date)}</span>
-                    </div>
-                    {evt.location && (
-                      <div className="event-detail-item">
-                        <div className="event-detail-icon"><i className="fas fa-map-marker-alt"></i></div>
-                        <span>{evt.location}</span>
+              // Members see exciting poster cards; admins get the management table
+              if (!isAdmin) {
+                return (
+                  <div className="evt-poster-grid">
+                    {visible.map((evt) => {
+                      const st = eventStatus(evt);
+                      const registered = myRegIds.has(evt.id);
+                      const canJoin = evt.registration_required !== false && evt.is_published !== false && (!evt.allowed_roles || evt.allowed_roles.length === 0 || evt.allowed_roles.includes(userRole));
+                      return (
+                        <div key={evt.id} className="evt-poster" onClick={() => setEventDetail(evt)} title="View details">
+                          <div className="evt-poster-img">
+                            {evt.image_url
+                              ? <img src={evt.image_url} alt={evt.title} loading="lazy" />
+                              : <div className="evt-poster-ph"><i className="fas fa-calendar-day"></i></div>}
+                            {st.cls !== 'completed' && <span className={`evt-poster-status evt-tstatus-${st.cls}`}>{st.label}</span>}
+                            <span className={`evt-poster-fee ${evt.has_fee ? 'paid' : 'free'}`}>{evt.has_fee ? `₱${evt.registration_fee}` : 'FREE'}</span>
+                            <div className="evt-poster-shine"></div>
+                            <div className="evt-poster-view"><i className="fas fa-circle-info"></i> View Details</div>
+                          </div>
+                          <div className="evt-poster-body">
+                            <h4 className="evt-poster-title">{evt.title}</h4>
+                            <div className="evt-poster-meta"><i className="fas fa-calendar-check"></i> {formatDateTime(evt.event_date)}</div>
+                            {(evt.location || evt.loc_city) && <div className="evt-poster-meta"><i className="fas fa-location-dot"></i> {[evt.location, evt.loc_city].filter(Boolean).join(', ')}</div>}
+                            <div className="evt-poster-actions" onClick={(e) => e.stopPropagation()}>
+                              {registered ? (
+                                <span className="evt-poster-registered"><i className="fas fa-check-circle"></i> Registered</span>
+                              ) : canJoin ? (
+                                <button className="evt-poster-btn" onClick={() => openRegisterModal(evt)}><i className="fas fa-user-plus"></i> Join Now</button>
+                              ) : (
+                                <span className="evt-poster-locked"><i className="fas fa-lock"></i> {evt.allowed_roles?.length ? `${evt.allowed_roles.join(', ')} only` : 'Closed'}</span>
+                              )}
+                              {evt.latitude && evt.longitude && (
+                                <a className="evt-poster-map" href={`https://www.google.com/maps/dir/?api=1&destination=${evt.latitude},${evt.longitude}`} target="_blank" rel="noreferrer" title="Directions"><i className="fas fa-directions"></i></a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              // Admin GRID view (reference-style cards with Manage)
+              if (eventsView === 'grid') {
+                return (
+                  <>
+                    <div className="evt-viewbar">
+                      <div className="evt-view-toggle">
+                        <button className={eventsView === 'list' ? 'on' : ''} onClick={() => setEventsView('list')}><i className="fas fa-list"></i> List</button>
+                        <button className={eventsView === 'grid' ? 'on' : ''} onClick={() => setEventsView('grid')}><i className="fas fa-table-cells-large"></i> Grid</button>
                       </div>
+                    </div>
+                    <div className="evt-admin-grid">
+                      {visible.map((evt) => {
+                        const st = eventStatus(evt);
+                        return (
+                          <div key={evt.id} className="evt-admin-card">
+                            <div className="evt-admin-card-img">
+                              {evt.image_url ? <img src={evt.image_url} alt={evt.title} /> : <div className="evt-admin-card-ph"><i className="fas fa-calendar-day"></i></div>}
+                              <span className={`evt-admin-tag ${evt.is_published === false ? 'hidden' : 'public'}`}>{evt.is_published === false ? 'HIDDEN' : 'PUBLIC'}</span>
+                              {(evt.loc_city || evt.location) && <span className="evt-admin-loc"><i className="fas fa-location-dot"></i> {evt.loc_city || evt.location}</span>}
+                            </div>
+                            <div className="evt-admin-card-body">
+                              <h4>{evt.title}</h4>
+                              <div className="evt-admin-card-meta">{formatDateTime(evt.event_date)} · {evt.has_fee ? `₱${evt.registration_fee}` : 'Free'} · {st.label}</div>
+                              <button className="evt-admin-manage" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.top - 6 - 190, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>Manage</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="evt-table-foot"><span>Results 1–{visible.length} of {visible.length}</span></div>
+                  </>
+                );
+              }
+
+              return (
+                <>
+                <div className="evt-viewbar">
+                  <div className="evt-view-toggle">
+                    <button className={eventsView === 'list' ? 'on' : ''} onClick={() => setEventsView('list')}><i className="fas fa-list"></i> List</button>
+                    <button className={eventsView === 'grid' ? 'on' : ''} onClick={() => setEventsView('grid')}><i className="fas fa-table-cells-large"></i> Grid</button>
+                  </div>
+                </div>
+                <div className="evt-table-wrapper evt-table-fixed">
+                  <div className="evt-table-scroll">
+                  <table className="evt-table">
+                    <thead>
+                      <tr>
+                        <th>Event</th><th>Date</th><th>Venue</th><th>Fee</th><th>Audience</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visible.map((evt) => {
+                        const st = eventStatus(evt);
+                        const canJoin = evt.registration_required !== false && evt.is_published !== false && (!evt.allowed_roles || evt.allowed_roles.length === 0 || evt.allowed_roles.includes(userRole));
+                        return (
+                          <tr key={evt.id}>
+                            <td>
+                              <div className="evt-cell-title">
+                                {evt.image_url
+                                  ? <img src={evt.image_url} alt="" className="evt-cell-banner" />
+                                  : <div className="evt-cell-banner placeholder"><i className="fas fa-calendar-day"></i></div>}
+                                <div>
+                                  <div className="evt-cell-name">{evt.title}</div>
+                                  {evt.description && <div className="evt-cell-desc">{evt.description}</div>}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="evt-nowrap">{formatDateTime(evt.event_date)}</td>
+                            <td>
+                              {evt.location || '—'}
+                              {evt.loc_city && <div className="evt-cell-sub">{[evt.loc_city, evt.loc_province].filter(Boolean).join(', ')}</div>}
+                            </td>
+                            <td className="evt-nowrap">{evt.has_fee ? `₱${evt.registration_fee}` : 'Free'}</td>
+                            <td className="evt-nowrap">{evt.allowed_roles && evt.allowed_roles.length ? evt.allowed_roles.join(', ') : 'All'}</td>
+                            <td><span className={`evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span></td>
+                            <td>
+                              <button className="evt-manage-btn" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>
+                                Manage <i className={`fas fa-chevron-${eventActionMenu === evt.id ? 'up' : 'down'}`}></i>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  </div>
+                  <div className="evt-table-foot">
+                    <span>Results {visible.length === 0 ? 0 : 1}–{visible.length} of {visible.length}</span>
+                    <span className="evt-rows-per-page">Rows Per Page <b>{String(visible.length).padStart(2, '0')}</b></span>
+                  </div>
+                </div>
+                </>
+              );
+            })()}
+
+            {/* ---- My Registrations: event posters + QR attendance ---- */}
+            {!showEventForm && eventsTab === 'mine' && (
+              myRegistrations.length === 0 ? (
+                <div className="evt-empty-mine"><i className="fas fa-ticket"></i><p>You haven&apos;t registered for any events yet.</p></div>
+              ) : (
+                <div className="myreg-grid">
+                  {myRegistrations.map((r) => {
+                    const ev = r.event || {};
+                    const statusMap = {
+                      registered: { label: 'Registered', cls: 'ok' },
+                      payment_verified: { label: 'Confirmed', cls: 'ok' },
+                      payment_submitted: { label: 'Payment Under Review', cls: 'pending' },
+                      pending_payment: { label: 'Awaiting Payment', cls: 'warn' },
+                    };
+                    const st = statusMap[r.status] || { label: r.status, cls: 'pending' };
+                    const confirmed = r.status === 'registered' || r.status === 'payment_verified';
+                    return (
+                      <div key={r.id} className="myreg-poster">
+                        <div className="myreg-banner">
+                          {ev.image_url
+                            ? <img src={ev.image_url} alt={ev.title} />
+                            : <div className="myreg-banner-ph"><i className="fas fa-calendar-day"></i></div>}
+                          <span className={`myreg-status ${st.cls}`}>{st.label}</span>
+                        </div>
+                        <div className="myreg-body">
+                          <h4>{ev.title}</h4>
+                          <div className="myreg-meta"><i className="fas fa-calendar-check"></i> {ev.event_date ? formatDateTime(ev.event_date) : 'TBA'}</div>
+                          {(ev.location || ev.loc_city) && <div className="myreg-meta"><i className="fas fa-location-dot"></i> {[ev.location, ev.loc_city].filter(Boolean).join(', ')}</div>}
+                          {ev.has_fee && <div className="myreg-meta"><i className="fas fa-tag"></i> ₱{ev.registration_fee} · {r.payment_method || '—'}</div>}
+
+                          <div className="myreg-qr">
+                            {confirmed && regQrCodes[r.id] ? (
+                              <>
+                                <img src={regQrCodes[r.id]} alt="Attendance QR" />
+                                <div className="myreg-qr-note"><i className="fas fa-qrcode"></i> Show this QR at the event for attendance</div>
+                              </>
+                            ) : (
+                              <div className="myreg-qr-locked">
+                                <i className="fas fa-lock"></i>
+                                <span>{r.status === 'pending_payment' ? 'Complete payment to unlock your attendance QR' : 'Your QR unlocks once your registration is confirmed'}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            )}
+
+            {/* ---- Manage dropdown (portal, no clipping) ---- */}
+            {eventActionMenu && eventMenuAnchor && typeof document !== 'undefined' && (() => {
+              const evt = events.find((e) => e.id === eventActionMenu);
+              if (!evt) return null;
+              return createPortal(
+                <>
+                  <div className="evt-manage-backdrop" onClick={() => setEventActionMenu(null)}></div>
+                  <div className="evt-manage-menu" style={{ position: 'fixed', top: eventMenuAnchor.top, right: eventMenuAnchor.right }}>
+                    {canManage(MODULES.UPDATE_EVENTS) && featureOn('events.edit') && (
+                      <button onClick={() => { setEventActionMenu(null); openEventEditor(evt); }}><i className="fas fa-edit"></i> Edit Event</button>
+                    )}
+                    {canManage(MODULES.UPDATE_EVENTS) && (
+                      <button onClick={() => { setEventActionMenu(null); openEventRegistrations(evt); }}><i className="fas fa-users"></i> Registrations</button>
+                    )}
+                    {evt.latitude && evt.longitude && (
+                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${evt.latitude},${evt.longitude}`} target="_blank" rel="noreferrer" onClick={() => setEventActionMenu(null)}><i className="fas fa-directions"></i> Directions</a>
+                    )}
+                    {canManage(MODULES.DELETE_EVENTS) && featureOn('events.delete') && (
+                      <button className="danger" onClick={() => { setEventActionMenu(null); handleDeleteEvent(evt); }}><i className="fas fa-trash"></i> Delete</button>
                     )}
                   </div>
+                </>,
+                document.body
+              );
+            })()}
 
-                  {canManage(MODULES.RSVP_EVENT) && featureOn('events.rsvp') && userRole !== 'Admin' && userRole !== 'Super Admin' && (
-                    <div className="event-card-footer">
-                      <button className="btn-rsvp going" onClick={() => handleEventRSVP(evt.id, 'Going')}>Going</button>
-                      <button className="btn-rsvp maybe" onClick={() => handleEventRSVP(evt.id, 'Maybe')}>Maybe</button>
-                      <button className="btn-rsvp no" onClick={() => handleEventRSVP(evt.id, 'Not Going')}>Not Going</button>
-                    </div>
-                  )}
+            {/* ---- Admin: Registrations viewer + verify ---- */}
+            {eventRegsModal && (
+              <div className="evt-modal-overlay" onClick={() => setEventRegsModal(null)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Registrations</h3><p>{eventRegsModal.title}</p></div>
+                    <button className="evt-modal-close" onClick={() => setEventRegsModal(null)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    {eventRegsLoading ? <p className="evt-muted">Loading…</p> : eventRegs.length === 0 ? (
+                      <p className="evt-muted">No registrations yet.</p>
+                    ) : eventRegs.map((r) => (
+                      <div key={r.id} className="evt-reg-row">
+                        <div className="evt-reg-main">
+                          <strong>{r.attendee_name}</strong>
+                          <span className="evt-reg-sub">{r.attendee_email} {r.attendee_mobile ? `· ${r.attendee_mobile}` : ''}</span>
+                          <span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span>
+                          {r.amount > 0 && <span className="evt-reg-amt">₱{r.amount} · {r.payment_method || '—'}{r.payment_reference ? ` · Ref: ${r.payment_reference}` : ''}</span>}
+                        </div>
+                        <div className="evt-reg-actions">
+                          {r.payment_proof_url && <a href={r.payment_proof_url} target="_blank" rel="noreferrer" className="evt-mini-btn"><i className="fas fa-receipt"></i> Proof</a>}
+                          {(r.status === 'payment_submitted' || r.status === 'pending_payment') && (
+                            <button className="evt-mini-btn ok" onClick={() => verifyRegistration(r.id, 'payment_verified')}><i className="fas fa-check"></i> Verify</button>
+                          )}
+                          {r.status !== 'cancelled' && (
+                            <button className="evt-mini-btn danger" onClick={() => verifyRegistration(r.id, 'cancelled')}><i className="fas fa-ban"></i></button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-              {events.length === 0 && <p className="events-empty-msg">No events found.</p>}
-            </div>
+              </div>
+            )}
+
+            {/* ---- Event Details modal ---- */}
+            {eventDetail && (() => {
+              const registered = myRegIds.has(eventDetail.id);
+              const canJoin = eventDetail.registration_required !== false && eventDetail.is_published !== false && (!eventDetail.allowed_roles || eventDetail.allowed_roles.length === 0 || eventDetail.allowed_roles.includes(userRole));
+              return (
+                <div className="evt-modal-overlay" onClick={() => setEventDetail(null)}>
+                  <div className="evt-detail-modal" onClick={(e) => e.stopPropagation()}>
+                    <button className="evt-modal-close evt-detail-close" onClick={() => setEventDetail(null)}><i className="fas fa-times"></i></button>
+                    {eventDetail.image_url
+                      ? <img src={eventDetail.image_url} alt={eventDetail.title} className="evt-detail-banner" />
+                      : <div className="evt-detail-banner ph"><i className="fas fa-calendar-day"></i></div>}
+                    <div className="evt-detail-body">
+                      <div className="evt-detail-badges">
+                        <span className={`hp-event-fee ${eventDetail.has_fee ? 'paid' : 'free'}`} style={{ fontSize: '0.75rem', fontWeight: 800, padding: '3px 12px', borderRadius: 20 }}>{eventDetail.has_fee ? `₱${eventDetail.registration_fee}` : 'Free Event'}</span>
+                        {eventDetail.allowed_roles?.length > 0 && <span className="evt-roles-badge">{eventDetail.allowed_roles.join(', ')} only</span>}
+                      </div>
+                      <h2 className="evt-detail-title">{eventDetail.title}</h2>
+                      {eventDetail.description && <p className="evt-detail-desc">{eventDetail.description}</p>}
+                      <div className="evt-detail-info">
+                        <div className="evt-detail-row"><i className="fas fa-calendar-check"></i><div><span className="evt-detail-label">When</span><span>{formatDateTime(eventDetail.event_date)}{eventDetail.end_date ? ` – ${formatDateTime(eventDetail.end_date)}` : ''}</span></div></div>
+                        {(eventDetail.location || eventDetail.loc_city) && <div className="evt-detail-row"><i className="fas fa-location-dot"></i><div><span className="evt-detail-label">Where</span><span>{[eventDetail.location, eventDetail.loc_barangay, eventDetail.loc_city, eventDetail.loc_province].filter(Boolean).join(', ')}</span>{eventDetail.latitude && eventDetail.longitude && <a className="hp-evt-directions" style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none', marginTop: 4, display: 'inline-flex', gap: 6 }} href={`https://www.google.com/maps/dir/?api=1&destination=${eventDetail.latitude},${eventDetail.longitude}`} target="_blank" rel="noreferrer"><i className="fas fa-directions"></i> Get Directions</a>}</div></div>}
+                        {eventDetail.max_participants && <div className="evt-detail-row"><i className="fas fa-users"></i><div><span className="evt-detail-label">Capacity</span><span>{eventDetail.max_participants} participants</span></div></div>}
+                        {eventDetail.registration_deadline && <div className="evt-detail-row"><i className="fas fa-hourglass-half"></i><div><span className="evt-detail-label">Register By</span><span>{new Date(eventDetail.registration_deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span></div></div>}
+                        {eventDetail.has_fee && eventDetail.payment_instructions && <div className="evt-detail-row"><i className="fas fa-money-check-dollar"></i><div><span className="evt-detail-label">Payment</span><span style={{ whiteSpace: 'pre-wrap' }}>{eventDetail.payment_instructions}</span></div></div>}
+                      </div>
+                      {eventDetail.registration_required !== false && (
+                        registered ? (
+                          <div className="evt-detail-registered"><i className="fas fa-check-circle"></i> You&apos;re registered for this event</div>
+                        ) : canJoin ? (
+                          <button className="evt-detail-join" onClick={() => { setEventDetail(null); openRegisterModal(eventDetail); }}><i className="fas fa-user-plus"></i> Register for this Event</button>
+                        ) : (
+                          <div className="evt-detail-locked"><i className="fas fa-lock"></i> {eventDetail.allowed_roles?.length ? `Open to ${eventDetail.allowed_roles.join(', ')} only` : 'Registration is closed'}</div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ---- Member: Register for event ---- */}
+            {registerModal && (
+              <div className="evt-modal-overlay" onClick={() => setRegisterModal(null)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Register</h3><p>{registerModal.title}</p></div>
+                    <button className="evt-modal-close" onClick={() => setRegisterModal(null)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    <div className="form-group"><label>Full Name *</label><input className="form-control" value={registerForm.attendeeName} onChange={(e) => setRegisterForm({ ...registerForm, attendeeName: e.target.value })} /></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group"><label>Email</label><input className="form-control" value={registerForm.attendeeEmail} onChange={(e) => setRegisterForm({ ...registerForm, attendeeEmail: e.target.value })} /></div>
+                      <div className="form-group"><label>Mobile</label><input className="form-control" value={registerForm.attendeeMobile} onChange={(e) => setRegisterForm({ ...registerForm, attendeeMobile: e.target.value })} /></div>
+                    </div>
+
+                    {!registerModal.has_fee ? (
+                      <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event — you&apos;ll be registered instantly.</p>
+                    ) : (
+                      <div className="evt-pay-box">
+                        <div className="evt-pay-amount">Amount to pay: <strong>₱{registerModal.early_bird_price != null && registerModal.early_bird_deadline && new Date() <= new Date(registerModal.early_bird_deadline) ? registerModal.early_bird_price : registerModal.registration_fee}</strong></div>
+                        {registerModal.payment_instructions && <p className="evt-muted" style={{ whiteSpace: 'pre-wrap' }}>{registerModal.payment_instructions}</p>}
+                        {(registerModal.gcash_number || registerModal.gcash_qr_url) && (
+                          <div className="evt-pay-detail"><strong>GCash:</strong> {registerModal.gcash_name} {registerModal.gcash_number}
+                            {registerModal.gcash_qr_url && <div><img src={registerModal.gcash_qr_url} alt="GCash QR" style={{ width: 120, height: 120, objectFit: 'contain', marginTop: 6, borderRadius: 8, background: '#fff', padding: 4 }} /></div>}
+                          </div>
+                        )}
+                        {registerModal.bank_account_number && (
+                          <div className="evt-pay-detail"><strong>Bank:</strong> {registerModal.bank_name} · {registerModal.bank_account_name} · {registerModal.bank_account_number}</div>
+                        )}
+                        <div className="form-group"><label>Payment Method</label>
+                          <select className="form-control" value={registerForm.paymentMethod} onChange={(e) => setRegisterForm({ ...registerForm, paymentMethod: e.target.value })}>
+                            <option value="">Select…</option>
+                            {(registerModal.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={registerForm.paymentReference} onChange={(e) => setRegisterForm({ ...registerForm, paymentReference: e.target.value })} /></div>
+                        <div className="form-group"><label>Upload Payment Receipt</label>
+                          <input type="file" accept="image/*" onChange={(e) => setRegisterProofFile(e.target.files?.[0] || null)} />
+                          {registerProofFile && <div style={{ marginTop: 6 }}><img src={URL.createObjectURL(registerProofFile)} alt="proof" style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }} /></div>}
+                        </div>
+                        <p className="evt-muted" style={{ fontSize: '0.8rem' }}>Your registration is confirmed once an admin verifies your payment.</p>
+                      </div>
+                    )}
+                    <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitRegistration} disabled={registerSubmitting}>
+                      <i className={`fas ${registerSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {registerSubmitting ? 'Submitting…' : (registerModal.has_fee ? 'Submit Registration' : 'Register')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* ========== ANNOUNCEMENTS ========== */}
@@ -8815,13 +9487,18 @@ Examples:
 
           {/* ========== USER MANAGEMENT (Admin/Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'user-management' ? 'active' : ''}`}>
-            <h2 className="section-title">User Management</h2>
-
-            {featureOn('users.create') && (
-              <button className="btn-primary" style={{ marginBottom: 15 }} onClick={() => { setShowUserForm(true); setEditingUser(null); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); }}>
-                <i className="fas fa-plus"></i> Create User
-              </button>
-            )}
+            <div className="um-hero">
+              <div className="um-hero-bg"></div>
+              <div className="um-hero-content">
+                <h2 className="um-hero-title">User Management</h2>
+                <p className="um-hero-sub">Review roles, ministries, verification status, and access control from one place.</p>
+                {featureOn('users.create') && (
+                  <button className="um-hero-btn" onClick={() => { setShowUserForm(true); setEditingUser(null); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); }}>
+                    <i className="fas fa-plus"></i> Create User
+                  </button>
+                )}
+              </div>
+            </div>
 
             {showUserForm && (
               <div style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
@@ -9032,7 +9709,7 @@ Examples:
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAdminUsers.map((u) => (
+                  {pagedAdminUsers.map((u) => (
                     <tr key={u.id} className={u.is_active === false ? 'um-row-deactivated' : ''}>
                       <td>
                         <div className="um-user-cell">
@@ -9118,6 +9795,32 @@ Examples:
               </table>
             </div>
             {filteredAdminUsers.length === 0 && <div className="um-empty-state"><i className="fas fa-users-slash"></i><p>No users found matching your criteria.</p></div>}
+
+            {filteredAdminUsers.length > 0 && (
+              <div className="um-results-bar">
+                Results {(currentUserPage - 1) * USERS_PER_PAGE + 1}–{Math.min(currentUserPage * USERS_PER_PAGE, filteredAdminUsers.length)} of {filteredAdminUsers.length}
+              </div>
+            )}
+            {totalUserPages > 1 && (
+              <div className="um-pagination">
+                <button className="um-page-btn" onClick={() => setUserPage(1)} disabled={currentUserPage === 1} title="First page"><i className="fas fa-angle-double-left"></i></button>
+                <button className="um-page-btn" onClick={() => setUserPage(currentUserPage - 1)} disabled={currentUserPage === 1} title="Previous"><i className="fas fa-angle-left"></i></button>
+                {Array.from({ length: totalUserPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalUserPages || Math.abs(p - currentUserPage) <= 1)
+                  .reduce((acc, p, idx, arr) => {
+                    if (idx > 0 && p - arr[idx - 1] > 1) acc.push('…');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) => p === '…'
+                    ? <span key={`e${i}`} className="um-page-ellipsis">…</span>
+                    : <button key={p} className={`um-page-btn ${p === currentUserPage ? 'active' : ''}`} onClick={() => setUserPage(p)}>{p}</button>
+                  )}
+                <button className="um-page-btn" onClick={() => setUserPage(currentUserPage + 1)} disabled={currentUserPage === totalUserPages} title="Next"><i className="fas fa-angle-right"></i></button>
+                <button className="um-page-btn" onClick={() => setUserPage(totalUserPages)} disabled={currentUserPage === totalUserPages} title="Last page"><i className="fas fa-angle-double-right"></i></button>
+                <span className="um-page-info">Page {currentUserPage} of {totalUserPages}</span>
+              </div>
+            )}
 
             {/* Confirmation Modal */}
             {confirmAction && (

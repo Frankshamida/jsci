@@ -2096,3 +2096,118 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
   .hp-isom-date { justify-content: center; }
   .hp-isom-btn { justify-content: center; }
 }
+
+/* ============================================ */
+/* Public event cards: badges, actions, modal   */
+/* ============================================ */
+.hp-event-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hp-event-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.hp-event-fee { font-size: 0.75rem; font-weight: 800; padding: 3px 12px; border-radius: 20px; }
+.hp-event-fee.free { background: rgba(22,163,74,0.15); color: #16a34a; }
+.hp-event-fee.paid { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; }
+.hp-event-roles { font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; background: rgba(59,130,246,0.14); color: #2563eb; }
+.hp-event-actions { display: flex; gap: 8px; margin-top: 12px; }
+.hp-event-btn {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 12px; border-radius: 10px; font-weight: 700; font-size: 0.82rem; cursor: pointer; border: none;
+  font-family: 'Montserrat', sans-serif; transition: all 0.2s ease;
+}
+.hp-event-btn.outline { background: transparent; border: 1.5px solid var(--primary); color: var(--primary); }
+.hp-event-btn.outline:hover { background: rgba(146,108,21,0.08); }
+.hp-event-btn.solid { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; }
+.hp-event-btn.solid:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(146,108,21,0.35); }
+body.dark-mode .hp-event-btn.outline { color: var(--accent); border-color: var(--accent); }
+
+/* Details modal */
+.hp-evt-overlay { position: fixed; inset: 0; z-index: 13000; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; animation: hpEvtFade 0.2s ease; }
+@keyframes hpEvtFade { from { opacity: 0; } to { opacity: 1; } }
+.hp-evt-modal { width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; background: #fff; border-radius: 20px; position: relative; box-shadow: 0 24px 70px rgba(0,0,0,0.4); }
+body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
+.hp-evt-close { position: absolute; top: 14px; right: 14px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; border: none; background: rgba(0,0,0,0.45); color: #fff; cursor: pointer; font-size: 1rem; }
+.hp-evt-banner { width: 100%; height: 220px; object-fit: cover; border-radius: 20px 20px 0 0; display: block; }
+.hp-evt-banner.placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.5rem; }
+.hp-evt-content { padding: 22px 26px 26px; }
+.hp-evt-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.hp-evt-title { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1.6rem; color: var(--primary); margin: 0 0 10px; }
+body.dark-mode .hp-evt-title { color: var(--accent); }
+.hp-evt-text { color: #555; line-height: 1.6; margin: 0 0 18px; white-space: pre-wrap; }
+body.dark-mode .hp-evt-text { color: #ccc; }
+.hp-evt-info { display: flex; flex-direction: column; gap: 14px; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 16px; }
+body.dark-mode .hp-evt-info { border-color: rgba(255,255,255,0.1); }
+.hp-evt-info-row { display: flex; gap: 12px; align-items: flex-start; }
+.hp-evt-info-row > i { color: var(--primary); font-size: 1.05rem; width: 22px; text-align: center; margin-top: 2px; flex-shrink: 0; }
+.hp-evt-info-row > div { display: flex; flex-direction: column; gap: 2px; }
+.hp-evt-info-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; color: #999; }
+.hp-evt-directions { color: var(--primary); font-weight: 700; font-size: 0.85rem; text-decoration: none; margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; }
+.hp-evt-directions:hover { text-decoration: underline; }
+.hp-evt-register { width: 100%; margin-top: 20px; padding: 14px; border: none; border-radius: 30px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.25s ease; }
+.hp-evt-register:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(146,108,21,0.4); }
+.hp-evt-note { text-align: center; font-size: 0.78rem; color: #999; margin: 10px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+/* ============================================ */
+/* Elegant "You're Invited" event cards          */
+/* ============================================ */
+.hp-invite-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 32px; justify-items: center; }
+.hp-invite-card {
+  width: 100%; max-width: 440px; background: #fff; border-radius: 26px; overflow: hidden;
+  box-shadow: 0 18px 50px rgba(20,35,58,0.14), 0 2px 8px rgba(20,35,58,0.06);
+  transition: transform 0.35s ease, box-shadow 0.35s ease;
+}
+.hp-invite-card:hover { transform: translateY(-6px); box-shadow: 0 28px 70px rgba(146,108,21,0.22); }
+body.dark-mode .hp-invite-card { background: #191919; }
+
+/* Hero */
+.hp-invite-hero { position: relative; height: 250px; overflow: hidden; background: linear-gradient(135deg, #eaf3fb 0%, #fbeecb 100%); }
+.hp-invite-hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.hp-invite-hero-overlay { position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.55) 42%, rgba(255,255,255,0) 68%); }
+.hp-invite-dots { position: absolute; top: 20px; left: 22px; width: 46px; height: 46px; background-image: radial-gradient(var(--accent) 2px, transparent 2px); background-size: 11px 11px; opacity: 0.6; }
+.hp-invite-pill {
+  position: absolute; top: 22px; left: 22px; margin-top: 34px; display: inline-flex; align-items: center; gap: 7px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: 'Montserrat', sans-serif;
+  font-weight: 800; font-size: 0.68rem; letter-spacing: 1px; padding: 7px 15px; border-radius: 30px; box-shadow: 0 4px 12px rgba(146,108,21,0.35);
+}
+.hp-invite-hero-text { position: absolute; left: 24px; bottom: 22px; max-width: 64%; z-index: 1; }
+.hp-invite-script { display: block; font-family: 'Playfair Display', Georgia, serif; font-style: italic; font-weight: 700; font-size: 1.7rem; color: var(--secondary); line-height: 1; margin-bottom: 8px; }
+.hp-invite-tagline { margin: 0; font-size: 0.82rem; line-height: 1.45; color: #2b3a4d; font-weight: 500; }
+
+/* Info card (overlaps hero) */
+.hp-invite-info { position: relative; margin-top: -26px; background: #fff; border-radius: 26px 26px 0 0; padding: 24px 26px 22px; }
+body.dark-mode .hp-invite-info { background: #191919; }
+.hp-invite-title { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1.5rem; color: #14233a; margin: 0 0 4px; }
+body.dark-mode .hp-invite-title { color: #fff; }
+.hp-invite-desc { margin: 0 0 12px; color: #7a8794; font-size: 0.9rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hp-invite-rule { display: block; width: 54px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, var(--primary), var(--accent)); margin-bottom: 18px; }
+
+.hp-invite-details { display: flex; gap: 16px; align-items: stretch; margin-bottom: 20px; }
+.hp-invite-left { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.hp-invite-row { display: flex; align-items: center; gap: 12px; }
+.hp-invite-ico { width: 42px; height: 42px; border-radius: 12px; background: rgba(146,108,21,0.1); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+.hp-invite-row strong { display: block; font-size: 0.86rem; color: #14233a; font-weight: 800; line-height: 1.2; }
+.hp-invite-row span { display: block; font-size: 0.76rem; color: #8b97a4; margin-top: 2px; }
+body.dark-mode .hp-invite-row strong { color: #eee; }
+
+.hp-invite-fee { width: 148px; flex-shrink: 0; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 14px 10px; }
+.hp-invite-fee.paid { background: linear-gradient(150deg, #fff4d6, #f8e0a0); }
+.hp-invite-fee.free { background: linear-gradient(150deg, #e6f6ec, #c8ebd4); }
+.hp-invite-fee-label { font-size: 0.6rem; font-weight: 800; letter-spacing: 1px; color: #9a7b2e; margin-bottom: 4px; }
+.hp-invite-fee.free .hp-invite-fee-label { color: #2f8f52; }
+.hp-invite-fee-value { font-family: 'Montserrat', sans-serif; font-weight: 900; font-size: 1.9rem; color: var(--primary); line-height: 1; }
+.hp-invite-fee.free .hp-invite-fee-value { color: #16a34a; font-size: 1.5rem; }
+
+.hp-invite-actions { display: flex; gap: 12px; }
+.hp-invite-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 10px; border-radius: 14px; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 0.9rem; cursor: pointer; transition: all 0.22s ease; border: none; }
+.hp-invite-btn.outline { background: #fff; border: 1.5px solid var(--primary); color: var(--primary); }
+.hp-invite-btn.outline:hover { background: rgba(146,108,21,0.06); }
+.hp-invite-btn.solid { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; box-shadow: 0 8px 20px rgba(146,108,21,0.35); }
+.hp-invite-btn.solid:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(146,108,21,0.5); }
+body.dark-mode .hp-invite-btn.outline { background: transparent; color: var(--accent); border-color: var(--accent); }
+
+/* Footer */
+.hp-invite-foot { display: flex; align-items: center; justify-content: center; gap: 9px; background: #14233a; color: rgba(255,255,255,0.9); font-size: 0.78rem; font-weight: 500; padding: 13px 16px; text-align: center; }
+.hp-invite-foot img { width: 20px; height: 20px; object-fit: contain; }
+
+@media (max-width: 480px) {
+  .hp-invite-grid { grid-template-columns: 1fr; }
+  .hp-invite-details { flex-direction: column; }
+  .hp-invite-fee { width: 100%; flex-direction: row; gap: 10px; justify-content: space-between; padding: 12px 18px; }
+}
