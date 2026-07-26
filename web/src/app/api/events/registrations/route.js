@@ -33,6 +33,24 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get('eventId');
     const userId = searchParams.get('userId');
+    const pending = searchParams.get('pending');
+
+    // Admin alert feed: new registrations (incl. free) + registrations awaiting payment
+    // verification, across all events. 'registered' entries are informational (new sign-up);
+    // the client dismisses them once the admin has viewed that event's registrations list.
+    if (pending) {
+      const actor = await verifyEventManager(searchParams.get('actorId'));
+      if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
+      const { data, error } = await supabase
+        .from('event_registrations')
+        .select('id, attendee_name, status, created_at, event:events(id, title)')
+        .in('status', ['payment_submitted', 'pending_payment', 'registered'])
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return NextResponse.json({ success: true, count: (data || []).length, data: data || [] });
+    }
+
     if (!eventId && !userId) return NextResponse.json({ success: false, message: 'eventId or userId required' }, { status: 400 });
 
     // "My Registrations": all of a user's registrations joined with the event
@@ -158,26 +176,32 @@ export async function POST(request) {
   }
 }
 
-// PUT /api/events/registrations  { id, actorId, status }  -> admin verifies/updates a registration
+// PUT /api/events/registrations  { id, actorId, status }            -> admin verifies/updates a registration
+//                                { id, actorId, attended: true|false } -> admin marks/clears attendance (QR check-in)
 export async function PUT(request) {
   try {
-    const { id, actorId, status } = await request.json();
-    if (!id || !status) return NextResponse.json({ success: false, message: 'id and status required' }, { status: 400 });
+    const { id, actorId, status, attended } = await request.json();
+    if (!id) return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
+    if (!status && attended === undefined) return NextResponse.json({ success: false, message: 'status or attended required' }, { status: 400 });
 
     const actor = await verifyEventManager(actorId);
     if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
 
-    const valid = ['pending_payment', 'payment_submitted', 'payment_verified', 'registered', 'cancelled'];
-    if (!valid.includes(status)) return NextResponse.json({ success: false, message: 'Invalid status' }, { status: 400 });
-
-    const update = { status };
-    if (status === 'payment_verified' || status === 'registered') { update.verified_by = actor.id; update.verified_at = new Date().toISOString(); }
+    const update = {};
+    if (status) {
+      const valid = ['pending_payment', 'payment_submitted', 'payment_verified', 'registered', 'cancelled'];
+      if (!valid.includes(status)) return NextResponse.json({ success: false, message: 'Invalid status' }, { status: 400 });
+      update.status = status;
+      if (status === 'payment_verified' || status === 'registered') { update.verified_by = actor.id; update.verified_at = new Date().toISOString(); }
+    }
+    if (attended === true) { update.attended = true; update.attended_at = new Date().toISOString(); update.attended_by = actor.id; }
+    else if (attended === false) { update.attended = false; update.attended_at = null; update.attended_by = null; }
 
     const { data, error } = await supabase.from('event_registrations').update(update).eq('id', id).select().single();
     if (error) throw error;
 
-    await logAudit(actor, 'event_registration_update', id, `Set registration to ${status}`);
-    return NextResponse.json({ success: true, data, message: 'Registration updated' });
+    await logAudit(actor, attended !== undefined ? 'event_attendance_update' : 'event_registration_update', id, attended !== undefined ? `Set attendance to ${attended}` : `Set registration to ${status}`);
+    return NextResponse.json({ success: true, data, message: attended !== undefined ? (attended ? 'Marked attended' : 'Attendance cleared') : 'Registration updated' });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }

@@ -15,6 +15,7 @@
     "bcryptjs": "^2.4.3",
     "browser-image-compression": "^2.0.2",
     "html2canvas": "^1.4.1",
+    "html5-qrcode": "^2.3.8",
     "leaflet": "^1.9.4",
     "next": "^14.2.0",
     "pdf-parse": "^2.4.5",

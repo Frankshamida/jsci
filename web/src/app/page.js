@@ -168,7 +168,11 @@ export default function HomePage() {
           const json = await res.json();
           if (json.success && Array.isArray(json.data)) {
             const now = Date.now();
-            const sorted = [...json.data].sort((a, b) => {
+            const notCompleted = json.data.filter((evt) => {
+              const end = evt.end_date ? new Date(evt.end_date).getTime() : (evt.event_date ? new Date(evt.event_date).getTime() : null);
+              return !end || end >= now;
+            });
+            const sorted = [...notCompleted].sort((a, b) => {
               const da = new Date(a.event_date).getTime();
               const db = new Date(b.event_date).getTime();
               const aUpcoming = da >= now;

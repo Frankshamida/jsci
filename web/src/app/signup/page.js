@@ -181,6 +181,9 @@ export default function SignupPage() {
 
       if (result.success) {
         sessionStorage.removeItem('signupFormData');
+        if (localStorage.getItem('pendingEventRegistration')) {
+          sessionStorage.setItem('justSignedUp', '1');
+        }
         setSplashName(form.firstname || 'Friend');
         setSplashVerse(WELCOME_VERSES[Math.floor(Math.random() * WELCOME_VERSES.length)]);
         setShowSignupSplash(true);

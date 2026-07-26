@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -499,13 +499,22 @@ export default function DashboardPage() {
   const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
   const [eventGcashQrFile, setEventGcashQrFile] = useState(null);
   // Registrations viewer (admin) + member registration modal
-  const [eventRegsModal, setEventRegsModal] = useState(null); // event object
+  const [eventRegsModal, setEventRegsModal] = useState(null); // event object being managed (registrations/attendance page)
   const [eventRegs, setEventRegs] = useState([]);
   const [eventRegsLoading, setEventRegsLoading] = useState(false);
+  const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance'
+  const [pendingRegAlerts, setPendingRegAlerts] = useState([]); // registrations awaiting verification, across all events (admin bell)
+  const [showQrScanner, setShowQrScanner] = useState(false);
+  const [qrScanResult, setQrScanResult] = useState(null); // { status: 'success'|'already'|'error', message }
   const [registerModal, setRegisterModal] = useState(null); // event object
   const [registerForm, setRegisterForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '' });
   const [registerProofFile, setRegisterProofFile] = useState(null);
   const [registerSubmitting, setRegisterSubmitting] = useState(false);
+  // "Pay Now" modal — for registrations that were free at signup but now require payment
+  const [payNowModal, setPayNowModal] = useState(null); // { reg, event }
+  const [payNowForm, setPayNowForm] = useState({ paymentMethod: '', paymentReference: '' });
+  const [payNowProofFile, setPayNowProofFile] = useState(null);
+  const [payNowSubmitting, setPayNowSubmitting] = useState(false);
   // My registrations (poster view + QR) & register-once tracking
   const [eventsTab, setEventsTab] = useState('all'); // 'all' | 'mine'
   const [eventDetail, setEventDetail] = useState(null); // event shown in details modal
@@ -516,6 +525,7 @@ export default function DashboardPage() {
   const [myRegIds, setMyRegIds] = useState(new Set()); // event ids the user is registered for
   const [regQrCodes, setRegQrCodes] = useState({}); // registrationId -> data URL
   const [showEventForm, setShowEventForm] = useState(false);
+  const [eventStep, setEventStep] = useState(0);
   const [editingEvent, setEditingEvent] = useState(null);
   const [eventImageFile, setEventImageFile] = useState(null);
   const [eventImagePreview, setEventImagePreview] = useState('');
@@ -1562,6 +1572,62 @@ export default function DashboardPage() {
       if (data.success) setEvents(data.data);
     } catch { /* silent */ }
   };
+
+  // Admin bell: registrations awaiting payment verification, across all events
+  const loadPendingRegAlerts = useCallback(async () => {
+    if (!userData?.id || (userRole !== 'Admin' && userRole !== 'Super Admin')) return;
+    try {
+      const res = await fetch(`/api/events/registrations?pending=1&actorId=${userData.id}`);
+      const data = await res.json();
+      if (data.success) setPendingRegAlerts(data.data || []);
+    } catch { /* silent */ }
+  }, [userData?.id, userRole]);
+
+  useEffect(() => {
+    if (!userData?.id || (userRole !== 'Admin' && userRole !== 'Super Admin')) return;
+    loadPendingRegAlerts();
+    const interval = setInterval(loadPendingRegAlerts, 45000);
+    return () => clearInterval(interval);
+  }, [userData?.id, userRole, loadPendingRegAlerts]);
+
+  // 'registered' (free) alerts are informational-only — dismissed once the admin has
+  // viewed that event's registrations list. Persisted so a page refresh doesn't re-alert.
+  const [seenRegIds, setSeenRegIds] = useState(() => {
+    if (typeof window === 'undefined') return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem('evt_seen_reg_ids') || '[]')); } catch { return new Set(); }
+  });
+  const markRegsSeen = useCallback((ids) => {
+    if (!ids || !ids.length) return;
+    setSeenRegIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      try { localStorage.setItem('evt_seen_reg_ids', JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const unseenRegAlerts = useMemo(
+    () => pendingRegAlerts.filter((r) => r.status !== 'registered' || !seenRegIds.has(r.id)),
+    [pendingRegAlerts, seenRegIds]
+  );
+  const pendingRegByEvent = useMemo(() => {
+    const m = {};
+    unseenRegAlerts.forEach((r) => { const id = r.event?.id; if (id) m[id] = (m[id] || 0) + 1; });
+    return m;
+  }, [unseenRegAlerts]);
+
+  // Member bell: registrations that were free at signup but now require payment
+  // because the admin turned on / changed the event's fee afterward.
+  const myRegPaymentDueCount = useMemo(() => {
+    return myRegistrations.filter((r) => {
+      const ev = r.event || {};
+      const evEnd = ev.end_date ? new Date(ev.end_date).getTime() : (ev.event_date ? new Date(ev.event_date).getTime() : null);
+      const isDone = !!evEnd && evEnd < Date.now();
+      return !isDone && r.status === 'registered' && ev.has_fee && Number(ev.registration_fee || 0) > 0 && Number(r.amount || 0) === 0;
+    }).length;
+  }, [myRegistrations]);
+
+  const eventsBellCount = unseenRegAlerts.length + myRegPaymentDueCount;
 
   const loadAnnouncements = async () => {
     try {
@@ -3192,11 +3258,25 @@ export default function DashboardPage() {
   // -- Events --
   const resetEventForm = () => {
     setShowEventForm(false);
+    setEventStep(0);
     setEditingEvent(null);
     setEventForm(EMPTY_EVENT_FORM);
     setEventImageFile(null);
     setEventImagePreview('');
     setEventGcashQrFile(null);
+  };
+
+  const EVENT_STEPS = ['Basic Info', 'Visibility & Audience', 'Schedule & Location', 'Registration', 'Pricing & Payment'];
+
+  const validateEventStep = (step) => {
+    if (step === 0 && !eventForm.title) { showToast('Please enter a title before continuing', 'danger'); return false; }
+    if (step === 2 && !eventForm.eventDate) { showToast('Please set a start date before continuing', 'danger'); return false; }
+    return true;
+  };
+
+  const goToEventStep = (step) => {
+    if (step > eventStep && !validateEventStep(eventStep)) return;
+    setEventStep(Math.max(0, Math.min(EVENT_STEPS.length - 1, step)));
   };
 
   // Open the full-page event editor for creating (evt=null) or editing an event
@@ -3216,6 +3296,7 @@ export default function DashboardPage() {
       bankName: evt.bank_name || '', bankAccountName: evt.bank_account_name || '', bankAccountNumber: evt.bank_account_number || '',
     } : EMPTY_EVENT_FORM);
     setEventImageFile(null); setEventImagePreview(''); setEventGcashQrFile(null);
+    setEventStep(0);
     setShowEventForm(true);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -3288,24 +3369,69 @@ export default function DashboardPage() {
     ...f, allowedRoles: f.allowedRoles.includes(r) ? f.allowedRoles.filter(x => x !== r) : [...f.allowedRoles, r],
   }));
 
-  const openEventRegistrations = async (evt) => {
+  const openEventRegistrations = async (evt, tab = 'registrations') => {
     setEventRegsModal(evt);
+    setManageTab(tab);
     setEventRegsLoading(true);
     try {
       const res = await fetch(`/api/events/registrations?eventId=${evt.id}`);
       const data = await res.json();
-      setEventRegs(data.success ? data.data : []);
+      const regs = data.success ? data.data : [];
+      setEventRegs(regs);
+      markRegsSeen(regs.map((r) => r.id));
     } catch { setEventRegs([]); }
     setEventRegsLoading(false);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const closeEventManage = () => {
+    setEventRegsModal(null);
+    setEventRegs([]);
+    setManageTab('registrations');
+    setShowQrScanner(false);
   };
 
   const verifyRegistration = async (regId, status) => {
     try {
       const res = await fetch('/api/events/registrations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: regId, actorId: userData?.id, status }) });
       const data = await res.json();
-      if (data.success) { showToast('Registration updated', 'success'); if (eventRegsModal) openEventRegistrations(eventRegsModal); }
+      if (data.success) { showToast('Registration updated', 'success'); if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab); loadPendingRegAlerts(); }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  const markAttendance = async (regId, attended = true, opts = {}) => {
+    try {
+      const res = await fetch('/api/events/registrations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: regId, actorId: userData?.id, attended }) });
+      const data = await res.json();
+      if (data.success) {
+        setEventRegs((prev) => prev.map((r) => r.id === regId ? { ...r, attended, attended_at: attended ? (data.data?.attended_at || new Date().toISOString()) : null } : r));
+        if (!opts.silent) showToast(attended ? 'Marked as attended' : 'Marked as not attended', 'success');
+        return { ok: true, reg: data.data };
+      }
+      if (!opts.silent) showToast(data.message, 'danger');
+      return { ok: false, message: data.message };
+    } catch (e) {
+      if (!opts.silent) showToast('Error: ' + e.message, 'danger');
+      return { ok: false, message: e.message };
+    }
+  };
+
+  const handleQrDecoded = async (decodedText) => {
+    const match = /^SANCTUARYHUB-REG:(.+)$/.exec((decodedText || '').trim());
+    if (!match) { setQrScanResult({ status: 'error', message: 'This is not a valid attendance QR code.' }); return; }
+    const regId = match[1];
+    const reg = eventRegs.find((r) => r.id === regId);
+    if (!reg) { setQrScanResult({ status: 'error', message: 'This QR code does not belong to this event.' }); return; }
+    if (reg.status !== 'registered' && reg.status !== 'payment_verified') {
+      setQrScanResult({ status: 'error', message: `${reg.attendee_name}: registration is not confirmed (${reg.status.replace(/_/g, ' ')}).` });
+      return;
+    }
+    if (reg.attended) { setQrScanResult({ status: 'already', message: `${reg.attendee_name} was already checked in.` }); return; }
+    const result = await markAttendance(regId, true, { silent: true });
+    setQrScanResult(result.ok
+      ? { status: 'success', message: `${reg.attendee_name} checked in successfully!` }
+      : { status: 'error', message: result.message || 'Failed to mark attendance.' });
   };
 
   const openRegisterModal = (evt) => {
@@ -3343,6 +3469,30 @@ export default function DashboardPage() {
     finally { setRegisterSubmitting(false); }
   };
 
+  const openPayNowModal = (reg, evt) => {
+    setPayNowModal({ reg, event: evt });
+    setPayNowForm({ paymentMethod: (evt.payment_methods && evt.payment_methods[0]) || '', paymentReference: '' });
+    setPayNowProofFile(null);
+  };
+
+  const submitPayNow = async () => {
+    if (!payNowModal) return;
+    setPayNowSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('registrationId', payNowModal.reg.id);
+      fd.append('userId', userData?.id || '');
+      fd.append('paymentMethod', payNowForm.paymentMethod || '');
+      fd.append('paymentReference', payNowForm.paymentReference || '');
+      if (payNowProofFile) fd.append('proof', payNowProofFile);
+      const res = await fetch('/api/events/registrations/pay', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) { showToast(data.message, 'success'); setPayNowModal(null); loadMyRegistrations(); }
+      else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setPayNowSubmitting(false); }
+  };
+
   // Load the current user's registrations (for the "My Registrations" poster view + register-once)
   const loadMyRegistrations = useCallback(async () => {
     if (!userData?.id) return;
@@ -3372,17 +3522,58 @@ export default function DashboardPage() {
     if (userData?.id && events.length) loadMyRegistrations();
   }, [userData?.id, events.length, loadMyRegistrations]);
 
-  // After a public sign-up, auto-open the register modal for the pending event
+  // After a public sign-up, auto-open the register modal for the pending event.
+  // Consumed once (removed from storage immediately) so it never reappears on later logins —
+  // e.g. if the user closes the modal without registering, or logs in directly without
+  // ever clicking "Register" on the public site.
   useEffect(() => {
     if (!events.length || registerModal) return;
     let pending;
     try { pending = JSON.parse(localStorage.getItem('pendingEventRegistration') || 'null'); } catch { pending = null; }
-    if (pending?.id) {
+    if (!pending?.id) return;
+    try { localStorage.removeItem('pendingEventRegistration'); } catch { /* ignore */ }
+    const isFreshSignup = typeof window !== 'undefined' && sessionStorage.getItem('justSignedUp') === '1';
+    if (isFreshSignup) {
+      try { sessionStorage.removeItem('justSignedUp'); } catch { /* ignore */ }
       const evt = events.find((e) => e.id === pending.id);
       if (evt) openRegisterModal(evt);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
+
+  // Attendance QR camera scanner — mounts html5-qrcode only while the scanner modal is open
+  useEffect(() => {
+    if (!showQrScanner) return;
+    let scanner;
+    let cancelled = false;
+    let lastCode = '';
+    let lastTime = 0;
+    (async () => {
+      try {
+        const { Html5Qrcode } = await import('html5-qrcode');
+        if (cancelled) return;
+        scanner = new Html5Qrcode('evt-qr-reader');
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: 240 },
+          (decodedText) => {
+            const now = Date.now();
+            if (decodedText === lastCode && now - lastTime < 4000) return;
+            lastCode = decodedText; lastTime = now;
+            handleQrDecoded(decodedText);
+          },
+          () => { /* ignore per-frame decode misses */ }
+        );
+      } catch (e) {
+        if (!cancelled) setQrScanResult({ status: 'error', message: 'Could not access the camera: ' + e.message });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (scanner) { scanner.stop().then(() => scanner.clear()).catch(() => {}); }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showQrScanner]);
 
   const handleDeleteEvent = async (evt) => {
     askConfirm(`This will permanently delete the event. Please type the event title to confirm.`, async () => {
@@ -6197,6 +6388,11 @@ Examples:
                     {item.section === 'messages' && unreadCount > 0 && (
                       <span className="notification-badge">{unreadCount}</span>
                     )}
+                    {item.id === 'events' && eventsBellCount > 0 && (
+                      <span className="notification-badge menu-bell-badge" title={unseenRegAlerts.length > 0 ? 'New registrations / payments awaiting verification' : 'Events need your attention'}>
+                        <i className="fas fa-bell"></i> {eventsBellCount}
+                      </span>
+                    )}
                     {isLocked && (
                       <>
                         <span className="menu-lock"><i className="fas fa-lock"></i></span>
@@ -6802,34 +6998,142 @@ Examples:
 
           {/* ========== EVENTS ========== */}
           <section className={`content-section ${(activeSection === 'events' || activeSection === 'events-management') ? 'active' : ''}`}>
-            {!showEventForm && (
-              <>
-                {(userRole === 'Admin' || userRole === 'Super Admin') ? (
-                  <div className="um-hero evt-hero">
-                    <div className="um-hero-bg"></div>
-                    <div className="um-hero-content">
-                      <h2 className="um-hero-title">Events</h2>
-                      <p className="um-hero-sub">Create, publish, and manage church events — set audience, pricing, location, and review registrations from one place.</p>
-                      {canManage(MODULES.CREATE_EVENTS) && featureOn('events.create') && (
-                        <button className="um-hero-btn" onClick={() => openEventEditor(null)}>
-                          <i className="fas fa-plus"></i> Create Event
-                        </button>
-                      )}
-                    </div>
+            {eventRegsModal ? (
+              <div className="um-hero evt-hero">
+                <div className="um-hero-bg"></div>
+                <div className="um-hero-content">
+                  <button className="evt-back-btn" style={{ marginBottom: 14 }} onClick={closeEventManage}><i className="fas fa-arrow-left"></i> Back to Events</button>
+                  <h2 className="um-hero-title">{eventRegsModal.title}</h2>
+                  <p className="um-hero-sub">{eventRegsModal.description || 'Review registrations and manage attendance for this event.'}</p>
+                </div>
+              </div>
+            ) : (userRole === 'Admin' || userRole === 'Super Admin') ? (
+              <div className="um-hero evt-hero">
+                <div className="um-hero-bg"></div>
+                <div className="um-hero-content">
+                  <h2 className="um-hero-title">Events</h2>
+                  <p className="um-hero-sub">Create, publish, and manage church events — set audience, pricing, location, and review registrations from one place.</p>
+                  {!showEventForm && canManage(MODULES.CREATE_EVENTS) && featureOn('events.create') && (
+                    <button className="um-hero-btn" onClick={() => openEventEditor(null)}>
+                      <i className="fas fa-plus"></i> Create Event
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              !showEventForm && (
+                <>
+                  <h2 className="section-title" style={{ margin: '0 0 12px' }}>Events</h2>
+                  <div className="evt-tabs">
+                    <button className={`evt-tab ${eventsTab === 'all' ? 'active' : ''}`} onClick={() => setEventsTab('all')}><i className="fas fa-calendar"></i> All Events</button>
+                    <button className={`evt-tab ${eventsTab === 'mine' ? 'active' : ''}`} onClick={() => { setEventsTab('mine'); loadMyRegistrations(); }}>
+                      <i className="fas fa-ticket"></i> My Registrations {myRegistrations.length > 0 && <span className="evt-tab-count">{myRegistrations.length}</span>}
+                      {myRegPaymentDueCount > 0 && <span className="evt-tab-alert" title="Payment now required"><i className="fas fa-bell"></i> {myRegPaymentDueCount}</span>}
+                    </button>
                   </div>
-                ) : (
-                  <>
-                    <h2 className="section-title" style={{ margin: '0 0 12px' }}>Events</h2>
-                    <div className="evt-tabs">
-                      <button className={`evt-tab ${eventsTab === 'all' ? 'active' : ''}`} onClick={() => setEventsTab('all')}><i className="fas fa-calendar"></i> All Events</button>
-                      <button className={`evt-tab ${eventsTab === 'mine' ? 'active' : ''}`} onClick={() => { setEventsTab('mine'); loadMyRegistrations(); }}><i className="fas fa-ticket"></i> My Registrations {myRegistrations.length > 0 && <span className="evt-tab-count">{myRegistrations.length}</span>}</button>
-                    </div>
-                  </>
-                )}
-              </>
+                </>
+              )
             )}
 
-            {showEventForm && (
+            {eventRegsModal && (() => {
+              const confirmedRegs = eventRegs.filter((r) => r.status === 'registered' || r.status === 'payment_verified');
+              const attendedCount = confirmedRegs.filter((r) => r.attended).length;
+              return (
+                <>
+                  <div className="evt-tabs">
+                    <button className={`evt-tab ${manageTab === 'registrations' ? 'active' : ''}`} onClick={() => setManageTab('registrations')}><i className="fas fa-clipboard-list"></i> Registrations {eventRegs.length > 0 && <span className="evt-tab-count">{eventRegs.length}</span>}</button>
+                    <button className={`evt-tab ${manageTab === 'attendance' ? 'active' : ''}`} onClick={() => setManageTab('attendance')}><i className="fas fa-user-check"></i> Attendance {attendedCount > 0 && <span className="evt-tab-count">{attendedCount}</span>}</button>
+                  </div>
+
+                  {manageTab === 'registrations' && (
+                    <div className="evt-table-wrapper">
+                      <table className="evt-table">
+                        <thead>
+                          <tr><th>Attendee</th><th>Contact</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                          {eventRegsLoading ? (
+                            <tr><td colSpan={5}>Loading…</td></tr>
+                          ) : eventRegs.length === 0 ? (
+                            <tr><td colSpan={5}>No registrations yet.</td></tr>
+                          ) : eventRegs.map((r) => (
+                            <tr key={r.id}>
+                              <td className="evt-cell-name evt-td-primary" data-label="Attendee">{r.attendee_name}</td>
+                              <td className="evt-cell-sub" data-label="Contact">{r.attendee_email}{r.attendee_mobile ? ` · ${r.attendee_mobile}` : ''}</td>
+                              <td className="evt-nowrap" data-label="Payment">{r.amount > 0 ? `₱${r.amount} · ${r.payment_method || '—'}${r.payment_reference ? ` · Ref: ${r.payment_reference}` : ''}` : 'Free'}</td>
+                              <td className="evt-nowrap" data-label="Status"><span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span></td>
+                              <td className="evt-td-actions" data-label="Actions">
+                                {r.payment_proof_url && <a href={r.payment_proof_url} target="_blank" rel="noreferrer" className="evt-mini-btn"><i className="fas fa-receipt"></i> Proof</a>}
+                                {(r.status === 'payment_submitted' || r.status === 'pending_payment') && (
+                                  <button className="evt-mini-btn ok" onClick={() => verifyRegistration(r.id, 'payment_verified')}><i className="fas fa-check"></i> Verify</button>
+                                )}
+                                {r.status !== 'cancelled' && (
+                                  <button
+                                    className="evt-mini-btn danger"
+                                    onClick={() => askConfirm(
+                                      `Cancel ${r.attendee_name}'s registration for this event? They will no longer be able to check in, and this cannot be undone.`,
+                                      () => verifyRegistration(r.id, 'cancelled'),
+                                      { title: 'Cancel Registration?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Cancel Registration', icon: 'fa-ban' }
+                                    )}
+                                  ><i className="fas fa-ban"></i> Cancel</button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {manageTab === 'attendance' && (
+                    <>
+                      <div className="evt-viewbar">
+                        <button className="btn-primary" onClick={() => { setQrScanResult(null); setShowQrScanner(true); }}><i className="fas fa-qrcode"></i> Scan QR to Check In</button>
+                      </div>
+                      <div className="evt-table-wrapper">
+                        <table className="evt-table">
+                          <thead>
+                            <tr><th>Attendee</th><th>Contact</th><th>Status</th><th>Attendance</th></tr>
+                          </thead>
+                          <tbody>
+                            {eventRegsLoading ? (
+                              <tr><td colSpan={4}>Loading…</td></tr>
+                            ) : confirmedRegs.length === 0 ? (
+                              <tr><td colSpan={4}>No confirmed registrations yet.</td></tr>
+                            ) : confirmedRegs.map((r) => (
+                              <tr key={r.id}>
+                                <td className="evt-cell-name evt-td-primary" data-label="Attendee">{r.attendee_name}</td>
+                                <td className="evt-cell-sub" data-label="Contact">{r.attendee_email}{r.attendee_mobile ? ` · ${r.attendee_mobile}` : ''}</td>
+                                <td className="evt-nowrap" data-label="Status"><span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span></td>
+                                <td className="evt-nowrap evt-td-actions" data-label="Attendance">
+                                  {r.attended ? (
+                                    <>
+                                      <span className="evt-attend-badge yes"><i className="fas fa-check-circle"></i> Attended{r.attended_at ? ` · ${formatDateTime(r.attended_at)}` : ''}</span>
+                                      <button
+                                        className="evt-mini-btn danger"
+                                        onClick={() => askConfirm(
+                                          `${r.attendee_name} will be marked as not attended / no-show. You can mark them attended again later.`,
+                                          () => markAttendance(r.id, false),
+                                          { title: 'Mark as Not Attended?', subtitle: eventRegsModal?.title || 'Event Attendance', confirmLabel: 'Mark Not Attended', icon: 'fa-user-xmark' }
+                                        )}
+                                      ><i className="fas fa-user-xmark"></i> Undo</button>
+                                    </>
+                                  ) : (
+                                    <button className="evt-mini-btn ok" onClick={() => markAttendance(r.id, true)}><i className="fas fa-user-check"></i> Mark Attended</button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </>
+              );
+            })()}
+
+            {showEventForm && !eventRegsModal && (
               <div className="form-card evt-editor-page" style={{ marginBottom: 20, padding: 22, background: 'var(--bg-card)', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                 <div className="evt-editor-head">
                   <button className="evt-back-btn" onClick={resetEventForm}><i className="fas fa-arrow-left"></i> Back to Events</button>
@@ -6838,168 +7142,220 @@ Examples:
                 <p style={{ marginTop: -6, marginBottom: 14, fontSize: '0.85rem', opacity: 0.7 }}>
                   <i className="fas fa-globe"></i> Upcoming events appear in the <strong>News &amp; Upcoming Events</strong> section of the public homepage.
                 </p>
-                <div className="form-group"><label>Title *</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.title} onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })} /></div>
-                <div className="form-group"><label>Description</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={3} value={eventForm.description} onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })} /></div>
 
-                {/* ---- Visibility ---- */}
-                <div className="evt-config-title"><i className="fas fa-eye"></i> Visibility</div>
-                <div className="evt-visibility-row">
-                  <button type="button" className={`evt-vis-btn ${eventForm.isPublished ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, isPublished: true })}>
-                    <i className="fas fa-globe"></i> Published <small>Visible to everyone</small>
-                  </button>
-                  <button type="button" className={`evt-vis-btn ${!eventForm.isPublished ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, isPublished: false })}>
-                    <i className="fas fa-eye-slash"></i> Draft / Hidden <small>Only admins can see it</small>
-                  </button>
+                {/* ---- Stepper indicator ---- */}
+                <div className="evt-stepper">
+                  {EVENT_STEPS.map((label, i) => (
+                    <div key={label} className={`evt-step-item ${i === eventStep ? 'active' : ''} ${i < eventStep ? 'done' : ''}`} onClick={() => goToEventStep(i)}>
+                      <div className="evt-step-dot">{i < eventStep ? <i className="fas fa-check"></i> : i + 1}</div>
+                      <span className="evt-step-label">{label}</span>
+                      {i < EVENT_STEPS.length - 1 && <div className="evt-step-line" />}
+                    </div>
+                  ))}
                 </div>
 
-                {/* ---- Audience ---- */}
-                <div className="evt-config-title"><i className="fas fa-user-shield"></i> Who Can Join</div>
-                <div className="evt-visibility-row">
-                  <button type="button" className={`evt-vis-btn ${eventForm.audience === 'all' ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'all' })}>
-                    <i className="fas fa-users"></i> All Roles
-                  </button>
-                  <button type="button" className={`evt-vis-btn ${eventForm.audience === 'specific' ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'specific' })}>
-                    <i className="fas fa-user-tag"></i> Specific Roles
-                  </button>
-                </div>
-                {eventForm.audience === 'specific' && (
-                  <div className="evt-methods" style={{ marginTop: 4, marginBottom: 6 }}>
-                    {['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor'].map(r => (
-                      <label key={r} className={`evt-method-chip ${eventForm.allowedRoles.includes(r) ? 'on' : ''}`}>
-                        <input type="checkbox" checked={eventForm.allowedRoles.includes(r)} onChange={() => toggleAllowedRole(r)} />
-                        {r}
-                      </label>
-                    ))}
-                    {eventForm.allowedRoles.length === 0 && <span className="evt-muted" style={{ fontSize: '0.8rem' }}>Select at least one role, or switch to &quot;All Roles&quot;.</span>}
-                  </div>
-                )}
+                <div className="evt-step-body">
+                  {/* ===== Step 1: Basic Info ===== */}
+                  {eventStep === 0 && (
+                    <div className="evt-step-panel">
+                      <div className="form-group"><label>Title *</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.title} onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })} /></div>
+                      <div className="form-group"><label>Description</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={3} value={eventForm.description} onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })} /></div>
 
-                <div className="form-group">
-                  <label>Picture</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                    <div style={{ width: 140, height: 90, borderRadius: 10, overflow: 'hidden', background: 'rgba(146,108,21,0.08)', border: '1px dashed rgba(146,108,21,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {(eventImagePreview || editingEvent?.image_url)
-                        ? <img src={eventImagePreview || editingEvent?.image_url} alt="Event" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        : <i className="fas fa-image" style={{ fontSize: '1.6rem', opacity: 0.4 }}></i>}
-                    </div>
-                    <div>
-                      <input id="event-image-input" type="file" accept="image/*" onChange={handleEventImagePick} style={{ display: 'none' }} />
-                      <label htmlFor="event-image-input" className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        <i className="fas fa-upload"></i> {(eventImagePreview || editingEvent?.image_url) ? 'Change Picture' : 'Upload Picture'}
-                      </label>
-                      {(eventImagePreview || eventImageFile) && (
-                        <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => { setEventImageFile(null); setEventImagePreview(''); }}>Remove</button>
-                      )}
-                      <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: 6 }}>JPG/PNG, up to 5MB. Recommended 800×450.</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group"><label>Start Date &amp; Time *</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.eventDate} onChange={(e) => setEventForm({ ...eventForm, eventDate: e.target.value })} /></div>
-                  <div className="form-group"><label>End Date</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.endDate} onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })} /></div>
-                </div>
-                <div className="form-group"><label>Venue Name / Notes</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="e.g. Family Park Cebu, Main Hall" /></div>
-
-                <div className="evt-config-title"><i className="fas fa-map-marked-alt"></i> Location on Map</div>
-                <EventLocationPicker
-                  value={{ latitude: eventForm.latitude, longitude: eventForm.longitude, loc_country: eventForm.loc_country, loc_region: eventForm.loc_region, loc_province: eventForm.loc_province, loc_city: eventForm.loc_city, loc_barangay: eventForm.loc_barangay }}
-                  onChange={(loc) => setEventForm((f) => ({
-                    ...f,
-                    latitude: loc.latitude ?? f.latitude, longitude: loc.longitude ?? f.longitude,
-                    loc_country: loc.loc_country ?? f.loc_country, loc_region: loc.loc_region ?? f.loc_region,
-                    loc_province: loc.loc_province ?? f.loc_province, loc_city: loc.loc_city ?? f.loc_city,
-                    loc_barangay: loc.loc_barangay ?? f.loc_barangay,
-                    location: f.location || loc.address || f.location,
-                  }))}
-                />
-
-                {/* ---- Registration & Payment ---- */}
-                <div className="evt-config-title"><i className="fas fa-clipboard-list"></i> Registration</div>
-                <label className="evt-toggle-row">
-                  <input type="checkbox" checked={eventForm.registrationRequired} onChange={(e) => setEventForm({ ...eventForm, registrationRequired: e.target.checked })} />
-                  <span>Require registration for this event</span>
-                </label>
-                {eventForm.registrationRequired && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                    <div className="form-group"><label>Max Participants (blank = unlimited)</label><input type="number" min="1" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.maxParticipants} onChange={(e) => setEventForm({ ...eventForm, maxParticipants: e.target.value })} /></div>
-                    <div className="form-group"><label>Registration Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationDeadline} onChange={(e) => setEventForm({ ...eventForm, registrationDeadline: e.target.value })} /></div>
-                  </div>
-                )}
-
-                <div className="evt-config-title"><i className="fas fa-peso-sign"></i> Pricing</div>
-                <label className="evt-toggle-row">
-                  <input type="checkbox" checked={eventForm.hasFee} onChange={(e) => setEventForm({ ...eventForm, hasFee: e.target.checked })} />
-                  <span>This event has a registration fee</span>
-                </label>
-                {!eventForm.hasFee ? (
-                  <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event. Attendees register instantly.</p>
-                ) : (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                      <div className="form-group"><label>Registration Fee (PHP) *</label><input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationFee} onChange={(e) => setEventForm({ ...eventForm, registrationFee: e.target.value })} /></div>
-                      <div className="form-group"><label>Early Bird Price (optional)</label><input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.earlyBirdPrice} onChange={(e) => setEventForm({ ...eventForm, earlyBirdPrice: e.target.value })} /></div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                      <div className="form-group"><label>Early Bird Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.earlyBirdDeadline} onChange={(e) => setEventForm({ ...eventForm, earlyBirdDeadline: e.target.value })} /></div>
-                      <div className="form-group"><label>Payment Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.paymentDeadline} onChange={(e) => setEventForm({ ...eventForm, paymentDeadline: e.target.value })} /></div>
-                    </div>
-                    <div className="form-group"><label>Payment Instructions</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={2} value={eventForm.paymentInstructions} onChange={(e) => setEventForm({ ...eventForm, paymentInstructions: e.target.value })} placeholder="e.g. Send payment then upload your receipt." /></div>
-                    <div className="form-group"><label>Refund Policy (optional)</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.refundPolicy} onChange={(e) => setEventForm({ ...eventForm, refundPolicy: e.target.value })} /></div>
-
-                    <div className="form-group">
-                      <label>Payment Methods</label>
-                      <div className="evt-methods">
-                        {['GCash', 'Bank Transfer', 'Cash', 'Pay at Church', 'Credit/Debit Card', 'Other'].map(m => (
-                          <label key={m} className={`evt-method-chip ${eventForm.paymentMethods.includes(m) ? 'on' : ''}`}>
-                            <input type="checkbox" checked={eventForm.paymentMethods.includes(m)} onChange={() => togglePaymentMethod(m)} />
-                            {m}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {eventForm.paymentMethods.includes('GCash') && (
-                      <div className="evt-pay-box">
-                        <strong><i className="fas fa-mobile-alt"></i> GCash Details</strong>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginTop: 8 }}>
-                          <div className="form-group"><label>Account Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.gcashName} onChange={(e) => setEventForm({ ...eventForm, gcashName: e.target.value })} /></div>
-                          <div className="form-group"><label>Mobile Number</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.gcashNumber} onChange={(e) => setEventForm({ ...eventForm, gcashNumber: e.target.value })} /></div>
-                        </div>
-                        <div className="form-group">
-                          <label>GCash QR Code</label>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            {(eventGcashQrFile || eventForm.gcashQrUrl) && <img src={eventGcashQrFile ? URL.createObjectURL(eventGcashQrFile) : eventForm.gcashQrUrl} alt="QR" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 8 }} />}
-                            <input id="evt-gcash-qr" type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) setEventGcashQrFile(f); }} />
-                            <label htmlFor="evt-gcash-qr" className="btn-secondary" style={{ cursor: 'pointer' }}><i className="fas fa-upload"></i> Upload QR</label>
+                      <div className="form-group">
+                        <label>Picture</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                          <div style={{ width: 140, height: 90, borderRadius: 10, overflow: 'hidden', background: 'rgba(146,108,21,0.08)', border: '1px dashed rgba(146,108,21,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {(eventImagePreview || editingEvent?.image_url)
+                              ? <img src={eventImagePreview || editingEvent?.image_url} alt="Event" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <i className="fas fa-image" style={{ fontSize: '1.6rem', opacity: 0.4 }}></i>}
+                          </div>
+                          <div>
+                            <input id="event-image-input" type="file" accept="image/*" onChange={handleEventImagePick} style={{ display: 'none' }} />
+                            <label htmlFor="event-image-input" className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                              <i className="fas fa-upload"></i> {(eventImagePreview || editingEvent?.image_url) ? 'Change Picture' : 'Upload Picture'}
+                            </label>
+                            {(eventImagePreview || eventImageFile) && (
+                              <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => { setEventImageFile(null); setEventImagePreview(''); }}>Remove</button>
+                            )}
+                            <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: 6 }}>JPG/PNG, up to 5MB. Recommended 800×450.</div>
                           </div>
                         </div>
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {eventForm.paymentMethods.includes('Bank Transfer') && (
-                      <div className="evt-pay-box">
-                        <strong><i className="fas fa-university"></i> Bank Details</strong>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 8 }}>
-                          <div className="form-group"><label>Bank Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankName} onChange={(e) => setEventForm({ ...eventForm, bankName: e.target.value })} /></div>
-                          <div className="form-group"><label>Account Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankAccountName} onChange={(e) => setEventForm({ ...eventForm, bankAccountName: e.target.value })} /></div>
-                          <div className="form-group"><label>Account Number</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankAccountNumber} onChange={(e) => setEventForm({ ...eventForm, bankAccountNumber: e.target.value })} /></div>
-                        </div>
+                  {/* ===== Step 2: Visibility & Audience ===== */}
+                  {eventStep === 1 && (
+                    <div className="evt-step-panel">
+                      <div className="evt-config-title"><i className="fas fa-eye"></i> Visibility</div>
+                      <div className="evt-visibility-row">
+                        <button type="button" className={`evt-vis-btn ${eventForm.isPublished ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, isPublished: true })}>
+                          <i className="fas fa-globe"></i> Published <small>Visible to everyone</small>
+                        </button>
+                        <button type="button" className={`evt-vis-btn ${!eventForm.isPublished ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, isPublished: false })}>
+                          <i className="fas fa-eye-slash"></i> Draft / Hidden <small>Only admins can see it</small>
+                        </button>
                       </div>
-                    )}
-                  </>
-                )}
 
-                <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-                  <button className="btn-primary" onClick={handleEventSubmit} disabled={eventSaving}><i className={`fas ${eventSaving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> {eventSaving ? 'Saving...' : (editingEvent ? 'Update' : 'Create')}</button>
-                  <button className="btn-secondary" onClick={resetEventForm} disabled={eventSaving}>Cancel</button>
+                      <div className="evt-config-title"><i className="fas fa-user-shield"></i> Who Can Join</div>
+                      <div className="evt-visibility-row">
+                        <button type="button" className={`evt-vis-btn ${eventForm.audience === 'all' ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'all' })}>
+                          <i className="fas fa-users"></i> All Roles
+                        </button>
+                        <button type="button" className={`evt-vis-btn ${eventForm.audience === 'specific' ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'specific' })}>
+                          <i className="fas fa-user-tag"></i> Specific Roles
+                        </button>
+                      </div>
+                      {eventForm.audience === 'specific' && (
+                        <div className="evt-methods" style={{ marginTop: 4, marginBottom: 6 }}>
+                          {['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor'].map(r => (
+                            <label key={r} className={`evt-method-chip ${eventForm.allowedRoles.includes(r) ? 'on' : ''}`}>
+                              <input type="checkbox" checked={eventForm.allowedRoles.includes(r)} onChange={() => toggleAllowedRole(r)} />
+                              {r}
+                            </label>
+                          ))}
+                          {eventForm.allowedRoles.length === 0 && <span className="evt-muted" style={{ fontSize: '0.8rem' }}>Select at least one role, or switch to &quot;All Roles&quot;.</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ===== Step 3: Schedule & Location ===== */}
+                  {eventStep === 2 && (
+                    <div className="evt-step-panel">
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                        <div className="form-group"><label>Start Date &amp; Time *</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.eventDate} onChange={(e) => setEventForm({ ...eventForm, eventDate: e.target.value })} /></div>
+                        <div className="form-group"><label>End Date</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.endDate} onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })} /></div>
+                      </div>
+                      <div className="form-group"><label>Venue Name / Notes</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="e.g. Family Park Cebu, Main Hall" /></div>
+
+                      <div className="evt-config-title"><i className="fas fa-map-marked-alt"></i> Location on Map</div>
+                      <EventLocationPicker
+                        value={{ latitude: eventForm.latitude, longitude: eventForm.longitude, loc_country: eventForm.loc_country, loc_region: eventForm.loc_region, loc_province: eventForm.loc_province, loc_city: eventForm.loc_city, loc_barangay: eventForm.loc_barangay }}
+                        onChange={(loc) => setEventForm((f) => ({
+                          ...f,
+                          latitude: loc.latitude ?? f.latitude, longitude: loc.longitude ?? f.longitude,
+                          loc_country: loc.loc_country ?? f.loc_country, loc_region: loc.loc_region ?? f.loc_region,
+                          loc_province: loc.loc_province ?? f.loc_province, loc_city: loc.loc_city ?? f.loc_city,
+                          loc_barangay: loc.loc_barangay ?? f.loc_barangay,
+                          location: f.location || loc.address || f.location,
+                        }))}
+                      />
+                    </div>
+                  )}
+
+                  {/* ===== Step 4: Registration ===== */}
+                  {eventStep === 3 && (
+                    <div className="evt-step-panel">
+                      <div className="evt-config-title"><i className="fas fa-clipboard-list"></i> Registration</div>
+                      <label className="evt-toggle-row">
+                        <input type="checkbox" checked={eventForm.registrationRequired} onChange={(e) => setEventForm({ ...eventForm, registrationRequired: e.target.checked })} />
+                        <span>Require registration for this event</span>
+                      </label>
+                      {eventForm.registrationRequired && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                          <div className="form-group"><label>Max Participants (blank = unlimited)</label><input type="number" min="1" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.maxParticipants} onChange={(e) => setEventForm({ ...eventForm, maxParticipants: e.target.value })} /></div>
+                          <div className="form-group"><label>Registration Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationDeadline} onChange={(e) => setEventForm({ ...eventForm, registrationDeadline: e.target.value })} /></div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ===== Step 5: Pricing & Payment ===== */}
+                  {eventStep === 4 && (
+                    <div className="evt-step-panel">
+                      <div className="evt-config-title"><i className="fas fa-peso-sign"></i> Pricing</div>
+                      <label className="evt-toggle-row">
+                        <input type="checkbox" checked={eventForm.hasFee} onChange={(e) => setEventForm({ ...eventForm, hasFee: e.target.checked })} />
+                        <span>This event has a registration fee</span>
+                      </label>
+                      {!eventForm.hasFee ? (
+                        <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event. Attendees register instantly.</p>
+                      ) : (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                            <div className="form-group"><label>Registration Fee (PHP) *</label><input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationFee} onChange={(e) => setEventForm({ ...eventForm, registrationFee: e.target.value })} /></div>
+                            <div className="form-group"><label>Early Bird Price (optional)</label><input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.earlyBirdPrice} onChange={(e) => setEventForm({ ...eventForm, earlyBirdPrice: e.target.value })} /></div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                            <div className="form-group"><label>Early Bird Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.earlyBirdDeadline} onChange={(e) => setEventForm({ ...eventForm, earlyBirdDeadline: e.target.value })} /></div>
+                            <div className="form-group"><label>Payment Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.paymentDeadline} onChange={(e) => setEventForm({ ...eventForm, paymentDeadline: e.target.value })} /></div>
+                          </div>
+                          <div className="form-group"><label>Payment Instructions</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={2} value={eventForm.paymentInstructions} onChange={(e) => setEventForm({ ...eventForm, paymentInstructions: e.target.value })} placeholder="e.g. Send payment then upload your receipt." /></div>
+                          <div className="form-group"><label>Refund Policy (optional)</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.refundPolicy} onChange={(e) => setEventForm({ ...eventForm, refundPolicy: e.target.value })} /></div>
+
+                          <div className="form-group">
+                            <label>Payment Methods</label>
+                            <div className="evt-methods">
+                              {['GCash', 'Bank Transfer', 'Cash', 'Pay at Church', 'Credit/Debit Card', 'Other'].map(m => (
+                                <label key={m} className={`evt-method-chip ${eventForm.paymentMethods.includes(m) ? 'on' : ''}`}>
+                                  <input type="checkbox" checked={eventForm.paymentMethods.includes(m)} onChange={() => togglePaymentMethod(m)} />
+                                  {m}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+
+                          {eventForm.paymentMethods.includes('GCash') && (
+                            <div className="evt-pay-box">
+                              <strong><i className="fas fa-mobile-alt"></i> GCash Details</strong>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginTop: 8 }}>
+                                <div className="form-group"><label>Account Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.gcashName} onChange={(e) => setEventForm({ ...eventForm, gcashName: e.target.value })} /></div>
+                                <div className="form-group"><label>Mobile Number</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.gcashNumber} onChange={(e) => setEventForm({ ...eventForm, gcashNumber: e.target.value })} /></div>
+                              </div>
+                              <div className="form-group">
+                                <label>GCash QR Code</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                  {(eventGcashQrFile || eventForm.gcashQrUrl) && <img src={eventGcashQrFile ? URL.createObjectURL(eventGcashQrFile) : eventForm.gcashQrUrl} alt="QR" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 8 }} />}
+                                  <input id="evt-gcash-qr" type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) setEventGcashQrFile(f); }} />
+                                  <label htmlFor="evt-gcash-qr" className="btn-secondary" style={{ cursor: 'pointer' }}><i className="fas fa-upload"></i> Upload QR</label>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {eventForm.paymentMethods.includes('Bank Transfer') && (
+                            <div className="evt-pay-box">
+                              <strong><i className="fas fa-university"></i> Bank Details</strong>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 8 }}>
+                                <div className="form-group"><label>Bank Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankName} onChange={(e) => setEventForm({ ...eventForm, bankName: e.target.value })} /></div>
+                                <div className="form-group"><label>Account Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankAccountName} onChange={(e) => setEventForm({ ...eventForm, bankAccountName: e.target.value })} /></div>
+                                <div className="form-group"><label>Account Number</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankAccountNumber} onChange={(e) => setEventForm({ ...eventForm, bankAccountNumber: e.target.value })} /></div>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="evt-step-footer" style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+                  {eventStep > 0 && (
+                    <button type="button" className="btn-secondary" onClick={() => goToEventStep(eventStep - 1)} disabled={eventSaving}>
+                      <i className="fas fa-arrow-left"></i> Back
+                    </button>
+                  )}
+                  <div style={{ flex: 1 }} />
+                  <button type="button" className="btn-secondary" onClick={resetEventForm} disabled={eventSaving}>Cancel</button>
+                  {eventStep < EVENT_STEPS.length - 1 ? (
+                    <button type="button" className="btn-primary" onClick={() => goToEventStep(eventStep + 1)}>
+                      Next <i className="fas fa-arrow-right"></i>
+                    </button>
+                  ) : (
+                    <button className="btn-primary" onClick={handleEventSubmit} disabled={eventSaving}><i className={`fas ${eventSaving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> {eventSaving ? 'Saving...' : (editingEvent ? 'Update' : 'Create')}</button>
+                  )}
                 </div>
               </div>
             )}
 
-            {!showEventForm && eventsTab === 'all' && (() => {
+            {!showEventForm && !eventRegsModal && eventsTab === 'all' && (() => {
               const isAdmin = userRole === 'Admin' || userRole === 'Super Admin';
-              const visible = events.filter((evt) => isAdmin || evt.is_published !== false);
+              const visible = events.filter((evt) => {
+                if (isAdmin) return true;
+                if (evt.is_published === false) return false;
+                return !evt.allowed_roles || evt.allowed_roles.length === 0 || evt.allowed_roles.includes(userRole);
+              });
               const eventStatus = (evt) => {
                 const now = Date.now();
                 const start = evt.event_date ? new Date(evt.event_date).getTime() : null;
@@ -7014,44 +7370,64 @@ Examples:
 
               // Members see exciting poster cards; admins get the management table
               if (!isAdmin) {
-                return (
-                  <div className="evt-poster-grid">
-                    {visible.map((evt) => {
-                      const st = eventStatus(evt);
-                      const registered = myRegIds.has(evt.id);
-                      const canJoin = evt.registration_required !== false && evt.is_published !== false && (!evt.allowed_roles || evt.allowed_roles.length === 0 || evt.allowed_roles.includes(userRole));
-                      return (
-                        <div key={evt.id} className="evt-poster" onClick={() => setEventDetail(evt)} title="View details">
-                          <div className="evt-poster-img">
-                            {evt.image_url
-                              ? <img src={evt.image_url} alt={evt.title} loading="lazy" />
-                              : <div className="evt-poster-ph"><i className="fas fa-calendar-day"></i></div>}
-                            {st.cls !== 'completed' && <span className={`evt-poster-status evt-tstatus-${st.cls}`}>{st.label}</span>}
-                            <span className={`evt-poster-fee ${evt.has_fee ? 'paid' : 'free'}`}>{evt.has_fee ? `₱${evt.registration_fee}` : 'FREE'}</span>
-                            <div className="evt-poster-shine"></div>
-                            <div className="evt-poster-view"><i className="fas fa-circle-info"></i> View Details</div>
-                          </div>
-                          <div className="evt-poster-body">
-                            <h4 className="evt-poster-title">{evt.title}</h4>
-                            <div className="evt-poster-meta"><i className="fas fa-calendar-check"></i> {formatDateTime(evt.event_date)}</div>
-                            {(evt.location || evt.loc_city) && <div className="evt-poster-meta"><i className="fas fa-location-dot"></i> {[evt.location, evt.loc_city].filter(Boolean).join(', ')}</div>}
-                            <div className="evt-poster-actions" onClick={(e) => e.stopPropagation()}>
-                              {registered ? (
-                                <span className="evt-poster-registered"><i className="fas fa-check-circle"></i> Registered</span>
-                              ) : canJoin ? (
-                                <button className="evt-poster-btn" onClick={() => openRegisterModal(evt)}><i className="fas fa-user-plus"></i> Join Now</button>
-                              ) : (
-                                <span className="evt-poster-locked"><i className="fas fa-lock"></i> {evt.allowed_roles?.length ? `${evt.allowed_roles.join(', ')} only` : 'Closed'}</span>
-                              )}
-                              {evt.latitude && evt.longitude && (
-                                <a className="evt-poster-map" href={`https://www.google.com/maps/dir/?api=1&destination=${evt.latitude},${evt.longitude}`} target="_blank" rel="noreferrer" title="Directions"><i className="fas fa-directions"></i></a>
-                              )}
-                            </div>
-                          </div>
+                const renderPoster = (evt) => {
+                  const st = eventStatus(evt);
+                  const isPast = st.cls === 'completed';
+                  const registered = myRegIds.has(evt.id);
+                  const canJoin = !isPast && evt.registration_required !== false && evt.is_published !== false && (!evt.allowed_roles || evt.allowed_roles.length === 0 || evt.allowed_roles.includes(userRole));
+                  return (
+                    <div key={evt.id} className={`evt-poster ${isPast ? 'past' : ''}`} onClick={() => setEventDetail(evt)} title="View details">
+                      <div className="evt-poster-img">
+                        {evt.image_url
+                          ? <img src={evt.image_url} alt={evt.title} loading="lazy" />
+                          : <div className="evt-poster-ph"><i className="fas fa-calendar-day"></i></div>}
+                        <span className={`evt-poster-status evt-tstatus-${st.cls}`}>{st.label}</span>
+                        <span className={`evt-poster-fee ${evt.has_fee ? 'paid' : 'free'}`}>{evt.has_fee ? `₱${evt.registration_fee}` : 'FREE'}</span>
+                        <div className="evt-poster-shine"></div>
+                        <div className="evt-poster-view"><i className="fas fa-circle-info"></i> View Details</div>
+                      </div>
+                      <div className="evt-poster-body">
+                        <h4 className="evt-poster-title">{evt.title}</h4>
+                        <div className="evt-poster-meta"><i className="fas fa-calendar-check"></i> {formatDateTime(evt.event_date)}</div>
+                        {(evt.location || evt.loc_city) && <div className="evt-poster-meta"><i className="fas fa-location-dot"></i> {[evt.location, evt.loc_city].filter(Boolean).join(', ')}</div>}
+                        <div className="evt-poster-actions" onClick={(e) => e.stopPropagation()}>
+                          {isPast ? (
+                            <span className="evt-poster-locked"><i className="fas fa-calendar-xmark"></i> Event Ended</span>
+                          ) : registered ? (
+                            <span className="evt-poster-registered"><i className="fas fa-check-circle"></i> Registered</span>
+                          ) : canJoin ? (
+                            <button className="evt-poster-btn" onClick={() => openRegisterModal(evt)}><i className="fas fa-user-plus"></i> Join Now</button>
+                          ) : (
+                            <span className="evt-poster-locked"><i className="fas fa-lock"></i> {evt.allowed_roles?.length ? `${evt.allowed_roles.join(', ')} only` : 'Closed'}</span>
+                          )}
+                          {!isPast && evt.latitude && evt.longitude && (
+                            <a className="evt-poster-map" href={`https://www.google.com/maps/dir/?api=1&destination=${evt.latitude},${evt.longitude}`} target="_blank" rel="noreferrer" title="Directions" onClick={(e) => e.stopPropagation()}><i className="fas fa-directions"></i></a>
+                          )}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    </div>
+                  );
+                };
+
+                const upcoming = visible.filter((evt) => eventStatus(evt).cls !== 'completed');
+                const past = visible.filter((evt) => eventStatus(evt).cls === 'completed');
+
+                return (
+                  <>
+                    <h3 className="evt-group-title"><i className="fas fa-calendar-check"></i> Upcoming Events</h3>
+                    {upcoming.length ? (
+                      <div className="evt-poster-grid">{upcoming.map(renderPoster)}</div>
+                    ) : (
+                      <p className="events-empty-msg">No upcoming events right now.</p>
+                    )}
+
+                    {past.length > 0 && (
+                      <>
+                        <h3 className="evt-group-title evt-group-title-past"><i className="fas fa-calendar-xmark"></i> Past Events</h3>
+                        <div className="evt-poster-grid">{past.map(renderPoster)}</div>
+                      </>
+                    )}
+                  </>
                 );
               }
 
@@ -7111,7 +7487,7 @@ Examples:
                         const canJoin = evt.registration_required !== false && evt.is_published !== false && (!evt.allowed_roles || evt.allowed_roles.length === 0 || evt.allowed_roles.includes(userRole));
                         return (
                           <tr key={evt.id}>
-                            <td>
+                            <td className="evt-td-primary">
                               <div className="evt-cell-title">
                                 {evt.image_url
                                   ? <img src={evt.image_url} alt="" className="evt-cell-banner" />
@@ -7122,18 +7498,25 @@ Examples:
                                 </div>
                               </div>
                             </td>
-                            <td className="evt-nowrap">{formatDateTime(evt.event_date)}</td>
-                            <td>
+                            <td className="evt-nowrap" data-label="Date">{formatDateTime(evt.event_date)}</td>
+                            <td data-label="Venue">
                               {evt.location || '—'}
                               {evt.loc_city && <div className="evt-cell-sub">{[evt.loc_city, evt.loc_province].filter(Boolean).join(', ')}</div>}
                             </td>
-                            <td className="evt-nowrap">{evt.has_fee ? `₱${evt.registration_fee}` : 'Free'}</td>
-                            <td className="evt-nowrap">{evt.allowed_roles && evt.allowed_roles.length ? evt.allowed_roles.join(', ') : 'All'}</td>
-                            <td><span className={`evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span></td>
-                            <td>
-                              <button className="evt-manage-btn" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>
-                                Manage <i className={`fas fa-chevron-${eventActionMenu === evt.id ? 'up' : 'down'}`}></i>
-                              </button>
+                            <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? `₱${evt.registration_fee}` : 'Free'}</td>
+                            <td className="evt-nowrap" data-label="Audience">{evt.allowed_roles && evt.allowed_roles.length ? evt.allowed_roles.join(', ') : 'All'}</td>
+                            <td data-label="Status"><span className={`evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span></td>
+                            <td className="evt-td-actions">
+                              <span className="evt-manage-wrap">
+                                <button className="evt-manage-btn" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>
+                                  Manage <i className={`fas fa-chevron-${eventActionMenu === evt.id ? 'up' : 'down'}`}></i>
+                                </button>
+                                {pendingRegByEvent[evt.id] > 0 && (
+                                  <span className="evt-manage-bell" title={`${pendingRegByEvent[evt.id]} registration(s) awaiting verification`}>
+                                    <i className="fas fa-bell"></i> {pendingRegByEvent[evt.id]}
+                                  </span>
+                                )}
+                              </span>
                             </td>
                           </tr>
                         );
@@ -7151,28 +7534,32 @@ Examples:
             })()}
 
             {/* ---- My Registrations: event posters + QR attendance ---- */}
-            {!showEventForm && eventsTab === 'mine' && (
+            {!showEventForm && !eventRegsModal && eventsTab === 'mine' && (
               myRegistrations.length === 0 ? (
                 <div className="evt-empty-mine"><i className="fas fa-ticket"></i><p>You haven&apos;t registered for any events yet.</p></div>
               ) : (
                 <div className="myreg-grid">
                   {myRegistrations.map((r) => {
                     const ev = r.event || {};
+                    const needsPayment = r.status === 'registered' && ev.has_fee && Number(ev.registration_fee || 0) > 0 && Number(r.amount || 0) === 0;
                     const statusMap = {
                       registered: { label: 'Registered', cls: 'ok' },
                       payment_verified: { label: 'Confirmed', cls: 'ok' },
                       payment_submitted: { label: 'Payment Under Review', cls: 'pending' },
                       pending_payment: { label: 'Awaiting Payment', cls: 'warn' },
                     };
-                    const st = statusMap[r.status] || { label: r.status, cls: 'pending' };
-                    const confirmed = r.status === 'registered' || r.status === 'payment_verified';
+                    let st = statusMap[r.status] || { label: r.status, cls: 'pending' };
+                    if (needsPayment) st = { label: 'Payment Required', cls: 'warn' };
+                    const confirmed = (r.status === 'registered' || r.status === 'payment_verified') && !needsPayment;
+                    const evEnd = ev.end_date ? new Date(ev.end_date).getTime() : (ev.event_date ? new Date(ev.event_date).getTime() : null);
+                    const isDone = !!evEnd && evEnd < Date.now();
                     return (
-                      <div key={r.id} className="myreg-poster">
+                      <div key={r.id} className={`myreg-poster ${isDone ? 'done' : ''}`}>
                         <div className="myreg-banner">
                           {ev.image_url
                             ? <img src={ev.image_url} alt={ev.title} />
                             : <div className="myreg-banner-ph"><i className="fas fa-calendar-day"></i></div>}
-                          <span className={`myreg-status ${st.cls}`}>{st.label}</span>
+                          <span className={`myreg-status ${isDone ? 'done' : st.cls}`}>{isDone ? 'Completed' : st.label}</span>
                         </div>
                         <div className="myreg-body">
                           <h4>{ev.title}</h4>
@@ -7180,8 +7567,36 @@ Examples:
                           {(ev.location || ev.loc_city) && <div className="myreg-meta"><i className="fas fa-location-dot"></i> {[ev.location, ev.loc_city].filter(Boolean).join(', ')}</div>}
                           {ev.has_fee && <div className="myreg-meta"><i className="fas fa-tag"></i> ₱{ev.registration_fee} · {r.payment_method || '—'}</div>}
 
+                          {needsPayment && !isDone && (
+                            <div className="myreg-fee-alert">
+                              <i className="fas fa-triangle-exclamation"></i>
+                              <span>This event now requires payment of <strong>₱{ev.registration_fee}</strong> to keep your spot. Please pay to confirm your registration.</span>
+                            </div>
+                          )}
+
                           <div className="myreg-qr">
-                            {confirmed && regQrCodes[r.id] ? (
+                            {r.attended ? (
+                              <div className="myreg-attended">
+                                <div className="myreg-attended-icon"><i className="fas fa-check"></i></div>
+                                <span className="myreg-attended-label">Attendance Confirmed</span>
+                                {r.attended_at && <span className="myreg-attended-time"><i className="fas fa-clock"></i> {formatDateTime(r.attended_at)}</span>}
+                              </div>
+                            ) : isDone && confirmed ? (
+                              <div className="myreg-noshow">
+                                <div className="myreg-noshow-icon"><i className="fas fa-user-xmark"></i></div>
+                                <span className="myreg-noshow-label">Not Attended</span>
+                                <span className="myreg-noshow-note">No check-in was recorded for this event.</span>
+                              </div>
+                            ) : isDone ? (
+                              <div className="myreg-qr-locked">
+                                <i className="fas fa-calendar-xmark"></i>
+                                <span>This event has ended. The attendance QR is no longer usable.</span>
+                              </div>
+                            ) : needsPayment ? (
+                              <button className="myreg-pay-btn" onClick={() => openPayNowModal(r, ev)}>
+                                <i className="fas fa-wallet"></i> Pay Now
+                              </button>
+                            ) : confirmed && regQrCodes[r.id] ? (
                               <>
                                 <img src={regQrCodes[r.id]} alt="Attendance QR" />
                                 <div className="myreg-qr-note"><i className="fas fa-qrcode"></i> Show this QR at the event for attendance</div>
@@ -7227,36 +7642,23 @@ Examples:
               );
             })()}
 
-            {/* ---- Admin: Registrations viewer + verify ---- */}
-            {eventRegsModal && (
-              <div className="evt-modal-overlay" onClick={() => setEventRegsModal(null)}>
-                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+            {/* ---- Attendance QR scanner ---- */}
+            {showQrScanner && (
+              <div className="evt-modal-overlay" onClick={() => setShowQrScanner(false)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
                   <div className="evt-modal-head">
-                    <div><h3>Registrations</h3><p>{eventRegsModal.title}</p></div>
-                    <button className="evt-modal-close" onClick={() => setEventRegsModal(null)}><i className="fas fa-times"></i></button>
+                    <div><h3>Scan Attendance QR</h3><p>{eventRegsModal?.title}</p></div>
+                    <button className="evt-modal-close" onClick={() => setShowQrScanner(false)}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
-                    {eventRegsLoading ? <p className="evt-muted">Loading…</p> : eventRegs.length === 0 ? (
-                      <p className="evt-muted">No registrations yet.</p>
-                    ) : eventRegs.map((r) => (
-                      <div key={r.id} className="evt-reg-row">
-                        <div className="evt-reg-main">
-                          <strong>{r.attendee_name}</strong>
-                          <span className="evt-reg-sub">{r.attendee_email} {r.attendee_mobile ? `· ${r.attendee_mobile}` : ''}</span>
-                          <span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span>
-                          {r.amount > 0 && <span className="evt-reg-amt">₱{r.amount} · {r.payment_method || '—'}{r.payment_reference ? ` · Ref: ${r.payment_reference}` : ''}</span>}
-                        </div>
-                        <div className="evt-reg-actions">
-                          {r.payment_proof_url && <a href={r.payment_proof_url} target="_blank" rel="noreferrer" className="evt-mini-btn"><i className="fas fa-receipt"></i> Proof</a>}
-                          {(r.status === 'payment_submitted' || r.status === 'pending_payment') && (
-                            <button className="evt-mini-btn ok" onClick={() => verifyRegistration(r.id, 'payment_verified')}><i className="fas fa-check"></i> Verify</button>
-                          )}
-                          {r.status !== 'cancelled' && (
-                            <button className="evt-mini-btn danger" onClick={() => verifyRegistration(r.id, 'cancelled')}><i className="fas fa-ban"></i></button>
-                          )}
-                        </div>
+                    <div id="evt-qr-reader" className="evt-qr-reader"></div>
+                    {qrScanResult && (
+                      <div className={`evt-qr-result ${qrScanResult.status}`}>
+                        <i className={`fas ${qrScanResult.status === 'success' ? 'fa-check-circle' : qrScanResult.status === 'already' ? 'fa-info-circle' : 'fa-exclamation-triangle'}`}></i>
+                        <span>{qrScanResult.message}</span>
                       </div>
-                    ))}
+                    )}
+                    <p className="evt-muted" style={{ fontSize: '0.78rem', marginTop: 10 }}>Point the camera at an attendee&apos;s registration QR code. It will be marked as attended automatically once confirmed.</p>
                   </div>
                 </div>
               </div>
@@ -7265,7 +7667,9 @@ Examples:
             {/* ---- Event Details modal ---- */}
             {eventDetail && (() => {
               const registered = myRegIds.has(eventDetail.id);
-              const canJoin = eventDetail.registration_required !== false && eventDetail.is_published !== false && (!eventDetail.allowed_roles || eventDetail.allowed_roles.length === 0 || eventDetail.allowed_roles.includes(userRole));
+              const detailEnd = eventDetail.end_date ? new Date(eventDetail.end_date).getTime() : (eventDetail.event_date ? new Date(eventDetail.event_date).getTime() : null);
+              const isPastDetail = !!detailEnd && Date.now() > detailEnd;
+              const canJoin = !isPastDetail && eventDetail.registration_required !== false && eventDetail.is_published !== false && (!eventDetail.allowed_roles || eventDetail.allowed_roles.length === 0 || eventDetail.allowed_roles.includes(userRole));
               return (
                 <div className="evt-modal-overlay" onClick={() => setEventDetail(null)}>
                   <div className="evt-detail-modal" onClick={(e) => e.stopPropagation()}>
@@ -7287,7 +7691,12 @@ Examples:
                         {eventDetail.registration_deadline && <div className="evt-detail-row"><i className="fas fa-hourglass-half"></i><div><span className="evt-detail-label">Register By</span><span>{new Date(eventDetail.registration_deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span></div></div>}
                         {eventDetail.has_fee && eventDetail.payment_instructions && <div className="evt-detail-row"><i className="fas fa-money-check-dollar"></i><div><span className="evt-detail-label">Payment</span><span style={{ whiteSpace: 'pre-wrap' }}>{eventDetail.payment_instructions}</span></div></div>}
                       </div>
-                      {eventDetail.registration_required !== false && (
+                      {isPastDetail ? (
+                        <div className="evt-detail-ended">
+                          <i className="fas fa-calendar-xmark"></i>
+                          {registered ? 'This event has ended — you were registered.' : 'This event has ended.'}
+                        </div>
+                      ) : eventDetail.registration_required !== false && (
                         registered ? (
                           <div className="evt-detail-registered"><i className="fas fa-check-circle"></i> You&apos;re registered for this event</div>
                         ) : canJoin ? (
@@ -7352,6 +7761,53 @@ Examples:
                 </div>
               </div>
             )}
+
+            {/* ---- Pay Now: complete payment for a registration that became fee-required ---- */}
+            {payNowModal && (() => {
+              const evt = payNowModal.event;
+              return (
+                <div className="evt-modal-overlay" onClick={() => setPayNowModal(null)}>
+                  <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="evt-modal-head">
+                      <div><h3>Complete Payment</h3><p>{evt.title}</p></div>
+                      <button className="evt-modal-close" onClick={() => setPayNowModal(null)}><i className="fas fa-times"></i></button>
+                    </div>
+                    <div className="evt-modal-body">
+                      <p className="evt-muted" style={{ marginBottom: 12 }}>
+                        <i className="fas fa-circle-info"></i> This event now requires payment to keep your registration. Choose how you&apos;d like to pay below.
+                      </p>
+                      <div className="evt-pay-box">
+                        <div className="evt-pay-amount">Amount to pay: <strong>₱{evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline) ? evt.early_bird_price : evt.registration_fee}</strong></div>
+                        {evt.payment_instructions && <p className="evt-muted" style={{ whiteSpace: 'pre-wrap' }}>{evt.payment_instructions}</p>}
+                        {(evt.gcash_number || evt.gcash_qr_url) && (
+                          <div className="evt-pay-detail"><strong>GCash:</strong> {evt.gcash_name} {evt.gcash_number}
+                            {evt.gcash_qr_url && <div><img src={evt.gcash_qr_url} alt="GCash QR" style={{ width: 120, height: 120, objectFit: 'contain', marginTop: 6, borderRadius: 8, background: '#fff', padding: 4 }} /></div>}
+                          </div>
+                        )}
+                        {evt.bank_account_number && (
+                          <div className="evt-pay-detail"><strong>Bank:</strong> {evt.bank_name} · {evt.bank_account_name} · {evt.bank_account_number}</div>
+                        )}
+                        <div className="form-group"><label>Payment Method</label>
+                          <select className="form-control" value={payNowForm.paymentMethod} onChange={(e) => setPayNowForm({ ...payNowForm, paymentMethod: e.target.value })}>
+                            <option value="">Select…</option>
+                            {(evt.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={payNowForm.paymentReference} onChange={(e) => setPayNowForm({ ...payNowForm, paymentReference: e.target.value })} /></div>
+                        <div className="form-group"><label>Upload Payment Receipt</label>
+                          <input type="file" accept="image/*" onChange={(e) => setPayNowProofFile(e.target.files?.[0] || null)} />
+                          {payNowProofFile && <div style={{ marginTop: 6 }}><img src={URL.createObjectURL(payNowProofFile)} alt="proof" style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }} /></div>}
+                        </div>
+                        <p className="evt-muted" style={{ fontSize: '0.8rem' }}>Your registration is confirmed once an admin verifies your payment.</p>
+                      </div>
+                      <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitPayNow} disabled={payNowSubmitting}>
+                        <i className={`fas ${payNowSubmitting ? 'fa-spinner fa-spin' : 'fa-wallet'}`}></i> {payNowSubmitting ? 'Submitting…' : 'Submit Payment'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </section>
 
           {/* ========== ANNOUNCEMENTS ========== */}
@@ -9501,51 +9957,58 @@ Examples:
             </div>
 
             {showUserForm && (
-              <div style={{ padding: 20, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                <h3>Create New User</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group"><label>First Name *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.firstname} onChange={(e) => setUserForm({ ...userForm, firstname: e.target.value })} /></div>
-                  <div className="form-group"><label>Last Name *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.lastname} onChange={(e) => setUserForm({ ...userForm, lastname: e.target.value })} /></div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group"><label>Email Address *</label><input className="form-control" type="email" style={{ padding: '10px 15px' }} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} /></div>
-                  <div className="form-group"><label>Password *</label><input className="form-control" type="password" style={{ padding: '10px 15px' }} value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} /></div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div className="form-group"><label>Ministry</label>
-                    <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value, sub_role: '' })}>
-                      <option value="">— No Ministry —</option>
-                      {ministriesList.map((m) => {
-                        const mname = typeof m === 'string' ? m : m.name;
-                        return <option key={mname} value={mname}>{mname}</option>;
-                      })}
-                    </select>
+              <div className="edit-user-modal-overlay" onClick={() => setShowUserForm(false)}>
+                <div className="edit-user-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="edit-user-modal-header">
+                    <h3><i className="fas fa-user-plus"></i> Create New User</h3>
+                    <button className="btn-close-modal" onClick={() => setShowUserForm(false)}><i className="fas fa-times"></i></button>
                   </div>
-                  <div className="form-group"><label>Ministry Roles</label>
-                    <div className="um-role-tags-wrapper">
-                      <div className="um-role-tags">
-                        {(userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []).map((role, i) => (
-                          <span key={i} className="um-role-tag">{role}<button type="button" onClick={() => { const roles = userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean); roles.splice(i, 1); setUserForm({ ...userForm, sub_role: roles.join(', ') }); }}>&times;</button></span>
-                        ))}
+                  <div className="edit-user-modal-body">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                      <div className="form-group"><label>First Name *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.firstname} onChange={(e) => setUserForm({ ...userForm, firstname: e.target.value })} /></div>
+                      <div className="form-group"><label>Last Name *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.lastname} onChange={(e) => setUserForm({ ...userForm, lastname: e.target.value })} /></div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                      <div className="form-group"><label>Email Address *</label><input className="form-control" type="email" style={{ padding: '10px 15px' }} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} /></div>
+                      <div className="form-group"><label>Password *</label><input className="form-control" type="password" style={{ padding: '10px 15px' }} value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} /></div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                      <div className="form-group"><label>Ministry</label>
+                        <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value, sub_role: '' })}>
+                          <option value="">— No Ministry —</option>
+                          {ministriesList.map((m) => {
+                            const mname = typeof m === 'string' ? m : m.name;
+                            return <option key={mname} value={mname}>{mname}</option>;
+                          })}
+                        </select>
                       </div>
-                      <div className="um-role-add-row">
-                        <input className="form-control um-role-add-input" list="create-sub-roles" placeholder="Type or select a role..." value={newSubRoleInput} onChange={(e) => setNewSubRoleInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const val = newSubRoleInput.trim(); if (val) { const current = userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []; if (!current.includes(val)) { setUserForm({ ...userForm, sub_role: [...current, val].join(', ') }); } setNewSubRoleInput(''); } } }} />
-                        <datalist id="create-sub-roles">
-                          {(MINISTRY_SUB_ROLES[userForm.ministry] || []).filter(sr => !(userForm.sub_role || '').split(',').map(s => s.trim()).includes(sr)).map((sr) => <option key={sr} value={sr} />)}
-                        </datalist>
-                        <button type="button" className="um-role-add-btn" onClick={() => { const val = newSubRoleInput.trim(); if (val) { const current = userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []; if (!current.includes(val)) { setUserForm({ ...userForm, sub_role: [...current, val].join(', ') }); } setNewSubRoleInput(''); } }}><i className="fas fa-plus"></i> Add</button>
+                      <div className="form-group"><label>Ministry Roles</label>
+                        <div className="um-role-tags-wrapper">
+                          <div className="um-role-tags">
+                            {(userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []).map((role, i) => (
+                              <span key={i} className="um-role-tag">{role}<button type="button" onClick={() => { const roles = userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean); roles.splice(i, 1); setUserForm({ ...userForm, sub_role: roles.join(', ') }); }}>&times;</button></span>
+                            ))}
+                          </div>
+                          <div className="um-role-add-row">
+                            <input className="form-control um-role-add-input" list="create-sub-roles" placeholder="Type or select a role..." value={newSubRoleInput} onChange={(e) => setNewSubRoleInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const val = newSubRoleInput.trim(); if (val) { const current = userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []; if (!current.includes(val)) { setUserForm({ ...userForm, sub_role: [...current, val].join(', ') }); } setNewSubRoleInput(''); } } }} />
+                            <datalist id="create-sub-roles">
+                              {(MINISTRY_SUB_ROLES[userForm.ministry] || []).filter(sr => !(userForm.sub_role || '').split(',').map(s => s.trim()).includes(sr)).map((sr) => <option key={sr} value={sr} />)}
+                            </datalist>
+                            <button type="button" className="um-role-add-btn" onClick={() => { const val = newSubRoleInput.trim(); if (val) { const current = userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []; if (!current.includes(val)) { setUserForm({ ...userForm, sub_role: [...current, val].join(', ') }); } setNewSubRoleInput(''); } }}><i className="fas fa-plus"></i> Add</button>
+                          </div>
+                        </div>
                       </div>
                     </div>
+                    <div className="form-group"><label>System Role</label>
+                      <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
+                        {((userRole === ROLES.SUPER_ADMIN || userRole === ROLES.ADMIN) ? ALL_ROLES : ALL_ROLES.filter((r) => r !== 'Super Admin')).map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
                   </div>
-                </div>
-                <div className="form-group" style={{ marginBottom: 15 }}><label>System Role</label>
-                  <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
-                    {((userRole === ROLES.SUPER_ADMIN || userRole === ROLES.ADMIN) ? ALL_ROLES : ALL_ROLES.filter((r) => r !== 'Super Admin')).map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button className="btn-primary" onClick={handleCreateUser}><i className="fas fa-save"></i> Create</button>
-                  <button className="btn-secondary" onClick={() => setShowUserForm(false)}>Cancel</button>
+                  <div className="edit-user-modal-footer">
+                    <button className="btn-primary" onClick={handleCreateUser}><i className="fas fa-save"></i> Create</button>
+                    <button className="btn-secondary" onClick={() => setShowUserForm(false)}>Cancel</button>
+                  </div>
                 </div>
               </div>
             )}

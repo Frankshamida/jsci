@@ -24246,6 +24246,18 @@ body.dark-mode .um-page-btn {
 .evt-status-cancelled { background: rgba(220,38,38,0.15); color: #dc2626; }
 body.dark-mode .evt-modal { background: #1e1e2e; }
 body.dark-mode .evt-mini-btn { color: #eee; border-color: rgba(255,255,255,0.2); }
+.evt-mini-btn + .evt-mini-btn, .evt-mini-btn + a.evt-mini-btn, a.evt-mini-btn + .evt-mini-btn { margin-left: 6px; }
+
+.evt-attend-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 700; color: #16a34a; white-space: nowrap; }
+.evt-attend-badge.yes i { font-size: 0.9rem; }
+.evt-attend-badge + .evt-mini-btn { margin-left: 10px; }
+
+.evt-qr-reader { width: 100%; min-height: 280px; border-radius: 12px; overflow: hidden; background: #000; }
+.evt-qr-reader video { border-radius: 12px; }
+.evt-qr-result { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 0.85rem; font-weight: 600; }
+.evt-qr-result.success { background: rgba(22,163,74,0.12); color: #16a34a; }
+.evt-qr-result.already { background: rgba(59,130,246,0.12); color: #2563eb; }
+.evt-qr-result.error { background: rgba(220,38,38,0.12); color: #dc2626; }
 
 /* ============================================ */
 /* Event Location / Map Picker                  */
@@ -24322,6 +24334,28 @@ body.dark-mode .evt-draft-badge { background: rgba(255,255,255,0.12); color: #bb
 }
 .evt-back-btn:hover { background: var(--primary); color: #fff; }
 
+/* ---- Create Event stepper ---- */
+.evt-stepper { display: flex; align-items: flex-start; margin: 4px 0 22px; }
+.evt-step-item { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; flex: 1; cursor: pointer; }
+.evt-step-dot {
+  width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: rgba(146,108,21,0.1); color: var(--primary); font-weight: 700; font-size: 0.85rem;
+  border: 2px solid rgba(146,108,21,0.25); transition: all 0.2s ease; z-index: 1;
+}
+.evt-step-item.active .evt-step-dot { background: var(--primary); color: #fff; border-color: var(--primary); }
+.evt-step-item.done .evt-step-dot { background: var(--secondary, var(--primary)); color: #fff; border-color: var(--secondary, var(--primary)); }
+.evt-step-label { font-size: 0.72rem; font-weight: 600; text-align: center; opacity: 0.6; max-width: 90px; }
+.evt-step-item.active .evt-step-label { opacity: 1; color: var(--primary); }
+.evt-step-item.done .evt-step-label { opacity: 0.85; }
+.evt-step-line { position: absolute; top: 16px; left: 50%; width: 100%; height: 2px; background: rgba(146,108,21,0.2); z-index: 0; }
+.evt-step-item.done .evt-step-line { background: var(--secondary, var(--primary)); }
+.evt-step-panel { animation: evtStepFade 0.25s ease; }
+@keyframes evtStepFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 640px) {
+  .evt-step-label { display: none; }
+  .evt-step-line { top: 16px; }
+}
+
 .evt-table-wrapper { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border-color, rgba(0,0,0,0.08)); }
 .evt-table { width: 100%; border-collapse: collapse; min-width: 820px; }
 .evt-table thead th {
@@ -24380,6 +24414,10 @@ body.dark-mode .evt-tstatus-completed { color: #bbb; background: rgba(255,255,25
 .myreg-status.ok { background: #16a34a; }
 .myreg-status.pending { background: #2563eb; }
 .myreg-status.warn { background: #d97706; }
+.myreg-status.done { background: #6b7280; }
+
+.myreg-poster.done { opacity: 0.72; filter: grayscale(0.85); }
+.myreg-poster.done:hover { transform: none; }
 .myreg-body { padding: 16px 18px 20px; }
 .myreg-body h4 { margin: 0 0 10px; font-family: 'Montserrat', sans-serif; font-size: 1.1rem; }
 .myreg-meta { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: var(--text-muted, #777); margin-bottom: 5px; }
@@ -24392,9 +24430,63 @@ body.dark-mode .evt-tstatus-completed { color: #bbb; background: rgba(255,255,25
 body.dark-mode .myreg-poster { background: #1e1e2e; }
 body.dark-mode .myreg-qr img { background: #fff; padding: 6px; border-radius: 8px; }
 
+.myreg-attended {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 16px;
+  background: linear-gradient(180deg, rgba(22,163,74,0.08), rgba(22,163,74,0.02)); border-radius: 14px;
+  border: 1px solid rgba(22,163,74,0.25); animation: myregAttendedIn 0.35s ease;
+}
+.myreg-attended-icon {
+  width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: #16a34a; color: #fff; font-size: 1.2rem; box-shadow: 0 6px 18px rgba(22,163,74,0.4);
+}
+.myreg-attended-label { font-weight: 800; font-size: 0.95rem; color: #16a34a; font-family: 'Montserrat', sans-serif; }
+.myreg-attended-time { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-muted, #6b7280); }
+body.dark-mode .myreg-attended { background: linear-gradient(180deg, rgba(22,163,74,0.14), rgba(22,163,74,0.03)); border-color: rgba(22,163,74,0.3); }
+@keyframes myregAttendedIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+
+.myreg-noshow {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 16px;
+  background: linear-gradient(180deg, rgba(220,38,38,0.07), rgba(220,38,38,0.02)); border-radius: 14px;
+  border: 1px solid rgba(220,38,38,0.2);
+}
+.myreg-noshow-icon {
+  width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: rgba(220,38,38,0.12); color: #dc2626; font-size: 1.15rem;
+}
+.myreg-noshow-label { font-weight: 800; font-size: 0.95rem; color: #dc2626; font-family: 'Montserrat', sans-serif; }
+.myreg-noshow-note { font-size: 0.8rem; color: var(--text-muted, #6b7280); text-align: center; }
+body.dark-mode .myreg-noshow { background: linear-gradient(180deg, rgba(220,38,38,0.12), rgba(220,38,38,0.03)); border-color: rgba(220,38,38,0.25); }
+
+/* Event turned fee-required after a free sign-up */
+.myreg-fee-alert {
+  display: flex; align-items: flex-start; gap: 8px; font-size: 0.8rem; line-height: 1.4;
+  color: #b45309; background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.3);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 12px;
+}
+.myreg-fee-alert i { margin-top: 2px; flex-shrink: 0; }
+body.dark-mode .myreg-fee-alert { background: rgba(234,179,8,0.15); color: #fcd34d; }
+.myreg-pay-btn {
+  width: 100%; padding: 13px; border: none; border-radius: 12px; cursor: pointer;
+  background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff;
+  font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 0.95rem;
+  display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.22s ease;
+}
+.myreg-pay-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(146,108,21,0.4); }
+
+/* "My Registrations" tab: payment-due alert */
+.evt-tab-alert {
+  display: inline-flex; align-items: center; gap: 4px; background: #dc2626; color: #fff;
+  font-size: 0.68rem; font-weight: 800; padding: 2px 8px; border-radius: 20px; margin-left: 6px;
+}
+
 /* ============================================ */
 /* Member "All Events" poster cards (YIFY-style) */
 /* ============================================ */
+.evt-group-title { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 800; color: var(--primary); margin: 4px 0 16px; }
+.evt-group-title-past { margin-top: 32px; color: #6b7280; }
+.evt-poster.past { opacity: 0.65; filter: grayscale(0.7); }
+.evt-poster.past:hover { transform: none; }
+
 .evt-poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 24px; }
 .evt-poster {
   background: var(--bg-card, #fff); border-radius: 16px; overflow: hidden; cursor: default;
@@ -24402,11 +24494,17 @@ body.dark-mode .myreg-qr img { background: #fff; padding: 6px; border-radius: 8p
   transition: transform 0.28s cubic-bezier(0.34,1.3,0.6,1), box-shadow 0.28s ease;
 }
 .evt-poster:hover { transform: translateY(-8px); box-shadow: 0 20px 44px rgba(146,108,21,0.28); border-color: rgba(146,108,21,0.4); }
-.evt-poster-img { position: relative; aspect-ratio: 2/3; overflow: hidden; background: #1a1508; }
+.evt-poster-img { position: relative; aspect-ratio: 16/10; overflow: hidden; background: #1a1508; }
 .evt-poster-img img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
 .evt-poster:hover .evt-poster-img img { transform: scale(1.06); }
-.evt-poster-ph { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(150deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.4rem; }
-.evt-poster-status { position: absolute; top: 12px; left: 12px; font-size: 0.68rem; font-weight: 800; padding: 4px 11px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+.evt-poster-ph { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(150deg, var(--primary), #3e2e08); color: var(--accent); font-size: 2.2rem; }
+.evt-poster-status { position: absolute; top: 12px; left: 12px; font-size: 0.68rem; font-weight: 800; padding: 4px 11px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.35); backdrop-filter: blur(2px); }
+/* Solid, high-contrast colors so the pill stays legible over any photo */
+.evt-poster-status.evt-tstatus-upcoming { background: #2563eb; color: #fff; }
+.evt-poster-status.evt-tstatus-ongoing { background: #16a34a; color: #fff; }
+.evt-poster-status.evt-tstatus-completed { background: #4b5563; color: #fff; }
+.evt-poster-status.evt-tstatus-draft { background: #b45309; color: #fff; }
+.evt-poster-status.evt-tstatus-published { background: #16a34a; color: #fff; }
 .evt-poster-fee { position: absolute; top: 12px; right: 12px; font-size: 0.72rem; font-weight: 900; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .evt-poster-fee.free { background: #16a34a; color: #fff; }
 .evt-poster-fee.paid { background: linear-gradient(135deg, var(--accent), var(--secondary)); color: #1e1e1e; }
@@ -24466,6 +24564,8 @@ body.dark-mode .evt-detail-desc { color: #ccc; }
 .evt-detail-join:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(146,108,21,0.4); }
 .evt-detail-registered { width: 100%; margin-top: 20px; padding: 14px; border-radius: 30px; background: rgba(22,163,74,0.12); color: #16a34a; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .evt-detail-locked { width: 100%; margin-top: 20px; padding: 14px; border-radius: 30px; background: rgba(120,120,120,0.12); color: #888; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+.evt-detail-ended { width: 100%; margin-top: 20px; padding: 14px; border-radius: 30px; background: rgba(120,120,120,0.12); color: #6b7280; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+body.dark-mode .evt-detail-ended { background: rgba(255,255,255,0.08); color: #aaa; }
 
 /* ============================================ */
 /* User Management redesign (gold, ref layout)  */
@@ -24549,6 +24649,19 @@ body.dark-mode .evt-table thead th { background: #26241c !important; color: #b8a
 }
 .evt-manage-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(146,108,21,0.4); }
 .evt-manage-btn i { font-size: 0.7rem; }
+
+/* Bell alert: registrations awaiting verification for this event */
+.evt-manage-bell {
+  position: absolute; top: -10px; right: -10px; display: inline-flex; align-items: center; gap: 4px;
+  background: #dc2626; color: #fff; font-size: 0.68rem; font-weight: 800; padding: 3px 8px; border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(220,38,38,0.5); border: 2px solid var(--bg-card, #fff); animation: evtBellPulse 1.8s infinite;
+}
+.evt-manage-bell i { font-size: 0.68rem; }
+@keyframes evtBellPulse { 0%, 100% { box-shadow: 0 2px 8px rgba(220,38,38,0.5); } 50% { box-shadow: 0 2px 14px rgba(220,38,38,0.85); } }
+
+/* Sidebar "Events" bell badge (registrations awaiting verification) */
+.menu-bell-badge { display: inline-flex; align-items: center; gap: 4px; }
+.menu-bell-badge i { font-size: 0.68rem; }
 .evt-manage-backdrop { position: fixed; inset: 0; z-index: 40; }
 .evt-manage-menu {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; min-width: 180px;
@@ -24613,3 +24726,71 @@ body.dark-mode .evt-admin-card-body h4 { color: var(--accent); }
 .evt-admin-manage { width: 100%; padding: 11px; border: none; border-radius: 8px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: all 0.2s ease; }
 .evt-admin-manage:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(146,108,21,0.4); }
 body.dark-mode .evt-admin-card { background: #1e1e2e; }
+
+/* ============================================ */
+/* Events tables — responsive card layout       */
+/* (phones + tablets: no horizontal scrolling,  */
+/* every column stays visible, bigger buttons)  */
+/* ============================================ */
+@media (max-width: 900px) {
+  .evt-hero, .um-hero { padding: 24px 20px; min-height: 0; }
+  .evt-hero .um-hero-title, .um-hero-title { font-size: 1.4rem; }
+  .um-hero-sub { font-size: 0.88rem; max-width: 100%; margin-bottom: 16px; }
+  .um-hero-btn { width: 100%; justify-content: center; padding: 13px 20px; font-size: 1rem; }
+
+  .evt-viewbar { justify-content: stretch; }
+  .evt-view-toggle { width: 100%; }
+  .evt-view-toggle button { flex: 1; justify-content: center; padding: 10px 10px; }
+
+  /* Table becomes a stacked card list: header row hidden, each row is a card */
+  .evt-table-wrapper, .evt-table-scroll { overflow: visible !important; border-radius: 16px !important; }
+  .evt-table-fixed { min-height: 0; }
+  .evt-table { min-width: 0; width: 100%; }
+  .evt-table thead { display: none; }
+  .evt-table, .evt-table tbody, .evt-table tr, .evt-table td { display: block; width: 100%; }
+  .evt-table tbody tr {
+    margin: 14px; border: 1px solid var(--border-color, rgba(0,0,0,0.1));
+    border-radius: 16px; overflow: hidden; box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+  }
+  .evt-table tbody tr:hover { background: none; }
+  .evt-table tbody td {
+    padding: 12px 16px !important; border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.07));
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    text-align: right; white-space: normal; word-break: break-word;
+  }
+  .evt-table tbody tr td:last-child { border-bottom: none; }
+  .evt-table tbody td[data-label]::before {
+    content: attr(data-label); font-weight: 800; font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 0.4px; color: var(--text-muted, #8a7a55); text-align: left; flex-shrink: 0;
+  }
+  body.dark-mode .evt-table tbody td[data-label]::before { color: #b8a97e; }
+
+  /* Primary cell (Event title / Attendee name): full-width card header, no label */
+  .evt-table tbody td.evt-td-primary {
+    display: block; text-align: left; background: rgba(146,108,21,0.06);
+    padding: 16px !important;
+  }
+  body.dark-mode .evt-table tbody td.evt-td-primary { background: rgba(255,255,255,0.04); }
+  .evt-cell-title { align-items: flex-start; }
+  .evt-cell-banner { width: 60px; height: 46px; }
+  .evt-cell-desc { white-space: normal; -webkit-line-clamp: 2; max-width: 100%; }
+
+  /* Actions cell: full-width row, buttons wrap and get bigger tap targets */
+  .evt-table tbody td.evt-td-actions {
+    display: flex; flex-wrap: wrap; gap: 8px; text-align: left;
+  }
+  .evt-table tbody td.evt-td-actions::before { content: none; }
+  .evt-manage-btn { width: 100%; justify-content: center; padding: 12px 18px; font-size: 0.9rem; }
+  .evt-mini-btn { flex: 1 1 auto; justify-content: center; padding: 9px 14px; font-size: 0.82rem; }
+
+  .evt-table-foot { flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 18px; }
+
+  .evt-admin-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  .evt-hero, .um-hero { padding: 20px 16px; }
+  .evt-cell-banner { width: 50px; height: 40px; }
+  .evt-manage-btn, .um-hero-btn { font-size: 0.88rem; }
+  .evt-mini-btn { flex: 1 1 100%; }
+}

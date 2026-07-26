@@ -2181,9 +2181,10 @@ body.dark-mode .hp-invite-title { color: #fff; }
 .hp-invite-details { display: flex; gap: 16px; align-items: stretch; margin-bottom: 20px; }
 .hp-invite-left { flex: 1; display: flex; flex-direction: column; gap: 14px; }
 .hp-invite-row { display: flex; align-items: center; gap: 12px; }
-.hp-invite-ico { width: 42px; height: 42px; border-radius: 12px; background: rgba(146,108,21,0.1); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+.hp-invite-ico { width: 42px; height: 42px; border-radius: 12px; background: rgba(146,108,21,0.1); color: var(--primary); display: flex !important; align-items: center; justify-content: center; font-size: 1.05rem; flex-shrink: 0; }
+.hp-invite-ico i { line-height: 1; }
 .hp-invite-row strong { display: block; font-size: 0.86rem; color: #14233a; font-weight: 800; line-height: 1.2; }
-.hp-invite-row span { display: block; font-size: 0.76rem; color: #8b97a4; margin-top: 2px; }
+.hp-invite-row > div span { display: block; font-size: 0.76rem; color: #8b97a4; margin-top: 2px; }
 body.dark-mode .hp-invite-row strong { color: #eee; }
 
 .hp-invite-fee { width: 148px; flex-shrink: 0; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 14px 10px; }
