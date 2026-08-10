@@ -3,8 +3,13 @@
  * Detects and filters inappropriate content in English, Tagalog, Bisaya, and Gen Z slang
  */
 
-const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+// AI moderation runs server-side via /api/moderate so the Groq key is never shipped
+// to the browser (an exposed key can be lifted and used to burn the free-tier quota).
+const MODERATION_ENDPOINT = '/api/moderate';
+
+// Minimum length before AI review is worth a request. Very short messages ("ok",
+// "amen", "see you") carry almost no risk the word list would miss.
+const AI_REVIEW_MIN_LENGTH = 12;
 
 // Comprehensive word lists (English, Tagalog, Bisaya, Gen Z)
 const INAPPROPRIATE_WORDS = {
@@ -85,61 +90,29 @@ export function detectInappropriateWords(content) {
  * @param {string} content - Message content
  * @returns {Promise<object>} { isSafe: boolean, reason: string, suggestion: string }
  */
-export async function analyzeMessageSafety(content) {
+export async function analyzeMessageSafety(content, { userId } = {}) {
   if (!content || typeof content !== 'string') return { isSafe: true, reason: null, suggestion: null };
 
   try {
-    const response = await fetch(GROQ_API_URL, {
+    const response = await fetch(MODERATION_ENDPOINT, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-3-8b-instruct',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a content moderation AI. Analyze the following message for harmful intent:
-1. Profanity/abuse in English, Tagalog, Bisaya, or Gen Z slang
-2. Self-harm/suicide ideation (direct or indirect)
-3. Harassment or bullying language
-4. Emotionally harmful intent
-
-Respond ONLY in JSON format: {"isSafe": boolean, "reason": "brief reason if unsafe", "suggestion": "corrected version if applicable"}
-If safe, return: {"isSafe": true, "reason": null, "suggestion": null}`,
-          },
-          {
-            role: 'user',
-            content: `Check this message: "${content}"`,
-          },
-        ],
-        temperature: 0.3,
-        max_tokens: 100,
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, userId }),
     });
 
-    if (!response.ok) {
-      console.warn('Groq API call failed:', response.status);
-      return { isSafe: true, reason: null, suggestion: null };
-    }
+    if (!response.ok) return { isSafe: true, reason: null, suggestion: null };
 
-    const data = await response.json();
-    const aiResponse = data?.choices?.[0]?.message?.content?.trim();
+    const json = await response.json();
+    const result = json?.data;
+    if (!result) return { isSafe: true, reason: null, suggestion: null };
 
-    if (!aiResponse) return { isSafe: true, reason: null, suggestion: null };
-
-    try {
-      const parsed = JSON.parse(aiResponse);
-      return {
-        isSafe: parsed.isSafe !== false,
-        reason: parsed.reason || null,
-        suggestion: parsed.suggestion || null,
-      };
-    } catch {
-      return { isSafe: true, reason: null, suggestion: null };
-    }
+    return {
+      isSafe: result.isSafe !== false,
+      reason: result.reason || null,
+      suggestion: result.suggestion || null,
+    };
   } catch (error) {
+    // Fail open — never block a user because moderation was unreachable.
     console.warn('Error during AI safety analysis:', error);
     return { isSafe: true, reason: null, suggestion: null };
   }
@@ -150,12 +123,12 @@ If safe, return: {"isSafe": true, "reason": null, "suggestion": null}`,
  * @param {string} content - Message content
  * @returns {Promise<object>} { isBlocked: boolean, isCorrected: boolean, correctedContent: string, reason: string }
  */
-export async function moderateMessage(content) {
+export async function moderateMessage(content, { userId } = {}) {
   if (!content || typeof content !== 'string') {
     return { isBlocked: false, isCorrected: false, correctedContent: content, reason: null };
   }
 
-  // Step 1: Basic word list check
+  // Step 1: Basic word list check — free, instant, and catches the clear cases.
   const wordCheck = detectInappropriateWords(content);
 
   if (wordCheck.isInappropriate) {
@@ -180,8 +153,21 @@ export async function moderateMessage(content) {
     }
   }
 
-  // Step 2: AI sentiment analysis
-  const aiCheck = await analyzeMessageSafety(content);
+  // Step 2: AI review — the only metered step, so gate it tightly.
+  //
+  // Previously every message hit the AI even when the word list found nothing, which
+  // meant one Groq call per chat message and posts burning the free tier fast. Now the
+  // AI is only consulted when it can actually add something the word list cannot:
+  //   - the word list flagged something it does not outright block (borderline), or
+  //   - the text is long enough to hide intent that simple matching would miss.
+  const isBorderline = wordCheck.isInappropriate; // flagged, but not harmful/abusive
+  const isLongEnoughToHideIntent = content.trim().length >= AI_REVIEW_MIN_LENGTH;
+
+  if (!isBorderline && !isLongEnoughToHideIntent) {
+    return { isBlocked: false, isCorrected: false, correctedContent: content, reason: null };
+  }
+
+  const aiCheck = await analyzeMessageSafety(content, { userId });
 
   if (!aiCheck.isSafe) {
     return {

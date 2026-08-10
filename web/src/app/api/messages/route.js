@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-const ONLINE_WINDOW_MS = 2 * 60 * 1000;
+// Must stay comfortably LARGER than the client's presence heartbeat interval
+// (POLL_MS.presence in src/lib/pollingConfig.js) or users flicker offline between
+// beats. Currently: 2 min heartbeat -> 5 min window.
+const ONLINE_WINDOW_MS = 5 * 60 * 1000;
+
+// Caps on how much history a single request may pull. The conversation list only
+// needs recent activity to derive previews/unread counts, and a chat thread renders
+// the tail — unbounded selects here were the main source of Supabase egress.
+const CONVERSATION_SCAN_LIMIT = 300;
+const THREAD_MESSAGE_LIMIT = 100;
 
 // GET - Fetch messages for a user
 export async function GET(request) {
@@ -30,7 +39,7 @@ export async function GET(request) {
         .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
         .eq('is_broadcast', false)
         .order('created_at', { ascending: false })
-        .limit(1000);
+        .limit(CONVERSATION_SCAN_LIMIT);
 
       if (messageRowsError && messageRowsError.message?.includes('column "is_unsent" does not exist')) {
         const fallback = await supabase
@@ -39,7 +48,7 @@ export async function GET(request) {
           .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
           .eq('is_broadcast', false)
           .order('created_at', { ascending: false })
-          .limit(1000);
+          .limit(CONVERSATION_SCAN_LIMIT);
         messageRows = fallback.data;
         messageRowsError = fallback.error;
       }
@@ -84,23 +93,34 @@ export async function GET(request) {
       const withUserId = searchParams.get('withUserId');
       if (!withUserId) return NextResponse.json({ success: false, message: 'withUserId required' }, { status: 400 });
 
+      // Fetch the most recent slice (newest-first + limit), then flip back to
+      // chronological order for rendering. Selecting descending is what makes the
+      // limit meaningful — ascending + limit would return the oldest messages.
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .or(`and(sender_id.eq.${userId},receiver_id.eq.${withUserId}),and(sender_id.eq.${withUserId},receiver_id.eq.${userId})`)
         .eq('is_broadcast', false)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false })
+        .limit(THREAD_MESSAGE_LIMIT);
 
       if (error) throw error;
 
-      await supabase
-        .from('messages')
-        .update({ is_read: true })
-        .eq('sender_id', withUserId)
-        .eq('receiver_id', userId)
-        .eq('is_read', false);
+      const thread = (data || []).slice().reverse();
 
-      return NextResponse.json({ success: true, data });
+      // This endpoint is polled, so only spend a write when something is actually
+      // unread. Previously every poll issued an UPDATE even on an idle conversation.
+      const hasUnread = thread.some((m) => m.sender_id === withUserId && m.receiver_id === userId && !m.is_read);
+      if (hasUnread) {
+        await supabase
+          .from('messages')
+          .update({ is_read: true })
+          .eq('sender_id', withUserId)
+          .eq('receiver_id', userId)
+          .eq('is_read', false);
+      }
+
+      return NextResponse.json({ success: true, data: thread });
     }
 
     let query;

@@ -50,18 +50,32 @@ async function parseEventRequest(request) {
   if (contentType.includes('multipart/form-data')) {
     const form = await request.formData();
     const fields = {};
+    const merchImageFiles = {}; // index (string) -> File, from merchImage_<index> keys
     for (const [key, value] of form.entries()) {
-      if (key !== 'image' && key !== 'gcashQr') fields[key] = value;
+      if (key === 'image' || key === 'gcashQr') continue;
+      const merchMatch = /^merchImage_(\d+)$/.exec(key);
+      if (merchMatch) {
+        if (value && typeof value === 'object' && value.size > 0) merchImageFiles[merchMatch[1]] = value;
+        continue;
+      }
+      fields[key] = value;
     }
     let imageUrl, gcashQrUrl;
     const banner = form.get('image');
     if (banner && typeof banner === 'object' && banner.size > 0) imageUrl = await uploadFile(banner, 'JSCI-System/events');
     const qr = form.get('gcashQr');
     if (qr && typeof qr === 'object' && qr.size > 0) gcashQrUrl = await uploadFile(qr, 'JSCI-System/event-payments');
-    return { fields, imageUrl, gcashQrUrl };
+
+    // Upload any new merch item images, keyed by their item's index
+    const merchImageUrls = {};
+    for (const [index, file] of Object.entries(merchImageFiles)) {
+      merchImageUrls[index] = await uploadFile(file, 'JSCI-System/event-merch');
+    }
+
+    return { fields, imageUrl, gcashQrUrl, merchImageUrls };
   }
   const body = await request.json();
-  return { fields: body, imageUrl: undefined, gcashQrUrl: undefined };
+  return { fields: body, imageUrl: undefined, gcashQrUrl: undefined, merchImageUrls: {} };
 }
 
 // Map the incoming pricing/registration fields to DB columns (only when provided)
@@ -70,6 +84,8 @@ function mapEventConfig(updates, target, gcashQrUrl) {
   const num = (v) => (v === '' || v == null ? null : Number(v));
   if (updates.hasFee !== undefined) target.has_fee = bool(updates.hasFee);
   if (updates.registrationFee !== undefined) target.registration_fee = num(updates.registrationFee) || 0;
+  if (updates.allowOnsitePayment !== undefined) target.allow_onsite_payment = bool(updates.allowOnsitePayment);
+  if (updates.onsitePrice !== undefined) target.onsite_price = num(updates.onsitePrice);
   if (updates.earlyBirdPrice !== undefined) target.early_bird_price = num(updates.earlyBirdPrice);
   if (updates.earlyBirdDeadline !== undefined) target.early_bird_deadline = updates.earlyBirdDeadline || null;
   if (updates.paymentDeadline !== undefined) target.payment_deadline = updates.paymentDeadline || null;
@@ -89,6 +105,7 @@ function mapEventConfig(updates, target, gcashQrUrl) {
   if (updates.bankAccountNumber !== undefined) target.bank_account_number = updates.bankAccountNumber || null;
   if (updates.registrationRequired !== undefined) target.registration_required = bool(updates.registrationRequired);
   if (updates.maxParticipants !== undefined) target.max_participants = num(updates.maxParticipants);
+  if (updates.registrationStartDate !== undefined) target.registration_start_date = updates.registrationStartDate || null;
   if (updates.registrationDeadline !== undefined) target.registration_deadline = updates.registrationDeadline || null;
   // Audience & visibility
   if (updates.allowedRoles !== undefined) {
@@ -107,6 +124,23 @@ function mapEventConfig(updates, target, gcashQrUrl) {
   if (updates.locCity !== undefined) target.loc_city = updates.locCity || null;
   if (updates.locBarangay !== undefined) target.loc_barangay = updates.locBarangay || null;
   return target;
+}
+
+// Build the final merch_items array from the client's JSON metadata (name + whether
+// it already had an image) plus any newly-uploaded merch image URLs from this request.
+// Returns undefined when merchItemsMeta wasn't sent at all, so callers can tell
+// "no merch info in this request" apart from "merch was cleared to an empty list".
+function buildMerchItems(fields, merchImageUrls) {
+  if (fields.merchItemsMeta === undefined) return undefined;
+  let meta;
+  try { meta = JSON.parse(fields.merchItemsMeta || '[]'); } catch { meta = []; }
+  if (!Array.isArray(meta)) return [];
+  return meta
+    .map((item, i) => ({
+      name: (item?.name || '').trim(),
+      image_url: merchImageUrls?.[String(i)] || item?.existingImageUrl || null,
+    }))
+    .filter((item) => item.name || item.image_url);
 }
 
 // GET - Fetch events
@@ -138,7 +172,7 @@ export async function GET(request) {
 // POST - Create event (Pastor, Admin, Super Admin)
 export async function POST(request) {
   try {
-    const { fields, imageUrl: uploadedUrl, gcashQrUrl } = await parseEventRequest(request);
+    const { fields, imageUrl: uploadedUrl, gcashQrUrl, merchImageUrls } = await parseEventRequest(request);
     const { title, description, eventDate, endDate, location, imageUrl, createdBy } = fields;
     const finalImageUrl = uploadedUrl || imageUrl || null;
 
@@ -146,14 +180,23 @@ export async function POST(request) {
     const actor = await verifyEventManager(createdBy);
     if (!actor) return FORBIDDEN();
 
-    if (!title || !eventDate) {
-      return NextResponse.json({ success: false, message: 'Title and event date are required' }, { status: 400 });
+    if (!title) {
+      return NextResponse.json({ success: false, message: 'Title is required' }, { status: 400 });
+    }
+    // A published event needs a real date; a draft can be created from just the
+    // basics (Save Draft on the client always sends a placeholder date regardless,
+    // but this stays defensive in case a draft is ever posted without one).
+    const isDraft = fields.isPublished === false || fields.isPublished === 'false';
+    if (!isDraft && !eventDate) {
+      return NextResponse.json({ success: false, message: 'Event date is required to publish' }, { status: 400 });
     }
 
     const insertData = mapEventConfig(fields, {
-      title, description, event_date: eventDate, end_date: endDate || null,
+      title, description, event_date: eventDate || new Date().toISOString(), end_date: endDate || null,
       location, image_url: finalImageUrl, created_by: createdBy,
     }, gcashQrUrl);
+    const merchItems = buildMerchItems(fields, merchImageUrls);
+    if (merchItems !== undefined) insertData.merch_items = merchItems;
 
     const { data, error } = await supabase.from('events').insert(insertData).select().single();
 
@@ -168,7 +211,7 @@ export async function POST(request) {
 // PUT - Update event
 export async function PUT(request) {
   try {
-    const { fields, imageUrl: uploadedUrl, gcashQrUrl } = await parseEventRequest(request);
+    const { fields, imageUrl: uploadedUrl, gcashQrUrl, merchImageUrls } = await parseEventRequest(request);
     const { id, actorId, ...updates } = fields;
 
     if (!id) return NextResponse.json({ success: false, message: 'Event ID required' }, { status: 400 });
@@ -187,6 +230,8 @@ export async function PUT(request) {
     else if (updates.imageUrl !== undefined) updateData.image_url = updates.imageUrl;
     if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
     mapEventConfig(updates, updateData, gcashQrUrl);
+    const merchItems = buildMerchItems(updates, merchImageUrls);
+    if (merchItems !== undefined) updateData.merch_items = merchItems;
 
     const { data, error } = await supabase.from('events').update(updateData).eq('id', id).select().single();
     if (error) throw error;

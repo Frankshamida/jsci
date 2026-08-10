@@ -24302,20 +24302,80 @@ body.dark-mode .evt-loc-result { color: #eee; }
 body.dark-mode .evt-loc-value { color: #eee; }
 
 /* ---- Event visibility & audience ---- */
-.evt-visibility-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-.evt-vis-btn {
-  flex: 1; min-width: 180px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-  padding: 12px 16px; border-radius: 12px; cursor: pointer;
-  border: 2px solid var(--border-color, rgba(0,0,0,0.12)); background: var(--bg-input, #f7f7fb);
-  color: var(--text-primary, #333); font-weight: 700; font-size: 0.9rem; transition: all 0.18s ease;
+.evt-visibility-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px; margin-bottom: 10px; align-items: stretch;
 }
-.evt-vis-btn small { font-weight: 500; font-size: 0.72rem; color: var(--text-muted, #999); }
-.evt-vis-btn i { margin-right: 6px; }
+.evt-vis-btn {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px;
+  width: 100%; min-height: 62px; padding: 12px 16px; border-radius: 12px; cursor: pointer; text-align: left;
+  border: 2px solid var(--border-color, rgba(0,0,0,0.12)); background: var(--bg-card, #fff);
+  color: var(--text-primary, #333); font-weight: 700; font-size: 0.9rem; line-height: 1.3;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+.evt-vis-btn-title { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.evt-vis-btn small { font-weight: 500; font-size: 0.72rem; color: var(--text-muted, #999); white-space: normal; }
+.evt-vis-btn i { width: 16px; text-align: center; flex-shrink: 0; }
 .evt-vis-btn:hover:not(.active) { border-color: var(--primary); }
 .evt-vis-btn.active.pub { border-color: #16a34a; background: rgba(22,163,74,0.1); color: #16a34a; }
 .evt-vis-btn.active.pub small { color: #16a34a; }
-.evt-vis-btn.active.draft { border-color: var(--primary); background: rgba(146,108,21,0.1); color: var(--primary); }
+.evt-vis-btn.active.draft { border-color: var(--primary); background: rgba(146,108,21,0.12); color: var(--primary); }
 .evt-vis-btn.active.draft small { color: var(--primary); }
+body.dark-mode .evt-vis-btn { background: #232332; border-color: rgba(255,255,255,0.12); color: #eee; }
+body.dark-mode .evt-vis-btn small { color: rgba(255,255,255,0.55); }
+body.dark-mode .evt-vis-btn:hover:not(.active) { border-color: var(--accent); }
+body.dark-mode .evt-vis-btn.active.pub { background: rgba(22,163,74,0.18); border-color: #22c55e; color: #4ade80; }
+body.dark-mode .evt-vis-btn.active.pub small { color: #4ade80; }
+body.dark-mode .evt-vis-btn.active.draft { background: rgba(255,195,0,0.14); border-color: var(--accent); color: var(--accent); }
+body.dark-mode .evt-vis-btn.active.draft small { color: var(--accent); }
+body.dark-mode .evt-method-chip { border-color: rgba(255,255,255,0.18); color: #eee; }
+
+/* ---- Merchandise items (Step 6) ---- */
+.evt-merch-item {
+  display: flex; align-items: flex-start; gap: 14px; padding: 14px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.1)); border-radius: 12px; margin-bottom: 12px;
+  background: var(--bg-card, #fff);
+}
+body.dark-mode .evt-merch-item { background: #232332; border-color: rgba(255,255,255,0.1); }
+.evt-merch-item-img {
+  width: 70px; height: 70px; border-radius: 10px; overflow: hidden; flex-shrink: 0;
+  background: rgba(146,108,21,0.08); border: 1px dashed rgba(146,108,21,0.4);
+  display: flex; align-items: center; justify-content: center; color: var(--text-muted, #999);
+}
+.evt-merch-item-img img { width: 100%; height: 100%; object-fit: cover; }
+body.dark-mode .evt-merch-item-img { background: rgba(255,255,255,0.05); }
+.evt-merch-item-fields { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.evt-merch-item-remove {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px; border: none; cursor: pointer;
+  background: rgba(220,38,38,0.1); color: #dc2626; margin-top: 2px;
+}
+.evt-merch-item-remove:hover { background: rgba(220,38,38,0.18); }
+
+.evt-duration-display {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--text-muted, #888); background: rgba(146,108,21,0.05); cursor: default;
+}
+body.dark-mode .evt-duration-display { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6); }
+
+.evt-publish-toggle-row {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 14px; cursor: pointer;
+}
+.evt-publish-toggle-row strong { display: block; font-size: 0.92rem; color: var(--text-primary, #333); }
+.evt-publish-toggle-row small { display: block; font-size: 0.78rem; color: var(--text-muted, #999); margin-top: 2px; }
+body.dark-mode .evt-publish-toggle-row strong { color: #eee; }
+body.dark-mode .evt-publish-toggle-row small { color: rgba(255,255,255,0.55); }
+
+/* ---- Required-field validation ---- */
+.evt-field-error { border-color: #dc2626 !important; }
+.evt-field-error-msg { color: #dc2626; font-size: 0.78rem; font-weight: 600; margin-top: 5px; }
+.evt-field-hint { color: var(--text-muted, #999); font-size: 0.75rem; margin-top: 5px; }
+body.dark-mode .evt-field-hint { color: rgba(255,255,255,0.5); }
+.evt-picture-preview {
+  width: 140px; height: 90px; border-radius: 10px; overflow: hidden; flex-shrink: 0;
+  background: rgba(146,108,21,0.08); border: 1px dashed rgba(146,108,21,0.4);
+  display: flex; align-items: center; justify-content: center; transition: border-color 0.18s ease;
+}
+body.dark-mode .evt-picture-preview { background: rgba(255,255,255,0.05); }
 
 .evt-draft-badge { display: inline-flex; align-items: center; gap: 5px; background: rgba(120,120,120,0.2); color: #666; font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
 .evt-roles-badge { display: inline-flex; align-items: center; gap: 5px; background: rgba(59,130,246,0.14); color: #2563eb; font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
@@ -24333,6 +24393,15 @@ body.dark-mode .evt-draft-badge { background: rgba(255,255,255,0.12); color: #bb
   font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: all 0.18s ease;
 }
 .evt-back-btn:hover { background: var(--primary); color: #fff; }
+
+/* On the gold hero banner, the default gold-on-gold text/border is unreadable —
+   switch to a light outline so it stays visible against that background. */
+.evt-hero .evt-back-btn, .um-hero .evt-back-btn {
+  color: #fff; border-color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.1);
+}
+.evt-hero .evt-back-btn:hover, .um-hero .evt-back-btn:hover {
+  background: rgba(255,255,255,0.22); color: #fff; border-color: #fff;
+}
 
 /* ---- Create Event stepper ---- */
 .evt-stepper { display: flex; align-items: flex-start; margin: 4px 0 22px; }
@@ -24381,6 +24450,14 @@ body.dark-mode .evt-draft-badge { background: rgba(255,255,255,0.12); color: #bb
 body.dark-mode .evt-table tbody td { border-color: rgba(255,255,255,0.06); }
 body.dark-mode .evt-cell-desc, body.dark-mode .evt-cell-sub { color: #aaa; }
 body.dark-mode .evt-tstatus-completed { color: #bbb; background: rgba(255,255,255,0.1); }
+
+/* ISOM inquiry status badges */
+.isom-inq-status { display: inline-block; font-size: 0.72rem; font-weight: 700; text-transform: capitalize; padding: 3px 10px; border-radius: 20px; }
+.isom-inq-status-new { background: rgba(59,130,246,0.15); color: #2563eb; }
+.isom-inq-status-contacted { background: rgba(234,179,8,0.18); color: #b45309; }
+.isom-inq-status-enrolled { background: rgba(22,163,74,0.15); color: #16a34a; }
+.isom-inq-status-closed { background: rgba(120,120,120,0.18); color: #666; }
+body.dark-mode .isom-inq-status-closed { color: #bbb; background: rgba(255,255,255,0.1); }
 
 /* ============================================ */
 /* Events tabs + My Registrations posters + QR  */
@@ -24676,6 +24753,20 @@ body.dark-mode .evt-table thead th { background: #26241c !important; color: #b8a
 .evt-manage-menu i { width: 16px; text-align: center; color: var(--primary); }
 .evt-manage-menu .danger, .evt-manage-menu .danger i { color: #dc2626; }
 .evt-manage-menu .danger:hover { background: rgba(220,38,38,0.08); }
+.evt-manage-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
+.evt-manage-menu button:disabled:hover { background: transparent; color: var(--text-primary, #333); }
+
+/* "Publish Event" completion indicator */
+.evt-publish-menu-item { padding: 2px 0; }
+.evt-publish-pct {
+  margin-left: auto; font-size: 0.72rem; font-weight: 800;
+  padding: 1px 8px; border-radius: 20px; background: rgba(220,38,38,0.12); color: #dc2626;
+}
+.evt-publish-pct.ready { background: rgba(22,163,74,0.15); color: #16a34a; }
+.evt-publish-progress { padding: 0 12px 6px; }
+.evt-publish-progress-bar { height: 5px; border-radius: 4px; background: rgba(0,0,0,0.08); overflow: hidden; }
+body.dark-mode .evt-publish-progress-bar { background: rgba(255,255,255,0.1); }
+.evt-publish-progress-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent)); border-radius: 4px; transition: width 0.25s ease; }
 body.dark-mode .evt-manage-menu { background: #26242f; }
 body.dark-mode .evt-manage-menu button, body.dark-mode .evt-manage-menu a { color: #eee; }
 

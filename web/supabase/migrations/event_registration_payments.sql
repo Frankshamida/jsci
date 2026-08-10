@@ -21,7 +21,15 @@ alter table events add column if not exists bank_account_name text;
 alter table events add column if not exists bank_account_number text;
 alter table events add column if not exists registration_required boolean default true;
 alter table events add column if not exists max_participants integer;
+alter table events add column if not exists registration_start_date timestamptz;
 alter table events add column if not exists registration_deadline timestamptz;
+
+-- On-site / walk-in payment (pay at the event itself, separate from online pre-registration)
+alter table events add column if not exists allow_onsite_payment boolean default false;
+alter table events add column if not exists onsite_price numeric;
+
+-- Event merchandise: [{ name: text, image_url: text }, ...]
+alter table events add column if not exists merch_items jsonb default '[]'::jsonb;
 
 -- ---- Audience & visibility ----
 -- allowed_roles: which roles may register. NULL/empty = everyone (all roles).
@@ -43,7 +51,9 @@ create table if not exists event_registrations (
   id uuid primary key default gen_random_uuid(),
   event_id uuid references events(id) on delete cascade,
   user_id uuid,
-  attendee_name text,
+  attendee_firstname text,
+  attendee_lastname text,
+  attendee_name text,              -- combined "First Last", kept for display/search convenience
   attendee_email text,
   attendee_mobile text,
   amount numeric default 0,
@@ -56,6 +66,10 @@ create table if not exists event_registrations (
   verified_at timestamptz,
   created_at timestamptz default now()
 );
+
+-- Columns added after the initial release — safe to re-run on an existing table.
+alter table event_registrations add column if not exists attendee_firstname text;
+alter table event_registrations add column if not exists attendee_lastname text;
 
 create index if not exists idx_event_registrations_event on event_registrations(event_id);
 create index if not exists idx_event_registrations_user  on event_registrations(user_id);

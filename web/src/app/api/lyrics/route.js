@@ -1,9 +1,19 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/serverCache';
 
 export const dynamic = 'force-dynamic';
 
-const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
+// Prefer the server-only key. NEXT_PUBLIC_* is kept only as a fallback so existing
+// deployments keep working — it should be removed, since anything NEXT_PUBLIC_ is
+// inlined into the browser bundle where the key can be lifted and your quota drained.
+const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+// This is the heaviest Groq call in the app (70B model, up to 4000 output tokens), so
+// it needs a hard ceiling — a stuck client retrying could otherwise exhaust the daily
+// token budget on its own.
+const LYRICS_PER_MIN = 5;
+const LYRICS_GLOBAL_PER_MIN = 20;
 
 // GET - Fetch song lyrics using Groq AI with YouTube context for accuracy
 export async function GET(request) {
@@ -18,6 +28,18 @@ export async function GET(request) {
 
     if (!GROQ_API_KEY) {
       return NextResponse.json({ success: false, message: 'AI service not configured' }, { status: 500 });
+    }
+
+    // Quota guard before spending any tokens.
+    const requesterId = searchParams.get('userId') || 'anon';
+    const perUser = rateLimit(`groq:lyrics:${requesterId}`, LYRICS_PER_MIN, 60 * 1000);
+    const global = rateLimit('groq:lyrics:global', LYRICS_GLOBAL_PER_MIN, 60 * 1000);
+    if (!perUser.allowed || !global.allowed) {
+      const retryAfterSec = Math.ceil(Math.max(perUser.retryAfterMs, global.retryAfterMs) / 1000);
+      return NextResponse.json(
+        { success: false, message: `Too many lyric requests. Please try again in ${retryAfterSec}s.` },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSec) } }
+      );
     }
 
     // Step 1: If a YouTube link is provided, fetch video metadata from noembed for extra context

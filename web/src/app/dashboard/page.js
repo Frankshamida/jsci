@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
+import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { moderateMessage, detectInappropriateWords } from '@/lib/contentModeration';
 import SmartImage from '@/components/SmartImage';
 import './dashboard.css';
@@ -490,24 +491,32 @@ export default function DashboardPage() {
     // Map location
     latitude: null, longitude: null, loc_country: '', loc_region: '', loc_province: '', loc_city: '', loc_barangay: '',
     // Registration & payment config
-    registrationRequired: true, maxParticipants: '', registrationDeadline: '',
+    registrationRequired: true, maxParticipants: '', registrationStartDate: '', registrationDeadline: '',
     hasFee: false, registrationFee: '', earlyBirdPrice: '', earlyBirdDeadline: '',
+    allowOnsitePayment: false, onsitePrice: '',
     paymentDeadline: '', paymentInstructions: '', refundPolicy: '',
     paymentMethods: [], gcashName: '', gcashNumber: '', gcashQrUrl: '',
     bankName: '', bankAccountName: '', bankAccountNumber: '',
   };
   const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
   const [eventGcashQrFile, setEventGcashQrFile] = useState(null);
+  // Merchandise items (Step 6) — kept separate from eventForm since each item can
+  // carry a staged File that isn't JSON-serialisable.
+  const [eventMerchItems, setEventMerchItems] = useState([]); // { id, name, file, previewUrl, existingImageUrl }
   // Registrations viewer (admin) + member registration modal
   const [eventRegsModal, setEventRegsModal] = useState(null); // event object being managed (registrations/attendance page)
   const [eventRegs, setEventRegs] = useState([]);
   const [eventRegsLoading, setEventRegsLoading] = useState(false);
   const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance'
+  // Admin/Super Admin manually adding a walk-in / offline registration
+  const [showAdminAddReg, setShowAdminAddReg] = useState(false);
+  const [adminAddRegForm, setAdminAddRegForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '', markVerified: true });
+  const [adminAddRegSubmitting, setAdminAddRegSubmitting] = useState(false);
   const [pendingRegAlerts, setPendingRegAlerts] = useState([]); // registrations awaiting verification, across all events (admin bell)
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [qrScanResult, setQrScanResult] = useState(null); // { status: 'success'|'already'|'error', message }
   const [registerModal, setRegisterModal] = useState(null); // event object
-  const [registerForm, setRegisterForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '' });
+  const [registerForm, setRegisterForm] = useState({ attendeeFirstName: '', attendeeLastName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '' });
   const [registerProofFile, setRegisterProofFile] = useState(null);
   const [registerSubmitting, setRegisterSubmitting] = useState(false);
   // "Pay Now" modal — for registrations that were free at signup but now require payment
@@ -530,6 +539,9 @@ export default function DashboardPage() {
   const [eventImageFile, setEventImageFile] = useState(null);
   const [eventImagePreview, setEventImagePreview] = useState('');
   const [eventSaving, setEventSaving] = useState(false);
+  const initialEventFormRef = useRef(null); // snapshot taken when the editor opens, for the dirty-check
+  const [showEventLeaveConfirm, setShowEventLeaveConfirm] = useState(false); // Save Draft / Discard / Keep Editing
+  const [eventFieldErrors, setEventFieldErrors] = useState({}); // { title, description, image, eventDate } -> true when invalid
   // Sidebar collapsible category groups (accordion: one open at a time)
   // null = follow the active section's group; '' = all closed; else the open group key
   const [openSidebarGroup, setOpenSidebarGroup] = useState(null);
@@ -741,6 +753,12 @@ export default function DashboardPage() {
   const [isomSaving, setIsomSaving] = useState(false);
   const [isomUploading, setIsomUploading] = useState(false);
   const [isomLastUpdated, setIsomLastUpdated] = useState('');
+
+  // ISOM Inquiries (Super Admin, Admin, Pastor)
+  const [isomInquiries, setIsomInquiries] = useState([]);
+  const [isomInquiriesLoading, setIsomInquiriesLoading] = useState(false);
+  const [isomInquiryStatusFilter, setIsomInquiryStatusFilter] = useState('all');
+  const [isomInquiryUpdatingId, setIsomInquiryUpdatingId] = useState(null);
 
   // Super Admin: Permissions Control (real-time)
   const [permissionOverrides, setPermissionOverrides] = useState({});
@@ -1382,6 +1400,7 @@ export default function DashboardPage() {
     if (sectionId === 'system-config') loadSystemSettings();
     if (sectionId === 'terms-conditions') loadTermsConditions();
     if (sectionId === 'isom-management') loadIsomContent();
+    if (sectionId === 'isom-inquiries') loadIsomInquiries();
     if (sectionId === 'permissions-control') { loadPermissionOverrides(); } else { setPermCtrlUnlocked(false); setPermCtrlPasswordInput(''); setPermCtrlPasswordError(''); }
     if (sectionId === 'create-lineup') { loadScheduleData(); loadLineupExcuses(); loadSubRequests(); loadPawMembers(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
     if (sectionId === 'my-lineups') loadScheduleData();
@@ -1583,12 +1602,11 @@ export default function DashboardPage() {
     } catch { /* silent */ }
   }, [userData?.id, userRole]);
 
-  useEffect(() => {
-    if (!userData?.id || (userRole !== 'Admin' && userRole !== 'Super Admin')) return;
-    loadPendingRegAlerts();
-    const interval = setInterval(loadPendingRegAlerts, 45000);
-    return () => clearInterval(interval);
-  }, [userData?.id, userRole, loadPendingRegAlerts]);
+  useSmartPoll(
+    loadPendingRegAlerts,
+    POLL_MS.eventRegAlerts,
+    { enabled: !!userData?.id && (userRole === 'Admin' || userRole === 'Super Admin') }
+  );
 
   // 'registered' (free) alerts are informational-only — dismissed once the admin has
   // viewed that event's registrations list. Persisted so a page refresh doesn't re-alert.
@@ -2161,18 +2179,19 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(recSub); };
   }, [userData?.id]);
 
-  // Poll Cloudinary usage for Super Admin
+  // Poll Cloudinary usage for Super Admin.
+  // The Cloudinary Admin API allows only ~500 calls/hour on the free plan, so this
+  // is deliberately slow; the route also caches server-side so extra open tabs are free.
   useEffect(() => {
-    if (userRole !== ROLES.SUPER_ADMIN) return undefined;
-    let cancelled = false;
-    const wrappedFetch = async (showSpinner = false) => {
-      if (cancelled) return;
-      await fetchCloudUsage(showSpinner);
-    };
-    wrappedFetch(true);
-    const pollTimer = setInterval(() => wrappedFetch(false), 45000);
-    return () => { cancelled = true; clearInterval(pollTimer); };
+    if (userRole !== ROLES.SUPER_ADMIN) return;
+    fetchCloudUsage(true);
   }, [userRole, fetchCloudUsage]);
+
+  useSmartPoll(
+    () => fetchCloudUsage(false),
+    POLL_MS.cloudinaryUsage,
+    { enabled: userRole === ROLES.SUPER_ADMIN, immediate: false }
+  );
 
   const loadChatUsers = async () => {
     try {
@@ -2215,43 +2234,67 @@ export default function DashboardPage() {
     await loadChatThread(targetUserId);
   };
 
-  useEffect(() => {
-    if (!userData?.id) return undefined;
-    let disposed = false;
-    const heartbeat = async (isOnline = true) => {
-      if (disposed) return;
-      try {
-        await fetch('/api/messages', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: userData.id, isOnline }),
-          keepalive: !isOnline,
-        });
-      } catch { /* silent */ }
-    };
-    heartbeat(true);
-    const timer = setInterval(() => heartbeat(true), 30000);
-    const handleBeforeUnload = () => { heartbeat(false); };
-    if (typeof window !== 'undefined') window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      disposed = true;
-      clearInterval(timer);
-      if (typeof window !== 'undefined') window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
+  // Presence heartbeat. Each tick is a DB WRITE, so this is the most quota-expensive
+  // background task in the app — keep the interval long and skip it entirely for
+  // hidden/idle tabs (useSmartPoll handles that). Going offline is still reported
+  // immediately on unload so other users don't see a stale "online" dot.
+  const sendHeartbeat = useCallback(async (isOnline = true) => {
+    if (!userData?.id) return;
+    try {
+      await fetch('/api/messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: userData.id, isOnline }),
+        keepalive: !isOnline,
+      });
+    } catch { /* silent */ }
   }, [userData?.id]);
 
+  useSmartPoll(() => sendHeartbeat(true), POLL_MS.presence, { enabled: !!userData?.id });
+
+  useEffect(() => {
+    if (!userData?.id || typeof window === 'undefined') return undefined;
+    const handleBeforeUnload = () => { sendHeartbeat(false); };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [userData?.id, sendHeartbeat]);
+
+  // Initial load when the Messages section opens or the target conversation changes.
+  useEffect(() => {
+    if (activeSection !== 'messages' || !userData?.id) return;
+    loadMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, messageTab, userData?.id, selectedChatUserId]);
+
+  // Realtime is the primary delivery path for chat — it costs one open socket
+  // instead of a request every few seconds. Only refetch the affected view.
   useEffect(() => {
     if (activeSection !== 'messages' || !userData?.id) return undefined;
-    loadMessages();
-    const timer = setInterval(() => {
-      if (messageTab === 'broadcast') loadMessages();
-      else {
-        loadChatUsers();
-        if (selectedChatUserId) loadChatThread(selectedChatUserId);
-      }
-    }, 8000);
-    return () => clearInterval(timer);
+    const chatSub = supabase.channel(`messages-realtime-${userData.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+        if (messageTab === 'broadcast') loadMessages();
+        else if (selectedChatUserId) loadChatThread(selectedChatUserId);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(chatSub); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection, messageTab, userData?.id, selectedChatUserId]);
+
+  // Safety-net refresh for the open thread, in case a realtime event is missed.
+  // Pauses automatically while the tab is hidden or the user is idle.
+  useSmartPoll(
+    () => { if (messageTab === 'broadcast') loadMessages(); else if (selectedChatUserId) loadChatThread(selectedChatUserId); },
+    POLL_MS.chatThread,
+    { enabled: activeSection === 'messages' && !!userData?.id, immediate: false }
+  );
+
+  // The conversation list only needs presence/unread freshness, so poll it far
+  // less often than the thread — it is the more expensive of the two queries.
+  useSmartPoll(
+    () => { loadChatUsers(); },
+    POLL_MS.chatUsers,
+    { enabled: activeSection === 'messages' && messageTab !== 'broadcast' && !!userData?.id, immediate: false }
+  );
 
   const loadAttendance = async () => {
     try {
@@ -2454,6 +2497,41 @@ export default function DashboardPage() {
         showToast('❌ Error removing slide', 'error');
       }
     });
+  };
+
+  // ISOM Inquiries (Super Admin, Admin, Pastor)
+  const loadIsomInquiries = async () => {
+    if (!userData?.id) return;
+    setIsomInquiriesLoading(true);
+    try {
+      const res = await fetch(`/api/isom/inquiries?actorId=${userData.id}`);
+      const data = await res.json();
+      if (data.success) setIsomInquiries(data.data || []);
+      else showToast(data.message || 'Unable to load ISOM inquiries', 'warning');
+    } catch { /* silent */ }
+    finally { setIsomInquiriesLoading(false); }
+  };
+
+  const updateIsomInquiryStatus = async (id, status) => {
+    setIsomInquiryUpdatingId(id);
+    try {
+      const res = await fetch('/api/isom/inquiries', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, actorId: userData?.id, status }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsomInquiries((prev) => prev.map((inq) => (inq.id === id ? data.data : inq)));
+        showToast('Inquiry updated', 'success');
+      } else {
+        showToast(data.message || 'Failed to update inquiry', 'danger');
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'danger');
+    } finally {
+      setIsomInquiryUpdatingId(null);
+    }
   };
 
   // Permission Controls
@@ -3264,13 +3342,55 @@ export default function DashboardPage() {
     setEventImageFile(null);
     setEventImagePreview('');
     setEventGcashQrFile(null);
+    setEventFieldErrors({});
+    setEventMerchItems([]);
   };
 
-  const EVENT_STEPS = ['Basic Info', 'Visibility & Audience', 'Schedule & Location', 'Registration', 'Pricing & Payment'];
+  const EVENT_STEPS = ['Basic Info', 'Visibility & Audience', 'Schedule & Location', 'Registration', 'Pricing & Payment', 'Merchandise'];
+  const EVENT_AUDIENCE_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor'];
+
+  // "1 day 3 hours", "45 mins", etc. — shown next to the schedule fields once both ends are set.
+  const formatEventDuration = (startStr, endStr) => {
+    if (!startStr || !endStr) return '—';
+    const diffMs = new Date(endStr).getTime() - new Date(startStr).getTime();
+    if (!Number.isFinite(diffMs) || diffMs <= 0) return '—';
+    const totalMinutes = Math.round(diffMs / 60000);
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const minutes = totalMinutes % 60;
+    const parts = [];
+    if (days) parts.push(`${days} day${days !== 1 ? 's' : ''}`);
+    if (hours) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
+    if (minutes) parts.push(`${minutes} min${minutes !== 1 ? 's' : ''}`);
+    return parts.length ? parts.join(' ') : 'Less than a minute';
+  };
+
+  // Current local time formatted for a datetime-local input's `min` attribute
+  // (browsers grey out / block anything earlier than this in the native picker).
+  const nowLocalDatetimeString = () => {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
 
   const validateEventStep = (step) => {
-    if (step === 0 && !eventForm.title) { showToast('Please enter a title before continuing', 'danger'); return false; }
-    if (step === 2 && !eventForm.eventDate) { showToast('Please set a start date before continuing', 'danger'); return false; }
+    const errors = {};
+    if (step === 0) {
+      if (!eventForm.title.trim()) errors.title = true;
+      if (!eventForm.description || !eventForm.description.trim()) errors.description = true;
+      if (!eventImageFile && !eventImagePreview && !editingEvent?.image_url) errors.image = true;
+    }
+    if (step === 2 && !eventForm.eventDate) errors.eventDate = true;
+    if (step === 3 && eventForm.registrationRequired) {
+      if (!eventForm.maxParticipants) errors.maxParticipants = true;
+      if (!eventForm.registrationStartDate) errors.registrationStartDate = true;
+      if (!eventForm.registrationDeadline) errors.registrationDeadline = true;
+    }
+    setEventFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      showToast('Please complete the required fields highlighted in red', 'danger');
+      return false;
+    }
     return true;
   };
 
@@ -3281,24 +3401,61 @@ export default function DashboardPage() {
 
   // Open the full-page event editor for creating (evt=null) or editing an event
   const openEventEditor = (evt = null) => {
-    setEditingEvent(evt);
-    setEventForm(evt ? {
+    const initialForm = evt ? {
       ...EMPTY_EVENT_FORM,
       title: evt.title, description: evt.description || '',
       eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '',
       latitude: evt.latitude ?? null, longitude: evt.longitude ?? null,
       loc_country: evt.loc_country || '', loc_region: evt.loc_region || '', loc_province: evt.loc_province || '', loc_city: evt.loc_city || '', loc_barangay: evt.loc_barangay || '',
       audience: (evt.allowed_roles && evt.allowed_roles.length) ? 'specific' : 'all', allowedRoles: evt.allowed_roles || [], isPublished: evt.is_published !== false,
-      registrationRequired: evt.registration_required !== false, maxParticipants: evt.max_participants ?? '', registrationDeadline: evt.registration_deadline?.slice(0, 16) || '',
+      registrationRequired: evt.registration_required !== false, maxParticipants: evt.max_participants ?? '',
+      registrationStartDate: evt.registration_start_date?.slice(0, 16) || '', registrationDeadline: evt.registration_deadline?.slice(0, 16) || '',
       hasFee: !!evt.has_fee, registrationFee: evt.registration_fee ?? '', earlyBirdPrice: evt.early_bird_price ?? '', earlyBirdDeadline: evt.early_bird_deadline?.slice(0, 16) || '',
+      allowOnsitePayment: !!evt.allow_onsite_payment, onsitePrice: evt.onsite_price ?? '',
       paymentDeadline: evt.payment_deadline?.slice(0, 16) || '', paymentInstructions: evt.payment_instructions || '', refundPolicy: evt.refund_policy || '',
       paymentMethods: evt.payment_methods || [], gcashName: evt.gcash_name || '', gcashNumber: evt.gcash_number || '', gcashQrUrl: evt.gcash_qr_url || '',
       bankName: evt.bank_name || '', bankAccountName: evt.bank_account_name || '', bankAccountNumber: evt.bank_account_number || '',
-    } : EMPTY_EVENT_FORM);
+    } : EMPTY_EVENT_FORM;
+    setEditingEvent(evt);
+    setEventForm(initialForm);
+    initialEventFormRef.current = initialForm;
     setEventImageFile(null); setEventImagePreview(''); setEventGcashQrFile(null);
+    setEventMerchItems((Array.isArray(evt?.merch_items) ? evt.merch_items : []).map((m, i) => ({
+      id: `merch-existing-${i}`, name: m.name || '', file: null, previewUrl: '', existingImageUrl: m.image_url || '',
+    })));
     setEventStep(0);
+    setEventFieldErrors({});
     setShowEventForm(true);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Has the event form actually been touched since it was opened? Used to decide
+  // whether leaving needs a confirmation (vs. just closing an untouched form).
+  const isEventFormDirty = () => {
+    if (eventImageFile || eventGcashQrFile) return true;
+    return JSON.stringify(eventForm) !== JSON.stringify(initialEventFormRef.current);
+  };
+
+  // "Back to Events" / "Cancel" both funnel through here so unsaved input is never
+  // silently discarded — dirty forms get a Save Draft / Discard / Keep Editing choice.
+  const requestCloseEventForm = () => {
+    if (isEventFormDirty()) setShowEventLeaveConfirm(true);
+    else resetEventForm();
+  };
+
+  const saveEventDraftAndClose = async () => {
+    // Drafts can be saved with only Basic Info filled in — no date picked yet.
+    // A placeholder "now" keeps the record valid; it's hidden until published anyway,
+    // and the admin will normally set the real date via Schedule & Location later.
+    const overrides = { isPublished: false };
+    if (!eventForm.eventDate) overrides.eventDate = nowLocalDatetimeString();
+    await handleEventSubmit(overrides);
+    setShowEventLeaveConfirm(false);
+  };
+
+  const discardEventAndClose = () => {
+    setShowEventLeaveConfirm(false);
+    resetEventForm();
   };
 
   const handleEventImagePick = (e) => {
@@ -3310,8 +3467,12 @@ export default function DashboardPage() {
     setEventImagePreview(URL.createObjectURL(file));
   };
 
-  const handleEventSubmit = async () => {
-    if (!eventForm.title || !eventForm.eventDate) { showToast('Title and event date are required', 'danger'); return; }
+  const handleEventSubmit = async (overrides = {}) => {
+    const f = { ...eventForm, ...overrides };
+    // A published event needs a real date; a draft can be saved with just the basics
+    // (Save Draft always supplies a placeholder eventDate before calling this).
+    if (!f.title) { showToast('Title is required', 'danger'); return; }
+    if (f.isPublished && !f.eventDate) { showToast('Event date is required to publish', 'danger'); return; }
     setEventSaving(true);
     try {
       const method = editingEvent ? 'PUT' : 'POST';
@@ -3319,7 +3480,6 @@ export default function DashboardPage() {
       const fd = new FormData();
       if (editingEvent) { fd.append('id', editingEvent.id); fd.append('actorId', userData?.id || ''); }
       else fd.append('createdBy', userData?.id || '');
-      const f = eventForm;
       fd.append('title', f.title);
       fd.append('description', f.description || '');
       fd.append('eventDate', f.eventDate);
@@ -3336,9 +3496,12 @@ export default function DashboardPage() {
       fd.append('isPublished', String(f.isPublished));
       fd.append('registrationRequired', String(f.registrationRequired));
       fd.append('maxParticipants', f.maxParticipants || '');
+      fd.append('registrationStartDate', f.registrationStartDate || '');
       fd.append('registrationDeadline', f.registrationDeadline || '');
       fd.append('hasFee', String(f.hasFee));
       fd.append('registrationFee', f.registrationFee || '');
+      fd.append('allowOnsitePayment', String(f.allowOnsitePayment));
+      fd.append('onsitePrice', f.onsitePrice || '');
       fd.append('earlyBirdPrice', f.earlyBirdPrice || '');
       fd.append('earlyBirdDeadline', f.earlyBirdDeadline || '');
       fd.append('paymentDeadline', f.paymentDeadline || '');
@@ -3353,6 +3516,14 @@ export default function DashboardPage() {
       fd.append('bankAccountNumber', f.bankAccountNumber || '');
       if (eventImageFile) fd.append('image', eventImageFile);
       if (eventGcashQrFile) fd.append('gcashQr', eventGcashQrFile);
+
+      // Merch items: names/flags as JSON, each new image as its own file field
+      // (merchImage_<index>) so the server can match uploads back to their item.
+      fd.append('merchItemsMeta', JSON.stringify(eventMerchItems.map((m) => ({
+        name: m.name, existingImageUrl: m.existingImageUrl || null,
+      }))));
+      eventMerchItems.forEach((m, i) => { if (m.file) fd.append(`merchImage_${i}`, m.file); });
+
       const res = await fetch('/api/events', { method, body: fd });
       const data = await res.json();
       if (data.success) { showToast(data.message, 'success'); resetEventForm(); loadEvents(); }
@@ -3365,9 +3536,30 @@ export default function DashboardPage() {
   const togglePaymentMethod = (m) => setEventForm((f) => ({
     ...f, paymentMethods: f.paymentMethods.includes(m) ? f.paymentMethods.filter(x => x !== m) : [...f.paymentMethods, m],
   }));
-  const toggleAllowedRole = (r) => setEventForm((f) => ({
-    ...f, allowedRoles: f.allowedRoles.includes(r) ? f.allowedRoles.filter(x => x !== r) : [...f.allowedRoles, r],
-  }));
+  const toggleAllowedRole = (r) => setEventForm((f) => {
+    const next = f.allowedRoles.includes(r) ? f.allowedRoles.filter(x => x !== r) : [...f.allowedRoles, r];
+    // Checking every available role is the same thing as "All Roles" — collapse back
+    // to that state so the UI doesn't sit on "Specific Roles" with everything ticked.
+    if (next.length === EVENT_AUDIENCE_ROLES.length) return { ...f, audience: 'all', allowedRoles: [] };
+    return { ...f, allowedRoles: next };
+  });
+
+  // -- Merchandise (Step 6) --
+  const addMerchItem = () => {
+    setEventMerchItems((items) => [...items, { id: `merch-${Date.now()}-${items.length}`, name: '', file: null, previewUrl: '', existingImageUrl: '' }]);
+  };
+  const updateMerchItemName = (id, name) => {
+    setEventMerchItems((items) => items.map((it) => (it.id === id ? { ...it, name } : it)));
+  };
+  const pickMerchItemImage = (id, file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'danger'); return; }
+    if (file.size > 5 * 1024 * 1024) { showToast('Image must be under 5MB', 'danger'); return; }
+    setEventMerchItems((items) => items.map((it) => (it.id === id ? { ...it, file, previewUrl: URL.createObjectURL(file) } : it)));
+  };
+  const removeMerchItem = (id) => {
+    setEventMerchItems((items) => items.filter((it) => it.id !== id));
+  };
 
   const openEventRegistrations = async (evt, tab = 'registrations') => {
     setEventRegsModal(evt);
@@ -3398,6 +3590,60 @@ export default function DashboardPage() {
       if (data.success) { showToast('Registration updated', 'success'); if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab); loadPendingRegAlerts(); }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  // -- Admin/Super Admin: manually add a registration (walk-in / offline sign-up) --
+  // Same form fields as the public registration flow, just entered on the attendee's
+  // behalf. No userId is attached since there's no logged-in account for this entry.
+  const openAdminAddReg = () => {
+    setAdminAddRegForm({
+      attendeeFirstName: '', attendeeLastName: '', attendeeEmail: '', attendeeMobile: '',
+      paymentMethod: (eventRegsModal?.payment_methods && eventRegsModal.payment_methods[0]) || '',
+      paymentReference: '', markVerified: true,
+    });
+    setShowAdminAddReg(true);
+  };
+
+  const submitAdminAddReg = async () => {
+    if (!eventRegsModal) return;
+    if (!adminAddRegForm.attendeeFirstName.trim() || !adminAddRegForm.attendeeLastName.trim()) { showToast("Attendee's first and last name are required", 'danger'); return; }
+    setAdminAddRegSubmitting(true);
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: eventRegsModal.id,
+          attendeeFirstName: adminAddRegForm.attendeeFirstName.trim(),
+          attendeeLastName: adminAddRegForm.attendeeLastName.trim(),
+          attendeeEmail: adminAddRegForm.attendeeEmail,
+          attendeeMobile: adminAddRegForm.attendeeMobile,
+          paymentMethod: adminAddRegForm.paymentMethod,
+          paymentReference: adminAddRegForm.paymentReference,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+
+      // Staff adding this on the attendee's behalf usually means payment/attendance
+      // was already handled in person — confirm it immediately unless unchecked.
+      if (adminAddRegForm.markVerified && data.data?.status && data.data.status !== 'registered') {
+        await fetch('/api/events/registrations', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: data.data.id, actorId: userData?.id, status: 'payment_verified' }),
+        });
+      }
+
+      showToast('Registration added', 'success');
+      setShowAdminAddReg(false);
+      openEventRegistrations(eventRegsModal, manageTab);
+      loadPendingRegAlerts();
+    } catch (e) {
+      showToast('Error: ' + e.message, 'danger');
+    } finally {
+      setAdminAddRegSubmitting(false);
+    }
   };
 
   const markAttendance = async (regId, attended = true, opts = {}) => {
@@ -3438,7 +3684,7 @@ export default function DashboardPage() {
     if (myRegIds.has(evt.id)) { showToast('You are already registered for this event.', 'warning'); return; }
     setRegisterModal(evt);
     setRegisterForm({
-      attendeeName: `${userData?.firstname || ''} ${userData?.lastname || ''}`.trim(),
+      attendeeFirstName: userData?.firstname || '', attendeeLastName: userData?.lastname || '',
       attendeeEmail: userData?.email || '', attendeeMobile: '',
       paymentMethod: (evt.payment_methods && evt.payment_methods[0]) || '', paymentReference: '',
     });
@@ -3447,13 +3693,14 @@ export default function DashboardPage() {
 
   const submitRegistration = async () => {
     if (!registerModal) return;
-    if (!registerForm.attendeeName.trim()) { showToast('Your name is required', 'danger'); return; }
+    if (!registerForm.attendeeFirstName.trim() || !registerForm.attendeeLastName.trim()) { showToast('Your first and last name are required', 'danger'); return; }
     setRegisterSubmitting(true);
     try {
       const fd = new FormData();
       fd.append('eventId', registerModal.id);
       fd.append('userId', userData?.id || '');
-      fd.append('attendeeName', registerForm.attendeeName);
+      fd.append('attendeeFirstName', registerForm.attendeeFirstName.trim());
+      fd.append('attendeeLastName', registerForm.attendeeLastName.trim());
       fd.append('attendeeEmail', registerForm.attendeeEmail || '');
       fd.append('attendeeMobile', registerForm.attendeeMobile || '');
       if (registerModal.has_fee) {
@@ -3574,6 +3821,54 @@ export default function DashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showQrScanner]);
+
+  // True once the event's end (or start, if no end date) has passed — used to stop
+  // both public registration and admin registration management on finished events.
+  const isEventOver = (evt) => {
+    const end = evt?.end_date ? new Date(evt.end_date) : (evt?.event_date ? new Date(evt.event_date) : null);
+    return !!end && end.getTime() < Date.now();
+  };
+
+  // Same required-field checklist the stepper enforces, applied to a saved event
+  // record — used to gate "Publish Event" and to show how close a draft is to done.
+  const EVENT_REQUIRED_FIELD_CHECKS = [
+    { label: 'Title', check: (evt) => !!evt.title },
+    { label: 'Description', check: (evt) => !!evt.description },
+    { label: 'Picture', check: (evt) => !!evt.image_url },
+    { label: 'Start Date', check: (evt) => !!evt.event_date },
+  ];
+  const EVENT_REGISTRATION_FIELD_CHECKS = [
+    { label: 'Max Participants', check: (evt) => evt.max_participants != null },
+    { label: 'Registration Opens', check: (evt) => !!evt.registration_start_date },
+    { label: 'Registration Deadline', check: (evt) => !!evt.registration_deadline },
+  ];
+
+  const getEventCompletion = (evt) => {
+    const checks = evt.registration_required !== false
+      ? [...EVENT_REQUIRED_FIELD_CHECKS, ...EVENT_REGISTRATION_FIELD_CHECKS]
+      : EVENT_REQUIRED_FIELD_CHECKS;
+    const missing = checks.filter((c) => !c.check(evt)).map((c) => c.label);
+    const filled = checks.length - missing.length;
+    return { percent: Math.round((filled / checks.length) * 100), missing, filled, total: checks.length };
+  };
+
+  const handlePublishEvent = async (evt) => {
+    const { missing } = getEventCompletion(evt);
+    if (missing.length > 0) {
+      showToast(`Complete these fields before publishing: ${missing.join(', ')}`, 'danger');
+      return;
+    }
+    try {
+      const res = await fetch('/api/events', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: evt.id, actorId: userData?.id || '', isPublished: true }),
+      });
+      const data = await res.json();
+      if (data.success) { showToast('Event published', 'success'); loadEvents(); }
+      else showToast(data.message, 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
 
   const handleDeleteEvent = async (evt) => {
     askConfirm(`This will permanently delete the event. Please type the event title to confirm.`, async () => {
@@ -6073,7 +6368,7 @@ Examples:
   const SIDEBAR_GROUPS = [
     { key: 'people',    label: 'People & Roles',    icon: 'fas fa-users-cog',      ids: ['users', 'roles', 'ministries', 'attendance'] },
     { key: 'worship',   label: 'Worship & Schedule', icon: 'fas fa-hands-praying',  ids: ['schedule', 'praise-worship', 'lineup', 'meetings'] },
-    { key: 'content',   label: 'Events & Content',   icon: 'fas fa-calendar-alt',   ids: ['events', 'community-events', 'announcements', 'community', 'my-created-events', 'user-events-oversight'] },
+    { key: 'content',   label: 'Events & Content',   icon: 'fas fa-calendar-alt',   ids: ['events', 'community-events', 'announcements', 'community', 'my-created-events', 'user-events-oversight', 'isom-inquiries'] },
     { key: 'media',     label: 'Media & Messages',   icon: 'fas fa-photo-film',     ids: ['live-stream-mgmt', 'recordings', 'messages'] },
     { key: 'insights',  label: 'Insights',           icon: 'fas fa-chart-bar',      ids: ['reports', 'audit'] },
     { key: 'system',    label: 'System',             icon: 'fas fa-cogs',           ids: ['permissions-control', 'system', 'terms-conditions', 'cloudinary-usage'] },
@@ -7046,7 +7341,18 @@ Examples:
                   </div>
 
                   {manageTab === 'registrations' && (
-                    <div className="evt-table-wrapper">
+                    <>
+                      <div className="evt-viewbar">
+                        <button
+                          className="btn-primary"
+                          disabled={isEventOver(eventRegsModal)}
+                          title={isEventOver(eventRegsModal) ? 'This event has already ended' : ''}
+                          onClick={openAdminAddReg}
+                        >
+                          <i className="fas fa-user-plus"></i> Add Registration
+                        </button>
+                      </div>
+                      <div className="evt-table-wrapper">
                       <table className="evt-table">
                         <thead>
                           <tr><th>Attendee</th><th>Contact</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
@@ -7082,7 +7388,8 @@ Examples:
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                      </div>
+                    </>
                   )}
 
                   {manageTab === 'attendance' && (
@@ -7136,7 +7443,7 @@ Examples:
             {showEventForm && !eventRegsModal && (
               <div className="form-card evt-editor-page" style={{ marginBottom: 20, padding: 22, background: 'var(--bg-card)', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                 <div className="evt-editor-head">
-                  <button className="evt-back-btn" onClick={resetEventForm}><i className="fas fa-arrow-left"></i> Back to Events</button>
+                  <button className="evt-back-btn" onClick={requestCloseEventForm}><i className="fas fa-arrow-left"></i> Back to Events</button>
                   <h3 style={{ margin: 0 }}>{editingEvent ? 'Edit Event' : 'Create Event'}</h3>
                 </div>
                 <p style={{ marginTop: -6, marginBottom: 14, fontSize: '0.85rem', opacity: 0.7 }}>
@@ -7158,19 +7465,38 @@ Examples:
                   {/* ===== Step 1: Basic Info ===== */}
                   {eventStep === 0 && (
                     <div className="evt-step-panel">
-                      <div className="form-group"><label>Title *</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.title} onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })} /></div>
-                      <div className="form-group"><label>Description</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={3} value={eventForm.description} onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })} /></div>
+                      <div className="form-group">
+                        <label>Title *</label>
+                        <input
+                          className={`form-control ${eventFieldErrors.title ? 'evt-field-error' : ''}`}
+                          style={{ padding: '10px 15px' }}
+                          value={eventForm.title}
+                          onChange={(e) => { setEventForm({ ...eventForm, title: e.target.value }); if (eventFieldErrors.title) setEventFieldErrors((er) => ({ ...er, title: false })); }}
+                        />
+                        {eventFieldErrors.title && <div className="evt-field-error-msg">Title is required.</div>}
+                      </div>
+                      <div className="form-group">
+                        <label>Description *</label>
+                        <textarea
+                          className={`form-control ${eventFieldErrors.description ? 'evt-field-error' : ''}`}
+                          style={{ padding: '10px 15px' }}
+                          rows={3}
+                          value={eventForm.description}
+                          onChange={(e) => { setEventForm({ ...eventForm, description: e.target.value }); if (eventFieldErrors.description) setEventFieldErrors((er) => ({ ...er, description: false })); }}
+                        />
+                        {eventFieldErrors.description && <div className="evt-field-error-msg">Description is required.</div>}
+                      </div>
 
                       <div className="form-group">
-                        <label>Picture</label>
+                        <label>Picture *</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                          <div style={{ width: 140, height: 90, borderRadius: 10, overflow: 'hidden', background: 'rgba(146,108,21,0.08)', border: '1px dashed rgba(146,108,21,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <div className={`evt-picture-preview ${eventFieldErrors.image ? 'evt-field-error' : ''}`}>
                             {(eventImagePreview || editingEvent?.image_url)
                               ? <img src={eventImagePreview || editingEvent?.image_url} alt="Event" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                               : <i className="fas fa-image" style={{ fontSize: '1.6rem', opacity: 0.4 }}></i>}
                           </div>
                           <div>
-                            <input id="event-image-input" type="file" accept="image/*" onChange={handleEventImagePick} style={{ display: 'none' }} />
+                            <input id="event-image-input" type="file" accept="image/*" onChange={(e) => { handleEventImagePick(e); if (eventFieldErrors.image) setEventFieldErrors((er) => ({ ...er, image: false })); }} style={{ display: 'none' }} />
                             <label htmlFor="event-image-input" className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                               <i className="fas fa-upload"></i> {(eventImagePreview || editingEvent?.image_url) ? 'Change Picture' : 'Upload Picture'}
                             </label>
@@ -7178,6 +7504,7 @@ Examples:
                               <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => { setEventImageFile(null); setEventImagePreview(''); }}>Remove</button>
                             )}
                             <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: 6 }}>JPG/PNG, up to 5MB. Recommended 800×450.</div>
+                            {eventFieldErrors.image && <div className="evt-field-error-msg">A picture is required.</div>}
                           </div>
                         </div>
                       </div>
@@ -7188,27 +7515,29 @@ Examples:
                   {eventStep === 1 && (
                     <div className="evt-step-panel">
                       <div className="evt-config-title"><i className="fas fa-eye"></i> Visibility</div>
-                      <div className="evt-visibility-row">
-                        <button type="button" className={`evt-vis-btn ${eventForm.isPublished ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, isPublished: true })}>
-                          <i className="fas fa-globe"></i> Published <small>Visible to everyone</small>
-                        </button>
-                        <button type="button" className={`evt-vis-btn ${!eventForm.isPublished ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, isPublished: false })}>
-                          <i className="fas fa-eye-slash"></i> Draft / Hidden <small>Only admins can see it</small>
-                        </button>
-                      </div>
+                      <label className="evt-publish-toggle-row">
+                        <span className="switch">
+                          <input type="checkbox" checked={eventForm.isPublished} onChange={(e) => setEventForm({ ...eventForm, isPublished: e.target.checked })} />
+                          <span className="slider round"></span>
+                        </span>
+                        <div>
+                          <strong>{eventForm.isPublished ? 'Published' : 'Hidden'}</strong>
+                          <small>{eventForm.isPublished ? 'Visible to everyone on the public site.' : 'Only admins can see this event. Use Save Draft to keep it hidden while you work on it.'}</small>
+                        </div>
+                      </label>
 
                       <div className="evt-config-title"><i className="fas fa-user-shield"></i> Who Can Join</div>
                       <div className="evt-visibility-row">
                         <button type="button" className={`evt-vis-btn ${eventForm.audience === 'all' ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'all' })}>
-                          <i className="fas fa-users"></i> All Roles
+                          <span className="evt-vis-btn-title"><i className="fas fa-users"></i> All Roles</span>
                         </button>
                         <button type="button" className={`evt-vis-btn ${eventForm.audience === 'specific' ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'specific' })}>
-                          <i className="fas fa-user-tag"></i> Specific Roles
+                          <span className="evt-vis-btn-title"><i className="fas fa-user-tag"></i> Specific Roles</span>
                         </button>
                       </div>
                       {eventForm.audience === 'specific' && (
                         <div className="evt-methods" style={{ marginTop: 4, marginBottom: 6 }}>
-                          {['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor'].map(r => (
+                          {EVENT_AUDIENCE_ROLES.map(r => (
                             <label key={r} className={`evt-method-chip ${eventForm.allowedRoles.includes(r) ? 'on' : ''}`}>
                               <input type="checkbox" checked={eventForm.allowedRoles.includes(r)} onChange={() => toggleAllowedRole(r)} />
                               {r}
@@ -7223,9 +7552,36 @@ Examples:
                   {/* ===== Step 3: Schedule & Location ===== */}
                   {eventStep === 2 && (
                     <div className="evt-step-panel">
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                        <div className="form-group"><label>Start Date &amp; Time *</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.eventDate} onChange={(e) => setEventForm({ ...eventForm, eventDate: e.target.value })} /></div>
-                        <div className="form-group"><label>End Date</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.endDate} onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })} /></div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 15 }}>
+                        <div className="form-group">
+                          <label>Start Date &amp; Time *</label>
+                          <input
+                            type="datetime-local"
+                            className={`form-control ${eventFieldErrors.eventDate ? 'evt-field-error' : ''}`}
+                            style={{ padding: '10px 15px' }}
+                            min={nowLocalDatetimeString()}
+                            value={eventForm.eventDate}
+                            onChange={(e) => { setEventForm({ ...eventForm, eventDate: e.target.value }); if (eventFieldErrors.eventDate) setEventFieldErrors((er) => ({ ...er, eventDate: false })); }}
+                          />
+                          {eventFieldErrors.eventDate && <div className="evt-field-error-msg">Start date is required.</div>}
+                        </div>
+                        <div className="form-group">
+                          <label>End Date</label>
+                          <input
+                            type="datetime-local"
+                            className="form-control"
+                            style={{ padding: '10px 15px' }}
+                            min={eventForm.eventDate || nowLocalDatetimeString()}
+                            value={eventForm.endDate}
+                            onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Duration</label>
+                          <div className="form-control evt-duration-display" style={{ padding: '10px 15px' }}>
+                            <i className="fas fa-hourglass-half"></i> {formatEventDuration(eventForm.eventDate, eventForm.endDate)}
+                          </div>
+                        </div>
                       </div>
                       <div className="form-group"><label>Venue Name / Notes</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="e.g. Family Park Cebu, Main Hall" /></div>
 
@@ -7253,9 +7609,46 @@ Examples:
                         <span>Require registration for this event</span>
                       </label>
                       {eventForm.registrationRequired && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                          <div className="form-group"><label>Max Participants (blank = unlimited)</label><input type="number" min="1" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.maxParticipants} onChange={(e) => setEventForm({ ...eventForm, maxParticipants: e.target.value })} /></div>
-                          <div className="form-group"><label>Registration Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationDeadline} onChange={(e) => setEventForm({ ...eventForm, registrationDeadline: e.target.value })} /></div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 15 }}>
+                          <div className="form-group">
+                            <label>Max Participants *</label>
+                            <input
+                              type="number" min="1"
+                              className={`form-control ${eventFieldErrors.maxParticipants ? 'evt-field-error' : ''}`}
+                              style={{ padding: '10px 15px' }}
+                              value={eventForm.maxParticipants}
+                              onChange={(e) => { setEventForm({ ...eventForm, maxParticipants: e.target.value }); if (eventFieldErrors.maxParticipants) setEventFieldErrors((er) => ({ ...er, maxParticipants: false })); }}
+                            />
+                            {eventFieldErrors.maxParticipants && <div className="evt-field-error-msg">Max participants is required.</div>}
+                          </div>
+                          <div className="form-group">
+                            <label>Registration Opens *</label>
+                            <input
+                              type="datetime-local"
+                              className={`form-control ${eventFieldErrors.registrationStartDate ? 'evt-field-error' : ''}`}
+                              style={{ padding: '10px 15px' }}
+                              min={nowLocalDatetimeString()}
+                              max={eventForm.eventDate || undefined}
+                              value={eventForm.registrationStartDate}
+                              onChange={(e) => { setEventForm({ ...eventForm, registrationStartDate: e.target.value }); if (eventFieldErrors.registrationStartDate) setEventFieldErrors((er) => ({ ...er, registrationStartDate: false })); }}
+                            />
+                            {eventFieldErrors.registrationStartDate && <div className="evt-field-error-msg">Registration open date is required.</div>}
+                          </div>
+                          <div className="form-group">
+                            <label>Registration Deadline *</label>
+                            <input
+                              type="datetime-local"
+                              className={`form-control ${eventFieldErrors.registrationDeadline ? 'evt-field-error' : ''}`}
+                              style={{ padding: '10px 15px' }}
+                              min={eventForm.registrationStartDate || nowLocalDatetimeString()}
+                              max={eventForm.eventDate || undefined}
+                              value={eventForm.registrationDeadline}
+                              onChange={(e) => { setEventForm({ ...eventForm, registrationDeadline: e.target.value }); if (eventFieldErrors.registrationDeadline) setEventFieldErrors((er) => ({ ...er, registrationDeadline: false })); }}
+                            />
+                            {eventFieldErrors.registrationDeadline
+                              ? <div className="evt-field-error-msg">Registration deadline is required.</div>
+                              : eventForm.eventDate && <div className="evt-field-hint">Must be on or before the event date ({formatDateTime(eventForm.eventDate)}).</div>}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -7269,6 +7662,19 @@ Examples:
                         <input type="checkbox" checked={eventForm.hasFee} onChange={(e) => setEventForm({ ...eventForm, hasFee: e.target.checked })} />
                         <span>This event has a registration fee</span>
                       </label>
+
+                      <label className="evt-toggle-row">
+                        <input type="checkbox" checked={eventForm.allowOnsitePayment} onChange={(e) => setEventForm({ ...eventForm, allowOnsitePayment: e.target.checked })} />
+                        <span>Allow payment on the day of the event (walk-in / on-site)</span>
+                      </label>
+                      {eventForm.allowOnsitePayment && (
+                        <div className="form-group" style={{ maxWidth: 260, marginBottom: 14 }}>
+                          <label>On-Site / Walk-in Price (PHP) *</label>
+                          <input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.onsitePrice} onChange={(e) => setEventForm({ ...eventForm, onsitePrice: e.target.value })} />
+                          <div className="evt-field-hint">Charged to attendees who pay in person at the event instead of registering online.</div>
+                        </div>
+                      )}
+
                       {!eventForm.hasFee ? (
                         <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event. Attendees register instantly.</p>
                       ) : (
@@ -7328,6 +7734,45 @@ Examples:
                       )}
                     </div>
                   )}
+
+                  {/* ===== Step 6: Merchandise ===== */}
+                  {eventStep === 5 && (
+                    <div className="evt-step-panel">
+                      <div className="evt-config-title"><i className="fas fa-shirt"></i> Merchandise</div>
+                      <p className="evt-muted" style={{ marginTop: -4, marginBottom: 14, fontSize: '0.85rem' }}>
+                        Optional — add items attendees can buy alongside this event (e.g. shirts, tumblers).
+                      </p>
+
+                      {eventMerchItems.map((item) => (
+                        <div key={item.id} className="evt-merch-item">
+                          <div className="evt-merch-item-img">
+                            {(item.previewUrl || item.existingImageUrl)
+                              ? <img src={item.previewUrl || item.existingImageUrl} alt={item.name || 'Merch item'} />
+                              : <i className="fas fa-image"></i>}
+                          </div>
+                          <div className="evt-merch-item-fields">
+                            <div className="form-group">
+                              <label>Item Name</label>
+                              <input className="form-control" style={{ padding: '10px 15px' }} value={item.name} onChange={(e) => updateMerchItemName(item.id, e.target.value)} placeholder="e.g. Event T-Shirt" />
+                            </div>
+                            <div>
+                              <input id={`merch-image-${item.id}`} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => pickMerchItemImage(item.id, e.target.files?.[0])} />
+                              <label htmlFor={`merch-image-${item.id}`} className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                <i className="fas fa-upload"></i> {(item.previewUrl || item.existingImageUrl) ? 'Change Image' : 'Upload Image'}
+                              </label>
+                            </div>
+                          </div>
+                          <button type="button" className="evt-merch-item-remove" onClick={() => removeMerchItem(item.id)} aria-label="Remove item">
+                            <i className="fas fa-trash"></i>
+                          </button>
+                        </div>
+                      ))}
+
+                      <button type="button" className="btn-secondary" onClick={addMerchItem}>
+                        <i className="fas fa-plus"></i> Add Merch Item
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="evt-step-footer" style={{ display: 'flex', gap: 10, marginTop: 18 }}>
@@ -7337,14 +7782,42 @@ Examples:
                     </button>
                   )}
                   <div style={{ flex: 1 }} />
-                  <button type="button" className="btn-secondary" onClick={resetEventForm} disabled={eventSaving}>Cancel</button>
+                  <button type="button" className="btn-secondary" onClick={requestCloseEventForm} disabled={eventSaving}>Cancel</button>
                   {eventStep < EVENT_STEPS.length - 1 ? (
                     <button type="button" className="btn-primary" onClick={() => goToEventStep(eventStep + 1)}>
                       Next <i className="fas fa-arrow-right"></i>
                     </button>
                   ) : (
-                    <button className="btn-primary" onClick={handleEventSubmit} disabled={eventSaving}><i className={`fas ${eventSaving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> {eventSaving ? 'Saving...' : (editingEvent ? 'Update' : 'Create')}</button>
+                    <button className="btn-primary" onClick={() => handleEventSubmit()} disabled={eventSaving}><i className={`fas ${eventSaving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> {eventSaving ? 'Saving...' : (editingEvent ? 'Update' : 'Create')}</button>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* ---- Unsaved event changes: Save Draft / Discard / Keep Editing ---- */}
+            {showEventLeaveConfirm && (
+              <div className="evt-modal-overlay" onClick={() => setShowEventLeaveConfirm(false)}>
+                <div className="evt-modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Unsaved Changes</h3><p>You have unsaved changes to this event.</p></div>
+                    <button className="evt-modal-close" onClick={() => setShowEventLeaveConfirm(false)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    <p className="evt-muted" style={{ marginBottom: 18 }}>
+                      You can save what you&apos;ve entered as a draft (hidden until you publish it), discard it, or keep editing.
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <button className="btn-primary" style={{ width: '100%' }} onClick={saveEventDraftAndClose} disabled={eventSaving}>
+                        <i className={`fas ${eventSaving ? 'fa-spinner fa-spin' : 'fa-file-pen'}`}></i> {eventSaving ? 'Saving...' : 'Save Draft'}
+                      </button>
+                      <button className="evt-mini-btn danger" style={{ width: '100%', justifyContent: 'center', padding: '11px 0' }} onClick={discardEventAndClose} disabled={eventSaving}>
+                        <i className="fas fa-trash"></i> Discard Changes
+                      </button>
+                      <button className="btn-secondary" style={{ width: '100%' }} onClick={() => setShowEventLeaveConfirm(false)} disabled={eventSaving}>
+                        Keep Editing
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -7505,7 +7978,13 @@ Examples:
                             </td>
                             <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? `₱${evt.registration_fee}` : 'Free'}</td>
                             <td className="evt-nowrap" data-label="Audience">{evt.allowed_roles && evt.allowed_roles.length ? evt.allowed_roles.join(', ') : 'All'}</td>
-                            <td data-label="Status"><span className={`evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span></td>
+                            <td data-label="Status">
+                              <span className={`evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>
+                              {st.cls === 'draft' && (() => {
+                                const { percent } = getEventCompletion(evt);
+                                return <span className={`evt-publish-pct ${percent === 100 ? 'ready' : ''}`} style={{ marginLeft: 6 }} title={`${percent}% ready to publish`}>{percent}%</span>;
+                              })()}
+                            </td>
                             <td className="evt-td-actions">
                               <span className="evt-manage-wrap">
                                 <button className="evt-manage-btn" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>
@@ -7627,9 +8106,40 @@ Examples:
                     {canManage(MODULES.UPDATE_EVENTS) && featureOn('events.edit') && (
                       <button onClick={() => { setEventActionMenu(null); openEventEditor(evt); }}><i className="fas fa-edit"></i> Edit Event</button>
                     )}
-                    {canManage(MODULES.UPDATE_EVENTS) && (
-                      <button onClick={() => { setEventActionMenu(null); openEventRegistrations(evt); }}><i className="fas fa-users"></i> Registrations</button>
-                    )}
+                    {canManage(MODULES.UPDATE_EVENTS) && evt.is_published === false && (() => {
+                      const { percent, missing } = getEventCompletion(evt);
+                      const ready = percent === 100;
+                      return (
+                        <div className="evt-publish-menu-item">
+                          <button
+                            disabled={!ready}
+                            title={ready ? '' : `Missing: ${missing.join(', ')}`}
+                            onClick={() => { setEventActionMenu(null); handlePublishEvent(evt); }}
+                          >
+                            <i className="fas fa-globe"></i> Publish Event
+                            <span className={`evt-publish-pct ${ready ? 'ready' : ''}`}>{percent}%</span>
+                          </button>
+                          {!ready && (
+                            <div className="evt-publish-progress" title={`Missing: ${missing.join(', ')}`}>
+                              <div className="evt-publish-progress-bar"><span style={{ width: `${percent}%` }}></span></div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    {canManage(MODULES.UPDATE_EVENTS) && (() => {
+                      const draft = evt.is_published === false;
+                      const over = isEventOver(evt);
+                      return (
+                        <button
+                          disabled={draft || over}
+                          title={draft ? 'Publish the event first to open registrations' : over ? 'This event has already ended' : ''}
+                          onClick={() => { setEventActionMenu(null); openEventRegistrations(evt); }}
+                        >
+                          <i className="fas fa-users"></i> Registrations
+                        </button>
+                      );
+                    })()}
                     {evt.latitude && evt.longitude && (
                       <a href={`https://www.google.com/maps/dir/?api=1&destination=${evt.latitude},${evt.longitude}`} target="_blank" rel="noreferrer" onClick={() => setEventActionMenu(null)}><i className="fas fa-directions"></i> Directions</a>
                     )}
@@ -7659,6 +8169,54 @@ Examples:
                       </div>
                     )}
                     <p className="evt-muted" style={{ fontSize: '0.78rem', marginTop: 10 }}>Point the camera at an attendee&apos;s registration QR code. It will be marked as attended automatically once confirmed.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- Admin: manually add a registration (walk-in / offline) ---- */}
+            {showAdminAddReg && eventRegsModal && (
+              <div className="evt-modal-overlay" onClick={() => setShowAdminAddReg(false)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Add Registration</h3><p>{eventRegsModal.title}</p></div>
+                    <button className="evt-modal-close" onClick={() => setShowAdminAddReg(false)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
+                      <i className="fas fa-circle-info"></i> Use this to record a walk-in or offline sign-up on the attendee&apos;s behalf.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group"><label>First Name *</label><input className="form-control" value={adminAddRegForm.attendeeFirstName} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeFirstName: e.target.value })} /></div>
+                      <div className="form-group"><label>Last Name *</label><input className="form-control" value={adminAddRegForm.attendeeLastName} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeLastName: e.target.value })} /></div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group"><label>Email</label><input className="form-control" value={adminAddRegForm.attendeeEmail} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeEmail: e.target.value })} /></div>
+                      <div className="form-group"><label>Mobile</label><input className="form-control" value={adminAddRegForm.attendeeMobile} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeMobile: e.target.value })} /></div>
+                    </div>
+
+                    {!eventRegsModal.has_fee ? (
+                      <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event — they&apos;ll be registered instantly.</p>
+                    ) : (
+                      <div className="evt-pay-box">
+                        <div className="evt-pay-amount">Amount: <strong>₱{eventRegsModal.early_bird_price != null && eventRegsModal.early_bird_deadline && new Date() <= new Date(eventRegsModal.early_bird_deadline) ? eventRegsModal.early_bird_price : eventRegsModal.registration_fee}</strong></div>
+                        <div className="form-group"><label>Payment Method</label>
+                          <select className="form-control" value={adminAddRegForm.paymentMethod} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentMethod: e.target.value })}>
+                            <option value="">Select…</option>
+                            {(eventRegsModal.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={adminAddRegForm.paymentReference} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentReference: e.target.value })} /></div>
+                        <label className="evt-toggle-row" style={{ marginTop: 4 }}>
+                          <input type="checkbox" checked={adminAddRegForm.markVerified} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, markVerified: e.target.checked })} />
+                          <span>Mark payment as verified immediately (already collected in person)</span>
+                        </label>
+                      </div>
+                    )}
+
+                    <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitAdminAddReg} disabled={adminAddRegSubmitting}>
+                      <i className={`fas ${adminAddRegSubmitting ? 'fa-spinner fa-spin' : 'fa-user-plus'}`}></i> {adminAddRegSubmitting ? 'Adding…' : 'Add Registration'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -7720,7 +8278,10 @@ Examples:
                     <button className="evt-modal-close" onClick={() => setRegisterModal(null)}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
-                    <div className="form-group"><label>Full Name *</label><input className="form-control" value={registerForm.attendeeName} onChange={(e) => setRegisterForm({ ...registerForm, attendeeName: e.target.value })} /></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group"><label>First Name *</label><input className="form-control" value={registerForm.attendeeFirstName} onChange={(e) => setRegisterForm({ ...registerForm, attendeeFirstName: e.target.value })} /></div>
+                      <div className="form-group"><label>Last Name *</label><input className="form-control" value={registerForm.attendeeLastName} onChange={(e) => setRegisterForm({ ...registerForm, attendeeLastName: e.target.value })} /></div>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                       <div className="form-group"><label>Email</label><input className="form-control" value={registerForm.attendeeEmail} onChange={(e) => setRegisterForm({ ...registerForm, attendeeEmail: e.target.value })} /></div>
                       <div className="form-group"><label>Mobile</label><input className="form-control" value={registerForm.attendeeMobile} onChange={(e) => setRegisterForm({ ...registerForm, attendeeMobile: e.target.value })} /></div>
@@ -10955,6 +11516,89 @@ Examples:
                 </div>
               </div>
             )}
+          </section>
+
+          {/* ========== ISOM INQUIRIES (Super Admin, Admin, Pastor) ========== */}
+          <section className={`content-section ${activeSection === 'isom-inquiries' ? 'active' : ''}`}>
+            <div className="um-hero evt-hero">
+              <div className="um-hero-bg"></div>
+              <div className="um-hero-content">
+                <h2 className="um-hero-title">ISOM Inquiries</h2>
+                <p className="um-hero-sub">Everyone who submitted the &quot;Inquire&quot; form on the homepage ISOM section, in one place.</p>
+              </div>
+            </div>
+
+            {(() => {
+              const total = isomInquiries.length;
+              const countByStatus = (s) => isomInquiries.filter((i) => i.status === s).length;
+              return (
+                <div className="stats-container" style={{ marginBottom: 20 }}>
+                  <div className="stat-card"><div className="stat-icon"><i className="fas fa-user-graduate"></i></div><div className="stat-value">{total}</div><div className="stat-label">Total Inquiries</div></div>
+                  <div className="stat-card"><div className="stat-icon"><i className="fas fa-star"></i></div><div className="stat-value">{countByStatus('new')}</div><div className="stat-label">New</div></div>
+                  <div className="stat-card"><div className="stat-icon"><i className="fas fa-phone"></i></div><div className="stat-value">{countByStatus('contacted')}</div><div className="stat-label">Contacted</div></div>
+                  <div className="stat-card"><div className="stat-icon"><i className="fas fa-graduation-cap"></i></div><div className="stat-value">{countByStatus('enrolled')}</div><div className="stat-label">Enrolled</div></div>
+                  <div className="stat-card"><div className="stat-icon"><i className="fas fa-box-archive"></i></div><div className="stat-value">{countByStatus('closed')}</div><div className="stat-label">Closed</div></div>
+                </div>
+              );
+            })()}
+
+            <div className="evt-tabs">
+              {['all', 'new', 'contacted', 'enrolled', 'closed'].map((s) => (
+                <button key={s} className={`evt-tab ${isomInquiryStatusFilter === s ? 'active' : ''}`} onClick={() => setIsomInquiryStatusFilter(s)}>
+                  {s === 'all' ? <><i className="fas fa-list"></i> All</> : <>{s.charAt(0).toUpperCase() + s.slice(1)}</>}
+                </button>
+              ))}
+            </div>
+
+            {isomInquiriesLoading ? (
+              <div className="terms-editor-loading"><i className="fas fa-spinner fa-spin"></i> Loading inquiries...</div>
+            ) : (() => {
+              const visible = isomInquiryStatusFilter === 'all' ? isomInquiries : isomInquiries.filter((i) => i.status === isomInquiryStatusFilter);
+              return (
+                <div className="evt-table-wrapper evt-table-fixed">
+                  <div className="evt-table-scroll">
+                    <table className="evt-table">
+                      <thead>
+                        <tr>
+                          <th>Inquirer</th><th>Church</th><th>Role</th><th>Message</th><th>Date</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visible.length === 0 ? (
+                          <tr><td colSpan={7}>No inquiries yet.</td></tr>
+                        ) : visible.map((inq) => (
+                          <tr key={inq.id}>
+                            <td className="evt-td-primary" data-label="Inquirer">
+                              <div className="evt-cell-name">{inq.full_name}</div>
+                              <div className="evt-cell-sub">{inq.email}{inq.email && inq.mobile ? ' · ' : ''}{inq.mobile}</div>
+                            </td>
+                            <td data-label="Church">{inq.church_name || '—'}</td>
+                            <td className="evt-nowrap" data-label="Role">{inq.church_role || '—'}</td>
+                            <td data-label="Message"><div className="evt-cell-desc" style={{ maxWidth: 220 }}>{inq.message || '—'}</div></td>
+                            <td className="evt-nowrap" data-label="Date">{formatDateTime(inq.created_at)}</td>
+                            <td data-label="Status"><span className={`isom-inq-status isom-inq-status-${inq.status}`}>{inq.status}</span></td>
+                            <td className="evt-td-actions" data-label="Actions">
+                              {inq.status !== 'contacted' && (
+                                <button className="evt-mini-btn" disabled={isomInquiryUpdatingId === inq.id} onClick={() => updateIsomInquiryStatus(inq.id, 'contacted')}><i className="fas fa-phone"></i> Contacted</button>
+                              )}
+                              {inq.status !== 'enrolled' && (
+                                <button className="evt-mini-btn ok" disabled={isomInquiryUpdatingId === inq.id} onClick={() => updateIsomInquiryStatus(inq.id, 'enrolled')}><i className="fas fa-graduation-cap"></i> Enrolled</button>
+                              )}
+                              {inq.status !== 'closed' && (
+                                <button className="evt-mini-btn danger" disabled={isomInquiryUpdatingId === inq.id} onClick={() => updateIsomInquiryStatus(inq.id, 'closed')}><i className="fas fa-box-archive"></i> Close</button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="evt-table-foot">
+                    <span>Results {visible.length === 0 ? 0 : 1}–{visible.length} of {visible.length}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </section>
 
           {/* ========== AUDIT LOGS (Super Admin) ========== */}

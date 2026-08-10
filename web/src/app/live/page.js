@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import './live.css';
 
 const SITE_URL = 'https://jsci.vercel.app';
@@ -58,10 +59,9 @@ export default function LivePage() {
 
   useEffect(() => {
     loadStreams();
-    // Auto-refresh every 30s as fallback
-    const interval = setInterval(loadStreams, 30000);
 
-    // Realtime subscription — instant update when admin posts/updates/hides streams
+    // Realtime subscription — instant update when admin posts/updates/hides streams.
+    // This is the primary refresh path; the poll below is only a fallback.
     let channel;
     if (supabase) {
       channel = supabase
@@ -73,12 +73,15 @@ export default function LivePage() {
     }
 
     return () => {
-      clearInterval(interval);
       if (channel && supabase) {
         supabase.removeChannel(channel);
       }
     };
   }, [loadStreams]);
+
+  // Fallback refresh in case a realtime event is missed. This is a public page, so
+  // every visitor's tab polls it — keep it slow and paused while the tab is hidden.
+  useSmartPoll(loadStreams, POLL_MS.liveStreams, { immediate: false });
 
   // Format date
   const formatDateTime = (dateStr) => {

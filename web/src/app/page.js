@@ -40,13 +40,6 @@ const SERVICE_TIMES = [
   { icon: 'fa-users', day: 'Saturday', time: '2:00 PM', name: 'Youth Fellowship' },
 ];
 
-const NEWS_ITEMS = [
-  { title: 'Upcoming Baptism Service', date: 'March 15, 2026', desc: 'Join us for a special baptism service. If you\'d like to be baptized, please register at the church office.', icon: 'fa-water' },
-  { title: 'Easter Celebration', date: 'April 5, 2026', desc: 'A grand celebration of the resurrection of our Lord Jesus Christ with special music and drama presentations.', icon: 'fa-cross' },
-  { title: 'Leadership Conference 2026', date: 'May 10-12, 2026', desc: 'Three-day conference on "Raising Kingdom Leaders" — open to all church members and partners.', icon: 'fa-graduation-cap' },
-  { title: 'VBS – Vacation Bible School', date: 'June 2026', desc: 'A week of fun, games, worship, and Bible lessons for kids ages 5-12. Volunteers needed!', icon: 'fa-children' },
-];
-
 const ISOM_SLIDES = [
   '/assets/isom-training.jpg',
   '/assets/christian-leadership-conference.jpg',
@@ -54,6 +47,9 @@ const ISOM_SLIDES = [
   '/assets/worship-service.jpg',
   '/assets/community-outreach.jpg',
 ];
+
+// Icons cycled across the ISOM highlight badges, matched by bullet index.
+const ISOM_BULLET_ICONS = ['fa-bible', 'fa-dove', 'fa-people-group', 'fa-earth-americas'];
 
 const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -82,6 +78,54 @@ export default function HomePage() {
   });
   const [newsEvents, setNewsEvents] = useState([]);
   const [detailEvent, setDetailEvent] = useState(null);
+
+  // ---- ISOM Inquire modal ----
+  const ISOM_CHURCH_ROLES = [
+    'Pastor', 'Associate Pastor', 'Elder', 'Deacon', 'Ministry Leader',
+    'Worship/Song Leader', 'Usher', 'Volunteer', 'Member', 'Other',
+  ];
+  const EMPTY_ISOM_INQUIRE_FORM = { fullName: '', email: '', mobile: '', churchName: '', churchRole: '', message: '' };
+  const [showIsomInquire, setShowIsomInquire] = useState(false);
+  const [isomInquireForm, setIsomInquireForm] = useState(EMPTY_ISOM_INQUIRE_FORM);
+  const [isomInquireSubmitting, setIsomInquireSubmitting] = useState(false);
+  const [isomInquireResult, setIsomInquireResult] = useState(null); // { ok: boolean, message: string }
+
+  const openIsomInquire = () => {
+    setIsomInquireForm(EMPTY_ISOM_INQUIRE_FORM);
+    setIsomInquireResult(null);
+    setShowIsomInquire(true);
+  };
+
+  const submitIsomInquiry = async () => {
+    if (!isomInquireForm.fullName.trim()) {
+      setIsomInquireResult({ ok: false, message: 'Please enter your full name.' });
+      return;
+    }
+    if (!isomInquireForm.email.trim() && !isomInquireForm.mobile.trim()) {
+      setIsomInquireResult({ ok: false, message: 'Please provide an email or mobile number so we can reach you.' });
+      return;
+    }
+    setIsomInquireSubmitting(true);
+    setIsomInquireResult(null);
+    try {
+      const res = await fetch('/api/isom/inquiries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isomInquireForm),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsomInquireResult({ ok: true, message: data.message || "Thanks for reaching out! Our ISOM team will contact you soon." });
+        setIsomInquireForm(EMPTY_ISOM_INQUIRE_FORM);
+      } else {
+        setIsomInquireResult({ ok: false, message: data.message || 'Something went wrong. Please try again.' });
+      }
+    } catch {
+      setIsomInquireResult({ ok: false, message: 'Network error. Please try again.' });
+    } finally {
+      setIsomInquireSubmitting(false);
+    }
+  };
 
   // Public register: not logged in -> create account first (remember the event)
   const handlePublicRegister = (evt) => {
@@ -420,7 +464,7 @@ If you don't know something specific, professionally encourage the user to conta
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('about'); }}>About</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('services'); }}>Services</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('activities'); }}>Activities</a>
-          <a href="#" className="hp-nav-isom" onClick={(e) => { e.preventDefault(); scrollToSection('isom'); }}><i className="fas fa-graduation-cap"></i> ISOM</a>
+          <a href="#" className="hp-nav-isom" onClick={(e) => { e.preventDefault(); scrollToSection('isom'); }} title="ISOM"><img src="/assets/ISOM_Logo.png" alt="ISOM" className="hp-nav-isom-icon" /></a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>News</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
@@ -600,73 +644,201 @@ If you don't know something specific, professionally encourage the user to conta
 
       {/* ---- ISOM ---- */}
       <section id="isom" className="hp-isom">
-        <div className="hp-isom-bg"></div>
-        <div className="hp-isom-overlay"></div>
+        <div className="hp-isom-dotgrid"></div>
+        <div className="hp-isom-wave hp-isom-wave-left"></div>
+        <div className="hp-isom-wave hp-isom-wave-right"></div>
 
         <div className="hp-isom-inner">
-          <div className="hp-isom-header hp-animate">
+          <div className="hp-isom-topbar hp-animate">
             <span className="hp-isom-eyebrow"><i className="fas fa-star"></i> Now Enrolling</span>
-            <img src="/assets/ISOM_Logo.png" alt="ISOM Logo" className="hp-isom-logo" loading="lazy" decoding="async" />
-            <h2>International School of Ministries</h2>
-            <p className="hp-isom-sub">
-              {isomData.subtitle}
-            </p>
+            <div className="hp-isom-quote">
+              <i className="fas fa-quote-left"></i>
+              <p>Raising Kingdom Leaders.<br />Impacting Nations.</p>
+            </div>
           </div>
 
-          <div className="hp-isom-body hp-animate">
-            <div className="hp-isom-carousel">
-              {isomData.slides.map((slide, i) => (
-                <img
-                  key={i}
-                  src={slide.url}
-                  alt={`ISOM ${i + 1}`}
-                  loading="lazy"
-                  decoding="async"
-                  className={`hp-isom-slide ${i === isomIndex ? 'active' : ''}`}
-                />
-              ))}
-              <button className="hp-isom-arrow left" aria-label="Previous"
-                onClick={() => setIsomIndex((isomIndex - 1 + isomData.slides.length) % isomData.slides.length)}>
-                <i className="fas fa-chevron-left"></i>
-              </button>
-              <button className="hp-isom-arrow right" aria-label="Next"
-                onClick={() => setIsomIndex((isomIndex + 1) % isomData.slides.length)}>
-                <i className="fas fa-chevron-right"></i>
-              </button>
-              <div className="hp-isom-dots">
-                {isomData.slides.map((_, i) => (
-                  <button key={i} className={`hp-isom-dot ${i === isomIndex ? 'active' : ''}`}
-                    aria-label={`Slide ${i + 1}`} onClick={() => setIsomIndex(i)} />
+          <div className="hp-isom-grid hp-animate">
+            <div className="hp-isom-left">
+              <div className="hp-isom-brandrow">
+                <img src="/assets/ISOM_Logo.png" alt="ISOM Logo" className="hp-isom-logo-sm" loading="lazy" decoding="async" />
+                <span className="hp-isom-brandrow-divider"></span>
+                <span className="hp-isom-brandrow-text">International<br />School of<br />Ministries</span>
+              </div>
+
+              <h2 className="hp-isom-title">International School<br />of <span>Ministries</span></h2>
+              <p className="hp-isom-sub">{isomData.subtitle}</p>
+
+              <div className="hp-isom-badges">
+                {isomData.bullets.map((b, i) => (
+                  <div className="hp-isom-badge" key={i}>
+                    <div className="hp-isom-badge-icon">
+                      <i className={`fas ${ISOM_BULLET_ICONS[i % ISOM_BULLET_ICONS.length]}`}></i>
+                    </div>
+                    <span>{b}</span>
+                  </div>
                 ))}
               </div>
-            </div>
 
-            <div className="hp-isom-side">
-              <ul className="hp-isom-points">
-                {isomData.bullets.map((b, i) => (
-                  <li key={i}><i className="fas fa-check-circle"></i> {b}</li>
-                ))}
-              </ul>
-
-              <div className="hp-isom-cta">
-                <div className="hp-isom-date">
-                  <i className="fas fa-calendar-day"></i>
-                  <div>
-                    <span className="hp-isom-date-label">Classes Begin</span>
-                    <span className="hp-isom-date-value">{isomData.class_start_date}</span>
-                  </div>
-                </div>
-                <a href="/signup" className="hp-isom-btn">
-                  <i className="fas fa-graduation-cap"></i> Enroll Now
+              <div className="hp-isom-actions">
+                <button type="button" className="hp-isom-btn" onClick={openIsomInquire}>
+                  Inquire / Enroll Now
+                  <span className="hp-isom-btn-arrow"><i className="fas fa-arrow-right"></i></span>
+                </button>
+                <a href="/isom" className="hp-isom-outline-btn">
+                  <i className="fas fa-circle-info"></i> Learn More About ISOM
                 </a>
               </div>
-              <a href="/isom" className="hp-isom-learn-more">
-                <i className="fas fa-arrow-right"></i> Learn More About ISOM
-              </a>
             </div>
+
+            <div className="hp-isom-right">
+              <div className="hp-isom-carousel">
+                {isomData.slides.map((slide, i) => (
+                  <img
+                    key={i}
+                    src={slide.url}
+                    alt={`ISOM ${i + 1}`}
+                    loading="lazy"
+                    decoding="async"
+                    className={`hp-isom-slide ${i === isomIndex ? 'active' : ''}`}
+                  />
+                ))}
+                <button className="hp-isom-arrow left" aria-label="Previous"
+                  onClick={() => setIsomIndex((isomIndex - 1 + isomData.slides.length) % isomData.slides.length)}>
+                  <i className="fas fa-chevron-left"></i>
+                </button>
+                <button className="hp-isom-arrow right" aria-label="Next"
+                  onClick={() => setIsomIndex((isomIndex + 1) % isomData.slides.length)}>
+                  <i className="fas fa-chevron-right"></i>
+                </button>
+                <div className="hp-isom-dots">
+                  {isomData.slides.map((_, i) => (
+                    <button key={i} className={`hp-isom-dot ${i === isomIndex ? 'active' : ''}`}
+                      aria-label={`Slide ${i + 1}`} onClick={() => setIsomIndex(i)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="hp-isom-statsbar hp-animate">
+            <div className="hp-isom-stat hp-isom-stat-date">
+              <i className="fas fa-calendar-day"></i>
+              <div>
+                <span className="hp-isom-stat-label">Classes Begin</span>
+                <span className="hp-isom-stat-value">{isomData.class_start_date}</span>
+              </div>
+            </div>
+            <div className="hp-isom-stat"><i className="fas fa-graduation-cap"></i><span>Spirit-Filled Learning</span></div>
+            <div className="hp-isom-stat"><i className="fas fa-people-group"></i><span>Global Community</span></div>
+            <div className="hp-isom-stat"><i className="fas fa-earth-americas"></i><span>Transforming Lives</span></div>
           </div>
         </div>
       </section>
+
+      {/* ---- ISOM INQUIRE MODAL ---- */}
+      {showIsomInquire && (
+        <div className="hp-evt-overlay" onClick={() => setShowIsomInquire(false)}>
+          <div className="hp-isom-inquire-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="hp-evt-close" onClick={() => setShowIsomInquire(false)} aria-label="Close"><i className="fas fa-times"></i></button>
+
+            {isomInquireResult?.ok ? (
+              <div className="hp-isom-inquire-success">
+                <div className="hp-isom-inquire-success-icon"><i className="fas fa-check"></i></div>
+                <h3>Inquiry Sent!</h3>
+                <p>{isomInquireResult.message}</p>
+                <button type="button" className="hp-isom-btn" onClick={() => setShowIsomInquire(false)}>Close</button>
+              </div>
+            ) : (
+              <>
+                <div className="hp-isom-inquire-head">
+                  <img src="/assets/ISOM_Logo.png" alt="ISOM" className="hp-isom-inquire-logo" />
+                  <div>
+                    <h3>Inquire About ISOM</h3>
+                    <p>Tell us a bit about yourself and our ISOM team will reach out to you.</p>
+                  </div>
+                </div>
+
+                <div className="hp-isom-inquire-form">
+                  <div className="hp-form-group">
+                    <label>Full Name *</label>
+                    <input
+                      type="text"
+                      className="hp-form-control"
+                      value={isomInquireForm.fullName}
+                      onChange={(e) => setIsomInquireForm({ ...isomInquireForm, fullName: e.target.value })}
+                      placeholder="Juan Dela Cruz"
+                    />
+                  </div>
+                  <div className="hp-isom-inquire-row">
+                    <div className="hp-form-group">
+                      <label>Email</label>
+                      <input
+                        type="email"
+                        className="hp-form-control"
+                        value={isomInquireForm.email}
+                        onChange={(e) => setIsomInquireForm({ ...isomInquireForm, email: e.target.value })}
+                        placeholder="you@email.com"
+                      />
+                    </div>
+                    <div className="hp-form-group">
+                      <label>Mobile</label>
+                      <input
+                        type="text"
+                        className="hp-form-control"
+                        value={isomInquireForm.mobile}
+                        onChange={(e) => setIsomInquireForm({ ...isomInquireForm, mobile: e.target.value })}
+                        placeholder="09XXXXXXXXX"
+                      />
+                    </div>
+                  </div>
+                  <div className="hp-isom-inquire-row">
+                    <div className="hp-form-group">
+                      <label>Church Name</label>
+                      <input
+                        type="text"
+                        className="hp-form-control"
+                        value={isomInquireForm.churchName}
+                        onChange={(e) => setIsomInquireForm({ ...isomInquireForm, churchName: e.target.value })}
+                        placeholder="e.g. SanctuaryHub Church"
+                      />
+                    </div>
+                    <div className="hp-form-group">
+                      <label>Role in Church</label>
+                      <select
+                        className="hp-form-control"
+                        value={isomInquireForm.churchRole}
+                        onChange={(e) => setIsomInquireForm({ ...isomInquireForm, churchRole: e.target.value })}
+                      >
+                        <option value="">Select…</option>
+                        {ISOM_CHURCH_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="hp-form-group">
+                    <label>Message (optional)</label>
+                    <textarea
+                      className="hp-form-control"
+                      rows={3}
+                      value={isomInquireForm.message}
+                      onChange={(e) => setIsomInquireForm({ ...isomInquireForm, message: e.target.value })}
+                      placeholder="Any questions about ISOM?"
+                    />
+                  </div>
+
+                  {isomInquireResult && !isomInquireResult.ok && (
+                    <p className="hp-isom-inquire-error"><i className="fas fa-circle-exclamation"></i> {isomInquireResult.message}</p>
+                  )}
+
+                  <button type="button" className="hp-isom-btn hp-isom-inquire-submit" onClick={submitIsomInquiry} disabled={isomInquireSubmitting}>
+                    <i className={`fas ${isomInquireSubmitting ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
+                    {isomInquireSubmitting ? 'Sending…' : 'Send Inquiry'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ---- NEWS & UPDATES ---- */}
       <section id="news" className="hp-section">
@@ -742,20 +914,11 @@ If you don't know something specific, professionally encourage the user to conta
               );
             })
           ) : (
-            NEWS_ITEMS.map((n, i) => (
-              <div className="hp-activity-card hp-animate" key={i} style={{ transitionDelay: `${i * 0.1}s` }}>
-                <div style={{ height: 160, background: 'linear-gradient(135deg, var(--primary), #3e2e08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <i className={`fas ${n.icon}`} style={{ fontSize: '3.5rem', color: 'var(--accent)', opacity: 0.7 }}></i>
-                </div>
-                <div className="hp-activity-body">
-                  <h4>{n.title}</h4>
-                  <p>{n.desc}</p>
-                  <div className="hp-activity-meta">
-                    <i className="fas fa-calendar-check"></i> {n.date}
-                  </div>
-                </div>
-              </div>
-            ))
+            <div className="hp-empty-state hp-animate">
+              <div className="hp-empty-state-icon"><i className="fas fa-calendar-xmark"></i></div>
+              <h3>No Upcoming Events</h3>
+              <p>There are no events scheduled right now. Check back soon — we&apos;re always planning something new!</p>
+            </div>
           )}
         </div>
       </section>
