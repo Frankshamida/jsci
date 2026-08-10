@@ -94,7 +94,21 @@ export function buildCloudinaryAudioUrl(publicId, overrides = {}) {
   });
 }
 
-export async function uploadBufferToCloudinary(arrayBuffer, { fileName, mimeType, folder = 'JSCI-System', resourceType = 'auto' } = {}) {
+// Incoming transformations — applied BEFORE the asset is stored, so the original
+// oversized upload is never kept. This is the single biggest saver on the free plan:
+// a 5 MB phone photo lands as a few hundred KB, and every later delivery of it is
+// cheaper too. Raise the width here if you ever need larger originals.
+const UPLOAD_IMAGE_TRANSFORM = 'c_limit,w_1600,q_auto:good';
+const UPLOAD_AUDIO_TRANSFORM = 'q_auto:eco';
+
+export async function uploadBufferToCloudinary(arrayBuffer, {
+  fileName,
+  mimeType,
+  folder = 'JSCI-System',
+  resourceType = 'auto',
+  // Escape hatch: pass null to store the untouched original (rarely needed).
+  transformation,
+} = {}) {
   const { cloudName, apiKey, apiSecret } = getCloudinaryConfig();
 
   const timestamp = Math.floor(Date.now() / 1000);
@@ -108,7 +122,17 @@ export async function uploadBufferToCloudinary(arrayBuffer, { fileName, mimeType
     return 'auto';
   })();
 
+  // Pick a default incoming transformation from the asset kind unless the caller
+  // supplied one explicitly (including an explicit null to opt out).
+  const incoming = transformation === undefined
+    ? (inferredType === 'image' ? UPLOAD_IMAGE_TRANSFORM
+      : inferredType === 'video' ? UPLOAD_AUDIO_TRANSFORM
+        : null)
+    : transformation;
+
+  // Every signed parameter we send must also be part of the signature payload.
   const signPayload = { folder, public_id: publicId, timestamp };
+  if (incoming) signPayload.transformation = incoming;
   const signature = signParams(signPayload, apiSecret);
 
   const form = new FormData();
@@ -117,6 +141,7 @@ export async function uploadBufferToCloudinary(arrayBuffer, { fileName, mimeType
   form.append('timestamp', String(timestamp));
   form.append('folder', folder);
   form.append('public_id', publicId);
+  if (incoming) form.append('transformation', incoming);
   form.append('signature', signature);
 
   const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${inferredType}/upload`;
@@ -128,11 +153,18 @@ export async function uploadBufferToCloudinary(arrayBuffer, { fileName, mimeType
     throw new Error(msg);
   }
 
+  const storedType = json.resource_type || inferredType;
+
   return {
     id: json.public_id,
     publicId: json.public_id,
     secureUrl: json.secure_url,
-    resourceType: json.resource_type || inferredType,
+    // Bandwidth-optimised delivery URL (adds f_auto so browsers get WebP/AVIF).
+    // Prefer this over secureUrl when saving a URL that will be rendered a lot.
+    optimizedUrl: storedType === 'image'
+      ? buildCloudinaryImageUrl(json.public_id)
+      : json.secure_url,
+    resourceType: storedType,
     format: json.format || null,
     bytes: json.bytes || 0,
   };

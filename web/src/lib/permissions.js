@@ -375,6 +375,7 @@ export function getSidebarMenu(role, userData) {
       { id: 'permissions-control', icon: 'fas fa-toggle-on', label: 'Permissions Control', section: 'permissions-control' },
       { id: 'system', icon: 'fas fa-cogs', label: 'System Config', section: 'system-config' },
       { id: 'isom', icon: 'fas fa-graduation-cap', label: 'ISOM Management', section: 'isom-management' },
+      { id: 'isom-inquiries', icon: 'fas fa-user-graduate', label: 'ISOM Inquiries', section: 'isom-inquiries' },
       { id: 'terms-conditions', icon: 'fas fa-file-contract', label: 'Terms & Conditions', section: 'terms-conditions' },
       { id: 'audit', icon: 'fas fa-history', label: 'Audit Logs', section: 'audit-logs' },
       { id: 'bible', icon: 'fas fa-bible', label: 'Bible Reader', section: 'bible-reader' },
@@ -418,6 +419,11 @@ export function getSidebarMenu(role, userData) {
   // Pastor-specific: User Events Oversight
   if (dashboardType === 'pastor') {
     menu.push({ id: 'user-events-oversight', icon: 'fas fa-calendar-plus', label: 'User Events', section: 'user-events-oversight' });
+  }
+
+  // ISOM Inquiries: Admin & Pastor only (Super Admin gets it in its own menu above)
+  if (dashboardType === 'admin' || dashboardType === 'pastor') {
+    menu.push({ id: 'isom-inquiries', icon: 'fas fa-user-graduate', label: 'ISOM Inquiries', section: 'isom-inquiries' });
   }
 
   menu.push(

@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
+import { cached, cacheInvalidate } from '@/lib/serverCache';
 
 const EVENT_MANAGER_ROLES = ['Admin', 'Super Admin'];
+
+// The pending-alerts feed is identical for every admin and is polled in the
+// background, so serve it from a short shared cache instead of re-querying per tab.
+const PENDING_ALERTS_TTL_MS = 60 * 1000;
+const PENDING_ALERTS_KEY = 'events:pending-registrations';
 
 async function verifyEventManager(actorId) {
   if (!actorId) return null;
@@ -41,14 +47,17 @@ export async function GET(request) {
     if (pending) {
       const actor = await verifyEventManager(searchParams.get('actorId'));
       if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
-      const { data, error } = await supabase
-        .from('event_registrations')
-        .select('id, attendee_name, status, created_at, event:events(id, title)')
-        .in('status', ['payment_submitted', 'pending_payment', 'registered'])
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return NextResponse.json({ success: true, count: (data || []).length, data: data || [] });
+      const data = await cached(PENDING_ALERTS_KEY, PENDING_ALERTS_TTL_MS, async () => {
+        const { data: rows, error } = await supabase
+          .from('event_registrations')
+          .select('id, attendee_name, status, created_at, event:events(id, title)')
+          .in('status', ['payment_submitted', 'pending_payment', 'registered'])
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        return rows || [];
+      });
+      return NextResponse.json({ success: true, count: data.length, data });
     }
 
     if (!eventId && !userId) return NextResponse.json({ success: false, message: 'eventId or userId required' }, { status: 400 });
@@ -103,7 +112,12 @@ export async function POST(request) {
       fields = await request.json();
     }
 
-    const { eventId, userId, attendeeName, attendeeEmail, attendeeMobile, paymentMethod, paymentReference } = fields;
+    const { eventId, userId, attendeeFirstName, attendeeLastName, attendeeEmail, attendeeMobile, paymentMethod, paymentReference } = fields;
+    // attendee_firstname/attendee_lastname are the source of truth; attendee_name is
+    // kept alongside (combined) so existing displays/queries don't need to change.
+    const firstName = (attendeeFirstName || '').trim();
+    const lastName = (attendeeLastName || '').trim();
+    const attendeeName = (fields.attendeeName || `${firstName} ${lastName}`).trim();
     if (!eventId || !attendeeName) {
       return NextResponse.json({ success: false, message: 'Event and attendee name are required' }, { status: 400 });
     }
@@ -163,12 +177,15 @@ export async function POST(request) {
 
     const { data, error } = await supabase.from('event_registrations').insert({
       event_id: eventId, user_id: userId || null,
+      attendee_firstname: firstName || null, attendee_lastname: lastName || null,
       attendee_name: attendeeName, attendee_email: attendeeEmail || null, attendee_mobile: attendeeMobile || null,
       amount, payment_method: paymentMethod || null, payment_reference: paymentReference || null,
       payment_proof_url: proofUrl, status,
     }).select().single();
     if (error) throw error;
 
+    // A new registration must show on the admin bell immediately.
+    cacheInvalidate(PENDING_ALERTS_KEY);
     await logAudit(null, 'event_register', data.id, `${attendeeName} registered for "${event.title}" (${status})`);
     return NextResponse.json({ success: true, data, message: event.has_fee ? 'Registration submitted' : 'You are registered!' });
   } catch (error) {
@@ -200,6 +217,8 @@ export async function PUT(request) {
     const { data, error } = await supabase.from('event_registrations').update(update).eq('id', id).select().single();
     if (error) throw error;
 
+    // Verifying/cancelling changes the pending set — clear the bell's cached feed.
+    cacheInvalidate(PENDING_ALERTS_KEY);
     await logAudit(actor, attended !== undefined ? 'event_attendance_update' : 'event_registration_update', id, attended !== undefined ? `Set attendance to ${attended}` : `Set registration to ${status}`);
     return NextResponse.json({ success: true, data, message: attended !== undefined ? (attended ? 'Marked attended' : 'Attendance cleared') : 'Registration updated' });
   } catch (error) {

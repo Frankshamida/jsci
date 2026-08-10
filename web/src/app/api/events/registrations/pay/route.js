@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
+import { cacheInvalidate } from '@/lib/serverCache';
 
 async function logAudit(userId, action, resourceId, details) {
   try {
@@ -77,6 +78,8 @@ export async function POST(request) {
     const { data, error } = await supabase.from('event_registrations').update(update).eq('id', registrationId).select().single();
     if (error) throw error;
 
+    // Payment moves this into the admin's "needs verification" set — refresh the bell.
+    cacheInvalidate('events:pending-registrations');
     await logAudit(userId, 'event_payment_submit', registrationId, `Payment submitted for registration ${registrationId} (₱${amount})`);
     return NextResponse.json({ success: true, data, message: 'Payment submitted. Your registration will be confirmed once verified.' });
   } catch (error) {
