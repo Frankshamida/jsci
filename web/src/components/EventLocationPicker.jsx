@@ -153,24 +153,11 @@ export default function EventLocationPicker({ value, onChange }) {
       <div ref={mapEl} className="evt-loc-map"></div>
       <p className="evt-loc-hint"><i className="fas fa-hand-pointer"></i> Click the map or drag the pin to set the exact spot. {loading && <span> · locating…</span>}</p>
 
-      <div className="evt-loc-fields">
-        {[
-          ['Country', value?.loc_country],
-          ['Region', value?.loc_region],
-          ['Province', value?.loc_province],
-          ['City / Municipality', value?.loc_city],
-          ['Barangay', value?.loc_barangay],
-        ].map(([label, val]) => (
-          <div key={label} className="evt-loc-field">
-            <span className="evt-loc-label">{label}</span>
-            <span className="evt-loc-value">{val || '—'}</span>
-          </div>
-        ))}
-        <div className="evt-loc-field">
-          <span className="evt-loc-label">Coordinates</span>
-          <span className="evt-loc-value">{value?.latitude ? `${value.latitude.toFixed(5)}, ${value.longitude.toFixed(5)}` : '—'}</span>
-        </div>
-      </div>
+      {/* The Country / Region / Province / City / Barangay readout used to be
+          rendered here. It is intentionally gone - it was six boxes of noise
+          the admin cannot edit anyway. The VALUES are still captured from the
+          geocoder and still saved (see onChange in the parent); the parent now
+          shows a single compact "Pinned location" summary instead. */}
     </div>
   );
 }

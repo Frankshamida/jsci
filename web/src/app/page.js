@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import './home.css';
+import { withTitleCase } from '@/lib/eventTitle';
 
 // ============================================
 // DATA
@@ -50,6 +51,56 @@ const ISOM_SLIDES = [
 
 // Icons cycled across the ISOM highlight badges, matched by bullet index.
 const ISOM_BULLET_ICONS = ['fa-bible', 'fa-dove', 'fa-people-group', 'fa-earth-americas'];
+
+// ---- Event date helpers -------------------------------------------------
+// How many CALENDAR days an event covers: Fri 9am -> Sun 5pm is 3 days to a
+// person even though it is 56 hours, so both ends are normalised to midnight.
+const evtDayCount = (startStr, endStr) => {
+  if (!startStr || !endStr) return 1;
+  const s = new Date(startStr);
+  const e = new Date(endStr);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
+  const s0 = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  const e0 = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+  const days = Math.round((e0.getTime() - s0.getTime()) / 86400000) + 1;
+  return days < 1 ? 1 : days;
+};
+
+// Where the event sits relative to now. Used for the status pill.
+// An event with no end date is treated as over once its start has passed.
+const evtStatus = (startStr, endStr) => {
+  if (!startStr) return null;
+  const s = new Date(startStr);
+  if (Number.isNaN(s.getTime())) return null;
+  const now = Date.now();
+  const e = endStr ? new Date(endStr) : null;
+  const endMs = e && !Number.isNaN(e.getTime()) ? e.getTime() : s.getTime();
+  if (now < s.getTime()) return 'upcoming';
+  if (now <= endMs) return 'ongoing';
+  return 'ended';
+};
+
+// "Saturday, September 26, 2025 at 9:00 AM - Monday, September 28 at 5:00 PM"
+// The old version formatted end_date with hour+minute ONLY, so a multi-day
+// event read as "September 26 at 9:00 AM - 5:00 PM" and silently lost the
+// end date entirely. Same-day events still collapse to just the end time.
+const evtWhen = (startStr, endStr) => {
+  if (!startStr) return 'TBA';
+  const s = new Date(startStr);
+  if (Number.isNaN(s.getTime())) return 'TBA';
+  const full = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' };
+  const startTxt = s.toLocaleString('en-US', full);
+  if (!endStr) return startTxt;
+  const e = new Date(endStr);
+  if (Number.isNaN(e.getTime())) return startTxt;
+  const sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
+  if (sameDay) return startTxt + ' \u2013 ' + e.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const sameYear = s.getFullYear() === e.getFullYear();
+  const endTxt = e.toLocaleString('en-US', sameYear
+    ? { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+    : full);
+  return startTxt + ' \u2013 ' + endTxt;
+};
 
 const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -227,7 +278,7 @@ export default function HomePage() {
               if (bUpcoming) return 1;
               return db - da;
             });
-            setNewsEvents(sorted.slice(0, 8));
+            setNewsEvents(sorted.slice(0, 8).map(withTitleCase));
           }
         }
       } catch { /* fall back to defaults */ }
@@ -454,9 +505,10 @@ If you don't know something specific, professionally encourage the user to conta
       {/* ---- NAVBAR ---- */}
       <nav className="hp-navbar">
         <a className="hp-navbar-brand" href="/">
-          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="hp-navbar-logo" fetchPriority="high" decoding="async" />
+          <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" className="hp-navbar-logo" fetchPriority="high" decoding="async" />
           <div className="hp-navbar-title">
-            SanctuaryHub
+            Joyful Sound Church
+            <span>International</span>
           </div>
         </a>
 
@@ -465,11 +517,10 @@ If you don't know something specific, professionally encourage the user to conta
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('services'); }}>Services</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('activities'); }}>Activities</a>
           <a href="#" className="hp-nav-isom" onClick={(e) => { e.preventDefault(); scrollToSection('isom'); }} title="ISOM"><img src="/assets/ISOM_Logo.png" alt="ISOM" className="hp-nav-isom-icon" /></a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>News</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>Events</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
           <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
           <a href="/login" className="hp-btn-login"><i className="fas fa-sign-in-alt"></i> Login</a>
-          <a href="/signup" className="hp-btn-signup"><i className="fas fa-user-plus"></i> Sign Up</a>
         </div>
 
         <div className="hp-navbar-actions">
@@ -491,8 +542,9 @@ If you don't know something specific, professionally encourage the user to conta
         ))}
 
         <div className="hp-hero-overlay">
-          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="hp-hero-logo" />
-          <h1 className="hp-hero-heading">SanctuaryHub</h1>
+          <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" className="hp-hero-logo" />
+          <h1 className="hp-hero-heading">Joyful Sound Church</h1>
+          <p className="hp-hero-sub">International</p>
           <p className="hp-hero-tagline">{HERO_SLIDES[heroIndex].sub}</p>
           <div className="hp-hero-buttons">
             <a href="/signup" className="hp-btn-primary">
@@ -840,79 +892,34 @@ If you don't know something specific, professionally encourage the user to conta
         </div>
       )}
 
-      {/* ---- NEWS & UPDATES ---- */}
+      {/* ---- UPCOMING EVENTS ---- */}
       <section id="news" className="hp-section">
         <div className="hp-section-header hp-animate">
           <div className="hp-divider"></div>
-          <h2>News & Upcoming Events</h2>
-          <p>Stay updated with what&apos;s happening in our church community</p>
+          <h2>Church Upcoming Events</h2>
+          <p>Stay updated with the upcoming events in our church community</p>
         </div>
 
         <div className="hp-invite-grid">
           {newsEvents.length > 0 ? (
-            newsEvents.map((evt, i) => {
-              const start = evt.event_date ? new Date(evt.event_date) : null;
-              const dateLabel = start ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'TBA';
-              const dayLabel = start ? start.toLocaleDateString('en-US', { weekday: 'long' }) : '';
-              const timeLabel = start ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
-              return (
-                <div className="hp-invite-card hp-animate" key={evt.id || i} style={{ transitionDelay: `${i * 0.08}s` }}>
-                  {/* Hero */}
-                  <div className="hp-invite-hero">
-                    {evt.image_url && <img src={evt.image_url} alt={evt.title} className="hp-invite-hero-img" loading="lazy" decoding="async" />}
-                    <div className="hp-invite-hero-overlay"></div>
-                    <div className="hp-invite-dots"></div>
-                    <span className="hp-invite-pill"><i className="fas fa-star"></i> UPCOMING EVENT</span>
-                    <div className="hp-invite-hero-text">
-                      <span className="hp-invite-script">You&apos;re Invited!</span>
-                      <p className="hp-invite-tagline">Join us for a meaningful gathering filled with worship, fellowship, and blessing.</p>
-                    </div>
-                  </div>
+            newsEvents.map((evt, i) => (
+              <button
+                type="button"
+                className="hp-invite-card hp-animate"
+                key={evt.id || i}
+                style={{ transitionDelay: `${i * 0.08}s` }}
+                onClick={() => setDetailEvent(evt)}
+                aria-label={`View details for ${evt.title}`}
+              >
+                <div className="hp-invite-hero">
+                  {evt.image_url
+                    ? <img src={evt.image_url} alt={evt.title} className="hp-invite-hero-img" loading="lazy" decoding="async" />
+                    : <span className="hp-invite-hero-ph"><i className="fas fa-calendar-day"></i></span>}
 
-                  {/* Info card */}
-                  <div className="hp-invite-info">
-                    <h3 className="hp-invite-title">{evt.title}</h3>
-                    {evt.description && <p className="hp-invite-desc">{evt.description}</p>}
-                    <span className="hp-invite-rule"></span>
-
-                    <div className="hp-invite-details">
-                      <div className="hp-invite-left">
-                        <div className="hp-invite-row">
-                          <span className="hp-invite-ico"><i className="fas fa-location-dot"></i></span>
-                          <div>
-                            <strong>{(evt.location || evt.loc_city || 'To be announced').toUpperCase()}</strong>
-                            <span>{[evt.loc_city, evt.loc_province || 'Philippines'].filter(Boolean).join(', ')}</span>
-                          </div>
-                        </div>
-                        <div className="hp-invite-row">
-                          <span className="hp-invite-ico"><i className="fas fa-calendar-days"></i></span>
-                          <div>
-                            <strong>{dateLabel.toUpperCase()}</strong>
-                            <span>{[dayLabel, timeLabel].filter(Boolean).join(' • ')}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className={`hp-invite-fee ${evt.has_fee ? 'paid' : 'free'}`}>
-                        <span className="hp-invite-fee-label">{evt.has_fee ? 'REGISTRATION FEE' : 'ADMISSION'}</span>
-                        <span className="hp-invite-fee-value">{evt.has_fee ? `₱${evt.registration_fee}` : 'FREE'}</span>
-                      </div>
-                    </div>
-
-                    <div className="hp-invite-actions">
-                      <button className="hp-invite-btn outline" onClick={() => setDetailEvent(evt)}><i className="fas fa-circle-info"></i> View Details</button>
-                      {evt.registration_required !== false && (
-                        <button className="hp-invite-btn solid" onClick={() => handlePublicRegister(evt)}><i className="fas fa-user-plus"></i> Register Now</button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Footer */}
-                  <div className="hp-invite-foot">
-                    <img src="/assets/LOGO.png" alt="" /> Let&apos;s grow, learn, and make a difference together.
-                  </div>
+                  <span className="hp-invite-pill"><i className="fas fa-star"></i> UPCOMING EVENT</span>
                 </div>
-              );
-            })
+              </button>
+            ))
           ) : (
             <div className="hp-empty-state hp-animate">
               <div className="hp-empty-state-icon"><i className="fas fa-calendar-xmark"></i></div>
@@ -937,6 +944,13 @@ If you don't know something specific, professionally encourage the user to conta
 
             <div className="hp-evt-content">
               <div className="hp-evt-badges">
+                {(() => {
+                  const st = evtStatus(detailEvent.event_date, detailEvent.end_date);
+                  if (!st) return null;
+                  const copy = { upcoming: 'Upcoming', ongoing: 'Happening now', ended: 'Ended' };
+                  const icon = { upcoming: 'fa-clock', ongoing: 'fa-circle-dot', ended: 'fa-flag-checkered' };
+                  return <span className={`hp-evt-status ${st}`}><i className={`fas ${icon[st]}`}></i> {copy[st]}</span>;
+                })()}
                 <span className={`hp-event-fee ${detailEvent.has_fee ? 'paid' : 'free'}`}>{detailEvent.has_fee ? `₱${detailEvent.registration_fee}` : 'Free Event'}</span>
                 {detailEvent.allowed_roles && detailEvent.allowed_roles.length > 0 && <span className="hp-event-roles">{detailEvent.allowed_roles.join(', ')} only</span>}
               </div>
@@ -949,8 +963,13 @@ If you don't know something specific, professionally encourage the user to conta
                   <i className="fas fa-calendar-check"></i>
                   <div>
                     <span className="hp-evt-info-label">When</span>
-                    <span>{detailEvent.event_date ? new Date(detailEvent.event_date).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'TBA'}
-                      {detailEvent.end_date ? ` – ${new Date(detailEvent.end_date).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}</span>
+                    <span>{evtWhen(detailEvent.event_date, detailEvent.end_date)}</span>
+                    {evtDayCount(detailEvent.event_date, detailEvent.end_date) > 1 && (
+                      <span className="hp-evt-days">
+                        <i className="fas fa-calendar-week"></i>
+                        Runs {evtDayCount(detailEvent.event_date, detailEvent.end_date)} days
+                      </span>
+                    )}
                   </div>
                 </div>
                 {(detailEvent.location || detailEvent.loc_city) && (
@@ -965,12 +984,25 @@ If you don't know something specific, professionally encourage the user to conta
                     </div>
                   </div>
                 )}
-                {detailEvent.max_participants && (
-                  <div className="hp-evt-info-row">
-                    <i className="fas fa-users"></i>
-                    <div><span className="hp-evt-info-label">Capacity</span><span>{detailEvent.max_participants} participants</span></div>
-                  </div>
-                )}
+                {detailEvent.max_participants && (() => {
+                  const left = detailEvent.slots_left != null
+                    ? detailEvent.slots_left
+                    : Math.max(0, detailEvent.max_participants - (detailEvent.registered_count || 0));
+                  const full = left <= 0;
+                  return (
+                    <div className="hp-evt-info-row">
+                      <i className="fas fa-users"></i>
+                      <div>
+                        <span className="hp-evt-info-label">Capacity</span>
+                        <span>
+                          {full
+                            ? <strong style={{ color: '#dc2626' }}>Fully booked</strong>
+                            : <><strong style={{ color: 'var(--primary)' }}>{left}</strong> of {detailEvent.max_participants} slots left</>}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {detailEvent.registration_deadline && (
                   <div className="hp-evt-info-row">
                     <i className="fas fa-hourglass-half"></i>
@@ -985,11 +1017,19 @@ If you don't know something specific, professionally encourage the user to conta
                 )}
               </div>
 
-              {detailEvent.registration_required !== false && (
-                <button className="hp-evt-register" onClick={() => handlePublicRegister(detailEvent)}>
-                  <i className="fas fa-user-plus"></i> Register for this Event
-                </button>
-              )}
+              {detailEvent.registration_required !== false && (() => {
+                const left = detailEvent.slots_left != null ? detailEvent.slots_left : (detailEvent.max_participants ? Math.max(0, detailEvent.max_participants - (detailEvent.registered_count || 0)) : null);
+                const full = left != null && left <= 0;
+                return full ? (
+                  <button className="hp-evt-register" disabled style={{ opacity: 0.55, cursor: 'not-allowed' }}>
+                    <i className="fas fa-ban"></i> Fully Booked
+                  </button>
+                ) : (
+                  <button className="hp-evt-register" onClick={() => handlePublicRegister(detailEvent)}>
+                    <i className="fas fa-user-plus"></i> Register for this Event
+                  </button>
+                );
+              })()}
               <p className="hp-evt-note"><i className="fas fa-circle-info"></i> You&apos;ll create a free account first, then complete your registration.</p>
             </div>
           </div>
@@ -1092,10 +1132,10 @@ If you don't know something specific, professionally encourage the user to conta
               building disciples, and making a lasting impact for God&apos;s kingdom.
             </p>
             <div className="hp-footer-socials">
-              <a href="#" title="Facebook"><i className="fab fa-facebook-f"></i></a>
-              <a href="#" title="YouTube"><i className="fab fa-youtube"></i></a>
-              <a href="#" title="Instagram"><i className="fab fa-instagram"></i></a>
-              <a href="#" title="TikTok"><i className="fab fa-tiktok"></i></a>
+              <a href="https://www.facebook.com/CebuCityJoyfulSound" target="_blank" rel="noopener noreferrer" title="Facebook"><i className="fab fa-facebook-f"></i></a>
+              <a href="https://www.youtube.com/@JoyfulSoundChurchCebuCity" target="_blank" rel="noopener noreferrer" title="YouTube"><i className="fab fa-youtube"></i></a>
+              <span className="hp-social-disabled" title="Instagram (coming soon)"><i className="fab fa-instagram"></i></span>
+              <span className="hp-social-disabled" title="TikTok (coming soon)"><i className="fab fa-tiktok"></i></span>
             </div>
           </div>
 
@@ -1106,7 +1146,7 @@ If you don't know something specific, professionally encourage the user to conta
               <li><a href="#about"><i className="fas fa-chevron-right"></i> About Us</a></li>
               <li><a href="#services"><i className="fas fa-chevron-right"></i> Service Times</a></li>
               <li><a href="#activities"><i className="fas fa-chevron-right"></i> Activities</a></li>
-              <li><a href="#news"><i className="fas fa-chevron-right"></i> News & Events</a></li>
+              <li><a href="#news"><i className="fas fa-chevron-right"></i> Events</a></li>
               <li><a href="#pastors"><i className="fas fa-chevron-right"></i> Our Pastors</a></li>
               <li><a href="#location"><i className="fas fa-chevron-right"></i> Visit Us</a></li>
             </ul>

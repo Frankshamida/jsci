@@ -11,7 +11,7 @@
   justify-content: center;
   padding: 30px;
   background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 50%, #16213e 100%);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .isom-container {
@@ -53,7 +53,7 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .isom-back-btn:hover {
@@ -75,7 +75,7 @@
 }
 
 .isom-brand-text {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.9rem;
   color: #fff;
@@ -123,7 +123,7 @@
   border-radius: 20px;
   background: linear-gradient(135deg, var(--accent, #ffc300), var(--secondary, #c9980b));
   color: #1e1e1e;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.75rem;
   letter-spacing: 0.5px;
@@ -140,7 +140,7 @@
 }
 
 .isom-hero h1 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 800;
   font-size: 1.7rem;
   color: #1a1a2e;
@@ -241,7 +241,7 @@
 }
 
 .isom-about h3 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--primary, #926c15);
@@ -312,7 +312,7 @@
 
 .isom-date-value {
   display: block;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 1rem;
   color: #1a1a2e;
@@ -326,7 +326,7 @@
   border-radius: 30px;
   background: linear-gradient(135deg, var(--accent, #ffc300), var(--secondary, #c9980b));
   color: #1e1e1e;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 800;
   font-size: 0.95rem;
   text-decoration: none;

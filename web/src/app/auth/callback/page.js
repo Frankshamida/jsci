@@ -215,7 +215,7 @@ function AuthCallbackContent() {
           position: 'fixed', inset: 0, zIndex: 99999,
           background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%)',
           display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-          fontFamily: "'Montserrat', 'Poppins', sans-serif", overflow: 'hidden',
+          fontFamily: 'var(--font-body)', overflow: 'hidden',
         }}>
           {/* Floating particles */}
           <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
@@ -258,7 +258,7 @@ function AuthCallbackContent() {
             {/* Greeting */}
             <h2 style={{
               color: '#fff', fontSize: '1.5rem', fontWeight: 700, margin: '0 0 4px',
-              fontFamily: "'Playfair Display', serif",
+              fontFamily: 'var(--font-heading)',
               animation: 'splashFadeUp 0.6s 0.8s ease both',
             }}>
               {splashType === 'signup' ? 'Welcome to the family,' : 'Welcome back,'} <span style={{ color: '#FFC300' }}>{splashName}!</span>
@@ -306,7 +306,7 @@ function AuthCallbackContent() {
           minHeight: '100vh',
           display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
           background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-          fontFamily: "'Montserrat', sans-serif",
+          fontFamily: 'var(--font-body)',
         }}>
           <div style={{
             textAlign: 'center', padding: '40px', maxWidth: 400, width: '90%',

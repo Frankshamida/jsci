@@ -39,20 +39,41 @@ body.dark-mode .hp-navbar {
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.2));
 }
 
+/* JOYFUL SOUND CHURCH */
 .hp-navbar-title {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: var(--primary);
-  line-height: 1.2;
+  /* Scaled down vs the hero: this bar also carries 8 inline links above
+     768px, so the brand cannot take the full display size. */
+  --brand-unit: clamp(0.62rem, 1.15vw, 1rem);
+  font-family: var(--font-body);
+  font-style: normal;
+  font-weight: 600;
+  font-size: var(--brand-unit);
+  line-height: 1.26;
+  text-transform: uppercase;
+  /* identical gold to the dashboard sidebar .brand-name */
+  color: var(--accent);
+  background: linear-gradient(135deg, var(--secondary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
+/* INTERNATIONAL */
 .hp-navbar-title span {
   display: block;
-  font-size: 0.65rem;
-  font-weight: 500;
-  letter-spacing: 4px;
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--brand-unit) / 2);
+  line-height: 1.27;
+  /* Tracking is dialled back from the spec 1.29em to 0.6em HERE ONLY.
+     At 1.29em this 13-letter word is ~29.7x its font-size wide, which
+     the unit is scaled down instead so 8 nav links still fit. */
+  letter-spacing: 1.29em;
+  margin-right: -1.29em;
   color: var(--secondary);
+  /* -webkit-text-fill-color INHERITS. Without this reset the parent's
+     transparent fill would make this line invisible. */
+  -webkit-text-fill-color: var(--secondary);
   text-transform: uppercase;
 }
 
@@ -61,7 +82,7 @@ body.dark-mode .hp-navbar-title {
 }
 
 body.dark-mode .hp-navbar-title span {
-  color: #ccc;
+  color: var(--accent);
 }
 
 .hp-navbar-links {
@@ -80,7 +101,7 @@ body.dark-mode .hp-navbar-title span {
   font-size: 0.88rem;
   color: #555;
   transition: all 0.3s ease;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 
 body.dark-mode .hp-navbar-links a {
@@ -245,6 +266,12 @@ body.dark-mode .hp-nav-toggle {
 }
 
 .hp-hero-overlay {
+  /* One knob for the hero lockup, same system as the dashboard sidebar.
+     The INTERNATIONAL line is ~29.7x its own font-size once 1.29em of
+     tracking is counted, so it is what overflows first. 5.8vw keeps it
+     under ~90% of the viewport at every width, and 3.2rem caps it at the
+     original desktop size. */
+  --brand-unit: clamp(0.95rem, 5.4vw, 3.2rem);
   position: absolute;
   inset: 0;
   background: linear-gradient(
@@ -270,25 +297,46 @@ body.dark-mode .hp-nav-toggle {
   animation: fadeInDown 1s ease;
 }
 
+/* JOYFUL SOUND CHURCH */
 .hp-hero-heading {
-  font-family: 'Montserrat', sans-serif;
-  font-size: 3.2rem;
-  font-weight: 800;
-  color: white;
-  text-shadow: 2px 4px 15px rgba(0, 0, 0, 0.5);
-  margin-bottom: 8px;
+  font-family: var(--font-body);
+  font-style: normal;
+  font-weight: 600;
+  font-size: var(--brand-unit);
+  line-height: 1.26; /* 161/128 from the spec */
+  text-align: center;
+  text-transform: uppercase;
+  /* Same gold as the dashboard sidebar brand, replacing the flat white. */
+  color: var(--accent);
+  background: linear-gradient(135deg, var(--secondary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* text-shadow cannot be used with background-clip:text - the fill is
+     transparent, so the shadow shows straight through the glyphs.
+     drop-shadow() follows the alpha channel and shadows the letter
+     shapes properly, which this hero needs over a photo background. */
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.55));
+  margin-bottom: 4px;
   animation: fadeInDown 1s ease 0.2s both;
 }
 
+/* INTERNATIONAL */
 .hp-hero-sub {
-  font-family: 'Montserrat', sans-serif;
-  font-size: 1rem;
-  font-weight: 500;
-  letter-spacing: 10px;
+  font-family: var(--font-body);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--brand-unit) / 2); /* 64/128 = exactly half */
+  line-height: 1.27; /* 81/64 from the spec */
+  letter-spacing: 1.29em;
+  /* cancels the trailing letter-space so the line stays optically centred,
+     without widening the box (see the sidebar .brand-sub for the why) */
+  margin-right: -1.29em;
+  text-align: center;
+  text-transform: uppercase;
   color: var(--accent);
   text-shadow: 1px 2px 8px rgba(0, 0, 0, 0.5);
   margin-bottom: 16px;
-  text-transform: uppercase;
   animation: fadeInDown 1s ease 0.4s both;
 }
 
@@ -315,7 +363,7 @@ body.dark-mode .hp-nav-toggle {
   border-radius: 50px;
   font-size: 1rem;
   font-weight: 700;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
@@ -338,7 +386,7 @@ body.dark-mode .hp-nav-toggle {
   border-radius: 50px;
   font-size: 1rem;
   font-weight: 700;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
@@ -429,7 +477,7 @@ body.dark-mode .hp-section-dark {
 }
 
 .hp-section-header h2 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 2.2rem;
   font-weight: 800;
   color: var(--primary);
@@ -490,14 +538,14 @@ body.dark-mode .hp-section-header p {
   color: white;
   padding: 10px 20px;
   border-radius: 10px;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.85rem;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
 }
 
 .hp-welcome-text h3 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.8rem;
   font-weight: 700;
   color: #333;
@@ -625,7 +673,7 @@ body.dark-mode .hp-service-icon {
 }
 
 .hp-service-card h4 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.1rem;
   font-weight: 700;
   color: #333;
@@ -640,7 +688,7 @@ body.dark-mode .hp-service-card h4 {
   font-size: 1.4rem;
   font-weight: 800;
   color: var(--primary);
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   margin-bottom: 6px;
 }
 
@@ -677,7 +725,7 @@ body.dark-mode .hp-service-card .hp-service-day {
   left: 30px;
   font-size: 12rem;
   color: rgba(255, 255, 255, 0.07);
-  font-family: Georgia, serif;
+  font-family: var(--font-scripture);
   line-height: 1;
 }
 
@@ -697,7 +745,7 @@ body.dark-mode .hp-service-card .hp-service-day {
 }
 
 .hp-verse-ref {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   color: var(--accent);
   font-size: 1.1rem;
@@ -756,7 +804,7 @@ body.dark-mode .hp-activity-card {
   border-radius: 20px;
   font-size: 0.75rem;
   font-weight: 700;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
 }
 
@@ -765,7 +813,7 @@ body.dark-mode .hp-activity-card {
 }
 
 .hp-activity-body h4 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.05rem;
   font-weight: 700;
   color: #333;
@@ -839,7 +887,7 @@ body.dark-mode .hp-activity-meta {
 }
 
 .hp-pastor-card h4 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.95rem;
   font-weight: 700;
   color: #333;
@@ -898,7 +946,7 @@ body.dark-mode .hp-map-wrapper {
 }
 
 .hp-map-info h3 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.4rem;
   font-weight: 700;
   color: white;
@@ -985,7 +1033,7 @@ body.dark-mode .hp-map-embed {
 }
 
 .hp-cta h2 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 2.4rem;
   font-weight: 800;
   color: white;
@@ -1049,7 +1097,7 @@ body.dark-mode .hp-footer {
 }
 
 .hp-footer-brand h3 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 700;
   color: var(--accent);
@@ -1097,7 +1145,7 @@ body.dark-mode .hp-footer {
 }
 
 .hp-footer-col h4 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.95rem;
   font-weight: 700;
   color: white;
@@ -1277,7 +1325,7 @@ body.dark-mode .hp-chat-window {
 
 .hp-chat-name {
   display: block;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 1rem;
   line-height: 1.1;
@@ -1408,7 +1456,7 @@ body.dark-mode .hp-chat-em {
   gap: 7px;
   padding: 9px 16px;
   border-radius: 22px;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.8rem;
   text-decoration: none;
@@ -1693,14 +1741,6 @@ body.dark-mode .hp-chat-input input {
     background: rgba(255, 195, 0, 0.2);
   }
 
-  .hp-hero-heading {
-    font-size: 2rem;
-  }
-
-  .hp-hero-sub {
-    font-size: 0.75rem;
-    letter-spacing: 5px;
-  }
 
   .hp-hero-tagline {
     font-size: 1rem;
@@ -1762,9 +1802,6 @@ body.dark-mode .hp-chat-input input {
     height: 90px;
   }
 
-  .hp-hero-heading {
-    font-size: 1.5rem;
-  }
 
   .hp-pastors-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -1876,7 +1913,7 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
   font-size: 0.7rem;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 
 .hp-isom-quote {
@@ -1893,7 +1930,7 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
 
 .hp-isom-quote p {
   margin: 4px 0 0;
-  font-family: 'Georgia', serif;
+  font-family: var(--font-scripture);
   font-style: italic;
   font-size: 0.95rem;
   line-height: 1.4;
@@ -1940,7 +1977,7 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
 }
 
 .hp-isom-brandrow-text {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.72rem;
   letter-spacing: 1.5px;
@@ -1950,7 +1987,7 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
 }
 
 .hp-isom-title {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 800;
   font-size: 2.3rem;
   line-height: 1.15;
@@ -2026,7 +2063,7 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
   border-radius: 30px;
   background: linear-gradient(135deg, var(--accent), var(--secondary));
   color: #1e1e1e;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 800;
   font-size: 0.95rem;
   text-decoration: none;
@@ -2063,7 +2100,7 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
   border-radius: 30px;
   border: 1.5px solid rgba(255, 255, 255, 0.35);
   color: #fff;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.88rem;
   text-decoration: none;
@@ -2174,7 +2211,7 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
   color: rgba(255, 255, 255, 0.9);
   font-weight: 700;
   font-size: 0.85rem;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 
 .hp-isom-stat > i {
@@ -2242,7 +2279,7 @@ body.dark-mode .hp-isom-inquire-modal { background: #1e1e1e; color: #eee; }
 
 .hp-isom-inquire-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
 .hp-isom-inquire-logo { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; }
-.hp-isom-inquire-head h3 { margin: 0 0 4px; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1.2rem; color: var(--primary); }
+.hp-isom-inquire-head h3 { margin: 0 0 4px; font-family: var(--font-body); font-weight: 800; font-size: 1.2rem; color: var(--primary); }
 body.dark-mode .hp-isom-inquire-head h3 { color: var(--accent); }
 .hp-isom-inquire-head p { margin: 0; font-size: 0.85rem; color: #777; }
 body.dark-mode .hp-isom-inquire-head p { color: #aaa; }
@@ -2267,7 +2304,7 @@ body.dark-mode .hp-form-group label { color: #ccc; }
 }
 .hp-form-control:focus { outline: none; border-color: var(--primary); }
 body.dark-mode .hp-form-control { background: #2a2a2a; border-color: #444; color: #eee; }
-textarea.hp-form-control { resize: vertical; min-height: 70px; }
+textarea.hp-form-control { resize: vertical; min-height: 70px; line-height: 1.6; }
 select.hp-form-control { cursor: pointer; }
 
 .hp-isom-inquire-error { display: flex; align-items: center; gap: 7px; color: #dc2626; font-size: 0.82rem; margin: 0; }
@@ -2281,7 +2318,7 @@ select.hp-form-control { cursor: pointer; }
   background: #16a34a; color: #fff; font-size: 1.6rem;
   box-shadow: 0 8px 22px rgba(22,163,74,0.4);
 }
-.hp-isom-inquire-success h3 { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1.2rem; margin: 0 0 8px; color: var(--primary); }
+.hp-isom-inquire-success h3 { font-family: var(--font-body); font-weight: 800; font-size: 1.2rem; margin: 0 0 8px; color: var(--primary); }
 body.dark-mode .hp-isom-inquire-success h3 { color: var(--accent); }
 .hp-isom-inquire-success p { color: #666; margin: 0 0 20px; line-height: 1.5; }
 body.dark-mode .hp-isom-inquire-success p { color: #aaa; }
@@ -2300,7 +2337,7 @@ body.dark-mode .hp-isom-inquire-success p { color: #aaa; }
 .hp-event-btn {
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 9px 12px; border-radius: 10px; font-weight: 700; font-size: 0.82rem; cursor: pointer; border: none;
-  font-family: 'Montserrat', sans-serif; transition: all 0.2s ease;
+  font-family: var(--font-body); transition: all 0.2s ease;
 }
 .hp-event-btn.outline { background: transparent; border: 1.5px solid var(--primary); color: var(--primary); }
 .hp-event-btn.outline:hover { background: rgba(146,108,21,0.08); }
@@ -2309,16 +2346,76 @@ body.dark-mode .hp-isom-inquire-success p { color: #aaa; }
 body.dark-mode .hp-event-btn.outline { color: var(--accent); border-color: var(--accent); }
 
 /* Details modal */
-.hp-evt-overlay { position: fixed; inset: 0; z-index: 13000; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; animation: hpEvtFade 0.2s ease; }
+/* The modal itself never scrolls - it sizes to its content. If a very long
+   description makes it taller than the viewport, the OVERLAY scrolls instead,
+   which reads as normal page scrolling rather than a box-within-a-box.
+   align-items must be flex-start (not center) or an over-tall modal gets its
+   top clipped and becomes unreachable; `margin: auto` on the modal restores
+   true centring whenever there IS room. */
+.hp-evt-overlay { position: fixed; inset: 0; z-index: 13000; background: rgba(0,0,0,0.6); display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 20px; animation: hpEvtFade 0.2s ease; }
 @keyframes hpEvtFade { from { opacity: 0; } to { opacity: 1; } }
-.hp-evt-modal { width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; background: #fff; border-radius: 20px; position: relative; box-shadow: 0 24px 70px rgba(0,0,0,0.4); }
+.hp-evt-modal { width: 100%; max-width: 560px; margin: auto; background: #fff; border-radius: 20px; position: relative; box-shadow: 0 24px 70px rgba(0,0,0,0.4); }
 body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
 .hp-evt-close { position: absolute; top: 14px; right: 14px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; border: none; background: rgba(0,0,0,0.45); color: #fff; cursor: pointer; font-size: 1rem; }
-.hp-evt-banner { width: 100%; height: 220px; object-fit: cover; border-radius: 20px 20px 0 0; display: block; }
+.hp-evt-banner { width: 100%; aspect-ratio: 1080 / 1380; object-fit: cover; border-radius: 20px 20px 0 0; display: block; }
 .hp-evt-banner.placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.5rem; }
 .hp-evt-content { padding: 22px 26px 26px; }
+
+/* Desktop: poster left, details right. Below 900px it stays stacked. */
+@media (min-width: 900px) {
+  .hp-evt-modal {
+    max-width: 960px;
+    display: grid;
+    grid-template-columns: 400px minmax(0, 1fr);
+    /* stretch: the poster column fills the full modal height so there is no
+       dead white strip under it. object-fit keeps the artwork undistorted. */
+    align-items: stretch;
+  }
+  /* No max-height and no overflow here on purpose - the modal grows to fit its
+     content so nothing is ever hidden behind an inner scrollbar. */
+  .hp-evt-banner {
+    border-radius: 20px 0 0 20px;
+    height: 100%;
+    /* the grid row already sets the height, so the 4:5 ratio must not fight it */
+    aspect-ratio: auto;
+    /* poster artwork puts titles high and credits low, so bias the crop to the
+       top: any trim comes off the bottom margin rather than the headline. */
+    object-position: top center;
+    min-height: 511px; /* 400px column at 1080:1380 */
+  }
+  .hp-evt-content { padding: 26px 30px 30px; }
+  /* close button now sits over the white details column, not the poster */
+  .hp-evt-close { background: rgba(0,0,0,0.32); }
+  .hp-evt-close:hover { background: rgba(0,0,0,0.55); }
+}
+
+/* Status pill: where the event sits relative to right now. */
+.hp-evt-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 20px;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.hp-evt-status.upcoming { background: rgba(146,108,21,0.14); color: var(--primary); }
+.hp-evt-status.ongoing  { background: rgba(22,163,74,0.15); color: #16a34a; }
+.hp-evt-status.ended    { background: rgba(120,120,120,0.18); color: #6b7280; }
+.hp-evt-status.ongoing i { animation: hpEvtPulse 1.6s ease-in-out infinite; }
+@keyframes hpEvtPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .hp-evt-status.ongoing i { animation: none; } }
+body.dark-mode .hp-evt-status.upcoming { background: rgba(255,195,0,0.16); color: var(--accent); }
+body.dark-mode .hp-evt-status.ended { background: rgba(255,255,255,0.1); color: #aaa; }
+
+/* Multi-day line under the When row. */
+.hp-evt-days {
+  /* parent .hp-evt-info-row > div is a column flex container, so without
+     align-self this pill would stretch to the full column width. */
+  display: inline-flex; align-self: flex-start;
+  align-items: center; gap: 6px; margin-top: 5px;
+  font-size: 0.78rem; font-weight: 700; color: var(--primary);
+  background: rgba(146,108,21,0.10); padding: 3px 10px; border-radius: 20px;
+}
+body.dark-mode .hp-evt-days { background: rgba(255,195,0,0.14); color: var(--accent); }
 .hp-evt-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.hp-evt-title { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1.6rem; color: var(--primary); margin: 0 0 10px; }
+.hp-evt-title { font-family: var(--font-body); font-weight: 800; font-size: 1.6rem; color: var(--primary); margin: 0 0 10px; }
 body.dark-mode .hp-evt-title { color: var(--accent); }
 .hp-evt-text { color: #555; line-height: 1.6; margin: 0 0 18px; white-space: pre-wrap; }
 body.dark-mode .hp-evt-text { color: #ccc; }
@@ -2330,7 +2427,7 @@ body.dark-mode .hp-evt-info { border-color: rgba(255,255,255,0.1); }
 .hp-evt-info-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; color: #999; }
 .hp-evt-directions { color: var(--primary); font-weight: 700; font-size: 0.85rem; text-decoration: none; margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; }
 .hp-evt-directions:hover { text-decoration: underline; }
-.hp-evt-register { width: 100%; margin-top: 20px; padding: 14px; border: none; border-radius: 30px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.25s ease; }
+.hp-evt-register { width: 100%; margin-top: 20px; padding: 14px; border: none; border-radius: 30px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: var(--font-body); font-weight: 800; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.25s ease; }
 .hp-evt-register:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(146,108,21,0.4); }
 .hp-evt-note { text-align: center; font-size: 0.78rem; color: #999; margin: 10px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; }
 
@@ -2342,7 +2439,16 @@ body.dark-mode .hp-evt-info { border-color: rgba(255,255,255,0.1); }
   width: 100%; max-width: 440px; background: #fff; border-radius: 26px; overflow: hidden;
   box-shadow: 0 18px 50px rgba(20,35,58,0.14), 0 2px 8px rgba(20,35,58,0.06);
   transition: transform 0.35s ease, box-shadow 0.35s ease;
+  /* the whole poster is the click target now, so this is a <button> */
+  display: block; padding: 0; border: none; font: inherit; color: inherit;
+  cursor: pointer; text-align: left; -webkit-appearance: none; appearance: none;
 }
+.hp-invite-card:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.hp-invite-hero-ph {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.4rem;
+}
+
 .hp-invite-card:hover { transform: translateY(-6px); box-shadow: 0 28px 70px rgba(146,108,21,0.22); }
 body.dark-mode .hp-invite-card { background: #191919; }
 
@@ -2371,7 +2477,7 @@ body.dark-mode .hp-empty-state { background: linear-gradient(135deg, rgba(255,19
 }
 
 .hp-empty-state h3 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 800;
   font-size: 1.3rem;
   color: var(--primary);
@@ -2388,23 +2494,63 @@ body.dark-mode .hp-empty-state h3 { color: var(--accent); }
 body.dark-mode .hp-empty-state p { color: #aaa; }
 
 /* Hero */
-.hp-invite-hero { position: relative; height: 250px; overflow: hidden; background: linear-gradient(135deg, #eaf3fb 0%, #fbeecb 100%); }
-.hp-invite-hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.hp-invite-hero { position: relative; aspect-ratio: 1080 / 1380; overflow: hidden; background: linear-gradient(135deg, #eaf3fb 0%, #fbeecb 100%); }
+.hp-invite-hero-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  /* Shine sweep. The mask drops a diagonal band of the poster to 20% alpha;
+     the mask is sized 8x the element so that band sits off-frame at rest,
+     and sliding it across on hover reads as light travelling over the art.
+     The transition is declared on :hover only (as in the reference), so the
+     sweep plays on enter and snaps back on leave instead of rewinding. */
+  -webkit-mask-image: linear-gradient(45deg, #000 25%, rgba(0,0,0,0.2) 50%, #000 75%);
+          mask-image: linear-gradient(45deg, #000 25%, rgba(0,0,0,0.2) 50%, #000 75%);
+  -webkit-mask-size: 800%;
+          mask-size: 800%;
+  -webkit-mask-position: 0;
+          mask-position: 0;
+}
+.hp-invite-card:hover .hp-invite-hero-img {
+  transition: mask-position 2s ease, -webkit-mask-position 2s ease;
+  -webkit-mask-position: 120%;
+          mask-position: 120%;
+}
+
+/* Motion is decorative here - honour a reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .hp-invite-card { transition: none; }
+  .hp-invite-card:hover .hp-invite-hero-img {
+    transition: none;
+    -webkit-mask-position: 0;
+            mask-position: 0;
+  }
+}
 .hp-invite-hero-overlay { position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.55) 42%, rgba(255,255,255,0) 68%); }
 .hp-invite-dots { position: absolute; top: 20px; left: 22px; width: 46px; height: 46px; background-image: radial-gradient(var(--accent) 2px, transparent 2px); background-size: 11px 11px; opacity: 0.6; }
+/* Frosted rather than solid gold: backdrop-filter samples whatever poster is
+   behind it, so the pill takes on that artwork's colour instead of fighting
+   it. saturate() keeps the borrowed colour from washing out under the blur. */
 .hp-invite-pill {
-  position: absolute; top: 22px; left: 22px; margin-top: 34px; display: inline-flex; align-items: center; gap: 7px;
-  background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: 'Montserrat', sans-serif;
-  font-weight: 800; font-size: 0.68rem; letter-spacing: 1px; padding: 7px 15px; border-radius: 30px; box-shadow: 0 4px 12px rgba(146,108,21,0.35);
+  position: absolute; top: 22px; left: 22px; margin-top: 34px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(12px) saturate(190%);
+          backdrop-filter: blur(12px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  color: #fff; font-family: var(--font-body);
+  font-weight: 800; font-size: 0.68rem; letter-spacing: 1px;
+  padding: 7px 15px; border-radius: 30px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
+.hp-invite-pill i { color: var(--accent); }
 .hp-invite-hero-text { position: absolute; left: 24px; bottom: 22px; max-width: 64%; z-index: 1; }
-.hp-invite-script { display: block; font-family: 'Playfair Display', Georgia, serif; font-style: italic; font-weight: 700; font-size: 1.7rem; color: var(--secondary); line-height: 1; margin-bottom: 8px; }
+.hp-invite-script { display: block; font-family: var(--font-heading); font-weight: 700; font-size: 1.7rem; color: var(--secondary); line-height: 1; margin-bottom: 8px; }
 .hp-invite-tagline { margin: 0; font-size: 0.82rem; line-height: 1.45; color: #2b3a4d; font-weight: 500; }
 
 /* Info card (overlaps hero) */
 .hp-invite-info { position: relative; margin-top: -26px; background: #fff; border-radius: 26px 26px 0 0; padding: 24px 26px 22px; }
 body.dark-mode .hp-invite-info { background: #191919; }
-.hp-invite-title { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1.5rem; color: #14233a; margin: 0 0 4px; }
+.hp-invite-title { font-family: var(--font-body); font-weight: 800; font-size: 1.5rem; color: #14233a; margin: 0 0 4px; }
 body.dark-mode .hp-invite-title { color: #fff; }
 .hp-invite-desc { margin: 0 0 12px; color: #7a8794; font-size: 0.9rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .hp-invite-rule { display: block; width: 54px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, var(--primary), var(--accent)); margin-bottom: 18px; }
@@ -2423,11 +2569,11 @@ body.dark-mode .hp-invite-row strong { color: #eee; }
 .hp-invite-fee.free { background: linear-gradient(150deg, #e6f6ec, #c8ebd4); }
 .hp-invite-fee-label { font-size: 0.6rem; font-weight: 800; letter-spacing: 1px; color: #9a7b2e; margin-bottom: 4px; }
 .hp-invite-fee.free .hp-invite-fee-label { color: #2f8f52; }
-.hp-invite-fee-value { font-family: 'Montserrat', sans-serif; font-weight: 900; font-size: 1.9rem; color: var(--primary); line-height: 1; }
+.hp-invite-fee-value { font-family: var(--font-body); font-weight: 900; font-size: 1.9rem; color: var(--primary); line-height: 1; }
 .hp-invite-fee.free .hp-invite-fee-value { color: #16a34a; font-size: 1.5rem; }
 
 .hp-invite-actions { display: flex; gap: 12px; }
-.hp-invite-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 10px; border-radius: 14px; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 0.9rem; cursor: pointer; transition: all 0.22s ease; border: none; }
+.hp-invite-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 10px; border-radius: 14px; font-family: var(--font-body); font-weight: 800; font-size: 0.9rem; cursor: pointer; transition: all 0.22s ease; border: none; }
 .hp-invite-btn.outline { background: #fff; border: 1.5px solid var(--primary); color: var(--primary); }
 .hp-invite-btn.outline:hover { background: rgba(146,108,21,0.06); }
 .hp-invite-btn.solid { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; box-shadow: 0 8px 20px rgba(146,108,21,0.35); }
@@ -2442,4 +2588,18 @@ body.dark-mode .hp-invite-btn.outline { background: transparent; color: var(--ac
   .hp-invite-grid { grid-template-columns: 1fr; }
   .hp-invite-details { flex-direction: column; }
   .hp-invite-fee { width: 100%; flex-direction: row; gap: 10px; justify-content: space-between; padding: 12px 18px; }
+}
+
+.hp-footer-socials .hp-social-disabled {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b6b6b;
+  font-size: 0.95rem;
+  cursor: default;
+  pointer-events: none;
 }

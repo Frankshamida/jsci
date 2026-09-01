@@ -60,7 +60,7 @@ body.dark-mode .live-navbar {
 }
 
 .live-navbar-title {
-  font-family: 'Montserrat', 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 800;
   color: var(--live-primary);
@@ -103,7 +103,7 @@ body.dark-mode .live-navbar-title span {
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .live-navbar-share-btn:hover {
@@ -145,7 +145,7 @@ body.dark-mode .live-navbar-dark-toggle:hover {
   text-decoration: none;
   font-weight: 700;
   font-size: 0.85rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   transition: all 0.3s ease;
   box-shadow: 0 3px 12px rgba(146, 108, 21, 0.25);
 }
@@ -243,7 +243,7 @@ body.dark-mode .live-navbar-dark-toggle:hover {
   font-size: 1.6rem;
   font-weight: 800;
   color: var(--live-text);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   margin: 0;
 }
 
@@ -260,7 +260,7 @@ body.dark-mode .live-navbar-dark-toggle:hover {
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -387,7 +387,7 @@ body.dark-mode .live-navbar-dark-toggle:hover {
   font-size: 0.82rem;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .live-info-share-btn:hover {
@@ -512,7 +512,7 @@ body.dark-mode .live-navbar-dark-toggle:hover {
   justify-content: center;
   gap: 6px;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .live-share-btn-facebook {
@@ -716,7 +716,7 @@ body.dark-mode .live-navbar-dark-toggle:hover {
   font-weight: 700;
   font-size: 0.9rem;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .live-back-home {
@@ -969,7 +969,7 @@ body.dark-mode .live-share-preview {
   border: none;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .live-share-option i {
@@ -1039,7 +1039,7 @@ body.dark-mode .live-share-preview {
   background: none;
   color: var(--live-text);
   font-size: 0.82rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   outline: none;
   width: 100%;
   min-width: 0;
@@ -1055,7 +1055,7 @@ body.dark-mode .live-share-preview {
   font-size: 0.82rem;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   display: flex;
   align-items: center;
   gap: 6px;

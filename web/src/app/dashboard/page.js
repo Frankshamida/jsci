@@ -10,9 +10,65 @@ import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { moderateMessage, detectInappropriateWords } from '@/lib/contentModeration';
 import SmartImage from '@/components/SmartImage';
 import './dashboard.css';
+import { withTitleCase } from '@/lib/eventTitle';
 
 const Cropper = dynamic(() => import('react-easy-crop'), { ssr: false });
+
+// ---- Per-day event schedule helpers -------------------------------------
+// A day row is { date: "YYYY-MM-DD", start: "HH:mm", end: "HH:mm", label }
+// i.e. the exact value shapes <input type="date"> and <input type="time"> use,
+// so no parsing is needed in the JSX. Conversion to ISO happens once on save.
+const pad2 = (n) => String(n).padStart(2, '0');
+const dateOnly = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const timeOnly = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+// Grow/shrink the day rows to `count`, keeping any the admin already edited.
+// New days inherit Day 1's times, which is what a conference usually wants.
+const buildEventDays = (count, anchorStr, existing = []) => {
+  const anchor = new Date(anchorStr);
+  if (Number.isNaN(anchor.getTime())) return [];
+  const rows = [];
+  for (let i = 0; i < count; i++) {
+    if (existing[i]) { rows.push(existing[i]); continue; }
+    const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + i);
+    rows.push({
+      date: dateOnly(d),
+      start: (existing[0] && existing[0].start) || timeOnly(anchor),
+      end: (existing[0] && existing[0].end) || '',
+      label: '',
+    });
+  }
+  return rows;
+};
+
+// Re-date the rows from a new start, keeping every time-of-day as entered.
+// Used when the admin moves the whole event to another date.
+const rebaseEventDays = (days, anchorStr) => {
+  const anchor = new Date(anchorStr);
+  if (Number.isNaN(anchor.getTime())) return days;
+  return days.map((d, i) => {
+    const dt = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + i);
+    return { ...d, date: dateOnly(dt), start: i === 0 ? timeOnly(anchor) : d.start };
+  });
+};
+
+// events.event_date / end_date stay the overall span so every existing query
+// keeps working. Derived from the rows rather than tracked separately.
+const spanFromEventDays = (days) => {
+  const usable = (days || []).filter((d) => d.date && d.start);
+  if (usable.length === 0) return {};
+  const startMs = usable.map((d) => new Date(`${d.date}T${d.start}`).getTime());
+  const endMs = usable.map((d) => new Date(`${d.date}T${d.end || d.start}`).getTime());
+  const lo = new Date(Math.min(...startMs));
+  const hi = new Date(Math.max(...endMs));
+  if (Number.isNaN(lo.getTime()) || Number.isNaN(hi.getTime())) return {};
+  return {
+    eventDate: `${dateOnly(lo)}T${timeOnly(lo)}`,
+    endDate: `${dateOnly(hi)}T${timeOnly(hi)}`,
+  };
+};
 const EventLocationPicker = dynamic(() => import('@/components/EventLocationPicker'), { ssr: false });
+const PhoneInput = dynamic(() => import('@/components/PhoneInput'), { ssr: false });
 
 // ============================================
 // CONSTANTS
@@ -486,6 +542,8 @@ export default function DashboardPage() {
   const [events, setEvents] = useState([]);
   const EMPTY_EVENT_FORM = {
     title: '', description: '', eventDate: '', endDate: '', location: '',
+    // Per-day schedule rows; empty for a single-day event.
+    days: [],
     // Audience & visibility
     audience: 'all', allowedRoles: [], isPublished: true,
     // Map location
@@ -1588,7 +1646,7 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/events');
       const data = await res.json();
-      if (data.success) setEvents(data.data);
+      if (data.success) setEvents((data.data || []).map(withTitleCase));
     } catch { /* silent */ }
   };
 
@@ -3346,7 +3404,7 @@ export default function DashboardPage() {
     setEventMerchItems([]);
   };
 
-  const EVENT_STEPS = ['Basic Info', 'Visibility & Audience', 'Schedule & Location', 'Registration', 'Pricing & Payment', 'Merchandise'];
+  const EVENT_STEPS = ['Basic Info & Visibility', 'Schedule & Location', 'Registration', 'Pricing & Payment', 'Merchandise'];
   const EVENT_AUDIENCE_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor'];
 
   // "1 day 3 hours", "45 mins", etc. — shown next to the schedule fields once both ends are set.
@@ -3365,12 +3423,129 @@ export default function DashboardPage() {
     return parts.length ? parts.join(' ') : 'Less than a minute';
   };
 
-  // Current local time formatted for a datetime-local input's `min` attribute
-  // (browsers grey out / block anything earlier than this in the native picker).
-  const nowLocalDatetimeString = () => {
-    const d = new Date();
+  // Format any Date for a datetime-local input (YYYY-MM-DDTHH:mm) in LOCAL time.
+  // toISOString() emits UTC, so the timezone offset has to come off first -
+  // otherwise every date written back into the form shifts by the offset.
+  const toLocalDatetimeString = (date) => {
+    const d = new Date(date);
+    if (Number.isNaN(d.getTime())) return '';
     d.setSeconds(0, 0);
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+
+  // Current local time formatted for a datetime-local input's `min` attribute
+  // (browsers grey out / block anything earlier than this in the native picker).
+  const nowLocalDatetimeString = () => toLocalDatetimeString(new Date());
+
+  // How many CALENDAR days an event covers. Fri 9am -> Sun 5pm is "3 days" to a
+  // person even though it is only 56 hours, so both ends are normalised to
+  // midnight and the times of day never affect the count.
+  const eventDayCount = (startStr, endStr) => {
+    if (!startStr || !endStr) return 1;
+    const s = new Date(startStr);
+    const e = new Date(endStr);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
+    const s0 = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+    const e0 = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+    const days = Math.round((e0.getTime() - s0.getTime()) / 86400000) + 1;
+    return days < 1 ? 1 : days;
+  };
+
+  // Set how many days the event runs. Only the end DATE moves - the end TIME the
+  // admin already picked is preserved (falling back to the start time), so
+  // choosing "3 days" never silently rewrites a 5pm finish back to 9am.
+  // Choosing a length builds one editable row per day. A single-day event keeps
+  // days empty so it never writes redundant event_days rows.
+  const setEventDayCount = (days) => {
+    if (!eventForm.eventDate) return;
+    const start = new Date(eventForm.eventDate);
+    if (Number.isNaN(start.getTime())) return;
+    const n = Math.max(1, Math.min(365, Math.floor(Number(days) || 1)));
+    setEventForm((f) => {
+      if (n === 1) {
+        const end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), start.getHours(), start.getMinutes());
+        const firstEnd = f.days && f.days[0] && f.days[0].end;
+        return { ...f, days: [], endDate: firstEnd ? `${dateOnly(start)}T${firstEnd}` : toLocalDatetimeString(end) };
+      }
+      const rows = buildEventDays(n, f.eventDate, f.days);
+      return { ...f, days: rows, ...spanFromEventDays(rows) };
+    });
+    setEventFieldErrors((er) => ({ ...er, endDate: false }));
+  };
+
+  // A datetime-local input is a single clumsy control; the design splits it into
+  // a date field and a time field. The form still stores one "YYYY-MM-DDTHH:mm"
+  // string, so nothing downstream changes - these just edit one half at a time.
+  const datePartOf = (v) => (v || '').slice(0, 10);
+  const timePartOf = (v) => (v || '').slice(11, 16);
+
+  const setEventStart = (part, value) => {
+    setEventForm((f) => {
+      const d = part === 'date' ? value : datePartOf(f.eventDate);
+      const t = part === 'time' ? value : timePartOf(f.eventDate);
+      const v = d ? `${d}T${t || '00:00'}` : '';
+      // moving the start re-dates every day row, keeping their times
+      if (v && f.days && f.days.length > 1) {
+        const rows = rebaseEventDays(f.days, v);
+        return { ...f, eventDate: v, days: rows, ...spanFromEventDays(rows) };
+      }
+      return { ...f, eventDate: v };
+    });
+    // Registration window defaults to the event start until the admin changes it
+    if (value) {
+      setEventForm((f) => (f.eventDate && (!f.registrationStartDate || !f.registrationDeadline)
+        ? {
+            ...f,
+            registrationStartDate: f.registrationStartDate || f.eventDate,
+            registrationDeadline: f.registrationDeadline || f.eventDate,
+          }
+        : f));
+    }
+    setEventFieldErrors((er) => ({ ...er, eventDate: false }));
+  };
+
+  const setEventEnd = (part, value) => {
+    setEventForm((f) => {
+      const d = part === 'date' ? value : datePartOf(f.endDate);
+      const t = part === 'time' ? value : timePartOf(f.endDate);
+      return { ...f, endDate: d ? `${d}T${t || '00:00'}` : '' };
+    });
+    setEventFieldErrors((er) => ({ ...er, endDate: false }));
+  };
+
+  // "Sep 7, 8, 2026" - the actual dates the event lands on, so the admin can
+  // sanity-check a span without doing calendar arithmetic in their head.
+  const eventDayDatesLabel = (days) => {
+    const usable = (days || []).filter((d) => d.date);
+    if (usable.length === 0) return '';
+    const parsed = usable.map((d) => new Date(`${d.date}T00:00`)).filter((d) => !Number.isNaN(d.getTime()));
+    if (parsed.length === 0) return '';
+    const sameMonth = parsed.every((d) => d.getMonth() === parsed[0].getMonth() && d.getFullYear() === parsed[0].getFullYear());
+    if (sameMonth) {
+      const month = parsed[0].toLocaleDateString('en-US', { month: 'short' });
+      return `${month} ${parsed.map((d) => d.getDate()).join(', ')}, ${parsed[0].getFullYear()}`;
+    }
+    return parsed.map((d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).join(', ');
+  };
+
+  // Edit one day. The overall span is recomputed every time so event_date /
+  // end_date can never drift out of sync with the rows the admin sees.
+  const updateEventDay = (index, changes) => {
+    setEventForm((f) => {
+      const rows = (f.days || []).map((d, i) => (i === index ? { ...d, ...changes } : d));
+      return { ...f, days: rows, ...spanFromEventDays(rows) };
+    });
+    setEventFieldErrors((er) => ({ ...er, endDate: false }));
+  };
+
+  // "Same time every day" - the common case for a conference.
+  const applyDayOneTimesToAll = () => {
+    setEventForm((f) => {
+      if (!f.days || f.days.length < 2) return f;
+      const { start, end } = f.days[0];
+      const rows = f.days.map((d, i) => (i === 0 ? d : { ...d, start, end }));
+      return { ...f, days: rows, ...spanFromEventDays(rows) };
+    });
   };
 
   const validateEventStep = (step) => {
@@ -3380,8 +3555,14 @@ export default function DashboardPage() {
       if (!eventForm.description || !eventForm.description.trim()) errors.description = true;
       if (!eventImageFile && !eventImagePreview && !editingEvent?.image_url) errors.image = true;
     }
-    if (step === 2 && !eventForm.eventDate) errors.eventDate = true;
-    if (step === 3 && eventForm.registrationRequired) {
+    if (step === 1 && !eventForm.eventDate) errors.eventDate = true;
+    // `min` on the input only constrains the native picker - a typed value can
+    // still land before the start, which would store a negative-length event.
+    if (step === 1 && eventForm.eventDate && eventForm.endDate
+        && new Date(eventForm.endDate).getTime() < new Date(eventForm.eventDate).getTime()) {
+      errors.endDate = true;
+    }
+    if (step === 2 && eventForm.registrationRequired) {
       if (!eventForm.maxParticipants) errors.maxParticipants = true;
       if (!eventForm.registrationStartDate) errors.registrationStartDate = true;
       if (!eventForm.registrationDeadline) errors.registrationDeadline = true;
@@ -3405,6 +3586,13 @@ export default function DashboardPage() {
       ...EMPTY_EVENT_FORM,
       title: evt.title, description: evt.description || '',
       eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '',
+      days: Array.isArray(evt.event_days) && evt.event_days.length > 1
+        ? evt.event_days.slice().sort((a, b) => (a.day_number || 0) - (b.day_number || 0)).map((d) => {
+            const s = new Date(d.starts_at);
+            const e = d.ends_at ? new Date(d.ends_at) : null;
+            return { date: dateOnly(s), start: timeOnly(s), end: e ? timeOnly(e) : '', label: d.label || '' };
+          })
+        : [],
       latitude: evt.latitude ?? null, longitude: evt.longitude ?? null,
       loc_country: evt.loc_country || '', loc_region: evt.loc_region || '', loc_province: evt.loc_province || '', loc_city: evt.loc_city || '', loc_barangay: evt.loc_barangay || '',
       audience: (evt.allowed_roles && evt.allowed_roles.length) ? 'specific' : 'all', allowedRoles: evt.allowed_roles || [], isPublished: evt.is_published !== false,
@@ -3514,6 +3702,20 @@ export default function DashboardPage() {
       fd.append('bankName', f.bankName || '');
       fd.append('bankAccountName', f.bankAccountName || '');
       fd.append('bankAccountNumber', f.bankAccountNumber || '');
+      // Only a genuine multi-day schedule is sent. A single day posts [], which
+      // tells the API to clear any rows left over from a previous edit.
+      fd.append('days', JSON.stringify(
+        (f.days || []).length > 1
+          ? f.days
+              .filter((d) => d.date && d.start)
+              .map((d, i) => ({
+                dayNumber: i + 1,
+                startsAt: new Date(`${d.date}T${d.start}`).toISOString(),
+                endsAt: d.end ? new Date(`${d.date}T${d.end}`).toISOString() : null,
+                label: d.label || null,
+              }))
+          : []
+      ));
       if (eventImageFile) fd.append('image', eventImageFile);
       if (eventGcashQrFile) fd.append('gcashQr', eventGcashQrFile);
 
@@ -3740,6 +3942,17 @@ export default function DashboardPage() {
     finally { setPayNowSubmitting(false); }
   };
 
+  const handleCancelRegistration = (reg) => {
+    askConfirm('Cancel your registration for this event? This frees up your slot and removes it from My Registrations.', async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?id=${reg.id}&userId=${userData?.id || ''}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { showToast('Registration cancelled', 'success'); loadMyRegistrations(); loadEvents(); }
+        else showToast(data.message || 'Failed to cancel', 'danger');
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    }, { title: 'Cancel Registration', subtitle: reg.event?.title || '' });
+  };
+
   // Load the current user's registrations (for the "My Registrations" poster view + register-once)
   const loadMyRegistrations = useCallback(async () => {
     if (!userData?.id) return;
@@ -3747,7 +3960,7 @@ export default function DashboardPage() {
       const res = await fetch(`/api/events/registrations?userId=${userData.id}`);
       const data = await res.json();
       if (data.success) {
-        const regs = data.data || [];
+        const regs = (data.data || []).map(withTitleCase);
         setMyRegistrations(regs);
         setMyRegIds(new Set(regs.map((r) => r.event_id)));
         // Generate QR codes (encode the registration id) for attendance scanning
@@ -6640,10 +6853,11 @@ Examples:
           <div className="sidebar-top">
             <div className="sidebar-brand">
               <div className="logo">
-                <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
+                <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" />
               </div>
               <div className="brand-text">
-                <span className="brand-name">SanctuaryHub</span>
+                <span className="brand-name">Joyful Sound Church</span>
+                <span className="brand-sub">International</span>
               </div>
             </div>
             <button
@@ -7257,7 +7471,7 @@ Examples:
             </div>
             {todaysBirthdays.length > 0 && (
               <div className="birthday-section-v2">
-                <h3 className="birthday-section-title"><i className="fas fa-birthday-cake"></i> Birthday Today! 🎂</h3>
+                <h3 className="birthday-section-title"><i className="fas fa-birthday-cake"></i> Birthday Today!</h3>
                 {todaysBirthdays.some(b => b.id === userData?.id) && (
                   <button className="bday-greet-read-mine-btn" style={{ marginBottom: 10 }} onClick={() => { loadMyBirthdayGreetings(); setShowMyBirthdayGreetings(true); }}>
                     <i className="fas fa-gift"></i> Open My Birthday Greetings 🎁
@@ -7462,146 +7676,333 @@ Examples:
                 </div>
 
                 <div className="evt-step-body">
-                  {/* ===== Step 1: Basic Info ===== */}
+                  {/* ===== Step 1: Basic Info & Visibility ===== */}
                   {eventStep === 0 && (
-                    <div className="evt-step-panel">
-                      <div className="form-group">
-                        <label>Title *</label>
-                        <input
-                          className={`form-control ${eventFieldErrors.title ? 'evt-field-error' : ''}`}
-                          style={{ padding: '10px 15px' }}
-                          value={eventForm.title}
-                          onChange={(e) => { setEventForm({ ...eventForm, title: e.target.value }); if (eventFieldErrors.title) setEventFieldErrors((er) => ({ ...er, title: false })); }}
-                        />
-                        {eventFieldErrors.title && <div className="evt-field-error-msg">Title is required.</div>}
-                      </div>
-                      <div className="form-group">
-                        <label>Description *</label>
-                        <textarea
-                          className={`form-control ${eventFieldErrors.description ? 'evt-field-error' : ''}`}
-                          style={{ padding: '10px 15px' }}
-                          rows={3}
-                          value={eventForm.description}
-                          onChange={(e) => { setEventForm({ ...eventForm, description: e.target.value }); if (eventFieldErrors.description) setEventFieldErrors((er) => ({ ...er, description: false })); }}
-                        />
-                        {eventFieldErrors.description && <div className="evt-field-error-msg">Description is required.</div>}
-                      </div>
-
-                      <div className="form-group">
-                        <label>Picture *</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    <div className="evt-step-panel evt-basic-split">
+                      {/* LEFT: poster, shown at the true 1080x1380 upload ratio */}
+                      <div className="evt-basic-poster">
+                        <div className="form-group">
+                          <label>Picture *</label>
                           <div className={`evt-picture-preview ${eventFieldErrors.image ? 'evt-field-error' : ''}`}>
                             {(eventImagePreview || editingEvent?.image_url)
-                              ? <img src={eventImagePreview || editingEvent?.image_url} alt="Event" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              : <i className="fas fa-image" style={{ fontSize: '1.6rem', opacity: 0.4 }}></i>}
-                          </div>
-                          <div>
+                              ? <img src={eventImagePreview || editingEvent?.image_url} alt="Event poster preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <div className="evt-picture-empty"><i className="fas fa-image"></i><span>1080 &times; 1380</span></div>}
                             <input id="event-image-input" type="file" accept="image/*" onChange={(e) => { handleEventImagePick(e); if (eventFieldErrors.image) setEventFieldErrors((er) => ({ ...er, image: false })); }} style={{ display: 'none' }} />
-                            <label htmlFor="event-image-input" className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <label htmlFor="event-image-input" className="evt-picture-upload-btn">
                               <i className="fas fa-upload"></i> {(eventImagePreview || editingEvent?.image_url) ? 'Change Picture' : 'Upload Picture'}
                             </label>
-                            {(eventImagePreview || eventImageFile) && (
-                              <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => { setEventImageFile(null); setEventImagePreview(''); }}>Remove</button>
-                            )}
-                            <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: 6 }}>JPG/PNG, up to 5MB. Recommended 800×450.</div>
-                            {eventFieldErrors.image && <div className="evt-field-error-msg">A picture is required.</div>}
                           </div>
+                          <div className="evt-picture-actions">
+                            {(eventImagePreview || eventImageFile) && (
+                              <button type="button" className="btn-secondary" onClick={() => { setEventImageFile(null); setEventImagePreview(''); }}>Remove</button>
+                            )}
+                          </div>
+                          <div className="evt-picture-hint">JPG/PNG, up to 5MB. Recommended 1080&times;1380.</div>
+                          {eventFieldErrors.image && <div className="evt-field-error-msg">A picture is required.</div>}
                         </div>
+                      </div>
+
+                      {/* RIGHT: details */}
+                      <div className="evt-basic-fields">
+                        <div className="form-group">
+                          <label>Title *</label>
+                          <input
+                            className={`form-control ${eventFieldErrors.title ? 'evt-field-error' : ''}`}
+                            style={{ padding: '10px 15px' }}
+                            value={eventForm.title}
+                            onChange={(e) => { setEventForm({ ...eventForm, title: e.target.value }); if (eventFieldErrors.title) setEventFieldErrors((er) => ({ ...er, title: false })); }}
+                          />
+                          {eventFieldErrors.title && <div className="evt-field-error-msg">Title is required.</div>}
+                        </div>
+                        <div className="form-group">
+                          <label>Description *</label>
+                          <textarea
+                            className={`form-control ${eventFieldErrors.description ? 'evt-field-error' : ''}`}
+                            style={{ padding: '10px 15px' }}
+                            rows={6}
+                            value={eventForm.description}
+                            onChange={(e) => { setEventForm({ ...eventForm, description: e.target.value }); if (eventFieldErrors.description) setEventFieldErrors((er) => ({ ...er, description: false })); }}
+                          />
+                          {eventFieldErrors.description && <div className="evt-field-error-msg">Description is required.</div>}
+                        </div>
+
+                        <div className="evt-basic-divider"></div>
+                        <div className="evt-config-title"><i className="fas fa-eye"></i> Visibility</div>
+                        <label className="evt-publish-toggle-row">
+                          <span className="switch">
+                            <input type="checkbox" checked={eventForm.isPublished} onChange={(e) => setEventForm({ ...eventForm, isPublished: e.target.checked })} />
+                            <span className="slider round"></span>
+                          </span>
+                          <div>
+                            <strong>{eventForm.isPublished ? 'Published' : 'Hidden'}</strong>
+                            <small>{eventForm.isPublished ? 'Visible to everyone on the public site.' : 'Only admins can see this event. Use Save Draft to keep it hidden while you work on it.'}</small>
+                          </div>
+                        </label>
+
+                        <div className="evt-config-title"><i className="fas fa-user-shield"></i> Who Can Join</div>
+                        <div className="evt-visibility-row">
+                          <button type="button" className={`evt-vis-btn ${eventForm.audience === 'all' ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'all' })}>
+                            <span className="evt-vis-btn-title"><i className="fas fa-users"></i> All Roles</span>
+                          </button>
+                          <button type="button" className={`evt-vis-btn ${eventForm.audience === 'specific' ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'specific' })}>
+                            <span className="evt-vis-btn-title"><i className="fas fa-user-tag"></i> Specific Roles</span>
+                          </button>
+                        </div>
+                        {eventForm.audience === 'specific' && (
+                          <div className="evt-methods" style={{ marginTop: 4, marginBottom: 6 }}>
+                            {EVENT_AUDIENCE_ROLES.map(r => (
+                              <label key={r} className={`evt-method-chip ${eventForm.allowedRoles.includes(r) ? 'on' : ''}`}>
+                                <input type="checkbox" checked={eventForm.allowedRoles.includes(r)} onChange={() => toggleAllowedRole(r)} />
+                                {r}
+                              </label>
+                            ))}
+                            {eventForm.allowedRoles.length === 0 && <span className="evt-muted" style={{ fontSize: '0.8rem' }}>Select at least one role, or switch to &quot;All Roles&quot;.</span>}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
 
-                  {/* ===== Step 2: Visibility & Audience ===== */}
+                  {/* ===== Step 2: Schedule & Location ===== */}
                   {eventStep === 1 && (
                     <div className="evt-step-panel">
-                      <div className="evt-config-title"><i className="fas fa-eye"></i> Visibility</div>
-                      <label className="evt-publish-toggle-row">
-                        <span className="switch">
-                          <input type="checkbox" checked={eventForm.isPublished} onChange={(e) => setEventForm({ ...eventForm, isPublished: e.target.checked })} />
-                          <span className="slider round"></span>
-                        </span>
-                        <div>
-                          <strong>{eventForm.isPublished ? 'Published' : 'Hidden'}</strong>
-                          <small>{eventForm.isPublished ? 'Visible to everyone on the public site.' : 'Only admins can see this event. Use Save Draft to keep it hidden while you work on it.'}</small>
-                        </div>
-                      </label>
-
-                      <div className="evt-config-title"><i className="fas fa-user-shield"></i> Who Can Join</div>
-                      <div className="evt-visibility-row">
-                        <button type="button" className={`evt-vis-btn ${eventForm.audience === 'all' ? 'active pub' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'all' })}>
-                          <span className="evt-vis-btn-title"><i className="fas fa-users"></i> All Roles</span>
-                        </button>
-                        <button type="button" className={`evt-vis-btn ${eventForm.audience === 'specific' ? 'active draft' : ''}`} onClick={() => setEventForm({ ...eventForm, audience: 'specific' })}>
-                          <span className="evt-vis-btn-title"><i className="fas fa-user-tag"></i> Specific Roles</span>
-                        </button>
-                      </div>
-                      {eventForm.audience === 'specific' && (
-                        <div className="evt-methods" style={{ marginTop: 4, marginBottom: 6 }}>
-                          {EVENT_AUDIENCE_ROLES.map(r => (
-                            <label key={r} className={`evt-method-chip ${eventForm.allowedRoles.includes(r) ? 'on' : ''}`}>
-                              <input type="checkbox" checked={eventForm.allowedRoles.includes(r)} onChange={() => toggleAllowedRole(r)} />
-                              {r}
-                            </label>
-                          ))}
-                          {eventForm.allowedRoles.length === 0 && <span className="evt-muted" style={{ fontSize: '0.8rem' }}>Select at least one role, or switch to &quot;All Roles&quot;.</span>}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* ===== Step 3: Schedule & Location ===== */}
-                  {eventStep === 2 && (
-                    <div className="evt-step-panel">
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 15 }}>
+                      <div className="evt-when-row">
                         <div className="form-group">
                           <label>Start Date &amp; Time *</label>
-                          <input
-                            type="datetime-local"
-                            className={`form-control ${eventFieldErrors.eventDate ? 'evt-field-error' : ''}`}
-                            style={{ padding: '10px 15px' }}
-                            min={nowLocalDatetimeString()}
-                            value={eventForm.eventDate}
-                            onChange={(e) => { setEventForm({ ...eventForm, eventDate: e.target.value }); if (eventFieldErrors.eventDate) setEventFieldErrors((er) => ({ ...er, eventDate: false })); }}
-                          />
+                          <div className={`evt-dt ${eventFieldErrors.eventDate ? 'evt-field-error' : ''}`}>
+                            <span className="evt-dt-part">
+                              <i className="fas fa-calendar-days"></i>
+                              <input
+                                type="date"
+                                value={datePartOf(eventForm.eventDate)}
+                                min={datePartOf(nowLocalDatetimeString())}
+                                onChange={(e) => setEventStart('date', e.target.value)}
+                              />
+                            </span>
+                            <span className="evt-dt-split" aria-hidden="true"></span>
+                            <span className="evt-dt-part evt-dt-time">
+                              <i className="fas fa-clock"></i>
+                              <input
+                                type="time"
+                                value={timePartOf(eventForm.eventDate)}
+                                onChange={(e) => setEventStart('time', e.target.value)}
+                              />
+                            </span>
+                          </div>
                           {eventFieldErrors.eventDate && <div className="evt-field-error-msg">Start date is required.</div>}
                         </div>
+
                         <div className="form-group">
-                          <label>End Date</label>
-                          <input
-                            type="datetime-local"
-                            className="form-control"
-                            style={{ padding: '10px 15px' }}
-                            min={eventForm.eventDate || nowLocalDatetimeString()}
-                            value={eventForm.endDate}
-                            onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })}
-                          />
+                          <label>End Date &amp; Time</label>
+                          <div className={`evt-dt ${eventFieldErrors.endDate ? 'evt-field-error' : ''}`}>
+                            <span className="evt-dt-part">
+                              <i className="fas fa-calendar-days"></i>
+                              <input
+                                type="date"
+                                value={datePartOf(eventForm.endDate)}
+                                min={datePartOf(eventForm.eventDate) || datePartOf(nowLocalDatetimeString())}
+                                onChange={(e) => setEventEnd('date', e.target.value)}
+                              />
+                            </span>
+                            <span className="evt-dt-split" aria-hidden="true"></span>
+                            <span className="evt-dt-part evt-dt-time">
+                              <i className="fas fa-clock"></i>
+                              <input
+                                type="time"
+                                value={timePartOf(eventForm.endDate)}
+                                onChange={(e) => setEventEnd('time', e.target.value)}
+                              />
+                            </span>
+                          </div>
+                          {eventFieldErrors.endDate && <div className="evt-field-error-msg">End must be after the start.</div>}
                         </div>
+
                         <div className="form-group">
                           <label>Duration</label>
-                          <div className="form-control evt-duration-display" style={{ padding: '10px 15px' }}>
-                            <i className="fas fa-hourglass-half"></i> {formatEventDuration(eventForm.eventDate, eventForm.endDate)}
+                          <div className="evt-dt evt-dt-readonly">
+                            <span className="evt-dt-part">
+                              <i className="fas fa-hourglass-half"></i>
+                              <span className="evt-dt-static">{formatEventDuration(eventForm.eventDate, eventForm.endDate)}</span>
+                            </span>
                           </div>
                         </div>
                       </div>
-                      <div className="form-group"><label>Venue Name / Notes</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="e.g. Family Park Cebu, Main Hall" /></div>
+                      {/* Multi-day helper: sets the END DATE from a day count so admins never
+                          have to work out "start + 2 days" by hand. Times stay editable above. */}
+                      <div className="evt-multiday">
+                        <div className="evt-multiday-head">
+                          <i className="fas fa-calendar-week"></i> How many days does this run?
+                        </div>
+                        <div className="evt-multiday-row">
+                          {[1, 2, 3, 4, 5, 7].map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              className={`evt-day-chip ${eventDayCount(eventForm.eventDate, eventForm.endDate) === n ? 'on' : ''}`}
+                              disabled={!eventForm.eventDate}
+                              onClick={() => setEventDayCount(n)}
+                            >
+                              {n === 1 ? 'Single day' : `${n} days`}
+                            </button>
+                          ))}
+                          <span className="evt-day-custom">
+                            or
+                            <input
+                              type="number"
+                              min="1"
+                              max="365"
+                              className="form-control"
+                              disabled={!eventForm.eventDate}
+                              value={eventDayCount(eventForm.eventDate, eventForm.endDate)}
+                              onChange={(e) => setEventDayCount(e.target.value)}
+                            />
+                            days
+                          </span>
+                        </div>
+                        {!eventForm.eventDate ? (
+                          <div className="evt-multiday-note">
+                            <i className="fas fa-info-circle"></i> Pick a start date &amp; time first &mdash; the end date is calculated from it.
+                          </div>
+                        ) : eventForm.endDate ? (
+                          <div className="evt-multiday-note on">
+                            <i className="fas fa-calendar-check"></i>
+                            <span>
+                              Runs <strong>{eventDayCount(eventForm.eventDate, eventForm.endDate)} day{eventDayCount(eventForm.eventDate, eventForm.endDate) !== 1 ? 's' : ''}</strong>
+                              {eventForm.days && eventForm.days.length > 1 && (
+                                <>{' '}&middot; {eventDayDatesLabel(eventForm.days)}</>
+                              )}
+                              {' '}&middot; {new Date(eventForm.eventDate).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              {' '}&ndash; {new Date(eventForm.endDate).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="evt-multiday-note">
+                            <i className="fas fa-info-circle"></i> Pick a length above, then fine-tune the finish time in <strong>End Date</strong>.
+                          </div>
+                        )}
+                      </div>
 
-                      <div className="evt-config-title"><i className="fas fa-map-marked-alt"></i> Location on Map</div>
-                      <EventLocationPicker
-                        value={{ latitude: eventForm.latitude, longitude: eventForm.longitude, loc_country: eventForm.loc_country, loc_region: eventForm.loc_region, loc_province: eventForm.loc_province, loc_city: eventForm.loc_city, loc_barangay: eventForm.loc_barangay }}
-                        onChange={(loc) => setEventForm((f) => ({
-                          ...f,
-                          latitude: loc.latitude ?? f.latitude, longitude: loc.longitude ?? f.longitude,
-                          loc_country: loc.loc_country ?? f.loc_country, loc_region: loc.loc_region ?? f.loc_region,
-                          loc_province: loc.loc_province ?? f.loc_province, loc_city: loc.loc_city ?? f.loc_city,
-                          loc_barangay: loc.loc_barangay ?? f.loc_barangay,
-                          location: f.location || loc.address || f.location,
-                        }))}
-                      />
+                      {/* One editable row per day. Only shown for a genuine multi-day event -
+                          a single day is fully described by Start/End above. */}
+                      {eventForm.days && eventForm.days.length > 1 && (
+                        <div className="evt-days-editor">
+                          <div className="evt-days-head">
+                            <span className="evt-days-title">
+                              <i className="fas fa-list-ol"></i> Set the time for each day
+                            </span>
+                            <button type="button" className="evt-days-copy" onClick={applyDayOneTimesToAll}>
+                              <i className="fas fa-clone"></i> Use Day 1 times for all
+                            </button>
+                          </div>
+
+                          <div className="evt-days-list">
+                            {eventForm.days.map((d, i) => (
+                              <div className="evt-day-line" key={i}>
+                                <span className="evt-day-num">Day {i + 1}</span>
+                                <div className="evt-day-fields">
+                                  <label className="evt-day-field">
+                                    <span>Date</span>
+                                    <input
+                                      type="date"
+                                      className="form-control"
+                                      value={d.date}
+                                      onChange={(e) => updateEventDay(i, { date: e.target.value })}
+                                    />
+                                  </label>
+                                  <label className="evt-day-field">
+                                    <span>Starts</span>
+                                    <input
+                                      type="time"
+                                      className="form-control"
+                                      value={d.start}
+                                      onChange={(e) => updateEventDay(i, { start: e.target.value })}
+                                    />
+                                  </label>
+                                  <label className="evt-day-field">
+                                    <span>Ends</span>
+                                    <input
+                                      type="time"
+                                      className="form-control"
+                                      value={d.end}
+                                      onChange={(e) => updateEventDay(i, { end: e.target.value })}
+                                    />
+                                  </label>
+                                  <label className="evt-day-field evt-day-field-label">
+                                    <span>Label <em>(optional)</em></span>
+                                    <input
+                                      type="text"
+                                      className="form-control"
+                                      placeholder="e.g. Opening Night"
+                                      value={d.label}
+                                      onChange={(e) => updateEventDay(i, { label: e.target.value })}
+                                    />
+                                  </label>
+                                </div>
+                                {d.date && d.start && d.end && d.end <= d.start && (
+                                  <div className="evt-day-warn">
+                                    <i className="fas fa-triangle-exclamation"></i>
+                                    Ends before it starts &mdash; the end time will be ignored for this day.
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="evt-days-note">
+                            <i className="fas fa-database"></i>
+                            Each day is saved as its own row, so a conference can run different
+                            hours on different days instead of one long overnight block.
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="evt-config-title"><i className="fas fa-map-marked-alt"></i> Location</div>
+                      {/* Map on the left, the fields you actually type into on the right. */}
+                      <div className="evt-loc-split">
+                        <div className="evt-loc-map-col">
+                          <EventLocationPicker
+                            value={{ latitude: eventForm.latitude, longitude: eventForm.longitude, loc_country: eventForm.loc_country, loc_region: eventForm.loc_region, loc_province: eventForm.loc_province, loc_city: eventForm.loc_city, loc_barangay: eventForm.loc_barangay }}
+                            onChange={(loc) => setEventForm((f) => ({
+                              ...f,
+                              latitude: loc.latitude ?? f.latitude, longitude: loc.longitude ?? f.longitude,
+                              loc_country: loc.loc_country ?? f.loc_country, loc_region: loc.loc_region ?? f.loc_region,
+                              loc_province: loc.loc_province ?? f.loc_province, loc_city: loc.loc_city ?? f.loc_city,
+                              loc_barangay: loc.loc_barangay ?? f.loc_barangay,
+                              location: f.location || loc.address || f.location,
+                            }))}
+                          />
+                        </div>
+
+                        <div className="evt-loc-side">
+                          <div className="form-group"><label>Venue Name / Notes</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="e.g. Family Park Cebu, Main Hall" /></div>
+
+                          <div className="evt-loc-pinned">
+                            <span className="evt-loc-pinned-label">
+                              <i className="fas fa-map-pin"></i> Pinned location
+                            </span>
+                            {eventForm.latitude && eventForm.longitude ? (
+                              <>
+                                <span className="evt-loc-pinned-val">
+                                  {[eventForm.loc_barangay, eventForm.loc_city, eventForm.loc_province]
+                                    .filter(Boolean).join(', ') || 'Pin set'}
+                                </span>
+                                <span className="evt-loc-pinned-coords">
+                                  {Number(eventForm.latitude).toFixed(5)}, {Number(eventForm.longitude).toFixed(5)}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="evt-loc-pinned-empty">
+                                Search a place or click the map to drop a pin.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
 
-                  {/* ===== Step 4: Registration ===== */}
-                  {eventStep === 3 && (
+                  {/* ===== Step 3: Registration ===== */}
+                  {eventStep === 2 && (
                     <div className="evt-step-panel">
                       <div className="evt-config-title"><i className="fas fa-clipboard-list"></i> Registration</div>
                       <label className="evt-toggle-row">
@@ -7654,8 +8055,8 @@ Examples:
                     </div>
                   )}
 
-                  {/* ===== Step 5: Pricing & Payment ===== */}
-                  {eventStep === 4 && (
+                  {/* ===== Step 4: Pricing & Payment ===== */}
+                  {eventStep === 3 && (
                     <div className="evt-step-panel">
                       <div className="evt-config-title"><i className="fas fa-peso-sign"></i> Pricing</div>
                       <label className="evt-toggle-row">
@@ -7735,8 +8136,8 @@ Examples:
                     </div>
                   )}
 
-                  {/* ===== Step 6: Merchandise ===== */}
-                  {eventStep === 5 && (
+                  {/* ===== Step 5: Merchandise ===== */}
+                  {eventStep === 4 && (
                     <div className="evt-step-panel">
                       <div className="evt-config-title"><i className="fas fa-shirt"></i> Merchandise</div>
                       <p className="evt-muted" style={{ marginTop: -4, marginBottom: 14, fontSize: '0.85rem' }}>
@@ -7748,18 +8149,17 @@ Examples:
                           <div className="evt-merch-item-img">
                             {(item.previewUrl || item.existingImageUrl)
                               ? <img src={item.previewUrl || item.existingImageUrl} alt={item.name || 'Merch item'} />
-                              : <i className="fas fa-image"></i>}
+                              : null}
+                            <input id={`merch-image-${item.id}`} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => pickMerchItemImage(item.id, e.target.files?.[0])} />
+                            <label htmlFor={`merch-image-${item.id}`} className="evt-merch-upload-btn">
+                              <i className="fas fa-upload"></i>
+                              <span>{(item.previewUrl || item.existingImageUrl) ? 'Change Image' : 'Upload Image'}</span>
+                            </label>
                           </div>
                           <div className="evt-merch-item-fields">
                             <div className="form-group">
                               <label>Item Name</label>
                               <input className="form-control" style={{ padding: '10px 15px' }} value={item.name} onChange={(e) => updateMerchItemName(item.id, e.target.value)} placeholder="e.g. Event T-Shirt" />
-                            </div>
-                            <div>
-                              <input id={`merch-image-${item.id}`} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => pickMerchItemImage(item.id, e.target.files?.[0])} />
-                              <label htmlFor={`merch-image-${item.id}`} className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                                <i className="fas fa-upload"></i> {(item.previewUrl || item.existingImageUrl) ? 'Change Image' : 'Upload Image'}
-                              </label>
                             </div>
                           </div>
                           <button type="button" className="evt-merch-item-remove" onClick={() => removeMerchItem(item.id)} aria-label="Remove item">
@@ -7923,11 +8323,11 @@ Examples:
                               {evt.image_url ? <img src={evt.image_url} alt={evt.title} /> : <div className="evt-admin-card-ph"><i className="fas fa-calendar-day"></i></div>}
                               <span className={`evt-admin-tag ${evt.is_published === false ? 'hidden' : 'public'}`}>{evt.is_published === false ? 'HIDDEN' : 'PUBLIC'}</span>
                               {(evt.loc_city || evt.location) && <span className="evt-admin-loc"><i className="fas fa-location-dot"></i> {evt.loc_city || evt.location}</span>}
-                            </div>
-                            <div className="evt-admin-card-body">
-                              <h4>{evt.title}</h4>
-                              <div className="evt-admin-card-meta">{formatDateTime(evt.event_date)} · {evt.has_fee ? `₱${evt.registration_fee}` : 'Free'} · {st.label}</div>
-                              <button className="evt-admin-manage" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.top - 6 - 190, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>Manage</button>
+                              <div className="evt-admin-card-body">
+                                <h4>{evt.title}</h4>
+                                <div className="evt-admin-card-meta">{formatDateTime(evt.event_date)} · {evt.has_fee ? `₱${evt.registration_fee}` : 'Free'} · {st.label}</div>
+                                <button className="evt-admin-manage" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.top - 6 - 190, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>Manage</button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -8087,6 +8487,9 @@ Examples:
                               </div>
                             )}
                           </div>
+                          <button className="myreg-cancel-btn" onClick={() => handleCancelRegistration(r)}>
+                            <i className="fas fa-xmark"></i> Cancel Registration
+                          </button>
                         </div>
                       </div>
                     );
@@ -8192,7 +8595,7 @@ Examples:
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                       <div className="form-group"><label>Email</label><input className="form-control" value={adminAddRegForm.attendeeEmail} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeEmail: e.target.value })} /></div>
-                      <div className="form-group"><label>Mobile</label><input className="form-control" value={adminAddRegForm.attendeeMobile} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeMobile: e.target.value })} /></div>
+                      <div className="form-group"><label>Mobile</label><PhoneInput value={adminAddRegForm.attendeeMobile} onChange={(v) => setAdminAddRegForm({ ...adminAddRegForm, attendeeMobile: v })} /></div>
                     </div>
 
                     {!eventRegsModal.has_fee ? (
@@ -8245,7 +8648,12 @@ Examples:
                       <div className="evt-detail-info">
                         <div className="evt-detail-row"><i className="fas fa-calendar-check"></i><div><span className="evt-detail-label">When</span><span>{formatDateTime(eventDetail.event_date)}{eventDetail.end_date ? ` – ${formatDateTime(eventDetail.end_date)}` : ''}</span></div></div>
                         {(eventDetail.location || eventDetail.loc_city) && <div className="evt-detail-row"><i className="fas fa-location-dot"></i><div><span className="evt-detail-label">Where</span><span>{[eventDetail.location, eventDetail.loc_barangay, eventDetail.loc_city, eventDetail.loc_province].filter(Boolean).join(', ')}</span>{eventDetail.latitude && eventDetail.longitude && <a className="hp-evt-directions" style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none', marginTop: 4, display: 'inline-flex', gap: 6 }} href={`https://www.google.com/maps/dir/?api=1&destination=${eventDetail.latitude},${eventDetail.longitude}`} target="_blank" rel="noreferrer"><i className="fas fa-directions"></i> Get Directions</a>}</div></div>}
-                        {eventDetail.max_participants && <div className="evt-detail-row"><i className="fas fa-users"></i><div><span className="evt-detail-label">Capacity</span><span>{eventDetail.max_participants} participants</span></div></div>}
+                        {eventDetail.max_participants && (() => {
+                          const left = eventDetail.slots_left != null ? eventDetail.slots_left : Math.max(0, eventDetail.max_participants - (eventDetail.registered_count || 0));
+                          return (
+                            <div className="evt-detail-row"><i className="fas fa-users"></i><div><span className="evt-detail-label">Capacity</span><span>{left <= 0 ? <strong style={{ color: '#dc2626' }}>Fully booked</strong> : <><strong style={{ color: 'var(--primary)' }}>{left}</strong> of {eventDetail.max_participants} slots left</>}</span></div></div>
+                          );
+                        })()}
                         {eventDetail.registration_deadline && <div className="evt-detail-row"><i className="fas fa-hourglass-half"></i><div><span className="evt-detail-label">Register By</span><span>{new Date(eventDetail.registration_deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span></div></div>}
                         {eventDetail.has_fee && eventDetail.payment_instructions && <div className="evt-detail-row"><i className="fas fa-money-check-dollar"></i><div><span className="evt-detail-label">Payment</span><span style={{ whiteSpace: 'pre-wrap' }}>{eventDetail.payment_instructions}</span></div></div>}
                       </div>
@@ -8256,7 +8664,9 @@ Examples:
                         </div>
                       ) : eventDetail.registration_required !== false && (
                         registered ? (
-                          <div className="evt-detail-registered"><i className="fas fa-check-circle"></i> You&apos;re registered for this event</div>
+                          <button className="evt-detail-registered-btn" onClick={() => { setEventDetail(null); setEventsTab('mine'); loadMyRegistrations(); }}>
+                            <i className="fas fa-check-circle"></i> You&apos;re registered — View in My Registrations <i className="fas fa-arrow-right"></i>
+                          </button>
                         ) : canJoin ? (
                           <button className="evt-detail-join" onClick={() => { setEventDetail(null); openRegisterModal(eventDetail); }}><i className="fas fa-user-plus"></i> Register for this Event</button>
                         ) : (
@@ -8284,7 +8694,7 @@ Examples:
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                       <div className="form-group"><label>Email</label><input className="form-control" value={registerForm.attendeeEmail} onChange={(e) => setRegisterForm({ ...registerForm, attendeeEmail: e.target.value })} /></div>
-                      <div className="form-group"><label>Mobile</label><input className="form-control" value={registerForm.attendeeMobile} onChange={(e) => setRegisterForm({ ...registerForm, attendeeMobile: e.target.value })} /></div>
+                      <div className="form-group"><label>Mobile</label><PhoneInput value={registerForm.attendeeMobile} onChange={(v) => setRegisterForm({ ...registerForm, attendeeMobile: v })} /></div>
                     </div>
 
                     {!registerModal.has_fee ? (
@@ -8514,7 +8924,7 @@ Examples:
                   </button>
                   <div className="bday-greet-modal-header">
                     <div className="bday-greet-modal-gift-anim">🎁</div>
-                    <h3>Happy Birthday, {userData?.firstname}! 🎉</h3>
+                    <h3>Happy Birthday, {userData?.firstname}!</h3>
                     <p>You have {myBirthdayGreetings.length} birthday greeting{myBirthdayGreetings.length !== 1 ? 's' : ''} from your church family!</p>
                   </div>
                   <div className="bday-greet-modal-list">
@@ -8608,7 +9018,7 @@ Examples:
           {/* ========== MINISTRY MEETINGS ========== */}
           <section className={`content-section ${activeSection === 'ministry-meetings' ? 'active' : ''}`}>
             <div className="section-header-row" style={{ marginBottom: 25 }}>
-              <h2 className="section-title"><i className="fas fa-handshake"></i> Ministry Meetings</h2>
+              <h2 className="section-title">Ministry Meetings</h2>
               {canManage(MODULES.CREATE_MINISTRY_MEETING) && (
                 <button className="btn-primary" onClick={() => { 
                   setEditingMeeting(null);
@@ -9700,7 +10110,7 @@ Examples:
 
           {/* ========== LIVE STREAM MANAGEMENT (Admin/SuperAdmin) ========== */}
           <section className={`content-section ${activeSection === 'live-stream-management' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-broadcast-tower" style={{ marginRight: 10, color: 'var(--accent)' }}></i>Live Stream Management</h2>
+            <h2 className="section-title">Live Stream Management</h2>
 
             <button className="btn-primary" style={{ marginBottom: 20, borderRadius: 22, padding: '10px 24px' }} onClick={() => { setShowLiveStreamForm(true); setEditingLiveStream(null); setLiveStreamForm({ iframe_url: '', caption: 'Sunday Service Live', title: 'Sunday Service Live' }); }}>
               <i className="fas fa-plus"></i> Post New Live Stream
@@ -9786,7 +10196,7 @@ Examples:
 
           {/* ========== RECORDINGS (Cloudinary) ========== */}
           <section className={`content-section ${activeSection === 'recordings' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-microphone-alt" style={{ marginRight: 10, color: 'var(--accent)' }}></i>Recordings</h2>
+            <h2 className="section-title">Recordings</h2>
             <p style={{ color: '#888', marginBottom: 20, fontSize: 14 }}>
               <i className="fab fa-google-drive" style={{ marginRight: 6 }}></i>
               Files are saved to Cloudinary automatically
@@ -9924,7 +10334,7 @@ Examples:
                       )}
                     </div>
 
-                    <div style={{ fontSize: 32, fontWeight: 700, fontFamily: 'monospace', marginBottom: 8, color: isRecording ? '#e53935' : '#333' }}>
+                    <div style={{ fontSize: 32, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 8, color: isRecording ? '#e53935' : '#333' }}>
                       {formatRecordingTime(recordingTime)}
                     </div>
 
@@ -11216,7 +11626,7 @@ Examples:
           {/* ========== CLOUDINARY USAGE (Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'cloudinary-usage' ? 'active' : ''}`}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <h2 className="section-title" style={{ margin: 0 }}><i className="fas fa-cloud" style={{ marginRight: 10, color: 'var(--primary)' }}></i>Cloudinary Usage</h2>
+              <h2 className="section-title" style={{ margin: 0 }}>Cloudinary Usage</h2>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button className="btn-secondary" style={{ borderRadius: 20, padding: '8px 14px', fontSize: 13 }} onClick={() => fetchCloudUsage(true)} disabled={cloudUsageLoading}>
                   {cloudUsageLoading ? <><i className="fas fa-spinner fa-spin"></i> Refreshing...</> : <><i className="fas fa-sync"></i> Refresh</>}
@@ -11298,7 +11708,7 @@ Examples:
 
           {/* ========== TERMS & CONDITIONS EDITOR (Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'terms-conditions' ? 'active' : ''}`}>
-            <h2 className="section-title"><i className="fas fa-file-contract" style={{ marginRight: 10, color: 'var(--accent)' }}></i>Terms & Conditions Editor</h2>
+            <h2 className="section-title">Terms & Conditions Editor</h2>
 
             <div className="terms-editor-container">
               {/* Toolbar */}
@@ -11399,7 +11809,7 @@ Examples:
           {/* ========== ISOM MANAGEMENT (Super Admin) ========== */}
           <section className={`content-section ${activeSection === 'isom-management' ? 'active' : ''}`}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-              <h2 className="section-title"><i className="fas fa-graduation-cap" style={{ marginRight: 10, color: 'var(--accent)' }}></i>ISOM Management</h2>
+              <h2 className="section-title">ISOM Management</h2>
               <a href="/isom" target="_blank" className="terms-editor-preview-btn">
                 <i className="fas fa-external-link-alt"></i> Preview ISOM Page
               </a>
@@ -11694,7 +12104,7 @@ Examples:
             </div>
 
             {/* Bible Text Display */}
-            {bibleText && <div className="bible-text-display" ref={bibleTextRef} style={{ position: 'relative' }}><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'Georgia, serif', lineHeight: 1.8 }}>{bibleText}</pre>
+            {bibleText && <div className="bible-text-display" ref={bibleTextRef} style={{ position: 'relative' }}><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-scripture)', lineHeight: 1.8 }}>{bibleText}</pre>
               {highlightPopup.visible && (
                 <button className="highlight-ask-btn" onMouseDown={(e) => e.preventDefault()} onClick={askHighlightedText} style={{ position: 'absolute', left: highlightPopup.x, top: highlightPopup.y, transform: 'translate(-50%, -100%)' }}>
                   <i className="fas fa-question-circle"></i> Ask about this
@@ -12619,7 +13029,7 @@ Examples:
           <section className={`content-section ${activeSection === 'praise-worship' ? 'active' : ''}`}>
             <div className="paw-page-header">
               <div className="paw-page-title-row">
-                <h2 className="section-title paw-main-title"><i className="fas fa-hands-praying"></i> Praise & Worship</h2>
+                <h2 className="section-title paw-main-title">Praise & Worship</h2>
                 <span className="paw-role-badge">
                   <i className={`fas ${
                     (userData?.sub_role || '').includes('Song Leader') ? 'fa-microphone' :
@@ -13689,7 +14099,7 @@ Examples:
                   <div className="lyrics-lineup-banner">
                     <div className="lyrics-lineup-banner-header">
                       <i className="fas fa-music"></i>
-                      <h4>🎵 Songs Needing Lyrics <span className="lyrics-lineup-count">{multimediaLineupNotifs.reduce((acc, s) => acc + [...(s.slowSongs || []), ...(s.fastSongs || [])].filter(ss => ss.title).length, 0)}</span></h4>
+                      <h4>Songs Needing Lyrics <span className="lyrics-lineup-count">{multimediaLineupNotifs.reduce((acc, s) => acc + [...(s.slowSongs || []), ...(s.fastSongs || [])].filter(ss => ss.title).length, 0)}</span></h4>
                     </div>
                     <p className="lyrics-lineup-banner-desc">Song Leaders have added songs to upcoming lineups. Prepare lyrics for the worship team!</p>
                     <div className="lyrics-lineup-items">

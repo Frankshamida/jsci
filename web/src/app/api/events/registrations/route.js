@@ -195,6 +195,30 @@ export async function POST(request) {
 
 // PUT /api/events/registrations  { id, actorId, status }            -> admin verifies/updates a registration
 //                                { id, actorId, attended: true|false } -> admin marks/clears attendance (QR check-in)
+// DELETE /api/events/registrations?id=..&userId=..  -> a member cancels their OWN registration
+export async function DELETE(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    const userId = searchParams.get('userId');
+    if (!id || !userId) return NextResponse.json({ success: false, message: 'id and userId required' }, { status: 400 });
+
+    // Ownership check: the registration must belong to this user
+    const { data: reg, error: regErr } = await supabase
+      .from('event_registrations').select('id, user_id, status').eq('id', id).single();
+    if (regErr || !reg) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+    if (reg.user_id !== userId) return NextResponse.json({ success: false, message: 'You can only cancel your own registration.' }, { status: 403 });
+    if (reg.status === 'cancelled') return NextResponse.json({ success: true, message: 'Already cancelled' });
+
+    const { error } = await supabase.from('event_registrations').update({ status: 'cancelled' }).eq('id', id);
+    if (error) throw error;
+    cacheInvalidate(PENDING_ALERTS_KEY);
+    return NextResponse.json({ success: true, message: 'Registration cancelled' });
+  } catch (error) {
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+  }
+}
+
 export async function PUT(request) {
   try {
     const { id, actorId, status, attended } = await request.json();
