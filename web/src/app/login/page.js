@@ -212,9 +212,10 @@ function LoginContent() {
           {/* Left Panel - Image & Branding */}
           <div className="login-panel-left">
             <div className="login-panel-brand">
-              <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
+              <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" />
               <div className="login-panel-brand-text">
-                SanctuaryHub
+                Joyful Sound Church
+                <span>International</span>
               </div>
             </div>
 

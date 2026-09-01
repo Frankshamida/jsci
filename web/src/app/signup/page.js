@@ -279,9 +279,10 @@ export default function SignupPage() {
           {/* ---- LEFT PANEL ---- */}
           <div className="signup-panel-left">
             <div className="signup-panel-brand">
-              <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
+              <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" />
               <div className="signup-panel-brand-text">
-                SanctuaryHub
+                Joyful Sound Church
+                <span>International</span>
               </div>
             </div>
 

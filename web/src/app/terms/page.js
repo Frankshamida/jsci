@@ -66,9 +66,10 @@ export default function TermsPage() {
               <span>Back</span>
             </button>
             <div className="terms-brand">
-              <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
+              <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" />
               <div className="terms-brand-text">
-                SanctuaryHub
+                Joyful Sound Church
+                <span>International</span>
               </div>
             </div>
           </div>

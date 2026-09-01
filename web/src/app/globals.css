@@ -16,13 +16,35 @@
   --border-radius: 12px;
   --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   --transition: all 0.3s ease;
+
+  /* ============================================ */
+  /* Typography - single source of truth          */
+  /* Outfit is loaded + self-hosted by next/font  */
+  /* (see src/app/layout.js). Change the stack    */
+  /* here and it changes everywhere.              */
+  /* ============================================ */
+  --font-outfit-stack: var(--font-outfit), 'Outfit', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --font-body: var(--font-outfit-stack);
+  --font-heading: var(--font-outfit-stack);
+  --font-display: var(--font-outfit-stack);
+  --font-scripture: var(--font-outfit-stack);
+  /* Monospace stays monospace - timers, code and IDs need fixed advance width */
+  --font-mono: 'Fira Code', 'JetBrains Mono', Consolas, Monaco, 'Courier New', monospace;
 }
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: var(--font-body);
+}
+
+/* Outfit is geometric with a large x-height; grayscale smoothing keeps the
+   700-900 weights this app leans on from rendering too heavy. */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 html, body {
@@ -53,7 +75,7 @@ body {
   border-radius: 8px;
   font-size: 0.9rem;
   transition: var(--transition);
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 
 .login-page .form-control:focus,

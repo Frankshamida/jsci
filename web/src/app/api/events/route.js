@@ -143,6 +143,57 @@ function buildMerchItems(fields, merchImageUrls) {
     .filter((item) => item.name || item.image_url);
 }
 
+// ---- Per-day schedules (event_days) --------------------------------------
+// The client sends `days` as a JSON array of
+//   { dayNumber, startsAt, endsAt, label }
+// with ISO datetimes. Returns { eventDate, endDate } derived from the rows so
+// events.event_date / end_date stay the authoritative overall span - every
+// existing listing, sort and "upcoming" filter reads those two columns.
+function parseEventDays(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  let parsed;
+  try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
+  if (!Array.isArray(parsed)) return null;
+  const rows = [];
+  parsed.forEach((d, i) => {
+    const startsAt = d && d.startsAt ? new Date(d.startsAt) : null;
+    if (!startsAt || Number.isNaN(startsAt.getTime())) return;   // skip incomplete days
+    let endsAt = d.endsAt ? new Date(d.endsAt) : null;
+    if (endsAt && Number.isNaN(endsAt.getTime())) endsAt = null;
+    // guard the CHECK constraint rather than letting the insert 500
+    if (endsAt && endsAt.getTime() < startsAt.getTime()) endsAt = null;
+    rows.push({
+      day_number: Number(d.dayNumber) || rows.length + 1,
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt ? endsAt.toISOString() : null,
+      label: d.label ? String(d.label).slice(0, 200) : null,
+    });
+  });
+  return rows;
+}
+
+// Overall span across the day rows. Falls back to nulls for an empty set.
+function spanFromDays(rows) {
+  if (!rows || rows.length === 0) return { eventDate: null, endDate: null };
+  const starts = rows.map((r) => new Date(r.starts_at).getTime());
+  const ends = rows.map((r) => new Date(r.ends_at || r.starts_at).getTime());
+  return {
+    eventDate: new Date(Math.min(...starts)).toISOString(),
+    endDate: new Date(Math.max(...ends)).toISOString(),
+  };
+}
+
+// Replace an event's day rows wholesale. Deleting first keeps the set exactly
+// in sync when the admin shortens a 5-day event back to 2 - an upsert alone
+// would leave days 3-5 orphaned and still showing on the public page.
+async function syncEventDays(eventId, rows) {
+  await supabase.from('event_days').delete().eq('event_id', eventId);
+  if (!rows || rows.length === 0) return;
+  const payload = rows.map((r, i) => ({ ...r, day_number: i + 1, event_id: eventId }));
+  const { error } = await supabase.from('event_days').insert(payload);
+  if (error) throw error;
+}
+
 // GET - Fetch events
 export async function GET(request) {
   try {
@@ -152,7 +203,7 @@ export async function GET(request) {
     // Public/member views pass published=true to hide drafts. Admin omits it.
     const publishedOnly = searchParams.get('published') === 'true';
 
-    let query = supabase.from('events').select('*').eq('is_active', true).order('event_date', { ascending: true }).limit(limit);
+    let query = supabase.from('events').select('*, event_days(*)').eq('is_active', true).order('event_date', { ascending: true }).limit(limit);
     if (upcoming) {
       query = query.gte('event_date', new Date().toISOString());
     }
@@ -163,7 +214,33 @@ export async function GET(request) {
     const { data, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json({ success: true, data });
+    // Attach a live registered count (non-cancelled) so the UI can show remaining slots
+    const events = data || [];
+    try {
+      const ids = events.map((e) => e.id);
+      if (ids.length > 0) {
+        const { data: regs } = await supabase
+          .from('event_registrations')
+          .select('event_id')
+          .in('event_id', ids)
+          .neq('status', 'cancelled');
+        const counts = {};
+        (regs || []).forEach((r) => { counts[r.event_id] = (counts[r.event_id] || 0) + 1; });
+        events.forEach((e) => {
+          e.registered_count = counts[e.id] || 0;
+          e.slots_left = e.max_participants ? Math.max(0, e.max_participants - e.registered_count) : null;
+        });
+      }
+    } catch { /* count is best-effort */ }
+
+    // Supabase returns the nested rows unordered; Day 1 must come first.
+    events.forEach((e) => {
+      if (Array.isArray(e.event_days)) {
+        e.event_days.sort((a, b) => (a.day_number || 0) - (b.day_number || 0));
+      }
+    });
+
+    return NextResponse.json({ success: true, data: events });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
@@ -191,8 +268,14 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'Event date is required to publish' }, { status: 400 });
     }
 
+    // A per-day schedule, when present, is the source of truth for the span.
+    const dayRows = parseEventDays(fields.days);
+    const span = spanFromDays(dayRows);
+
     const insertData = mapEventConfig(fields, {
-      title, description, event_date: eventDate || new Date().toISOString(), end_date: endDate || null,
+      title, description,
+      event_date: span.eventDate || eventDate || new Date().toISOString(),
+      end_date: span.endDate || endDate || null,
       location, image_url: finalImageUrl, created_by: createdBy,
     }, gcashQrUrl);
     const merchItems = buildMerchItems(fields, merchImageUrls);
@@ -201,6 +284,7 @@ export async function POST(request) {
     const { data, error } = await supabase.from('events').insert(insertData).select().single();
 
     if (error) throw error;
+    if (dayRows && dayRows.length > 0) await syncEventDays(data.id, dayRows);
     await logEventAudit(actor, 'create_event', data.id, `Created event "${title}"`);
     return NextResponse.json({ success: true, data, message: 'Event created successfully' });
   } catch (error) {
@@ -220,11 +304,17 @@ export async function PUT(request) {
     const actor = await verifyEventManager(actorId);
     if (!actor) return FORBIDDEN();
 
+    const dayRows = parseEventDays(updates.days);
+    const span = spanFromDays(dayRows);
+
     const updateData = {};
     if (updates.title) updateData.title = updates.title;
     if (updates.description !== undefined) updateData.description = updates.description;
     if (updates.eventDate) updateData.event_date = updates.eventDate;
     if (updates.endDate !== undefined) updateData.end_date = updates.endDate;
+    // day rows win over the plain start/end fields when both are sent
+    if (span.eventDate) updateData.event_date = span.eventDate;
+    if (span.endDate) updateData.end_date = span.endDate;
     if (updates.location !== undefined) updateData.location = updates.location;
     if (uploadedUrl) updateData.image_url = uploadedUrl;
     else if (updates.imageUrl !== undefined) updateData.image_url = updates.imageUrl;
@@ -235,6 +325,8 @@ export async function PUT(request) {
 
     const { data, error } = await supabase.from('events').update(updateData).eq('id', id).select().single();
     if (error) throw error;
+    // null (field absent) leaves existing days alone; [] clears them.
+    if (dayRows !== null) await syncEventDays(id, dayRows);
 
     const isArchive = updates.isActive === false || updates.isActive === 'false';
     await logEventAudit(actor, isArchive ? 'archive_event' : 'update_event', id, isArchive ? 'Archived event' : `Updated event "${data.title}"`);

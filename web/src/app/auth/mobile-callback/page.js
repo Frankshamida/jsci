@@ -105,8 +105,7 @@ export default function MobileCallbackPage() {
         minHeight: '100vh',
         backgroundColor: '#0d0d1a',
         color: '#ffffff',
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily: 'var(--font-body)',
         padding: '24px',
         textAlign: 'center',
       }}

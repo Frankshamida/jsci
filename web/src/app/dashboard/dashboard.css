@@ -28,7 +28,7 @@
   align-items: center;
   height: 100vh;
   background: #f8f9fa;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   gap: 20px;
 }
 
@@ -88,7 +88,7 @@ body.dark-mode .dashboard-loading-text {
 .dashboard-wrapper {
   min-height: 100vh;
   background: #f8f9fa;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   animation: dashboardFadeIn 0.5s ease-out;
 }
 
@@ -232,13 +232,22 @@ body.dark-mode .dashboard-loading-text {
 }
 
 .brand-text {
+  /* ------------------------------------------------------------------
+     Brand lockup: JOYFUL SOUND CHURCH / INTERNATIONAL.
+     Design spec was authored at 128px + 64px on a ~1898px artboard.
+     --brand-unit is the ONE knob: it is the "JOYFUL SOUND CHURCH" size,
+     and INTERNATIONAL derives from it at exactly half, preserving the
+     2:1 ratio of the original. Raise it only if the sidebar gets wider -
+     the INTERNATIONAL line is the widest element and clips first.
+     ------------------------------------------------------------------ */
+  --brand-unit: 1rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   white-space: nowrap;
   overflow: hidden;
   transition: opacity 0.2s ease, max-height 0.3s ease;
-  max-height: 64px;
+  max-height: 80px;
 }
 
 .sidebar.collapsed .brand-text {
@@ -247,12 +256,17 @@ body.dark-mode .dashboard-loading-text {
   pointer-events: none;
 }
 
+/* JOYFUL SOUND CHURCH */
 .brand-name {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 1.6rem;
-  font-weight: 800;
+  font-family: var(--font-body);
+  font-style: normal;
+  font-weight: 600;
+  font-size: var(--brand-unit);
+  line-height: 1.26; /* 161/128 from the spec */
+  text-align: center;
+  text-transform: uppercase;
+  /* gold theme kept, per request - spec colour #000 is not used */
   color: var(--accent);
-  letter-spacing: 1.5px;
   background: linear-gradient(135deg, var(--secondary), var(--accent));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -260,13 +274,23 @@ body.dark-mode .dashboard-loading-text {
   text-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
+/* INTERNATIONAL */
 .brand-sub {
-  font-size: 0.65rem;
-  color: var(--sidebar-text-muted);
-  letter-spacing: 4px;
-  font-weight: 700;
-  margin-top: 5px;
+  font-family: var(--font-body);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--brand-unit) / 2); /* 64/128 = exactly half */
+  line-height: 1.27; /* 81/64 from the spec */
+  letter-spacing: 1.29em;
+  /* letter-spacing also trails the LAST glyph, which shoves centred text
+     off to the left by half the tracking. A negative right margin cancels
+     it exactly WITHOUT widening the box - important here, because this line
+     is the widest thing in the sidebar and has ~11px of clearance. */
+  margin-right: -1.29em;
+  text-align: center;
   text-transform: uppercase;
+  color: var(--secondary);
+  margin-top: 6px;
 }
 
 /* ---- Collapse Toggle (in sidebar-bottom) ---- */
@@ -410,6 +434,19 @@ body.dark-mode .dashboard-loading-text {
   color: var(--sidebar-active-text);
   font-weight: 600;
   box-shadow: 0 4px 16px rgba(146,108,21,0.18);
+}
+
+/* The selected item keeps its gold on hover - only the shadow deepens, so
+   there is still feedback without the link appearing to deselect itself.
+   At (0,3,0) this outranks `.menu-item:hover` (0,2,0) in light mode.
+   It does NOT cover dark mode: `body.dark-mode .menu-item:hover` is (0,3,1)
+   and would still win, which is why there is a matching
+   `body.dark-mode .menu-item.active:hover` rule further down. Do not delete
+   that one thinking it is redundant. */
+.menu-item.active:hover {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: var(--sidebar-active-text);
+  box-shadow: 0 6px 20px rgba(146,108,21,0.30);
 }
 
 .menu-item.disabled {
@@ -922,7 +959,7 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .sidebar-user-name {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.84rem;
   font-weight: 600;
   color: var(--sidebar-text);
@@ -1123,10 +1160,9 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .section-title {
-  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  font-family: var(--font-heading);
   font-size: 1.85rem;
   font-weight: 600;
-  font-style: italic;
   color: var(--primary);
   margin-bottom: 32px;
   padding-bottom: 16px;
@@ -1192,15 +1228,14 @@ body.dark-mode .sidebar-lock-tooltip {
   text-transform: uppercase;
   letter-spacing: 1.5px;
   margin-bottom: 14px;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 
 .welcome-greeting {
   color: #ffffff;
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 2.1rem;
   font-weight: 600;
-  font-style: italic;
   line-height: 1.35;
   margin: 0;
   letter-spacing: 0.2px;
@@ -1487,7 +1522,7 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .verse-of-the-day {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.2rem;
   font-style: italic;
   color: #333;
@@ -1496,7 +1531,7 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .verse-reference {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   color: var(--primary);
   font-size: 0.9rem;
@@ -1573,10 +1608,10 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .pastors-big-title {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-weight: 900;
   font-size: 4rem;
-  letter-spacing: 10px;
+  letter-spacing: 0.06em;
   color: rgba(146,108,21,0.10);
   text-transform: uppercase;
   margin-bottom: -15px;
@@ -1724,7 +1759,7 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .pastors-carousel-name span:nth-child(2) {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 1.75rem;
   color: #1a1a2e;
@@ -1744,7 +1779,7 @@ body.dark-mode .sidebar-lock-tooltip {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-weight: 700;
   font-style: italic;
   font-size: 1.15rem;
@@ -1764,8 +1799,7 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .church-family-section h2 {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-style: italic;
+  font-family: var(--font-heading);
   font-weight: 600;
   font-size: 1.5rem;
   color: var(--primary);
@@ -2090,7 +2124,7 @@ body.dark-mode .sidebar-lock-tooltip {
   border: 1px solid #eee;
   margin: 8px 0;
   line-height: 1.6;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 
 .song-instructions {
@@ -2140,7 +2174,7 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .birthday-section-title {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.05rem;
   font-weight: 700;
   color: #d63384;
@@ -2911,11 +2945,12 @@ body.dark-mode .bible-controls .form-select optgroup {
 }
 
 .community-compose-input {
+  line-height: 1.6;
   width: 100%;
   border: 2px solid #e8e8ee;
   border-radius: 12px;
   padding: 14px 16px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.9rem;
   resize: vertical;
   background: transparent;
@@ -3046,7 +3081,7 @@ body.dark-mode .bible-controls .form-select optgroup {
 
 .community-post-author-name {
   display: block;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -3124,7 +3159,7 @@ body.dark-mode .bible-controls .form-select optgroup {
   border-radius: 20px;
   background: rgba(34, 197, 94, 0.08);
   color: #22c55e;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -3280,7 +3315,7 @@ body.dark-mode .bible-controls .form-select optgroup {
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.8rem;
   font-weight: 700;
   z-index: 2;
@@ -3449,7 +3484,7 @@ body.dark-mode .bible-controls .form-select optgroup {
 
 .community-photo-viewer-counter {
   color: rgba(255,255,255,0.7);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   font-weight: 600;
 }
@@ -3506,7 +3541,7 @@ body.dark-mode .bible-controls .form-select optgroup {
   border: none;
   background: none;
   color: #6c757d;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.84rem;
   font-weight: 500;
   cursor: pointer;
@@ -3664,7 +3699,7 @@ body.dark-mode .bible-controls .form-select optgroup {
 .reaction-badge.praise { background: #ede9fe; z-index: 1; }
 
 .community-reaction-count {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: #6c757d;
   font-weight: 500;
@@ -3708,7 +3743,7 @@ body.dark-mode .bible-controls .form-select optgroup {
 
 .reaction-viewer-header h3 {
   margin: 0;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -3747,7 +3782,7 @@ body.dark-mode .bible-controls .form-select optgroup {
   border: none;
   background: transparent;
   border-radius: 20px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.8rem;
   font-weight: 600;
   color: #6c757d;
@@ -3811,7 +3846,7 @@ body.dark-mode .bible-controls .form-select optgroup {
 }
 
 .reaction-viewer-name {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -3880,7 +3915,7 @@ body.dark-mode .bible-controls .form-select optgroup {
 }
 
 .community-comment-name {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -3922,7 +3957,7 @@ body.dark-mode .bible-controls .form-select optgroup {
   border: 2px solid #e8e8ee;
   border-radius: 22px;
   padding: 10px 18px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.84rem;
   outline: none;
   background: transparent;
@@ -4288,7 +4323,7 @@ body.dark-mode .community-kindness-reminder {
   border: 2px solid var(--primary);
   background: transparent;
   color: var(--primary);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -4385,7 +4420,7 @@ body.dark-mode .community-verse-share-btn:hover {
 }
 
 .community-verse-modal-header h3 {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.35rem;
   color: var(--primary);
   margin: 0 0 4px;
@@ -4432,7 +4467,7 @@ body.dark-mode .community-verse-share-btn:hover {
   flex: 1;
   border: none;
   background: transparent;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   outline: none;
   color: var(--text-primary);
@@ -4447,7 +4482,7 @@ body.dark-mode .community-verse-share-btn:hover {
   border-radius: 12px;
   background: linear-gradient(135deg, var(--primary), var(--secondary));
   color: #fff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -4488,7 +4523,7 @@ body.dark-mode .community-verse-share-btn:hover {
 }
 
 .community-verse-preview-text {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-style: italic;
   font-size: 0.95rem;
   color: #4a3c10;
@@ -4521,7 +4556,7 @@ body.dark-mode .community-verse-share-btn:hover {
   border: 2px solid #e8e8ee;
   border-radius: 12px;
   padding: 12px 14px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   resize: vertical;
   outline: none;
@@ -4549,7 +4584,7 @@ body.dark-mode .community-verse-share-btn:hover {
   border-radius: 12px;
   background: transparent;
   color: #666;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -4566,7 +4601,7 @@ body.dark-mode .community-verse-share-btn:hover {
   border-radius: 12px;
   background: linear-gradient(135deg, var(--primary), var(--secondary));
   color: #fff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -4679,7 +4714,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
   padding: 11px 16px;
   border: none;
   background: none;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--text-primary);
@@ -4747,7 +4782,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
   background: none;
   color: #adb5bd;
   font-size: 0.72rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 6px;
@@ -4855,7 +4890,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .community-card-header h3 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.92rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -4894,7 +4929,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 
 /* Verse card */
 .verse-text {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   font-style: italic;
   line-height: 1.6;
@@ -4903,7 +4938,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .verse-ref {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--primary);
@@ -4918,7 +4953,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .fact-text {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   line-height: 1.55;
   color: var(--text-primary);
@@ -4927,7 +4962,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 
 /* Trivia card */
 .trivia-question {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.92rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -4941,7 +4976,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .trivia-answer-toggle {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
 }
 
@@ -5122,7 +5157,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .community-profile-modal-info h3 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -5131,7 +5166,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 
 .community-profile-role {
   display: inline-block;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.75rem;
   font-weight: 600;
   padding: 4px 14px;
@@ -5146,7 +5181,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   color: var(--text-secondary);
   margin-top: 6px;
@@ -5162,7 +5197,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
   background: rgba(146,108,21,0.05);
   border-radius: 12px;
   border-left: 3px solid var(--primary);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-style: italic;
   color: var(--text-secondary);
@@ -5886,7 +5921,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
   font-size: 0.82rem;
   line-height: 1.6;
   white-space: pre-wrap;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   max-height: 200px;
   overflow-y: auto;
   margin: 8px 0;
@@ -6809,7 +6844,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .paw-lyrics-text {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   line-height: 1.8;
   color: #444;
@@ -7816,7 +7851,7 @@ body.dark-mode .community-profile-verse {
 }
 
 .profile-header-name {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -8044,7 +8079,7 @@ body.dark-mode .community-profile-verse {
   padding: 11px 16px;
   border: none;
   background: none;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--text-primary);
@@ -8123,7 +8158,7 @@ body.dark-mode .community-profile-verse {
 .profile-pic-lightbox-name {
   margin-top: 16px;
   color: #fff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.1rem;
   font-weight: 600;
 }
@@ -8131,12 +8166,12 @@ body.dark-mode .community-profile-verse {
 /* Profile Initials */
 .profile-header-initials-v2 {
   font-size: 1.8rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 /* Profile Name - Modern casual font */
 .profile-header-name-v2 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -8170,7 +8205,7 @@ body.dark-mode .community-profile-verse {
   background: rgba(146,108,21,0.06);
   border-radius: 10px;
   border-left: 3px solid var(--primary);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: var(--text-secondary);
   font-style: italic;
@@ -8251,7 +8286,7 @@ body.dark-mode .community-profile-verse {
 
 .profile-banner-verse-text {
   color: #fff;
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.05rem;
   font-style: italic;
   font-weight: 500;
@@ -8269,7 +8304,7 @@ body.dark-mode .community-profile-verse {
   color: rgba(255,255,255,0.75);
   font-size: 0.78rem;
   font-weight: 600;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   letter-spacing: 0.5px;
   background: rgba(255,255,255,0.12);
   padding: 3px 14px;
@@ -8405,7 +8440,7 @@ body.dark-mode .community-profile-verse {
 }
 
 .profile-avatar-initials-v3 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 3rem;
   font-weight: 700;
   color: #fff;
@@ -8479,7 +8514,7 @@ body.dark-mode .community-profile-verse {
 }
 
 .profile-name-v3 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.65rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -8492,7 +8527,7 @@ body.dark-mode .community-profile-verse {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.72rem;
   font-weight: 600;
   padding: 5px 14px;
@@ -8524,7 +8559,7 @@ body.dark-mode .community-profile-verse {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--text-secondary);
@@ -8550,7 +8585,7 @@ body.dark-mode .community-profile-verse {
   background: rgba(146,108,21,0.05);
   border-radius: 12px;
   border-left: 3px solid var(--primary);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.84rem;
   color: var(--text-secondary);
   font-style: italic;
@@ -9719,7 +9754,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   border-radius: 10px; font-size: 0.92rem; font-weight: 600;
   color: #777; cursor: pointer; transition: all 0.25s;
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 .lu-tab:hover { color: #555; background: rgba(0,0,0,0.04); }
 .lu-tab.active {
@@ -9776,7 +9811,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 .lu-field-group label {
   display: flex; align-items: center; gap: 8px;
   font-size: 0.88rem; font-weight: 600; color: #555;
-  margin-bottom: 8px; font-family: 'Poppins', sans-serif;
+  margin-bottom: 8px; font-family: var(--font-body);
 }
 .lu-field-group label i { color: var(--primary); font-size: 0.85rem; }
 .lu-field-hint { color: #aaa; font-size: 0.8rem; margin: 6px 0 0; }
@@ -10065,7 +10100,7 @@ body.dark-mode .lu-view-song-pill.fast { background: rgba(255,152,0,0.12); }
   padding: 14px 18px;
   font-weight: 700;
   font-size: 0.92rem;
-  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-family: var(--font-heading);
 }
 .lu-info-card-header.gold {
   background: linear-gradient(135deg, rgba(146,108,21,0.10), rgba(184,134,11,0.06));
@@ -10319,7 +10354,7 @@ body.dark-mode .lu-view-song-pill.fast { background: rgba(255,152,0,0.12); }
   font-weight: 700;
   color: #0069d9;
   margin: 0;
-  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-family: var(--font-heading);
 }
 .lu-excuse-modal-header h3 i { margin-right: 10px; }
 .lu-excuse-modal-body {
@@ -10420,7 +10455,7 @@ body.dark-mode .lu-view-song-pill.fast { background: rgba(255,152,0,0.12); }
   font-weight: 700;
   font-size: 0.95rem;
   color: #856404;
-  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-family: var(--font-heading);
 }
 .lu-excuse-admin-header i { color: #e0a800; font-size: 1.1rem; }
 .lu-excuse-admin-badge {
@@ -10430,7 +10465,7 @@ body.dark-mode .lu-view-song-pill.fast { background: rgba(255,152,0,0.12); }
   padding: 2px 8px;
   border-radius: 10px;
   margin-left: 4px;
-  font-family: var(--font-body, 'Montserrat', sans-serif);
+  font-family: var(--font-body);
 }
 .lu-excuse-admin-body {
   padding: 16px 20px;
@@ -11012,7 +11047,7 @@ body.dark-mode .lu-view-sub-reason { color: #aaa; }
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 .paw-sub-tab:hover { background: rgba(0,0,0,0.04); color: #555; }
 .paw-sub-tab.active {
@@ -11227,7 +11262,7 @@ body.dark-mode .paw-excuse-status.accepted { background: rgba(76,175,80,0.12); c
   font-weight: 700;
   font-size: 0.95rem;
   color: #856404;
-  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-family: var(--font-heading);
 }
 .paw-notif-header i { color: #e0a800; font-size: 1.1rem; }
 .paw-notif-badge {
@@ -11237,7 +11272,7 @@ body.dark-mode .paw-excuse-status.accepted { background: rgba(76,175,80,0.12); c
   font-weight: 700;
   padding: 2px 9px;
   border-radius: 10px;
-  font-family: var(--font-body, 'Montserrat', sans-serif);
+  font-family: var(--font-body);
 }
 .paw-notif-list {
   padding: 14px 16px;
@@ -11682,7 +11717,7 @@ body.dark-mode .paw-excuse-status.accepted { background: rgba(76,175,80,0.12); c
   font-weight: 700;
   color: var(--text-primary, #333);
   margin: 0;
-  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-family: var(--font-heading);
 }
 .paw-history-desc {
   font-size: 0.85rem;
@@ -11935,7 +11970,7 @@ body.dark-mode .paw-past-tag { background: rgba(255,255,255,0.06); color: #666; 
 }
 
 .event-card-title {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--primary);
@@ -12122,7 +12157,7 @@ body.dark-mode table td {
 }
 
 .announcement-card-title {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--primary);
@@ -12423,7 +12458,7 @@ body.dark-mode .announcement-action-btn:hover {
 }
 
 .sched-rec-timer {
-  font-family: 'Monaco', monospace;
+  font-family: var(--font-mono);
   font-weight: 700;
   font-size: 1rem;
   color: var(--primary);
@@ -12491,7 +12526,7 @@ body.dark-mode .announcement-action-btn:hover {
 
 /* Progress Bar */
 .sched-upload-progress { margin-bottom: 10px; }
-.sched-progress-info { display: flex; justify-content: space-between; font-size: 0.65rem; color: #64748b; margin-bottom: 3px; }
+.sched-progress-info { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; font-size: 0.65rem; color: #64748b; margin-bottom: 3px; }
 .sched-progress-bar { height: 4px; background: #e2e8f0; border-radius: 2px; overflow: hidden; }
 .sched-progress-fill { height: 100%; background: linear-gradient(90deg, var(--primary), #10b981); transition: width 0.3s; }
 
@@ -12770,7 +12805,7 @@ body.dark-mode .hamburger-line {
 }
 
 body.dark-mode .brand-sub {
-  color: rgba(255,255,255,0.7);
+  color: var(--accent);
 }
 
 body.dark-mode .sidebar-menu {
@@ -12787,6 +12822,12 @@ body.dark-mode .menu-item:hover {
 
 body.dark-mode .menu-item.active {
   box-shadow: 0 4px 16px rgba(146,108,21,0.25);
+}
+
+body.dark-mode .menu-item.active:hover {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: var(--sidebar-active-text);
+  box-shadow: 0 6px 20px rgba(146,108,21,0.38);
 }
 
 body.dark-mode .sidebar-user-card:hover {
@@ -14616,7 +14657,7 @@ body:not(.dark-mode) .wm-footer {
   border: 2px solid #e5e7eb;
   border-radius: 12px;
   font-size: 0.92rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   background: var(--bg-card, #fff);
   color: var(--text-primary, #1a1a2e);
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -14657,7 +14698,7 @@ body:not(.dark-mode) .wm-footer {
   border: 2px solid #e5e7eb;
   border-radius: 10px;
   font-size: 0.85rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   background: var(--bg-card, #fff);
   color: var(--text-primary, #1a1a2e);
   cursor: pointer;
@@ -14680,7 +14721,7 @@ body:not(.dark-mode) .wm-footer {
   background: rgba(220, 53, 69, 0.08);
   color: #dc3545;
   font-size: 0.82rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
   font-weight: 500;
   transition: background 0.2s;
@@ -14691,7 +14732,7 @@ body:not(.dark-mode) .wm-footer {
   font-size: 0.84rem;
   color: var(--text-secondary, #6c757d);
   margin-bottom: 12px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 /* Table */
@@ -14706,7 +14747,7 @@ body:not(.dark-mode) .wm-footer {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 .um-table thead tr {
   background: linear-gradient(135deg, var(--primary, #926c15), #b8860b);
@@ -14787,7 +14828,7 @@ body:not(.dark-mode) .wm-footer {
   line-height: 1.2;
 }
 .um-member-id {
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--primary, #926c15);
@@ -14811,7 +14852,7 @@ body:not(.dark-mode) .wm-footer {
   border-radius: 8px;
   border: 1.5px solid #e5e7eb;
   font-size: 0.82rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   background: var(--bg-card, #fff);
   color: var(--text-primary, #1a1a2e);
   cursor: pointer;
@@ -14888,7 +14929,7 @@ body:not(.dark-mode) .wm-footer {
   background: transparent;
   color: var(--text-primary, #1a1a2e);
   font-size: 0.85rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
   border-radius: 10px;
   transition: background 0.15s;
@@ -14934,7 +14975,7 @@ body:not(.dark-mode) .wm-footer {
 }
 .um-empty-state p {
   font-size: 0.95rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 /* Ministry Role Tags / Chips */
@@ -14967,7 +15008,7 @@ body:not(.dark-mode) .wm-footer {
   border-radius: 20px;
   font-size: 0.8rem;
   font-weight: 600;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   animation: umTagIn 0.2s ease-out;
 }
 @keyframes umTagIn {
@@ -15000,7 +15041,7 @@ body:not(.dark-mode) .wm-footer {
   border: 1.5px solid #e5e7eb !important;
   border-radius: 8px !important;
   font-size: 0.84rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 .um-role-add-input:focus {
   border-color: var(--primary) !important;
@@ -15016,7 +15057,7 @@ body:not(.dark-mode) .wm-footer {
   border-radius: 8px;
   font-size: 0.82rem;
   font-weight: 600;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.2s, transform 0.15s;
@@ -15091,7 +15132,7 @@ body.dark-mode .um-role-add-input {
   color: #e67e22;
 }
 .um-confirm-title {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-primary, #1a1a2e);
@@ -15102,7 +15143,7 @@ body.dark-mode .um-role-add-input {
   color: var(--text-secondary, #6c757d);
   line-height: 1.6;
   margin-bottom: 24px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 .um-confirm-warning {
   color: #dc3545;
@@ -15120,7 +15161,7 @@ body.dark-mode .um-role-add-input {
   border-radius: 12px;
   background: transparent;
   color: var(--text-primary, #1a1a2e);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-weight: 600;
   font-size: 0.88rem;
   cursor: pointer;
@@ -15132,7 +15173,7 @@ body.dark-mode .um-role-add-input {
   border: none;
   border-radius: 12px;
   color: #fff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-weight: 600;
   font-size: 0.88rem;
   cursor: pointer;
@@ -15161,7 +15202,7 @@ body.dark-mode .um-role-add-input {
   border-bottom: 1px solid #e5e7eb;
 }
 .um-reset-header h3 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--text-primary, #1a1a2e);
@@ -15204,7 +15245,7 @@ body.dark-mode .um-role-add-input {
   color: #dc3545;
   font-size: 0.82rem;
   margin-top: 10px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -15410,7 +15451,7 @@ body.dark-mode .terms-editor-toolbar-divider {
   font-size: 0.85rem;
   font-weight: 700;
   transition: all 0.15s ease;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 
 .terms-editor-toolbar button:hover {
@@ -15436,7 +15477,7 @@ body.dark-mode .terms-editor-toolbar button:hover {
   padding: 28px 32px;
   min-height: 400px;
   outline: none;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.92rem;
   line-height: 1.75;
   color: #333;
@@ -15456,7 +15497,7 @@ body.dark-mode .terms-editor-area:focus {
 }
 
 .terms-editor-area h2 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.5rem;
   font-weight: 700;
   color: #1a1a2e;
@@ -15471,7 +15512,7 @@ body.dark-mode .terms-editor-area h2 {
 }
 
 .terms-editor-area h3 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--primary, #926c15);
@@ -15568,7 +15609,7 @@ body.dark-mode .terms-editor-footer {
   border: 1px solid #ddd;
   text-decoration: none;
   transition: all 0.2s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
 }
 
@@ -15600,7 +15641,7 @@ body.dark-mode .terms-editor-preview-btn:hover {
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .terms-editor-save-btn:hover {
@@ -15695,7 +15736,7 @@ body.dark-mode .terms-editor-preview-btn:hover {
 }
 
 .perm-gate-title {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -16304,7 +16345,7 @@ body.dark-mode .terms-editor-preview-btn:hover {
 }
 
 .perm-ctrl-confirm-title {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -16542,7 +16583,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-family: 'Montserrat', 'Poppins', sans-serif;
+  font-family: var(--font-body);
   overflow: hidden;
   padding: 24px;
 }
@@ -16668,7 +16709,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   font-size: 1.8rem;
   font-weight: 700;
   margin: 0 0 10px;
-  font-family: 'Playfair Display', 'Montserrat', serif;
+  font-family: var(--font-heading);
   animation: accountDeletedSlideUp 0.6s 0.7s ease both;
 }
 
@@ -16723,7 +16764,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   line-height: 1.8;
   font-style: italic;
   margin: 0 0 12px;
-  font-family: 'Georgia', serif;
+  font-family: var(--font-scripture);
 }
 
 .account-deleted-verse-ref {
@@ -16758,7 +16799,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   transition: all 0.3s ease;
   animation: accountDeletedSlideUp 0.6s 1.5s ease both;
   box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 
 .account-deleted-btn:hover {
@@ -16884,7 +16925,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   font-size: 1.6rem;
   font-weight: 700;
   margin: 0 0 8px;
-  font-family: 'Playfair Display', 'Montserrat', serif;
+  font-family: var(--font-heading);
 }
 .pending-hero-subtitle {
   color: rgba(255, 255, 255, 0.55);
@@ -17033,7 +17074,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   line-height: 1.8;
   font-style: italic;
   margin: 0 0 12px;
-  font-family: 'Georgia', serif;
+  font-family: var(--font-scripture);
 }
 .pending-verse-ref {
   color: #FFC300;
@@ -17108,7 +17149,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   border-radius: 12px;
   color: #fff;
   font-size: 0.9rem;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
   outline: none;
   transition: all 0.3s ease;
   box-sizing: border-box;
@@ -17140,7 +17181,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   font-weight: 700;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 .pending-save-btn:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -17273,7 +17314,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 .pending-game-btn:hover {
   transform: translateY(-1px);
@@ -17307,7 +17348,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   cursor: pointer;
   transition: all 0.25s ease;
   text-align: left;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 .pending-game-option:hover:not(:disabled) {
   background: rgba(255, 195, 0, 0.08);
@@ -17381,7 +17422,7 @@ body.dark-mode .perm-ctrl-confirm-cancel:hover {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
 }
 .pending-game-next-btn:hover {
   background: rgba(255, 195, 0, 0.1);
@@ -19170,7 +19211,7 @@ body:not(.dark-mode) .paw-quick-history-reason {
 }
 
 .lyrics-paste-area {
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 0.82rem;
   line-height: 1.5;
   resize: vertical;
@@ -19324,7 +19365,7 @@ body:not(.dark-mode) .paw-quick-history-reason {
   border: none !important;
   border-radius: 0 !important;
   background: transparent !important;
-  font-family: 'Georgia', serif;
+  font-family: var(--font-scripture);
   font-size: 0.88rem;
   line-height: 1.7;
   padding: 14px !important;
@@ -19384,7 +19425,7 @@ body:not(.dark-mode) .paw-quick-history-reason {
   text-transform: uppercase;
 }
 .lyrics-preview-content {
-  font-family: 'Georgia', serif;
+  font-family: var(--font-scripture);
   font-size: 0.88rem;
   line-height: 1.8;
   color: rgba(255,255,255,0.85);
@@ -19868,7 +19909,7 @@ body:not(.dark-mode) .lyrics-preview-section > h4 {
 }
 
 .live-admin-form-header h3 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -19885,7 +19926,7 @@ body:not(.dark-mode) .lyrics-preview-section > h4 {
 }
 
 .live-admin-iframe-input {
-  font-family: 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono);
   font-size: 0.82rem;
   background: rgba(0,0,0,0.02);
   border: 2px dashed rgba(0,0,0,0.12);
@@ -20003,7 +20044,7 @@ body:not(.dark-mode) .lyrics-preview-section > h4 {
 }
 
 .live-admin-item-info h4 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -20280,7 +20321,7 @@ body:not(.dark-mode) .lyrics-preview-section > h4 {
   border: 1px solid rgba(255,255,255,0.15);
   background: rgba(255,255,255,0.08);
   color: rgba(255,255,255,0.8);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   font-weight: 500;
   border-radius: 20px;
@@ -20447,7 +20488,7 @@ body:not(.dark-mode) .lyrics-preview-section > h4 {
 }
 
 .live-stream-caption {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -20494,7 +20535,7 @@ body:not(.dark-mode) .lyrics-preview-section > h4 {
   font-size: 0.78rem;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .live-stream-share-btn:hover {
@@ -20668,7 +20709,7 @@ body.dark-mode .live-share-preview {
   border: none;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
 }
 
 .live-share-option i { font-size: 1.5rem; }
@@ -20716,7 +20757,7 @@ body.dark-mode .live-share-preview {
   background: none;
   color: var(--text-primary);
   font-size: 0.82rem;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   outline: none;
   width: 100%;
   min-width: 0;
@@ -20732,7 +20773,7 @@ body.dark-mode .live-share-preview {
   font-size: 0.82rem;
   cursor: pointer;
   transition: all 0.3s ease;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -20838,7 +20879,7 @@ body.dark-mode .live-share-copy-input {
   border: none;
   background: none;
   color: #6c757d;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -20871,7 +20912,7 @@ body.dark-mode .live-share-copy-input {
   border: none;
   background: none;
   color: #6c757d;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   font-weight: 500;
   cursor: pointer;
@@ -20906,7 +20947,7 @@ body.dark-mode .live-share-copy-input {
 }
 
 .live-stream-comments-header h4 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -20920,6 +20961,7 @@ body.dark-mode .live-share-copy-input {
 }
 
 .live-stream-comment-count {
+  font-variant-numeric: tabular-nums;
   font-size: 0.78rem;
   color: #adb5bd;
   font-weight: 500;
@@ -21002,7 +21044,7 @@ body.dark-mode .live-share-copy-input {
 
 .live-stream-comment-bubble strong {
   display: block;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -21160,7 +21202,7 @@ body.dark-mode .live-share-copy-input {
   border: 2px solid #e8e8ee;
   border-radius: 24px;
   padding: 10px 18px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.86rem;
   background: transparent;
   color: var(--text-primary);
@@ -21507,7 +21549,7 @@ body.dark-mode .live-share-copy-input {
   background: linear-gradient(135deg, #fff0f6, #ffe0ec);
   border: 1px solid rgba(214,51,132,0.15);
   color: #d63384;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   font-weight: 600;
   padding: 6px 14px;
@@ -21529,7 +21571,7 @@ body.dark-mode .live-share-copy-input {
 .bday-greet-read-mine-btn {
   background: linear-gradient(135deg, #d63384, #e91e8c);
   color: #fff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   font-weight: 600;
   padding: 10px 22px;
@@ -21557,7 +21599,7 @@ body.dark-mode .live-share-copy-input {
   background: none;
   border: 1px solid rgba(214,51,132,0.3);
   color: #d63384;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.7rem;
   font-weight: 600;
   padding: 3px 10px;
@@ -21653,7 +21695,7 @@ body.dark-mode .live-share-copy-input {
   border-radius: 25px;
   border: 1.5px solid rgba(214,51,132,0.2);
   background: #fff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   color: #1a1a2e;
   outline: none;
@@ -21671,7 +21713,7 @@ body.dark-mode .live-share-copy-input {
   border: none;
   padding: 10px 18px;
   border-radius: 25px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -21759,7 +21801,7 @@ body.dark-mode .live-share-copy-input {
   box-shadow: 0 2px 10px rgba(0,0,0,0.04);
 }
 .bday-greet-list-title {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   font-weight: 600;
   color: #d63384;
@@ -21799,7 +21841,7 @@ body.dark-mode .live-share-copy-input {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.7rem;
   color: #fff;
@@ -21812,7 +21854,7 @@ body.dark-mode .live-share-copy-input {
   min-width: 0;
 }
 .bday-greet-item-sender {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.8rem;
   color: #1a1a2e;
@@ -21902,7 +21944,7 @@ body.dark-mode .live-share-copy-input {
   75% { transform: translateY(-6px) rotate(5deg); }
 }
 .bday-greet-modal-header h3 {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-weight: 800;
   font-size: 1.3rem;
   margin: 0 0 6px;
@@ -21961,7 +22003,7 @@ body.dark-mode .live-share-copy-input {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.8rem;
   color: #fff;
@@ -21974,7 +22016,7 @@ body.dark-mode .live-share-copy-input {
   min-width: 0;
 }
 .bday-greet-modal-item-sender {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.88rem;
   color: #1a1a2e;
@@ -23264,7 +23306,13 @@ body.dark-mode .cbday-24h-badge {
   to { opacity: 1; transform: scale(1); }
 }
 
-.menu-item {
+/* Scoped to the chat message dropdown. These were previously bare
+   `.menu-item` rules, which collided with the SIDEBAR .menu-item:
+   `.menu-item:hover` and `.menu-item.active` have equal specificity
+   (0,2,0), so this block - being later in the file - won, and hovering
+   the active sidebar link wiped its gold gradient to #f1f5f9 while the
+   label stayed white. Scoping fixes it at the source. */
+.messages-menu-dropdown .menu-item {
   width: 100%;
   padding: 8px 12px;
   border: none;
@@ -23278,15 +23326,15 @@ body.dark-mode .cbday-24h-badge {
   gap: 8px;
 }
 
-.menu-item:hover {
+.messages-menu-dropdown .menu-item:hover {
   background: #f1f5f9;
 }
 
-.menu-item.delete {
+.messages-menu-dropdown .menu-item.delete {
   color: #ef4444;
 }
 
-.menu-item.delete:hover {
+.messages-menu-dropdown .menu-item.delete:hover {
   background: #fef2f2;
 }
 
@@ -23417,8 +23465,8 @@ body.dark-mode .messages-bubble.unsent {
 }
 
 body.dark-mode .messages-menu-dropdown { background: #1e293b; border-color: rgba(255,255,255,0.1); }
-body.dark-mode .menu-item { color: #e2e8f0; }
-body.dark-mode .menu-item:hover { background: rgba(255,255,255,0.05); }
+body.dark-mode .messages-menu-dropdown .menu-item { color: #e2e8f0; }
+body.dark-mode .messages-menu-dropdown .menu-item:hover { background: rgba(255,255,255,0.05); }
 body.dark-mode .messages-menu-btn:hover { background: rgba(255,255,255,0.1); }
 body.dark-mode .messages-seen-tag { color: rgba(255, 255, 255, 0.7); }
 body.dark-mode .messages-edit-area .form-control { background: rgba(0,0,0,0.2); color: #fff; border-color: rgba(255,255,255,0.1); }
@@ -24216,6 +24264,143 @@ body.dark-mode .um-page-btn {
 }
 .evt-method-chip input { display: none; }
 .evt-method-chip.on { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; border-color: var(--primary); }
+/* ---- Date + time fields (Schedule step) ----
+   A native datetime-local is one cramped control. Splitting it into a date
+   input and a time input, wrapped to look like a single field, is easier to
+   read and to fill in - and both halves keep their native pickers, so
+   keyboard and mobile behaviour come for free. */
+.evt-when-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 15px;
+}
+.evt-dt {
+  display: flex; align-items: stretch;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.12));
+  border-radius: 10px; background: var(--bg-input, #fff);
+  overflow: hidden; transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.evt-dt:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(146,108,21,0.12); }
+.evt-dt.evt-field-error { border-color: #dc2626; }
+.evt-dt-part { display: flex; align-items: center; gap: 9px; padding: 11px 13px; min-width: 0; flex: 1; }
+.evt-dt-time { flex: 0 0 auto; }
+.evt-dt-part > i { color: var(--primary); font-size: 0.9rem; flex-shrink: 0; }
+/* the inputs are borderless - the wrapper draws the field */
+.evt-dt-part input {
+  border: none; background: none; outline: none; padding: 0; min-width: 0; width: 100%;
+  font-family: inherit; font-size: 0.88rem; font-weight: 600; color: inherit;
+}
+.evt-dt-split { width: 1px; background: var(--border-color, rgba(0,0,0,0.12)); flex-shrink: 0; }
+.evt-dt-readonly { background: rgba(146,108,21,0.05); }
+.evt-dt-static { font-size: 0.88rem; font-weight: 600; }
+/* native picker button, tinted to match */
+.evt-dt-part input::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.55; }
+.evt-dt-part input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+body.dark-mode .evt-dt { border-color: rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); }
+body.dark-mode .evt-dt-split { background: rgba(255,255,255,0.14); }
+body.dark-mode .evt-dt-readonly { background: rgba(255,255,255,0.06); }
+body.dark-mode .evt-dt-part input::-webkit-calendar-picker-indicator { filter: invert(1); }
+
+/* ---- Location: map left, fields right ---- */
+.evt-loc-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 18px; align-items: start;
+}
+@media (max-width: 900px) {
+  .evt-loc-split { grid-template-columns: 1fr; }
+}
+.evt-loc-map-col, .evt-loc-side { min-width: 0; }
+.evt-loc-pinned {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 13px 15px; border-radius: 10px;
+  background: rgba(146,108,21,0.06); border: 1px solid rgba(146,108,21,0.18);
+}
+.evt-loc-pinned-label { display: flex; align-items: center; gap: 7px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--primary); }
+.evt-loc-pinned-val { font-size: 0.88rem; font-weight: 700; }
+.evt-loc-pinned-coords { font-family: var(--font-mono); font-size: 0.74rem; color: var(--text-muted, #888); }
+.evt-loc-pinned-empty { font-size: 0.8rem; color: var(--text-muted, #888); line-height: 1.5; }
+body.dark-mode .evt-loc-pinned { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.12); }
+
+/* ---- Per-day schedule editor ---- */
+.evt-days-editor {
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+  border-radius: 12px; padding: 16px; margin: 0 0 16px;
+}
+.evt-days-head {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px; margin-bottom: 14px;
+}
+.evt-days-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem; color: var(--primary); }
+.evt-days-copy {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px; border-radius: 20px; cursor: pointer;
+  border: 1.5px solid var(--border-color, rgba(146,108,21,0.3)); background: transparent;
+  color: var(--primary); font-family: inherit; font-size: 0.8rem; font-weight: 700;
+  transition: all 0.18s ease;
+}
+.evt-days-copy:hover { background: rgba(146,108,21,0.10); border-color: var(--primary); }
+.evt-days-list { display: flex; flex-direction: column; gap: 10px; }
+.evt-day-line {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px; border-radius: 10px; background: rgba(146,108,21,0.05);
+  flex-wrap: wrap;
+}
+.evt-day-num {
+  flex-shrink: 0; min-width: 58px; margin-top: 18px;
+  font-weight: 800; font-size: 0.82rem; color: var(--primary);
+}
+/* auto-fit keeps all four controls on one line on a wide screen and stacks
+   them cleanly on a narrow one, without a separate breakpoint. */
+.evt-day-fields {
+  flex: 1; min-width: 0;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 10px;
+}
+.evt-day-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.evt-day-field > span { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-muted, #888); }
+.evt-day-field > span em { font-style: normal; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.evt-day-field .form-control { padding: 8px 10px !important; font-size: 0.85rem; }
+.evt-day-field-label { grid-column: 1 / -1; }
+.evt-day-warn {
+  flex-basis: 100%; display: flex; align-items: center; gap: 7px;
+  font-size: 0.76rem; font-weight: 600; color: #b45309; margin-top: 2px;
+}
+.evt-days-note {
+  display: flex; align-items: flex-start; gap: 7px; margin-top: 13px;
+  font-size: 0.76rem; line-height: 1.5; color: var(--text-muted, #888);
+}
+body.dark-mode .evt-days-editor { border-color: rgba(255,255,255,0.12); }
+body.dark-mode .evt-day-line { background: rgba(255,255,255,0.05); }
+body.dark-mode .evt-days-copy { color: var(--accent); border-color: rgba(255,255,255,0.2); }
+
+@media (min-width: 700px) {
+  .evt-day-fields { grid-template-columns: 1.15fr 0.85fr 0.85fr 1.3fr; }
+  .evt-day-field-label { grid-column: auto; }
+}
+
+/* ---- Multi-day event picker (Schedule & Location step) ---- */
+.evt-multiday {
+  background: rgba(146,108,21,0.06); border: 1px solid rgba(146,108,21,0.18);
+  border-radius: 12px; padding: 14px 16px; margin: 4px 0 16px;
+}
+.evt-multiday-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem; color: var(--primary); margin-bottom: 11px; }
+.evt-multiday-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.evt-day-chip {
+  display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 20px;
+  border: 1.5px solid var(--border-color, rgba(146,108,21,0.25)); background: transparent;
+  color: inherit; font-family: inherit; font-size: 0.85rem; font-weight: 600;
+  cursor: pointer; transition: all 0.18s ease;
+}
+.evt-day-chip:hover:not(:disabled) { border-color: var(--primary); }
+.evt-day-chip.on { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; border-color: var(--primary); }
+.evt-day-chip:disabled { opacity: 0.4; cursor: not-allowed; }
+.evt-day-custom { display: inline-flex; align-items: center; gap: 7px; font-size: 0.85rem; font-weight: 600; color: var(--text-muted, #888); }
+.evt-day-custom input { width: 76px; padding: 6px 10px !important; text-align: center; }
+.evt-multiday-note { display: flex; align-items: center; gap: 7px; font-size: 0.78rem; margin-top: 11px; color: var(--text-muted, #888); line-height: 1.5; }
+.evt-multiday-note.on { color: var(--primary); font-weight: 600; }
+body.dark-mode .evt-multiday { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); }
+body.dark-mode .evt-multiday-note.on { color: var(--accent); }
+
 .evt-pay-box { background: rgba(146,108,21,0.06); border: 1px solid rgba(146,108,21,0.18); border-radius: 12px; padding: 14px; margin: 10px 0; }
 .evt-pay-amount { font-size: 1rem; margin-bottom: 8px; }
 .evt-pay-detail { margin: 8px 0; font-size: 0.9rem; }
@@ -24338,10 +24523,25 @@ body.dark-mode .evt-method-chip { border-color: rgba(255,255,255,0.18); color: #
 }
 body.dark-mode .evt-merch-item { background: #232332; border-color: rgba(255,255,255,0.1); }
 .evt-merch-item-img {
-  width: 70px; height: 70px; border-radius: 10px; overflow: hidden; flex-shrink: 0;
+  position: relative;
+  width: 140px; height: 140px; border-radius: 12px; overflow: hidden; flex-shrink: 0;
   background: rgba(146,108,21,0.08); border: 1px dashed rgba(146,108,21,0.4);
   display: flex; align-items: center; justify-content: center; color: var(--text-muted, #999);
 }
+/* upload control centered inside the merch preview box */
+.evt-merch-upload-btn {
+  position: absolute; inset: 0; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  text-align: center; padding: 8px; font-size: 0.7rem; font-weight: 700; line-height: 1.2;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--primary, #926c15); background: transparent;
+  transition: background 0.18s ease;
+}
+.evt-merch-upload-btn i { font-size: 1.6rem; }
+.evt-merch-item-img:has(img) .evt-merch-upload-btn { background: rgba(255,255,255,0.72); opacity: 0; }
+.evt-merch-item-img:has(img) .evt-merch-upload-btn:hover { opacity: 1; }
+body.dark-mode .evt-merch-upload-btn { color: #e6c76a; }
+body.dark-mode .evt-merch-item-img:has(img) .evt-merch-upload-btn { background: rgba(20,20,30,0.72); }
 .evt-merch-item-img img { width: 100%; height: 100%; object-fit: cover; }
 body.dark-mode .evt-merch-item-img { background: rgba(255,255,255,0.05); }
 .evt-merch-item-fields { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -24370,10 +24570,55 @@ body.dark-mode .evt-publish-toggle-row small { color: rgba(255,255,255,0.55); }
 .evt-field-error-msg { color: #dc2626; font-size: 0.78rem; font-weight: 600; margin-top: 5px; }
 .evt-field-hint { color: var(--text-muted, #999); font-size: 0.75rem; margin-top: 5px; }
 body.dark-mode .evt-field-hint { color: rgba(255,255,255,0.5); }
+/* Event poster: 1080x1380 portrait. aspect-ratio keeps the box on
+   ratio at any column width, so the preview shows exactly the crop the
+   poster will get everywhere else. */
 .evt-picture-preview {
-  width: 140px; height: 90px; border-radius: 10px; overflow: hidden; flex-shrink: 0;
+  position: relative;
+  width: 100%; aspect-ratio: 1080 / 1380; border-radius: 12px; overflow: hidden;
   background: rgba(146,108,21,0.08); border: 1px dashed rgba(146,108,21,0.4);
   display: flex; align-items: center; justify-content: center; transition: border-color 0.18s ease;
+}
+/* upload control sits inside the preview, stacked under the placeholder */
+.evt-picture-preview { flex-direction: column; gap: 14px; }
+.evt-picture-upload-btn {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 10px 18px; border-radius: 10px; font-size: 0.82rem; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+  background: rgba(255,255,255,0.92); color: var(--primary, #926c15);
+  border: 1px solid rgba(146,108,21,0.35); box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+.evt-picture-upload-btn:hover { background: #fff; transform: scale(1.04); }
+/* once a poster is chosen the image fills the box, so the button floats on top */
+.evt-picture-preview:has(img) .evt-picture-upload-btn {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2;
+}
+.evt-picture-preview:has(img) .evt-picture-upload-btn:hover { transform: translate(-50%, -50%) scale(1.04); }
+body.dark-mode .evt-picture-upload-btn { background: rgba(35,35,50,0.92); color: #e6c76a; border-color: rgba(255,255,255,0.18); }
+.evt-picture-actions:empty { display: none; }
+
+.evt-basic-split {
+  display: grid;
+  grid-template-columns: minmax(260px, 380px) 1fr;
+  gap: 26px;
+  align-items: start;
+}
+.evt-basic-poster, .evt-basic-fields { min-width: 0; }
+.evt-picture-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 12px; }
+.evt-picture-hint { text-align: center; }
+/* separates the Title/Description fields from the Visibility controls now
+   that both live in the right-hand column of step 1 */
+.evt-basic-divider { height: 1px; background: var(--border-color, rgba(0,0,0,0.08)); margin: 22px 0 18px; }
+body.dark-mode .evt-basic-divider { background: rgba(255,255,255,0.12); }
+.evt-picture-hint { font-size: 0.75rem; opacity: 0.6; margin-top: 8px; line-height: 1.5; }
+.evt-picture-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; opacity: 0.45; }
+.evt-picture-empty i { font-size: 1.8rem; }
+.evt-picture-empty span { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; }
+
+@media (max-width: 860px) {
+  .evt-basic-split { grid-template-columns: 1fr; }
+  .evt-picture-preview { max-width: 320px; }
 }
 body.dark-mode .evt-picture-preview { background: rgba(255,255,255,0.05); }
 
@@ -24496,7 +24741,7 @@ body.dark-mode .isom-inq-status-closed { color: #bbb; background: rgba(255,255,2
 .myreg-poster.done { opacity: 0.72; filter: grayscale(0.85); }
 .myreg-poster.done:hover { transform: none; }
 .myreg-body { padding: 16px 18px 20px; }
-.myreg-body h4 { margin: 0 0 10px; font-family: 'Montserrat', sans-serif; font-size: 1.1rem; }
+.myreg-body h4 { margin: 0 0 10px; font-family: var(--font-body); font-size: 1.1rem; }
 .myreg-meta { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: var(--text-muted, #777); margin-bottom: 5px; }
 .myreg-meta i { color: var(--primary); width: 16px; text-align: center; }
 .myreg-qr { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border-color, rgba(0,0,0,0.15)); text-align: center; }
@@ -24516,7 +24761,7 @@ body.dark-mode .myreg-qr img { background: #fff; padding: 6px; border-radius: 8p
   width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: #16a34a; color: #fff; font-size: 1.2rem; box-shadow: 0 6px 18px rgba(22,163,74,0.4);
 }
-.myreg-attended-label { font-weight: 800; font-size: 0.95rem; color: #16a34a; font-family: 'Montserrat', sans-serif; }
+.myreg-attended-label { font-weight: 800; font-size: 0.95rem; color: #16a34a; font-family: var(--font-body); }
 .myreg-attended-time { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-muted, #6b7280); }
 body.dark-mode .myreg-attended { background: linear-gradient(180deg, rgba(22,163,74,0.14), rgba(22,163,74,0.03)); border-color: rgba(22,163,74,0.3); }
 @keyframes myregAttendedIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
@@ -24530,7 +24775,7 @@ body.dark-mode .myreg-attended { background: linear-gradient(180deg, rgba(22,163
   width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: rgba(220,38,38,0.12); color: #dc2626; font-size: 1.15rem;
 }
-.myreg-noshow-label { font-weight: 800; font-size: 0.95rem; color: #dc2626; font-family: 'Montserrat', sans-serif; }
+.myreg-noshow-label { font-weight: 800; font-size: 0.95rem; color: #dc2626; font-family: var(--font-body); }
 .myreg-noshow-note { font-size: 0.8rem; color: var(--text-muted, #6b7280); text-align: center; }
 body.dark-mode .myreg-noshow { background: linear-gradient(180deg, rgba(220,38,38,0.12), rgba(220,38,38,0.03)); border-color: rgba(220,38,38,0.25); }
 
@@ -24545,7 +24790,7 @@ body.dark-mode .myreg-fee-alert { background: rgba(234,179,8,0.15); color: #fcd3
 .myreg-pay-btn {
   width: 100%; padding: 13px; border: none; border-radius: 12px; cursor: pointer;
   background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff;
-  font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 0.95rem;
+  font-family: var(--font-body); font-weight: 800; font-size: 0.95rem;
   display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.22s ease;
 }
 .myreg-pay-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(146,108,21,0.4); }
@@ -24590,7 +24835,7 @@ body.dark-mode .myreg-fee-alert { background: rgba(234,179,8,0.15); color: #fcd3
 .evt-poster:hover .evt-poster-shine { transform: translateX(120%); }
 .evt-poster-body { padding: 14px 16px 18px; }
 .evt-poster-title {
-  margin: 0 0 8px; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1rem; line-height: 1.25;
+  margin: 0 0 8px; font-family: var(--font-body); font-weight: 800; font-size: 1rem; line-height: 1.25;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .evt-poster-meta { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; color: var(--text-muted, #888); margin-bottom: 5px; }
@@ -24600,7 +24845,7 @@ body.dark-mode .myreg-fee-alert { background: rgba(234,179,8,0.15); color: #fcd3
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   padding: 10px 12px; border: none; border-radius: 24px; cursor: pointer;
   background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff;
-  font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 0.82rem; transition: all 0.22s ease;
+  font-family: var(--font-body); font-weight: 800; font-size: 0.82rem; transition: all 0.22s ease;
 }
 .evt-poster-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(146,108,21,0.45); }
 .evt-poster-registered { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 10px 12px; border-radius: 24px; background: rgba(22,163,74,0.12); color: #16a34a; font-weight: 800; font-size: 0.82rem; }
@@ -24624,11 +24869,11 @@ body.dark-mode .evt-poster-map { color: var(--accent); border-color: var(--accen
 .evt-detail-modal { width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; background: var(--bg-card, #fff); border-radius: 20px; position: relative; box-shadow: 0 24px 70px rgba(0,0,0,0.4); }
 body.dark-mode .evt-detail-modal { background: #1e1e2e; color: #eee; }
 .evt-detail-close { position: absolute; top: 14px; right: 14px; z-index: 2; background: rgba(0,0,0,0.45); }
-.evt-detail-banner { width: 100%; height: 240px; object-fit: cover; border-radius: 20px 20px 0 0; display: block; }
+.evt-detail-banner { width: 100%; aspect-ratio: 1080 / 1380; object-fit: cover; border-radius: 20px 20px 0 0; display: block; }
 .evt-detail-banner.ph { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.4rem; }
 .evt-detail-body { padding: 22px 26px 26px; }
 .evt-detail-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.evt-detail-title { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1.6rem; color: var(--primary); margin: 0 0 10px; }
+.evt-detail-title { font-family: var(--font-body); font-weight: 800; font-size: 1.6rem; color: var(--primary); margin: 0 0 10px; }
 body.dark-mode .evt-detail-title { color: var(--accent); }
 .evt-detail-desc { color: var(--text-secondary, #555); line-height: 1.6; margin: 0 0 18px; white-space: pre-wrap; }
 body.dark-mode .evt-detail-desc { color: #ccc; }
@@ -24637,7 +24882,7 @@ body.dark-mode .evt-detail-desc { color: #ccc; }
 .evt-detail-row > i { color: var(--primary); font-size: 1.05rem; width: 22px; text-align: center; margin-top: 2px; flex-shrink: 0; }
 .evt-detail-row > div { display: flex; flex-direction: column; gap: 2px; }
 .evt-detail-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; color: #999; }
-.evt-detail-join { width: 100%; margin-top: 20px; padding: 14px; border: none; border-radius: 30px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.25s ease; }
+.evt-detail-join { width: 100%; margin-top: 20px; padding: 14px; border: none; border-radius: 30px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: var(--font-body); font-weight: 800; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.25s ease; }
 .evt-detail-join:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(146,108,21,0.4); }
 .evt-detail-registered { width: 100%; margin-top: 20px; padding: 14px; border-radius: 30px; background: rgba(22,163,74,0.12); color: #16a34a; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .evt-detail-locked { width: 100%; margin-top: 20px; padding: 14px; border-radius: 30px; background: rgba(120,120,120,0.12); color: #888; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; text-align: center; }
@@ -24668,11 +24913,11 @@ body.dark-mode .evt-detail-ended { background: rgba(255,255,255,0.08); color: #a
     radial-gradient(circle at 70% 120%, rgba(255,255,255,0.12), transparent 45%);
 }
 .um-hero-content { position: relative; z-index: 1; }
-.um-hero-title { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 2.1rem; color: #fff; margin: 0 0 10px; text-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+.um-hero-title { font-family: var(--font-body); font-weight: 800; font-size: 2.1rem; color: #fff; margin: 0 0 10px; text-shadow: 0 2px 12px rgba(0,0,0,0.25); }
 .um-hero-sub { color: rgba(255,255,255,0.9); font-size: 1rem; max-width: 640px; margin: 0 0 20px; line-height: 1.5; }
 .um-hero-btn {
   display: inline-flex; align-items: center; gap: 9px; padding: 12px 26px; border: none; border-radius: 12px; cursor: pointer;
-  background: var(--accent); color: #3e2e08; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 0.95rem;
+  background: var(--accent); color: #3e2e08; font-family: var(--font-body); font-weight: 800; font-size: 0.95rem;
   box-shadow: 0 6px 18px rgba(255,195,0,0.4); transition: all 0.22s ease;
 }
 .um-hero-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(255,195,0,0.55); }
@@ -24803,17 +25048,49 @@ body.dark-mode .evt-rows-per-page b { background: #2a2a35; color: #eee; }
 /* Admin grid cards (reference grid view, gold) */
 .evt-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px; min-height: 400px; align-content: start; }
 .evt-admin-card { background: var(--bg-card, #fff); border-radius: 15px; overflow: hidden; box-shadow: 0 0 3px rgba(0,0,0,0.18), 0 6px 18px rgba(0,0,0,0.06); }
-.evt-admin-card-img { position: relative; height: 170px; }
+.evt-admin-card-img { position: relative; aspect-ratio: 1080 / 1380; overflow: hidden; }
 .evt-admin-card-img img { width: 100%; height: 100%; object-fit: cover; }
 .evt-admin-card-ph { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 2.6rem; }
 .evt-admin-tag { position: absolute; top: 12px; left: 12px; padding: 5px 12px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; color: #fff; }
 .evt-admin-tag.public { background: var(--primary); }
 .evt-admin-tag.hidden { background: var(--accent); color: #3e2e08; }
-.evt-admin-loc { position: absolute; bottom: 12px; right: 12px; color: #fff; font-size: 0.78rem; display: flex; align-items: center; gap: 5px; text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
-.evt-admin-card-body { padding: 16px 18px 18px; }
-.evt-admin-card-body h4 { margin: 0 0 8px; font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 1.15rem; color: var(--primary); }
-body.dark-mode .evt-admin-card-body h4 { color: var(--accent); }
-.evt-admin-card-meta { font-size: 0.85rem; color: var(--text-muted, #888); margin-bottom: 14px; }
+/* the reveal covers the bottom-right corner, so fade the location out with it */
+.evt-admin-card:hover .evt-admin-loc,
+.evt-admin-card:focus-within .evt-admin-loc { opacity: 0; }
+.evt-admin-loc { position: absolute; bottom: 12px; right: 12px; z-index: 1; transition: opacity 0.28s ease; color: #fff; font-size: 0.78rem; display: flex; align-items: center; gap: 5px; text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+/* Details overlay: parked fully below the poster and revealed on hover.
+   translateY(100%) puts it out of frame rather than just transparent, so it
+   can never intercept a click on the poster while hidden. :focus-within is
+   essential - without it the Manage button is reachable by Tab but invisible
+   and off-frame, which strands keyboard users. */
+.evt-admin-card-body {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  padding: 18px 18px 18px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.94) 0%, rgba(0,0,0,0.82) 58%, rgba(0,0,0,0) 100%);
+  transform: translateY(100%);
+  opacity: 0;
+  transition: transform 0.38s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.3s ease;
+}
+.evt-admin-card:hover .evt-admin-card-body,
+.evt-admin-card:focus-within .evt-admin-card-body {
+  transform: translateY(0);
+  opacity: 1;
+}
+/* white on the dark scrim - the old gold would be unreadable here */
+.evt-admin-card-body h4 { margin: 0 0 6px; font-family: var(--font-body); font-weight: 700; font-size: 1.15rem; color: #fff; }
+body.dark-mode .evt-admin-card-body h4 { color: #fff; }
+.evt-admin-card-meta { font-size: 0.85rem; color: rgba(255,255,255,0.82); margin-bottom: 14px; }
+@media (prefers-reduced-motion: reduce) {
+  .evt-admin-card-body { transition: none; }
+}
+/* Touch devices have no hover, so keep the details permanently visible there
+   rather than making the cards unusable. */
+@media (hover: none) {
+  .evt-admin-card-body { position: static; transform: none; opacity: 1; background: none; }
+  .evt-admin-card-body h4 { color: var(--primary); }
+  body.dark-mode .evt-admin-card-body h4 { color: var(--accent); }
+  .evt-admin-card-meta { color: var(--text-muted, #888); }
+}
 .evt-admin-manage { width: 100%; padding: 11px; border: none; border-radius: 8px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: all 0.2s ease; }
 .evt-admin-manage:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(146,108,21,0.4); }
 body.dark-mode .evt-admin-card { background: #1e1e2e; }
@@ -24885,3 +25162,35 @@ body.dark-mode .evt-admin-card { background: #1e1e2e; }
   .evt-manage-btn, .um-hero-btn { font-size: 0.88rem; }
   .evt-mini-btn { flex: 1 1 100%; }
 }
+
+/* ---- Phone input with country dial code ---- */
+.phone-input { display: flex; gap: 8px; }
+.phone-input-dial {
+  flex: 0 0 auto; width: 108px; padding: 10px 8px; border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(146,108,21,0.25)); background: var(--bg-input, #f7f7fb);
+  color: var(--text-primary, #333); font-size: 0.9rem; cursor: pointer;
+}
+.phone-input-number {
+  flex: 1; min-width: 0; padding: 10px 15px; border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(146,108,21,0.25)); background: var(--bg-input, #f7f7fb);
+  color: var(--text-primary, #333); font-size: 0.9rem;
+}
+.phone-input-dial:focus, .phone-input-number:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(146,108,21,0.1); }
+.phone-input-dial:disabled, .phone-input-number:disabled { opacity: 0.55; cursor: not-allowed; }
+body.dark-mode .phone-input-dial, body.dark-mode .phone-input-number { background: #2a2a2a; color: #eee; border-color: rgba(255,195,0,0.2); }
+
+/* Registered -> go to My Registrations button (event details modal) */
+.evt-detail-registered-btn {
+  width: 100%; margin-top: 20px; padding: 14px 18px; border: none; border-radius: 30px; cursor: pointer;
+  background: rgba(22,163,74,0.12); color: #16a34a; font-family: var(--font-body); font-weight: 800; font-size: 0.95rem;
+  display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.22s ease;
+}
+.evt-detail-registered-btn:hover { background: #16a34a; color: #fff; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(22,163,74,0.35); }
+
+/* Cancel registration button (My Registrations poster) */
+.myreg-cancel-btn {
+  width: 100%; margin-top: 14px; padding: 11px; border: 1.5px solid #dc2626; border-radius: 10px;
+  background: transparent; color: #dc2626; font-weight: 700; font-size: 0.85rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease;
+}
+.myreg-cancel-btn:hover { background: #dc2626; color: #fff; }
