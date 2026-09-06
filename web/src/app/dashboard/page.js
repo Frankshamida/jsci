@@ -22,51 +22,90 @@ const pad2 = (n) => String(n).padStart(2, '0');
 const dateOnly = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const timeOnly = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
-// Grow/shrink the day rows to `count`, keeping any the admin already edited.
-// New days inherit Day 1's times, which is what a conference usually wants.
-const buildEventDays = (count, anchorStr, existing = []) => {
-  const anchor = new Date(anchorStr);
-  if (Number.isNaN(anchor.getTime())) return [];
-  const rows = [];
-  for (let i = 0; i < count; i++) {
-    if (existing[i]) { rows.push(existing[i]); continue; }
-    const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + i);
-    rows.push({
-      date: dateOnly(d),
-      start: (existing[0] && existing[0].start) || timeOnly(anchor),
-      end: (existing[0] && existing[0].end) || '',
-      label: '',
-    });
-  }
-  return rows;
-};
+// Pre-filled registration fee for a new paid event.
+const DEFAULT_EVENT_FEE = 300;
 
-// Re-date the rows from a new start, keeping every time-of-day as entered.
-// Used when the admin moves the whole event to another date.
-const rebaseEventDays = (days, anchorStr) => {
-  const anchor = new Date(anchorStr);
-  if (Number.isNaN(anchor.getTime())) return days;
-  return days.map((d, i) => {
-    const dt = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + i);
-    return { ...d, date: dateOnly(dt), start: i === 0 ? timeOnly(anchor) : d.start };
-  });
-};
+// ---- Sessions ------------------------------------------------------------
+// An event is made of one or more SESSIONS. A session has its own title and its
+// own start/end date+time, so "Day 2 runs 9am-5pm" and "the Friday night rally"
+// are both expressible. One session is the default and is the whole event -
+// in that case the session title is never shown, the event title stands alone.
+const EMPTY_EVENT_SESSION = { title: '', startDate: '', startTime: '', endDate: '', endTime: '' };
 
-// events.event_date / end_date stay the overall span so every existing query
-// keeps working. Derived from the rows rather than tracked separately.
-const spanFromEventDays = (days) => {
-  const usable = (days || []).filter((d) => d.date && d.start);
+const sessionFromSpan = (startStr, endStr) => ({
+  title: '',
+  startDate: (startStr || '').slice(0, 10),
+  startTime: (startStr || '').slice(11, 16),
+  endDate: (endStr || '').slice(0, 10),
+  endTime: (endStr || '').slice(11, 16),
+});
+
+// A session's start / end as local "YYYY-MM-DDTHH:mm" strings (or '' when the
+// admin has not filled that half in yet).
+const sessionStartStr = (s) => (s && s.startDate ? `${s.startDate}T${s.startTime || '00:00'}` : '');
+const sessionEndStr = (s) => (s && s.endDate ? `${s.endDate}T${s.endTime || s.startTime || '00:00'}` : '');
+
+// events.event_date / end_date stay the overall span so every existing query,
+// sort and "upcoming" filter keeps working. Derived from the sessions rather
+// than tracked separately, so the two can never drift apart.
+const spanFromEventSessions = (sessions) => {
+  const usable = (sessions || []).filter((s) => s.startDate);
   if (usable.length === 0) return {};
-  const startMs = usable.map((d) => new Date(`${d.date}T${d.start}`).getTime());
-  const endMs = usable.map((d) => new Date(`${d.date}T${d.end || d.start}`).getTime());
+  const startMs = usable.map((s) => new Date(sessionStartStr(s)).getTime()).filter((n) => !Number.isNaN(n));
+  const endMs = usable.map((s) => new Date(sessionEndStr(s) || sessionStartStr(s)).getTime()).filter((n) => !Number.isNaN(n));
+  if (startMs.length === 0) return {};
   const lo = new Date(Math.min(...startMs));
-  const hi = new Date(Math.max(...endMs));
-  if (Number.isNaN(lo.getTime()) || Number.isNaN(hi.getTime())) return {};
+  const hi = new Date(Math.max(...(endMs.length ? endMs : startMs)));
   return {
     eventDate: `${dateOnly(lo)}T${timeOnly(lo)}`,
     endDate: `${dateOnly(hi)}T${timeOnly(hi)}`,
   };
 };
+
+// The next session defaults to the day after the previous one, same times -
+// the usual shape of a conference, and trivial to override.
+const nextEventSession = (sessions) => {
+  const prev = (sessions || []).filter((s) => s.startDate).slice(-1)[0];
+  if (!prev) return { ...EMPTY_EVENT_SESSION };
+  const bump = (d) => {
+    const dt = new Date(`${d}T00:00`);
+    if (Number.isNaN(dt.getTime())) return d;
+    dt.setDate(dt.getDate() + 1);
+    return dateOnly(dt);
+  };
+  const startDate = bump(prev.startDate);
+  return {
+    title: '',
+    startDate,
+    startTime: prev.startTime,
+    endDate: prev.endDate ? bump(prev.endDate) : startDate,
+    endTime: prev.endTime,
+  };
+};
+// "Sep 2, 10:00 AM - 12:00 PM" (same day) or "Sep 2, 10:00 AM - Sep 3, 12:00 PM".
+// Used wherever a session's own schedule is shown to members.
+const formatSessionRange = (startsAt, endsAt) => {
+  const s = startsAt ? new Date(startsAt) : null;
+  if (!s || Number.isNaN(s.getTime())) return '';
+  const e = endsAt ? new Date(endsAt) : null;
+  const day = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const time = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  // an end equal to the start is the same as having none
+  if (!e || Number.isNaN(e.getTime()) || e.getTime() <= s.getTime()) return `${day(s)}, ${time(s)}`;
+  const sameDay = s.toDateString() === e.toDateString();
+  return sameDay
+    ? `${day(s)}, ${time(s)} – ${time(e)}`
+    : `${day(s)}, ${time(s)} – ${day(e)}, ${time(e)}`;
+};
+
+// The sessions worth showing. One session IS the event, so it is never listed
+// separately - the event's own title and When line already say everything.
+const eventSessionsToShow = (evt) => {
+  const rows = Array.isArray(evt?.event_days) ? evt.event_days : [];
+  if (rows.length < 2) return [];
+  return rows.slice().sort((a, b) => (a.day_number || 0) - (b.day_number || 0));
+};
+
 const EventLocationPicker = dynamic(() => import('@/components/EventLocationPicker'), { ssr: false });
 const PhoneInput = dynamic(() => import('@/components/PhoneInput'), { ssr: false });
 
@@ -358,6 +397,42 @@ const CLOUDINARY_FREE_CREDITS = 25; // free plan credits
 // ============================================
 // DASHBOARD COMPONENT
 // ============================================
+// One pager for every table on this page: how many rows to show, and how to get
+// to the rest of them. Kept dumb - the parent owns the slice.
+function TablePager({ page, pageSize, total, onPage, onSize, label = 'rows' }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const current = Math.min(page, pages);
+  const from = total === 0 ? 0 : (current - 1) * pageSize + 1;
+  const to = Math.min(current * pageSize, total);
+  // A window of five page buttons around the current one, so 40 pages do not
+  // become 40 buttons.
+  const start = Math.max(1, Math.min(current - 2, pages - 4));
+  const shown = [];
+  for (let i = start; i < start + 5 && i <= pages; i += 1) shown.push(i);
+
+  return (
+    <div className="evt-pager">
+      <label className="evt-pager-size">
+        Show
+        <select value={pageSize} onChange={(e) => { onSize(Number(e.target.value)); onPage(1); }}>
+          {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        {label}
+      </label>
+      <span className="evt-pager-count">{from}–{to} of {total}</span>
+      <div className="evt-pager-nav">
+        <button type="button" disabled={current <= 1} onClick={() => onPage(1)} title="First page"><i className="fas fa-angles-left"></i></button>
+        <button type="button" disabled={current <= 1} onClick={() => onPage(current - 1)} title="Previous page"><i className="fas fa-angle-left"></i></button>
+        {shown.map((n) => (
+          <button type="button" key={n} className={n === current ? 'on' : ''} onClick={() => onPage(n)}>{n}</button>
+        ))}
+        <button type="button" disabled={current >= pages} onClick={() => onPage(current + 1)} title="Next page"><i className="fas fa-angle-right"></i></button>
+        <button type="button" disabled={current >= pages} onClick={() => onPage(pages)} title="Last page"><i className="fas fa-angles-right"></i></button>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -542,15 +617,19 @@ export default function DashboardPage() {
   const [events, setEvents] = useState([]);
   const EMPTY_EVENT_FORM = {
     title: '', description: '', eventDate: '', endDate: '', location: '',
-    // Per-day schedule rows; empty for a single-day event.
-    days: [],
+    // Sessions. Always at least one - session 1 IS the event's own schedule.
+    sessions: [{ ...EMPTY_EVENT_SESSION }],
     // Audience & visibility
     audience: 'all', allowedRoles: [], isPublished: true,
     // Map location
     latitude: null, longitude: null, loc_country: '', loc_region: '', loc_province: '', loc_city: '', loc_barangay: '',
     // Registration & payment config
     registrationRequired: true, maxParticipants: '', registrationStartDate: '', registrationDeadline: '',
-    hasFee: false, registrationFee: '', earlyBirdPrice: '', earlyBirdDeadline: '',
+    // 300 is the usual ticket price here, so it is pre-filled rather than typed
+    // every time; it stays fully editable.
+    hasFee: false, registrationFee: DEFAULT_EVENT_FEE, earlyBirdPrice: '', earlyBirdDeadline: '',
+    // Optional paid questions, e.g. "Do you want accommodation?" +200
+    addons: [],
     allowOnsitePayment: false, onsitePrice: '',
     paymentDeadline: '', paymentInstructions: '', refundPolicy: '',
     paymentMethods: [], gcashName: '', gcashNumber: '', gcashQrUrl: '',
@@ -570,11 +649,17 @@ export default function DashboardPage() {
   const [showAdminAddReg, setShowAdminAddReg] = useState(false);
   const [adminAddRegForm, setAdminAddRegForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '', markVerified: true });
   const [adminAddRegSubmitting, setAdminAddRegSubmitting] = useState(false);
+  // Same shape as the public form: church details, paid extras, PH mobile.
+  const [adminAddRegAddons, setAdminAddRegAddons] = useState([]);
+  const [adminChurchOptions, setAdminChurchOptions] = useState([]);
+  const [adminChurchOpen, setAdminChurchOpen] = useState(false);
   const [pendingRegAlerts, setPendingRegAlerts] = useState([]); // registrations awaiting verification, across all events (admin bell)
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [qrScanResult, setQrScanResult] = useState(null); // { status: 'success'|'already'|'error', message }
   const [registerModal, setRegisterModal] = useState(null); // event object
   const [registerForm, setRegisterForm] = useState({ attendeeFirstName: '', attendeeLastName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '' });
+  // ids of the paid add-on questions the attendee ticked
+  const [registerAddonIds, setRegisterAddonIds] = useState([]);
   const [registerProofFile, setRegisterProofFile] = useState(null);
   const [registerSubmitting, setRegisterSubmitting] = useState(false);
   // "Pay Now" modal — for registrations that were free at signup but now require payment
@@ -3437,59 +3522,30 @@ export default function DashboardPage() {
   // (browsers grey out / block anything earlier than this in the native picker).
   const nowLocalDatetimeString = () => toLocalDatetimeString(new Date());
 
-  // How many CALENDAR days an event covers. Fri 9am -> Sun 5pm is "3 days" to a
-  // person even though it is only 56 hours, so both ends are normalised to
-  // midnight and the times of day never affect the count.
-  const eventDayCount = (startStr, endStr) => {
-    if (!startStr || !endStr) return 1;
-    const s = new Date(startStr);
-    const e = new Date(endStr);
-    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
-    const s0 = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-    const e0 = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-    const days = Math.round((e0.getTime() - s0.getTime()) / 86400000) + 1;
-    return days < 1 ? 1 : days;
-  };
-
-  // Set how many days the event runs. Only the end DATE moves - the end TIME the
-  // admin already picked is preserved (falling back to the start time), so
-  // choosing "3 days" never silently rewrites a 5pm finish back to 9am.
-  // Choosing a length builds one editable row per day. A single-day event keeps
-  // days empty so it never writes redundant event_days rows.
-  const setEventDayCount = (days) => {
-    if (!eventForm.eventDate) return;
-    const start = new Date(eventForm.eventDate);
-    if (Number.isNaN(start.getTime())) return;
-    const n = Math.max(1, Math.min(365, Math.floor(Number(days) || 1)));
-    setEventForm((f) => {
-      if (n === 1) {
-        const end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), start.getHours(), start.getMinutes());
-        const firstEnd = f.days && f.days[0] && f.days[0].end;
-        return { ...f, days: [], endDate: firstEnd ? `${dateOnly(start)}T${firstEnd}` : toLocalDatetimeString(end) };
-      }
-      const rows = buildEventDays(n, f.eventDate, f.days);
-      return { ...f, days: rows, ...spanFromEventDays(rows) };
-    });
-    setEventFieldErrors((er) => ({ ...er, endDate: false }));
-  };
-
   // A datetime-local input is a single clumsy control; the design splits it into
   // a date field and a time field. The form still stores one "YYYY-MM-DDTHH:mm"
   // string, so nothing downstream changes - these just edit one half at a time.
   const datePartOf = (v) => (v || '').slice(0, 10);
   const timePartOf = (v) => (v || '').slice(11, 16);
 
+  // At least one session always exists; session 1 is the event itself.
+  const sessionCount = eventForm.sessions?.length || 1;
+
+  // Every session edit funnels through here so events.event_date / end_date -
+  // still the authoritative overall span for listings - are recomputed in one
+  // place and can never drift out of sync with what the admin sees.
+  const withEventSessions = (f, sessions) => {
+    const span = spanFromEventSessions(sessions);
+    return { ...f, sessions, eventDate: span.eventDate || '', endDate: span.endDate || '' };
+  };
+
+  // The Start / End fields at the top of the step edit SESSION 1 - it is the
+  // event's own schedule. Everything else is derived from the sessions.
   const setEventStart = (part, value) => {
     setEventForm((f) => {
-      const d = part === 'date' ? value : datePartOf(f.eventDate);
-      const t = part === 'time' ? value : timePartOf(f.eventDate);
-      const v = d ? `${d}T${t || '00:00'}` : '';
-      // moving the start re-dates every day row, keeping their times
-      if (v && f.days && f.days.length > 1) {
-        const rows = rebaseEventDays(f.days, v);
-        return { ...f, eventDate: v, days: rows, ...spanFromEventDays(rows) };
-      }
-      return { ...f, eventDate: v };
+      const first = f.sessions?.[0] || { ...EMPTY_EVENT_SESSION };
+      const next = part === 'date' ? { ...first, startDate: value } : { ...first, startTime: value };
+      return withEventSessions(f, [next, ...(f.sessions || []).slice(1)]);
     });
     // Registration window defaults to the event start until the admin changes it
     if (value) {
@@ -3506,19 +3562,71 @@ export default function DashboardPage() {
 
   const setEventEnd = (part, value) => {
     setEventForm((f) => {
-      const d = part === 'date' ? value : datePartOf(f.endDate);
-      const t = part === 'time' ? value : timePartOf(f.endDate);
-      return { ...f, endDate: d ? `${d}T${t || '00:00'}` : '' };
+      const first = f.sessions?.[0] || { ...EMPTY_EVENT_SESSION };
+      const next = part === 'date' ? { ...first, endDate: value } : { ...first, endTime: value };
+      // Typing only an end TIME used to be discarded, because a session with no
+      // end DATE has no end at all - so the field appeared to reset itself.
+      // Same-day is what "5pm" means here, so fill the date in.
+      if (part === 'time' && value && !next.endDate) next.endDate = next.startDate;
+      return withEventSessions(f, [next, ...(f.sessions || []).slice(1)]);
     });
     setEventFieldErrors((er) => ({ ...er, endDate: false }));
   };
 
-  // "Sep 7, 8, 2026" - the actual dates the event lands on, so the admin can
+  // Session 1's own values back the Start / End fields at the top of the step.
+  // They used to read the overall span, so adding a later session visibly
+  // hijacked the End fields with that session's finish.
+  const firstSession = () => (eventForm.sessions && eventForm.sessions[0]) || EMPTY_EVENT_SESSION;
+
+  // ---- Session editing -------------------------------------------------
+  const updateEventSession = (index, changes) => {
+    setEventForm((f) => withEventSessions(
+      f,
+      (f.sessions || []).map((s, i) => {
+        if (i !== index) return s;
+        const next = { ...s, ...changes };
+        if (changes.endTime && !next.endDate) next.endDate = next.startDate;
+        return next;
+      }),
+    ));
+    setEventFieldErrors((er) => ({ ...er, endDate: false }));
+  };
+
+  const addEventSession = () => {
+    setEventForm((f) => {
+      const sessions = f.sessions && f.sessions.length ? f.sessions : [{ ...EMPTY_EVENT_SESSION }];
+      // Session 1 is the schedule already typed at the top. Complete it before
+      // splitting into sessions so the admin only has to type its title.
+      const first = { ...sessions[0] };
+      if (first.startDate && !first.endDate) first.endDate = first.startDate;
+      const filled = [first, ...sessions.slice(1)];
+      return withEventSessions(f, [...filled, nextEventSession(filled)]);
+    });
+  };
+
+  // Session 1 is the event's own schedule, so it is never removable - dropping
+  // to zero sessions would leave the event with no date at all.
+  const removeEventSession = (index) => {
+    if (index === 0) return;
+    setEventForm((f) => withEventSessions(f, (f.sessions || []).filter((_, i) => i !== index)));
+  };
+
+  // "Same time every session" - the common case for a conference.
+  const applySessionOneTimesToAll = () => {
+    setEventForm((f) => {
+      if (!f.sessions || f.sessions.length < 2) return f;
+      const { startTime, endTime } = f.sessions[0];
+      return withEventSessions(f, f.sessions.map((s, i) => (i === 0 ? s : { ...s, startTime, endTime })));
+    });
+  };
+
+  // "Sep 7, 8, 2026" - the dates the sessions land on, so the admin can
   // sanity-check a span without doing calendar arithmetic in their head.
-  const eventDayDatesLabel = (days) => {
-    const usable = (days || []).filter((d) => d.date);
-    if (usable.length === 0) return '';
-    const parsed = usable.map((d) => new Date(`${d.date}T00:00`)).filter((d) => !Number.isNaN(d.getTime()));
+  const eventSessionDatesLabel = (sessions) => {
+    const parsed = (sessions || [])
+      .filter((s) => s.startDate)
+      .map((s) => new Date(`${s.startDate}T00:00`))
+      .filter((d) => !Number.isNaN(d.getTime()));
     if (parsed.length === 0) return '';
     const sameMonth = parsed.every((d) => d.getMonth() === parsed[0].getMonth() && d.getFullYear() === parsed[0].getFullYear());
     if (sameMonth) {
@@ -3528,24 +3636,26 @@ export default function DashboardPage() {
     return parsed.map((d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).join(', ');
   };
 
-  // Edit one day. The overall span is recomputed every time so event_date /
-  // end_date can never drift out of sync with the rows the admin sees.
-  const updateEventDay = (index, changes) => {
-    setEventForm((f) => {
-      const rows = (f.days || []).map((d, i) => (i === index ? { ...d, ...changes } : d));
-      return { ...f, days: rows, ...spanFromEventDays(rows) };
-    });
-    setEventFieldErrors((er) => ({ ...er, endDate: false }));
+  // ---- Paid add-on questions -------------------------------------------
+  // Each one is a yes/no question the attendee answers while registering;
+  // ticking it adds its fee to their total.
+  const addEventAddon = () => {
+    setEventForm((f) => ({ ...f, addons: [...(f.addons || []), { question: '', description: '', details: '', fee: '', isRequired: false }] }));
   };
 
-  // "Same time every day" - the common case for a conference.
-  const applyDayOneTimesToAll = () => {
-    setEventForm((f) => {
-      if (!f.days || f.days.length < 2) return f;
-      const { start, end } = f.days[0];
-      const rows = f.days.map((d, i) => (i === 0 ? d : { ...d, start, end }));
-      return { ...f, days: rows, ...spanFromEventDays(rows) };
-    });
+  const updateEventAddon = (index, changes) => {
+    setEventForm((f) => ({ ...f, addons: (f.addons || []).map((a, i) => (i === index ? { ...a, ...changes } : a)) }));
+  };
+
+  const removeEventAddon = (index) => {
+    setEventForm((f) => ({ ...f, addons: (f.addons || []).filter((_, i) => i !== index) }));
+  };
+
+  // What an attendee who says yes to everything would pay - the number the
+  // admin actually wants to sanity-check after typing the fees.
+  const eventMaxTotal = () => {
+    const base = eventForm.hasFee ? Number(eventForm.registrationFee) || 0 : 0;
+    return base + (eventForm.addons || []).reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
   };
 
   const validateEventStep = (step) => {
@@ -3556,6 +3666,10 @@ export default function DashboardPage() {
       if (!eventImageFile && !eventImagePreview && !editingEvent?.image_url) errors.image = true;
     }
     if (step === 1 && !eventForm.eventDate) errors.eventDate = true;
+    // Every session needs a finish, or the schedule reads as a single time.
+    if (step === 1 && (eventForm.sessions || []).some((s) => s.startDate && (!s.endDate || !s.endTime))) {
+      errors.sessionEnd = true;
+    }
     // `min` on the input only constrains the native picker - a typed value can
     // still land before the start, which would store a negative-length event.
     if (step === 1 && eventForm.eventDate && eventForm.endDate
@@ -3586,13 +3700,19 @@ export default function DashboardPage() {
       ...EMPTY_EVENT_FORM,
       title: evt.title, description: evt.description || '',
       eventDate: evt.event_date?.slice(0, 16), endDate: evt.end_date?.slice(0, 16) || '', location: evt.location || '',
-      days: Array.isArray(evt.event_days) && evt.event_days.length > 1
+      // Stored sessions win; an event saved before sessions existed (or a
+      // single-session one) falls back to its own start/end span.
+      sessions: Array.isArray(evt.event_days) && evt.event_days.length > 0
         ? evt.event_days.slice().sort((a, b) => (a.day_number || 0) - (b.day_number || 0)).map((d) => {
             const s = new Date(d.starts_at);
             const e = d.ends_at ? new Date(d.ends_at) : null;
-            return { date: dateOnly(s), start: timeOnly(s), end: e ? timeOnly(e) : '', label: d.label || '' };
+            return {
+              title: d.label || '',
+              startDate: dateOnly(s), startTime: timeOnly(s),
+              endDate: e ? dateOnly(e) : '', endTime: e ? timeOnly(e) : '',
+            };
           })
-        : [],
+        : [sessionFromSpan(evt.event_date?.slice(0, 16), evt.end_date?.slice(0, 16))],
       latitude: evt.latitude ?? null, longitude: evt.longitude ?? null,
       loc_country: evt.loc_country || '', loc_region: evt.loc_region || '', loc_province: evt.loc_province || '', loc_city: evt.loc_city || '', loc_barangay: evt.loc_barangay || '',
       audience: (evt.allowed_roles && evt.allowed_roles.length) ? 'specific' : 'all', allowedRoles: evt.allowed_roles || [], isPublished: evt.is_published !== false,
@@ -3601,6 +3721,9 @@ export default function DashboardPage() {
       hasFee: !!evt.has_fee, registrationFee: evt.registration_fee ?? '', earlyBirdPrice: evt.early_bird_price ?? '', earlyBirdDeadline: evt.early_bird_deadline?.slice(0, 16) || '',
       allowOnsitePayment: !!evt.allow_onsite_payment, onsitePrice: evt.onsite_price ?? '',
       paymentDeadline: evt.payment_deadline?.slice(0, 16) || '', paymentInstructions: evt.payment_instructions || '', refundPolicy: evt.refund_policy || '',
+      addons: (Array.isArray(evt.event_addons) ? evt.event_addons : [])
+        .slice().sort((a, b) => (a.position || 0) - (b.position || 0))
+        .map((a) => ({ question: a.question || '', description: a.description || '', details: a.details || '', fee: a.fee ?? '', isRequired: !!a.is_required })),
       paymentMethods: evt.payment_methods || [], gcashName: evt.gcash_name || '', gcashNumber: evt.gcash_number || '', gcashQrUrl: evt.gcash_qr_url || '',
       bankName: evt.bank_name || '', bankAccountName: evt.bank_account_name || '', bankAccountNumber: evt.bank_account_number || '',
     } : EMPTY_EVENT_FORM;
@@ -3661,6 +3784,14 @@ export default function DashboardPage() {
     // (Save Draft always supplies a placeholder eventDate before calling this).
     if (!f.title) { showToast('Title is required', 'danger'); return; }
     if (f.isPublished && !f.eventDate) { showToast('Event date is required to publish', 'danger'); return; }
+    // Without an end, a session shows as a bare "10:00 AM" everywhere instead of
+    // "10:00 AM – 6:00 PM", so a published event cannot be saved with one.
+    if (f.isPublished && (f.sessions || []).some((x) => x.startDate && (!x.endDate || !x.endTime))) {
+      showToast('Every session needs an end date and time', 'danger');
+      setEventStep(1);
+      setEventFieldErrors((er) => ({ ...er, sessionEnd: true }));
+      return;
+    }
     setEventSaving(true);
     try {
       const method = editingEvent ? 'PUT' : 'POST';
@@ -3692,7 +3823,20 @@ export default function DashboardPage() {
       fd.append('onsitePrice', f.onsitePrice || '');
       fd.append('earlyBirdPrice', f.earlyBirdPrice || '');
       fd.append('earlyBirdDeadline', f.earlyBirdDeadline || '');
-      fd.append('paymentDeadline', f.paymentDeadline || '');
+      // Payment is due when registration closes - one date to keep in step,
+      // rather than a second deadline the admin has to remember to match.
+      fd.append('paymentDeadline', f.registrationDeadline || '');
+      fd.append('addons', JSON.stringify(
+        (f.addons || [])
+          .filter((a) => (a.question || '').trim())
+          .map((a) => ({
+            question: a.question.trim(),
+            description: (a.description || '').trim() || null,
+            details: (a.details || '').trim() || null,
+            fee: Number(a.fee) || 0,
+            isRequired: !!a.isRequired,
+          }))
+      ));
       fd.append('paymentInstructions', f.paymentInstructions || '');
       fd.append('refundPolicy', f.refundPolicy || '');
       fd.append('paymentMethods', (f.paymentMethods || []).join(','));
@@ -3702,18 +3846,23 @@ export default function DashboardPage() {
       fd.append('bankName', f.bankName || '');
       fd.append('bankAccountName', f.bankAccountName || '');
       fd.append('bankAccountNumber', f.bankAccountNumber || '');
-      // Only a genuine multi-day schedule is sent. A single day posts [], which
-      // tells the API to clear any rows left over from a previous edit.
+      // Only a genuine multi-session schedule is sent. A single session posts [],
+      // which tells the API to clear any rows left over from a previous edit -
+      // event_date / end_date alone already describe it, and the public page
+      // then shows the event title on its own with no session heading.
       fd.append('days', JSON.stringify(
-        (f.days || []).length > 1
-          ? f.days
-              .filter((d) => d.date && d.start)
-              .map((d, i) => ({
-                dayNumber: i + 1,
-                startsAt: new Date(`${d.date}T${d.start}`).toISOString(),
-                endsAt: d.end ? new Date(`${d.date}T${d.end}`).toISOString() : null,
-                label: d.label || null,
-              }))
+        (f.sessions || []).length > 1
+          ? f.sessions
+              .filter((s) => s.startDate)
+              .map((s, i) => {
+                const end = sessionEndStr(s);
+                return {
+                  dayNumber: i + 1,
+                  startsAt: new Date(sessionStartStr(s)).toISOString(),
+                  endsAt: end ? new Date(end).toISOString() : null,
+                  label: (s.title || '').trim() || `Session ${i + 1}`,
+                };
+              })
           : []
       ));
       if (eventImageFile) fd.append('image', eventImageFile);
@@ -3775,6 +3924,9 @@ export default function DashboardPage() {
       markRegsSeen(regs.map((r) => r.id));
     } catch { setEventRegs([]); }
     setEventRegsLoading(false);
+    // The installment plans decide whether the third tab exists at all, so they
+    // are loaded alongside the registrations rather than on first click.
+    loadInstallments(evt.id);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -3783,13 +3935,313 @@ export default function DashboardPage() {
     setEventRegs([]);
     setManageTab('registrations');
     setShowQrScanner(false);
+    setInstallments([]);
+    setPayModal(null);
   };
+
+  // Churches are typed by hand, so "joyful sound church" and "Joyful Sound
+  // Church" are the same place. Displayed in Title Case, leaving small joining
+  // words and anything already capitalised oddly (acronyms) alone.
+  const CHURCH_MINOR_WORDS = new Set(['of', 'the', 'and', 'in', 'for', 'a', 'an', 'at', 'on', 'to']);
+  const titleCaseChurch = (name) => {
+    const raw = (name || '').trim();
+    if (!raw) return '';
+    return raw.split(/(\s+)/).map((chunk) => {
+      if (!chunk.trim()) return chunk;
+      // Split on hyphens so "Church-International" capitalises both halves.
+      return chunk.split('-').map((word, wi, arr) => {
+        if (!word) return word;
+        if (word.length > 1 && word === word.toUpperCase()) return word; // ISOM, JSCI
+        const lower = word.toLowerCase();
+        const isFirst = wi === 0 && arr.length >= 0;
+        if (!isFirst && CHURCH_MINOR_WORDS.has(lower)) return lower;
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }).join('-');
+    }).join('');
+  };
+  // The very first word of the whole name always stays capitalised.
+  const formatChurchName = (name) => {
+    const t = titleCaseChurch(name);
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+  };
+
+  // People type their own names in a hurry. Displayed the way they should read
+  // on a badge, matching titleCaseName() on the server so old rows look right too.
+  const NAME_PARTICLES = new Set(['de', 'del', 'dela', 'delos', 'delas', 'da', 'di', 'van', 'von', 'y', 'la', 'las', 'los', 'san', 'santa']);
+  const formatPersonName = (name) => {
+    const raw = String(name || '').trim().replace(/\s+/g, ' ');
+    if (!raw) return '';
+    const capWord = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+    return raw.split(' ').map((word, i, all) => {
+      const lower = word.toLowerCase();
+      if (i > 0 && i < all.length - 1 && NAME_PARTICLES.has(lower)) return lower;
+      return lower.split('-').map((part) => part.split("'").map(capWord).join("'")).join('-');
+    }).join(' ');
+  };
+
+  // Contact numbers get copied into GCash / a phone dialler constantly, so the
+  // cell is a click rather than a select-and-drag.
+  const [copiedContact, setCopiedContact] = useState('');
+  const copyContact = async (value) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedContact(value);
+      setTimeout(() => setCopiedContact((v) => (v === value ? '' : v)), 1600);
+    } catch { showToast('Could not copy the number', 'danger'); }
+  };
+
+  // The receipt view: the uploaded proof beside what the attendee actually owes,
+  // so the reference number can be checked against the screenshot side by side.
+  const [proofModal, setProofModal] = useState(null); // a registration row
+
+  // The walk-in form is a two-step flow: who is coming, then how they are paying.
+  const [adminAddStep, setAdminAddStep] = useState(0);
+  const [adminDupName, setAdminDupName] = useState(null); // the matching registration, if this person already has one
+  const [adminAddErrors, setAdminAddErrors] = useState({});
+  // Staff can enter one walk-in or a whole group, the same two choices the
+  // public form offers. In bulk, step 1 is the representative.
+  const [adminRegType, setAdminRegType] = useState('individual');
+  const [adminBulkList, setAdminBulkList] = useState([]);          // [{ firstName, lastName, addonIds }]
+  const [adminBulkDraft, setAdminBulkDraft] = useState({ firstName: '', lastName: '', addonIds: [] });
+  const [adminBulkEditing, setAdminBulkEditing] = useState(null);
+  const [adminBulkError, setAdminBulkError] = useState('');
+
+  // ---- Flexible installment plans for the event being managed ----
+  const [installments, setInstallments] = useState([]);
+  const [installmentsLoading, setInstallmentsLoading] = useState(false);
+  const [installmentsError, setInstallmentsError] = useState('');
+  const [payModal, setPayModal] = useState(null);   // the plan a payment is being recorded against
+  const [payForm, setPayForm] = useState({ amount: '', paidOn: '', method: '', reference: '', note: '' });
+  const [paySaving, setPaySaving] = useState(false);
+
+  const loadInstallments = async (eventId) => {
+    if (!eventId || !userData?.id) return;
+    setInstallmentsLoading(true);
+    try {
+      const res = await fetch(`/api/events/installments?eventId=${eventId}&actorId=${userData.id}`);
+      const data = await res.json();
+      setInstallments(data.success ? data.data || [] : []);
+      // A missing column here means the flexible-payment migration has not been
+      // run - worth saying so rather than showing a permanently empty tab.
+      setInstallmentsError(data.success ? '' : (data.message || 'Could not load the installment plans.'));
+    } catch (e) { setInstallments([]); setInstallmentsError(e.message); }
+    finally { setInstallmentsLoading(false); }
+  };
+
+  // The tab only exists once somebody is actually on a plan, so it never shows
+  // up as an empty section on an event where nobody is paying in installments.
+  const hasFlexiblePlans = installments.length > 0
+    || eventRegs.some((r) => r.payment_plan === 'flexible' && r.status !== 'cancelled');
+
+  const openPayModal = (plan) => {
+    setPayForm({
+      amount: '', paidOn: new Date().toISOString().slice(0, 10),
+      method: '', reference: '', note: '',
+    });
+    setPayModal(plan);
+  };
+
+  const submitInstallment = async () => {
+    if (!payModal) return;
+    const amount = Number(payForm.amount) || 0;
+    if (amount <= 0) { showToast('Enter the amount received', 'danger'); return; }
+    if (amount > payModal.balance) { showToast(`That is more than the ₱${payModal.balance} balance`, 'danger'); return; }
+    setPaySaving(true);
+    try {
+      const res = await fetch('/api/events/installments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, registrationId: payModal.id, ...payForm, amount }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      showToast(data.message, 'success');
+      setPayModal(null);
+      await loadInstallments(eventRegsModal?.id);
+      if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setPaySaving(false); }
+  };
+
+  const deleteInstallment = (payment) => askConfirm(
+    `Remove the ₱${payment.amount} payment recorded on ${new Date(payment.paid_on).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}? The balance goes back up by that amount.`,
+    async () => {
+      try {
+        const res = await fetch(`/api/events/installments?id=${payment.id}&actorId=${userData?.id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) { showToast(data.message, 'danger'); return; }
+        showToast('Payment removed', 'success');
+        await loadInstallments(eventRegsModal?.id);
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    },
+    { title: 'Remove Payment?', confirmLabel: 'Remove Payment', icon: 'fa-trash' },
+  );
+
+  // Sorting and filtering the registrations table. Both are view-only - the rows
+  // themselves are untouched, so a filter can never hide someone from a count.
+  const [regSort, setRegSort] = useState('newest');   // 'newest' | 'oldest'
+  const [regTypeFilter, setRegTypeFilter] = useState('all'); // all | individual | bulk | admin
+  const [regSearch, setRegSearch] = useState('');
+  const [regChurchFilter, setRegChurchFilter] = useState('all');
+  // Clicking a statistic filters the table to the rows behind that number.
+  const [regMoneyFilter, setRegMoneyFilter] = useState('all'); // all | cash | online | pending
+  // Which row's Manage menu is open. One at a time, closed by a click anywhere else.
+  const [openRowMenu, setOpenRowMenu] = useState(null);
+
+  // Paging, per table.
+  const [regPage, setRegPage] = useState(1);
+  const [regPageSize, setRegPageSize] = useState(10);
+  const [attPage, setAttPage] = useState(1);
+  const [attPageSize, setAttPageSize] = useState(10);
+  const [instPage, setInstPage] = useState(1);
+  const [instPageSize, setInstPageSize] = useState(10);
+
+  // What this event has actually taken in, and what is still owed. Money only
+  // counts as collected once it is verified (or actually handed over, for a
+  // plan) - a "payment submitted" nobody has checked is not cash in hand.
+  const isCashMethod = (method) => {
+    // Compared as words, not as a substring: "GCash" is an online wallet
+    // that happens to contain the letters of "cash".
+    const m = String(method || '').trim().toLowerCase();
+    return m === 'cash' || m.startsWith('cash ') || m.endsWith(' cash');
+  };
+
+  // An installment is settled one payment at a time, and each of those has its
+  // own method - somebody can pay part in cash and part through GCash. So a plan
+  // is split by what was actually recorded against it, not by the method the
+  // registration was created with.
+  const planSplit = (() => {
+    const map = new Map();
+    installments.forEach((r) => {
+      let cash = 0, online = 0;
+      (r.payments || []).forEach((pmt) => {
+        const amt = Number(pmt.amount) || 0;
+        if (isCashMethod(pmt.method)) cash += amt; else online += amt;
+      });
+      map.set(r.id, { cash, online });
+    });
+    return map;
+  })();
+
+  const eventMoney = (() => {
+    const live = eventRegs.filter((r) => r.status !== 'cancelled');
+    let cash = 0, online = 0, pending = 0, planDue = 0, expected = 0;
+    live.forEach((r) => {
+      const owed = Number(r.amount) || 0;
+      expected += owed;
+      const isCash = isCashMethod(r.payment_method);
+      if (r.payment_plan === 'flexible') {
+        const paid = Number(r.amount_paid) || 0;
+        const split = planSplit.get(r.id);
+        // Only what has actually been handed over counts as collected; the rest
+        // of the plan lives in the installment balance.
+        if (split && (split.cash + split.online) > 0) {
+          cash += split.cash;
+          online += split.online;
+        } else if (isCash) cash += paid; else online += paid;
+        planDue += Math.max(0, owed - paid);
+        return;
+      }
+      if (r.status === 'payment_verified' || r.status === 'registered') {
+        if (isCash) cash += owed; else online += owed;
+      } else pending += owed;
+    });
+    return { cash, online, total: cash + online, pending, planDue, expected };
+  })();
+  const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
+
+  useEffect(() => {
+    if (!openRowMenu) return undefined;
+    const close = () => setOpenRowMenu(null);
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [openRowMenu]);
+
+  // Every church represented at this event, with how many people it sent. Built
+  // from the rows on screen, so the counts always match the table.
+  const regChurchOptions = (() => {
+    const counts = new Map();
+    eventRegs.forEach((r) => {
+      const name = formatChurchName(r.church_name) || 'No church given';
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  })();
+
+  // Older rows predate the registration_type column, so fall back to what the
+  // row itself implies: a group size means it came from a bulk booking.
+  const regTypeOf = (r) => {
+    const t = r.registration_type;
+    // 'admin' was an earlier meaning of this column - those rows are individual
+    // registrations that happened to be entered by staff.
+    if (t === 'bulk' || t === 'individual') return t;
+    return r.group_size > 1 ? 'bulk' : 'individual';
+  };
+
+  // Everything an admin might have to hand when looking someone up: the name,
+  // who added them, their church, their number, or the payment reference.
+  const regMatchesSearch = (r, q) => [
+    r.attendee_name, r.added_by, r.representative, r.church_name, r.church_pastor,
+    r.attendee_mobile, r.attendee_email, r.payment_reference,
+  ].some((v) => String(v || '').toLowerCase().includes(q));
+
+  useEffect(() => { setRegPage(1); }, [regSearch, regTypeFilter, regChurchFilter, regMoneyFilter, regSort, eventRegsModal?.id]);
+
+  const visibleRegs = (() => {
+    const q = regSearch.trim().toLowerCase();
+    let rows = regTypeFilter === 'all' ? eventRegs : eventRegs.filter((r) => regTypeOf(r) === regTypeFilter);
+    if (regChurchFilter !== 'all') {
+      rows = rows.filter((r) => (formatChurchName(r.church_name) || 'No church given') === regChurchFilter);
+    }
+    if (regMoneyFilter !== 'all') {
+      rows = rows.filter((r) => {
+        if (r.status === 'cancelled') return false;
+        const isCash = isCashMethod(r.payment_method);
+        if (r.payment_plan === 'flexible') {
+          const split = planSplit.get(r.id);
+          const paidCash = split ? split.cash : (isCash ? (Number(r.amount_paid) || 0) : 0);
+          const paidOnline = split ? split.online : (isCash ? 0 : (Number(r.amount_paid) || 0));
+          if (regMoneyFilter === 'cash') return paidCash > 0;
+          if (regMoneyFilter === 'online') return paidOnline > 0;
+          return false; // a plan is never "awaiting verification" - it is being paid down
+        }
+        const counted = r.status === 'payment_verified' || r.status === 'registered';
+        if (regMoneyFilter === 'cash') return counted && isCash;
+        if (regMoneyFilter === 'online') return counted && !isCash;
+        // still waiting on somebody to check it
+        return r.payment_plan !== 'flexible' && (r.status === 'payment_submitted' || r.status === 'pending_payment');
+      });
+    }
+    if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
+    return [...rows].sort((a, b) => {
+      const da = new Date(a.created_at).getTime();
+      const db = new Date(b.created_at).getTime();
+      return regSort === 'oldest' ? da - db : db - da;
+    });
+  })();
+  // The page currently on screen. Clamped, so deleting the last row of page 4
+  // does not leave the table empty.
+  const regPages = Math.max(1, Math.ceil(visibleRegs.length / regPageSize));
+  const regPageSafe = Math.min(regPage, regPages);
+  const pagedRegs = visibleRegs.slice((regPageSafe - 1) * regPageSize, regPageSafe * regPageSize);
 
   const verifyRegistration = async (regId, status) => {
     try {
       const res = await fetch('/api/events/registrations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: regId, actorId: userData?.id, status }) });
       const data = await res.json();
-      if (data.success) { showToast('Registration updated', 'success'); if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab); loadPendingRegAlerts(); }
+      if (data.success) {
+        showToast('Registration updated', 'success');
+        setProofModal(null);
+        if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+        loadPendingRegAlerts();
+      }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
   };
@@ -3799,16 +4251,180 @@ export default function DashboardPage() {
   // behalf. No userId is attached since there's no logged-in account for this entry.
   const openAdminAddReg = () => {
     setAdminAddRegForm({
-      attendeeFirstName: '', attendeeLastName: '', attendeeEmail: '', attendeeMobile: '',
+      attendeeFirstName: '', attendeeLastName: '', churchName: '', churchPastor: '',
+      attendeeEmail: '', attendeeMobile: '',
       paymentMethod: (eventRegsModal?.payment_methods && eventRegsModal.payment_methods[0]) || '',
       paymentReference: '', markVerified: true,
+      paymentPlan: '',          // '' until chosen, then 'full' | 'flexible'
+      initialPayment: '',       // the first installment, when on a plan
     });
+    setAdminAddStep(0);
+    setAdminDupName(null);
+    setAdminAddErrors({});
+    setAdminRegType('individual');
+    setAdminBulkList([]);
+    setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id) });
+    setAdminBulkEditing(null);
+    setAdminBulkError('');
+    setAdminAddRegAddons((eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
+    setAdminChurchOptions([]);
+    setAdminChurchOpen(false);
     setShowAdminAddReg(true);
+  };
+
+  // The same name check the public form runs: an admin should not be able to
+  // add someone who already holds a slot for this event.
+  useEffect(() => {
+    if (!showAdminAddReg || !eventRegsModal) { setAdminDupName(null); return undefined; }
+    const full = `${adminAddRegForm.attendeeFirstName || ''} ${adminAddRegForm.attendeeLastName || ''}`.trim();
+    if (!full.includes(' ')) { setAdminDupName(null); return undefined; }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?eventId=${eventRegsModal.id}&duplicates=${encodeURIComponent(full)}`);
+        const data = await res.json();
+        setAdminDupName(data.success && (data.details || []).length > 0 ? data.details[0] : null);
+      } catch { setAdminDupName(null); }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [showAdminAddReg, eventRegsModal, adminAddRegForm.attendeeFirstName, adminAddRegForm.attendeeLastName]);
+
+  const adminIsBulk = adminRegType === 'bulk';
+  const adminStepLabels = adminIsBulk
+    ? ['Representative', 'Attendees', 'Payment']
+    : ['Attendee Details', 'Payment'];
+  const adminPayStep = adminIsBulk ? 2 : 1;
+
+  // One person on the group's roster, priced on their own line.
+  const adminPersonAddons = (a) => (eventRegsModal?.event_addons || []).filter((x) => a.addonIds.includes(x.id));
+  const adminPersonExtras = (a) => adminPersonAddons(a).reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+  const adminPersonTotal = (a) => adminBaseAmount(eventRegsModal) + adminPersonExtras(a);
+
+  const adminToggleDraftAddon = (addon) => {
+    if (addon.is_required) return;
+    setAdminBulkDraft((d) => ({
+      ...d,
+      addonIds: d.addonIds.includes(addon.id) ? d.addonIds.filter((v) => v !== addon.id) : [...d.addonIds, addon.id],
+    }));
+    setAdminBulkError('');
+  };
+
+  const adminCommitPerson = () => {
+    const first = (adminBulkDraft.firstName || '').trim();
+    const last = (adminBulkDraft.lastName || '').trim();
+    if (!first || !last) { setAdminBulkError('Enter both the first and last name.'); return; }
+    const key = `${first} ${last}`.toLowerCase().replace(/\s+/g, ' ');
+    const clash = adminBulkList.findIndex((a, i) => i !== adminBulkEditing
+      && `${a.firstName} ${a.lastName}`.toLowerCase().replace(/\s+/g, ' ') === key);
+    if (clash > -1) { setAdminBulkError('That person is already on the list below.'); return; }
+    const person = { firstName: first, lastName: last, addonIds: adminBulkDraft.addonIds };
+    setAdminBulkList((list) => (adminBulkEditing == null
+      ? [...list, person]
+      : list.map((a, i) => (i === adminBulkEditing ? person : a))));
+    setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id) });
+    setAdminBulkEditing(null);
+    setAdminBulkError('');
+  };
+  const adminEditPerson = (i) => { setAdminBulkDraft({ ...adminBulkList[i] }); setAdminBulkEditing(i); setAdminBulkError(''); };
+  const adminRemovePerson = (i) => {
+    setAdminBulkList((list) => list.filter((_, x) => x !== i));
+    if (adminBulkEditing === i) { setAdminBulkEditing(null); setAdminBulkDraft({ firstName: '', lastName: '', addonIds: [] }); }
+  };
+
+  // Cash is always collectable at the desk, whatever the event's online options.
+  const adminPaymentMethods = () => {
+    const listed = (eventRegsModal?.payment_methods || []).filter(Boolean);
+    return listed.some((m) => /^cash$/i.test(m)) ? listed : ['Cash', ...listed];
+  };
+
+  // Step 1 of the walk-in form: who is coming.
+  const adminStepOneErrors = () => {
+    const errs = {};
+    if (!adminAddRegForm.attendeeFirstName?.trim()) errs.firstName = 'First name is required.';
+    if (!adminAddRegForm.attendeeLastName?.trim()) errs.lastName = 'Last name is required.';
+    if (!adminAddRegForm.churchName?.trim()) errs.churchName = 'Church name is required.';
+    if (!adminAddRegForm.churchPastor?.trim()) errs.churchPastor = 'Church pastor is required.';
+    if (!isValidPhMobile(adminAddRegForm.attendeeMobile)) errs.mobile = 'Contact number must be 11 digits starting with 09.';
+    if (adminDupName && !adminIsBulk) errs.firstName = 'This person is already registered for this event.';
+    return errs;
+  };
+
+  const adminAddNext = () => {
+    if (adminAddStep === 0) {
+      const errs = adminStepOneErrors();
+      setAdminAddErrors(errs);
+      if (Object.keys(errs).length > 0) return;
+      setAdminAddStep(1);
+      return;
+    }
+    // The roster step: a group has to have somebody in it.
+    if (adminIsBulk && adminAddStep === 1) {
+      if (adminBulkList.length === 0) { setAdminBulkError('Add at least one attendee.'); return; }
+      setAdminAddStep(2);
+    }
+  };
+
+  // Churches people already registered under, so the same one is always spelled
+  // the same way. Mirrors the public form.
+  useEffect(() => {
+    if (!showAdminAddReg || !adminChurchOpen) return undefined;
+    const q = (adminAddRegForm.churchName || '').trim();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?churches=1&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setAdminChurchOptions(data.success ? data.data || [] : []);
+      } catch { setAdminChurchOptions([]); }
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [showAdminAddReg, adminChurchOpen, adminAddRegForm.churchName]);
+
+  const onlyDigits = (v) => (v || '').replace(/\D/g, '').slice(0, 11);
+  const isValidPhMobile = (v) => /^09\d{9}$/.test(v || '');
+
+  const toggleAdminAddon = (addon) => {
+    if (addon.is_required) return;
+    setAdminAddRegAddons((ids) => (ids.includes(addon.id) ? ids.filter((v) => v !== addon.id) : [...ids, addon.id]));
+  };
+
+  const adminBaseAmount = (evt) => {
+    if (!evt || !evt.has_fee) return 0;
+    const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
+    return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+  };
+
+  const adminTotalAmount = (evt) => {
+    // A group is billed person by person, extras and all.
+    if (adminRegType === 'bulk') {
+      const base = adminBaseAmount(evt);
+      return adminBulkList.reduce((sum, a) => sum + base
+        + (evt?.event_addons || []).filter((x) => a.addonIds.includes(x.id))
+            .reduce((s, x) => s + (Number(x.fee) || 0), 0), 0);
+    }
+    return adminBaseAmount(evt)
+      + (evt?.event_addons || [])
+          .filter((a) => adminAddRegAddons.includes(a.id))
+          .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
   };
 
   const submitAdminAddReg = async () => {
     if (!eventRegsModal) return;
-    if (!adminAddRegForm.attendeeFirstName.trim() || !adminAddRegForm.attendeeLastName.trim()) { showToast("Attendee's first and last name are required", 'danger'); return; }
+    const stepOne = adminStepOneErrors();
+    if (Object.keys(stepOne).length > 0) {
+      setAdminAddErrors(stepOne);
+      setAdminAddStep(0);
+      showToast('Please complete the highlighted fields', 'danger');
+      return;
+    }
+    if (adminIsBulk && adminBulkList.length === 0) {
+      setAdminAddStep(1);
+      showToast('Add at least one attendee', 'danger');
+      return;
+    }
+    const owed = adminTotalAmount(eventRegsModal);
+    if (owed > 0 && !adminAddRegForm.paymentPlan) { showToast('Choose Pay in Full or a Flexible Payment Plan', 'danger'); return; }
+    if (owed > 0 && adminAddRegForm.paymentPlan === 'full' && !adminAddRegForm.paymentMethod) { showToast('Choose how the payment was made', 'danger'); return; }
+    const firstPay = Number(adminAddRegForm.initialPayment) || 0;
+    if (adminAddRegForm.paymentPlan === 'flexible' && firstPay > owed) { showToast(`The first payment cannot be more than the ₱${owed} total`, 'danger'); return; }
     setAdminAddRegSubmitting(true);
     try {
       const res = await fetch('/api/events/registrations', {
@@ -3820,16 +4436,33 @@ export default function DashboardPage() {
           attendeeLastName: adminAddRegForm.attendeeLastName.trim(),
           attendeeEmail: adminAddRegForm.attendeeEmail,
           attendeeMobile: adminAddRegForm.attendeeMobile,
+          churchName: adminAddRegForm.churchName,
+          churchPastor: adminAddRegForm.churchPastor ? `Ptr. ${adminAddRegForm.churchPastor.trim()}` : '',
+          addonIds: adminAddRegAddons,
           paymentMethod: adminAddRegForm.paymentMethod,
           paymentReference: adminAddRegForm.paymentReference,
+          // entered on the attendee's behalf, so the table can say who by
+          paymentPlan: adminAddRegForm.paymentPlan || 'full',
+          initialPayment: adminAddRegForm.paymentPlan === 'flexible' ? firstPay : 0,
+          addedByAdmin: true,
+          addedByRole: userRole === 'Super Admin' ? 'Super Admin' : 'Admin',
+          addedByName: [userData?.firstname, userData?.lastname].filter(Boolean).join(' ').trim() || userRole || 'Admin',
+          // A group: the person in step 1 is the representative, the roster is who is coming.
+          ...(adminIsBulk ? {
+            attendees: adminBulkList.map((a) => ({ firstName: a.firstName, lastName: a.lastName, addonIds: a.addonIds })),
+            representative: `${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`.trim(),
+          } : {}),
         }),
       });
       const data = await res.json();
       if (!data.success) { showToast(data.message, 'danger'); return; }
+      // The row saved, but without the columns that record who added it and how
+      // they are paying - say so rather than leaving a silently wrong table.
+      if (data.warning) showToast(data.warning, 'danger');
 
       // Staff adding this on the attendee's behalf usually means payment/attendance
       // was already handled in person — confirm it immediately unless unchecked.
-      if (adminAddRegForm.markVerified && data.data?.status && data.data.status !== 'registered') {
+      if (!adminIsBulk && adminAddRegForm.paymentPlan !== 'flexible' && adminAddRegForm.markVerified && data.data?.status && data.data.status !== 'registered') {
         await fetch('/api/events/registrations', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -3890,8 +4523,29 @@ export default function DashboardPage() {
       attendeeEmail: userData?.email || '', attendeeMobile: '',
       paymentMethod: (evt.payment_methods && evt.payment_methods[0]) || '', paymentReference: '',
     });
+    // Required add-ons are charged either way, so they start ticked and locked.
+    setRegisterAddonIds((evt.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
     setRegisterProofFile(null);
   };
+
+  const toggleRegisterAddon = (addon) => {
+    if (addon.is_required) return;
+    setRegisterAddonIds((ids) => (ids.includes(addon.id) ? ids.filter((v) => v !== addon.id) : [...ids, addon.id]));
+  };
+
+  // The base price this attendee gets, early bird included.
+  const registerBaseAmount = (evt) => {
+    if (!evt || !evt.has_fee) return 0;
+    const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
+    return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+  };
+
+  // Base + the add-ons ticked. Shown live so nobody is surprised by the total.
+  // The server recomputes this from the DB; this is only the preview.
+  const registerTotalAmount = (evt) => registerBaseAmount(evt)
+    + (evt?.event_addons || [])
+        .filter((a) => registerAddonIds.includes(a.id))
+        .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
 
   const submitRegistration = async () => {
     if (!registerModal) return;
@@ -3905,7 +4559,9 @@ export default function DashboardPage() {
       fd.append('attendeeLastName', registerForm.attendeeLastName.trim());
       fd.append('attendeeEmail', registerForm.attendeeEmail || '');
       fd.append('attendeeMobile', registerForm.attendeeMobile || '');
-      if (registerModal.has_fee) {
+      fd.append('addonIds', JSON.stringify(registerAddonIds));
+      // A free event still needs payment details once a paid add-on is ticked.
+      if (registerTotalAmount(registerModal) > 0) {
         fd.append('paymentMethod', registerForm.paymentMethod || '');
         fd.append('paymentReference', registerForm.paymentReference || '');
         if (registerProofFile) fd.append('proof', registerProofFile);
@@ -6534,6 +7190,25 @@ Examples:
 
   const getScheduleForDate = (dateStr) => scheduleData.find((s) => s.scheduleDate === dateStr);
   const formatDate = (dateStr) => { if (!dateStr) return ''; return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); };
+  // "Oct 2, 2026, 10:00 AM" for one day; "Oct 2 – 3, 2026 · 10:00 AM" when the
+  // event runs across days, so the list shows the whole span at a glance.
+  const formatEventSpan = (startStr, endStr) => {
+    if (!startStr) return '—';
+    const s = new Date(startStr);
+    if (Number.isNaN(s.getTime())) return '—';
+    const e = endStr ? new Date(endStr) : null;
+    const time = s.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    if (!e || Number.isNaN(e.getTime()) || s.toDateString() === e.toDateString()) {
+      return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, ${time}`;
+    }
+    const sameMonth = s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear();
+    const left = s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const right = sameMonth
+      ? `${e.getDate()}, ${e.getFullYear()}`
+      : e.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return `${left} – ${right}`;
+  };
+
   const formatDateTime = (dateStr) => { if (!dateStr) return ''; return new Date(dateStr).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
   const extractYouTubeId = (url) => { if (!url) return null; const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m ? m[1] : null; };
   const getChatUserName = (u) => `${u?.firstname || ''} ${u?.lastname || ''}`.trim() || 'Unknown User';
@@ -7511,9 +8186,89 @@ Examples:
               <div className="um-hero evt-hero">
                 <div className="um-hero-bg"></div>
                 <div className="um-hero-content">
-                  <button className="evt-back-btn" style={{ marginBottom: 14 }} onClick={closeEventManage}><i className="fas fa-arrow-left"></i> Back to Events</button>
-                  <h2 className="um-hero-title">{eventRegsModal.title}</h2>
-                  <p className="um-hero-sub">{eventRegsModal.description || 'Review registrations and manage attendance for this event.'}</p>
+                  <div className="evt-hero-grid">
+                    <div className="evt-hero-main">
+                      <h2 className="um-hero-title">{eventRegsModal.title}</h2>
+                      <p className="um-hero-sub">{eventRegsModal.description || 'Review registrations and manage attendance for this event.'}</p>
+                      {/* leaving, and adding - the two things to do from here */}
+                      <div className="evt-hero-actions">
+                        <button className="evt-hero-action ghost" onClick={closeEventManage}>
+                          <i className="fas fa-arrow-left"></i> Back to Events
+                        </button>
+                        {manageTab === 'registrations' && (
+                          <button
+                            className="evt-hero-action"
+                            disabled={isEventOver(eventRegsModal)}
+                            title={isEventOver(eventRegsModal) ? 'This event has already ended' : ''}
+                            onClick={openAdminAddReg}
+                          >
+                            <i className="fas fa-user-plus"></i> Add Attendee
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* What the event has taken in, and what is still out there.
+                        Cash and online are split because they are reconciled apart. */}
+                    {/* Each figure is a way into the rows behind it: tap Cash to
+                        see only what came in as cash, and again to clear it. */}
+                    {eventRegsModal.has_fee && (
+                      <div className="evt-hero-stats">
+                        <button
+                          type="button"
+                          className={`evt-stat lead ${manageTab === 'registrations' && regMoneyFilter === 'all' ? 'on' : ''}`}
+                          onClick={() => { setManageTab('registrations'); setRegMoneyFilter('all'); }}
+                          title="Show every registration"
+                        >
+                          <span>Total Collected</span>
+                          <b>{peso(eventMoney.total)}</b>
+                          <em>from {eventRegs.filter((r) => r.status !== 'cancelled').length} registrations</em>
+                        </button>
+                        <button
+                          type="button"
+                          className={`evt-stat ${regMoneyFilter === 'cash' ? 'on' : ''}`}
+                          onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cash' ? 'all' : 'cash'); }}
+                          title="Show the registrations paid in cash"
+                        >
+                          <span>Cash Collected</span>
+                          <b>{peso(eventMoney.cash)}</b>
+                          <em>received in person</em>
+                        </button>
+                        <button
+                          type="button"
+                          className={`evt-stat ${regMoneyFilter === 'online' ? 'on' : ''}`}
+                          onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'online' ? 'all' : 'online'); }}
+                          title="Show the registrations paid online"
+                        >
+                          <span>Online Collected</span>
+                          <b>{peso(eventMoney.online)}</b>
+                          <em>GCash / bank transfer</em>
+                        </button>
+                        <button
+                          type="button"
+                          className={`evt-stat due ${manageTab === 'installments' ? 'on' : ''}`}
+                          onClick={() => { setManageTab('installments'); loadInstallments(eventRegsModal.id); }}
+                          title="Open the installment plans"
+                        >
+                          <span>Installment Balances</span>
+                          <b>{peso(eventMoney.planDue)}</b>
+                          <em>still to collect</em>
+                        </button>
+                        {eventMoney.pending > 0 && (
+                          <button
+                            type="button"
+                            className={`evt-stat wait ${regMoneyFilter === 'pending' ? 'on' : ''}`}
+                            onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'pending' ? 'all' : 'pending'); }}
+                            title="Show the payments nobody has verified yet"
+                          >
+                            <span>Awaiting Verification</span>
+                            <b>{peso(eventMoney.pending)}</b>
+                            <em>not yet checked</em>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ) : (userRole === 'Admin' || userRole === 'Super Admin') ? (
@@ -7552,57 +8307,317 @@ Examples:
                   <div className="evt-tabs">
                     <button className={`evt-tab ${manageTab === 'registrations' ? 'active' : ''}`} onClick={() => setManageTab('registrations')}><i className="fas fa-clipboard-list"></i> Registrations {eventRegs.length > 0 && <span className="evt-tab-count">{eventRegs.length}</span>}</button>
                     <button className={`evt-tab ${manageTab === 'attendance' ? 'active' : ''}`} onClick={() => setManageTab('attendance')}><i className="fas fa-user-check"></i> Attendance {attendedCount > 0 && <span className="evt-tab-count">{attendedCount}</span>}</button>
+                    {/* Shown for any event that charges, so a plan can be found
+                        even before anybody is on one. */}
+                    {(eventRegsModal.has_fee || hasFlexiblePlans) && (
+                      <button className={`evt-tab ${manageTab === 'installments' ? 'active' : ''}`} onClick={() => { setManageTab('installments'); loadInstallments(eventRegsModal.id); }}>
+                        <i className="fas fa-calendar-day"></i> Flexible Installment {installments.length > 0 && <span className="evt-tab-count">{installments.length}</span>}
+                      </button>
+                    )}
                   </div>
 
                   {manageTab === 'registrations' && (
                     <>
                       <div className="evt-viewbar">
-                        <button
-                          className="btn-primary"
-                          disabled={isEventOver(eventRegsModal)}
-                          title={isEventOver(eventRegsModal) ? 'This event has already ended' : ''}
-                          onClick={openAdminAddReg}
-                        >
-                          <i className="fas fa-user-plus"></i> Add Registration
-                        </button>
+                        <div className="evt-filters">
+                          {/* Finding one person in a long list comes before slicing
+                              the list, so the search sits first. */}
+                          <div className="evt-search">
+                            <i className="fas fa-magnifying-glass"></i>
+                            <input
+                              type="search"
+                              value={regSearch}
+                              onChange={(e) => setRegSearch(e.target.value)}
+                              placeholder="Search attendees, church, contact or reference"
+                              aria-label="Search registrations"
+                            />
+                            {regSearch && (
+                              <button type="button" onClick={() => setRegSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
+                            )}
+                          </div>
+                          <select className="evt-filter-select" value={regSort} onChange={(e) => setRegSort(e.target.value)} aria-label="Sort registrations">
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                          </select>
+                          <select className="evt-filter-select" value={regChurchFilter} onChange={(e) => setRegChurchFilter(e.target.value)} aria-label="Filter by church">
+                            <option value="all">All churches ({eventRegs.length})</option>
+                            {regChurchOptions.map((c) => (
+                              <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+                            ))}
+                          </select>
+                          <select className="evt-filter-select" value={regTypeFilter} onChange={(e) => setRegTypeFilter(e.target.value)} aria-label="Filter by registration type">
+                            <option value="all">All types</option>
+                            <option value="individual">Individual</option>
+                            <option value="bulk">Bulk</option>
+                          </select>
+                          {(regTypeFilter !== 'all' || regChurchFilter !== 'all' || regMoneyFilter !== 'all' || regSearch.trim()) && (
+                            <span className="evt-filter-count">
+                              {regMoneyFilter !== 'all' && (
+                                <b className="evt-filter-what">{{ cash: 'Cash', online: 'Online', pending: 'Awaiting check' }[regMoneyFilter]}</b>
+                              )}
+                              {visibleRegs.length} of {eventRegs.length}
+                              <button type="button" onClick={() => { setRegTypeFilter('all'); setRegChurchFilter('all'); setRegMoneyFilter('all'); setRegSearch(''); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="evt-table-wrapper">
-                      <table className="evt-table">
+                      {/* the wrapper scrolls sideways, which would clip an open
+                          row menu - so it stops clipping while one is open */}
+                      <div className={`evt-table-wrapper ${openRowMenu ? 'menu-open' : ''}`}>
+                      <table className="evt-table evt-table-regs">
                         <thead>
-                          <tr><th>Attendee</th><th>Contact</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
+                          <tr><th>Attendee</th><th>Type</th><th>Added By</th><th>Church</th><th>Contact</th><th>Extras</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
                         </thead>
                         <tbody>
                           {eventRegsLoading ? (
-                            <tr><td colSpan={5}>Loading…</td></tr>
-                          ) : eventRegs.length === 0 ? (
-                            <tr><td colSpan={5}>No registrations yet.</td></tr>
-                          ) : eventRegs.map((r) => (
+                            <tr><td colSpan={9}>Loading…</td></tr>
+                          ) : pagedRegs.length === 0 ? (
+                            <tr><td colSpan={9}>{eventRegs.length === 0
+                              ? 'No registrations yet.'
+                              : (regSearch.trim() ? `No one matches “${regSearch.trim()}”.` : 'No registrations match these filters.')}</td></tr>
+                          ) : pagedRegs.map((r) => (
                             <tr key={r.id}>
-                              <td className="evt-cell-name evt-td-primary" data-label="Attendee">{r.attendee_name}</td>
-                              <td className="evt-cell-sub" data-label="Contact">{r.attendee_email}{r.attendee_mobile ? ` · ${r.attendee_mobile}` : ''}</td>
-                              <td className="evt-nowrap" data-label="Payment">{r.amount > 0 ? `₱${r.amount} · ${r.payment_method || '—'}${r.payment_reference ? ` · Ref: ${r.payment_reference}` : ''}` : 'Free'}</td>
-                              <td className="evt-nowrap" data-label="Status"><span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span></td>
-                              <td className="evt-td-actions" data-label="Actions">
-                                {r.payment_proof_url && <a href={r.payment_proof_url} target="_blank" rel="noreferrer" className="evt-mini-btn"><i className="fas fa-receipt"></i> Proof</a>}
-                                {(r.status === 'payment_submitted' || r.status === 'pending_payment') && (
-                                  <button className="evt-mini-btn ok" onClick={() => verifyRegistration(r.id, 'payment_verified')}><i className="fas fa-check"></i> Verify</button>
-                                )}
-                                {r.status !== 'cancelled' && (
-                                  <button
-                                    className="evt-mini-btn danger"
-                                    onClick={() => askConfirm(
-                                      `Cancel ${r.attendee_name}'s registration for this event? They will no longer be able to check in, and this cannot be undone.`,
-                                      () => verifyRegistration(r.id, 'cancelled'),
-                                      { title: 'Cancel Registration?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Cancel Registration', icon: 'fa-ban' }
+                              <td className="evt-cell-name evt-td-primary" data-label="Attendee">
+                                {formatPersonName(r.attendee_name)}
+                                <div className="evt-cell-sub">
+                                  {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  {/* registered together with others on one payment */}
+                                  {r.group_size > 1 && <span className="evt-group-tag"><i className="fas fa-user-group"></i> Group of {r.group_size}</span>}
+                                </div>
+                              </td>
+                              {/* how it was made, and whose name is on having made it */}
+                              <td data-label="Type">
+                                {(() => {
+                                  const type = regTypeOf(r);
+                                  const look = {
+                                    bulk: { label: 'Bulk', cls: 'bulk', icon: 'fa-user-group' },
+                                    individual: { label: 'Individual', cls: 'solo', icon: 'fa-user' },
+                                  }[type] || { label: 'Individual', cls: 'solo', icon: 'fa-user' };
+                                  return <span className={`evt-type-tag ${look.cls}`}><i className={`fas ${look.icon}`}></i> {look.label}</span>;
+                                })()}
+                              </td>
+                              <td data-label="Added By">
+                                {/* A walk-in reads as "Admin" - who typed it is the
+                                    detail underneath, not the headline. */}
+                                {/* Staff entries read as the role that made them;
+                                    everyone else reads as the person. */}
+                                {(() => {
+                                  // Rows saved before added_by_role existed carry the
+                                  // role in added_by instead - read either.
+                                  const role = (r.added_by_role === 'Admin' || r.added_by_role === 'Super Admin')
+                                    ? r.added_by_role
+                                    : (/^super\s+admin$/i.test(r.added_by || '') ? 'Super Admin'
+                                      : (/^admin$/i.test(r.added_by || '') ? 'Admin' : null));
+                                  if (!role) return null;
+                                  const staff = formatPersonName(r.added_by);
+                                  return (
+                                    <>
+                                      <span className={`evt-added-admin ${role === 'Super Admin' ? 'super' : ''}`}>
+                                        <i className="fas fa-shield-halved"></i> {role}
+                                      </span>
+                                      {staff && staff.toLowerCase() !== role.toLowerCase() && (
+                                        <div className="evt-cell-sub">{staff}</div>
+                                      )}
+                                      {r.payment_plan === 'flexible' && (
+                                        <span className="evt-plan-chip"><i className="fas fa-calendar-day"></i> Flexible Installment</span>
+                                      )}
+                                    </>
+                                  );
+                                })() || (
+                                  <>
+                                    {formatPersonName(r.added_by || r.representative || r.attendee_name) || '—'}
+                                    {regTypeOf(r) === 'bulk' && <div className="evt-cell-sub">Representative</div>}
+                                    {r.payment_plan === 'flexible' && (
+                                      <span className="evt-plan-chip"><i className="fas fa-calendar-day"></i> Flexible Installment</span>
                                     )}
-                                  ><i className="fas fa-ban"></i> Cancel</button>
+                                  </>
                                 )}
+                              </td>
+                              {/* where a guest was sent from, when they gave it */}
+                              <td data-label="Church">
+                                {formatChurchName(r.church_name) || '—'}
+                                {/* "Ptr." is a title, the rest is a name */}
+                                {r.church_pastor && (
+                                  <div className="evt-cell-sub">
+                                    {`Ptr. ${formatPersonName(String(r.church_pastor).replace(/^ptr\.?\s*/i, ''))}`}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="evt-cell-sub" data-label="Contact">
+                                {r.attendee_mobile ? (
+                                  <button
+                                    type="button"
+                                    className={`evt-copy-cell ${copiedContact === r.attendee_mobile ? 'copied' : ''}`}
+                                    onClick={() => copyContact(r.attendee_mobile)}
+                                    title="Copy number"
+                                  >
+                                    {r.attendee_mobile}
+                                    <i className={`fas ${copiedContact === r.attendee_mobile ? 'fa-check' : 'fa-copy'}`}></i>
+                                  </button>
+                                ) : '—'}
+                                {r.attendee_email && <div>{r.attendee_email}</div>}
+                              </td>
+                              {/* what the total is actually made of, so a ₱500 line is explainable */}
+                              {/* One mark per extra the event offers: ticked if they
+                                  took it, dashed if they did not. The question is on
+                                  the tooltip - the column is for scanning. */}
+                              <td data-label="Extras" className="evt-cell-extras">
+                                {(() => {
+                                  const offered = eventRegsModal.event_addons || [];
+                                  const taken = Array.isArray(r.addons) ? r.addons : [];
+                                  const has = (x) => taken.some((t) => t.id === x.id
+                                    || String(t.question || '').trim().toLowerCase() === String(x.question || '').trim().toLowerCase());
+                                  if (offered.length === 0) return <span className="evt-cell-sub">—</span>;
+                                  return (
+                                    <div className="evt-extra-marks">
+                                      {offered.map((x) => (
+                                        <span
+                                          key={x.id}
+                                          className={`evt-extra-mark ${has(x) ? 'yes' : 'no'}`}
+                                          title={`${x.question} (+₱${Number(x.fee) || 0}) — ${has(x) ? 'availed' : 'not availed'}`}
+                                        >
+                                          <i className={`fas ${has(x) ? 'fa-circle-check' : 'fa-circle-minus'}`}></i>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              <td data-label="Payment" className="evt-cell-payment">
+                                {r.amount > 0 ? (
+                                  <>
+                                    <strong>₱{r.amount}</strong>
+                                    {/* the split behind the total, in figures */}
+                                    <div className="evt-cell-sub">
+                                      {r.payment_method || '—'}
+                                      {r.base_amount != null && Number(r.base_amount) !== Number(r.amount) && (
+                                        <> · ₱{r.base_amount} + <b className="evt-extra-amt">₱{Number(r.amount) - Number(r.base_amount)}</b></>
+                                      )}
+                                    </div>
+                                    {r.payment_reference && <div className="evt-cell-sub">Ref: {r.payment_reference}</div>}
+                                    {r.payment_plan === 'flexible' && (() => {
+                                      const paidNow = Number(r.amount_paid) || 0;
+                                      const settled = paidNow >= (Number(r.amount) || 0);
+                                      return (
+                                        <span className={`evt-plan-tag ${settled ? 'settled' : ''}`}>
+                                          <i className={`fas ${settled ? 'fa-circle-check' : 'fa-calendar-day'}`}></i> Total Paid: ₱{paidNow}
+                                        </span>
+                                      );
+                                    })()}
+                                  </>
+                                ) : 'Free'}
+                              </td>
+                              <td className="evt-nowrap" data-label="Status">
+                                {(() => {
+                                  // An installment plan says how far along it is, not
+                                  // just that "a payment was submitted".
+                                  if (r.payment_plan === 'flexible' && r.status !== 'cancelled') {
+                                    const owed = Number(r.amount) || 0;
+                                    const paid = Number(r.amount_paid) || 0;
+                                    return paid >= owed && owed > 0
+                                      ? <span className="evt-status evt-status-payment_verified">paid</span>
+                                      : (
+                                        <>
+                                          <span className="evt-status evt-status-payment_submitted">installment</span>
+                                          <div className="evt-cell-sub">₱{paid} of ₱{owed}</div>
+                                        </>
+                                      );
+                                  }
+                                  return <span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span>;
+                                })()}
+                              </td>
+                              {/* One button per row instead of three or four - the
+                                  actions live behind it, so the table can breathe. */}
+                              <td className="evt-td-actions" data-label="Actions">
+                                {(() => {
+                                  const onPlan = r.payment_plan === 'flexible' && r.status !== 'cancelled';
+                                  const owed = Number(r.amount) || 0;
+                                  const paid = Number(r.amount_paid) || 0;
+                                  const settled = onPlan && owed > 0 && paid >= owed;
+                                  const name = formatPersonName(r.attendee_name);
+                                  return (
+                                    <div className={`evt-rowmenu ${openRowMenu === r.id ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
+                                      <button
+                                        className="evt-manage-trigger"
+                                        onClick={() => setOpenRowMenu(openRowMenu === r.id ? null : r.id)}
+                                        aria-expanded={openRowMenu === r.id}
+                                      >
+                                        <i className="fas fa-sliders"></i> Manage <i className="fas fa-chevron-down caret"></i>
+                                      </button>
+                                      {openRowMenu === r.id && (
+                                        <div className="evt-rowmenu-list" role="menu">
+                                          {r.payment_proof_url && (
+                                            <button role="menuitem" onClick={() => { setOpenRowMenu(null); setProofModal(r); }}>
+                                              <i className="fas fa-receipt"></i> Proof
+                                            </button>
+                                          )}
+
+                                          {/* On a plan there is nothing to verify until
+                                              the balance is cleared - money to collect. */}
+                                          {onPlan ? (
+                                            settled ? (
+                                              <span className="evt-rowmenu-note ok"><i className="fas fa-circle-check"></i> Fully paid &mdash; ₱{paid} of ₱{owed}</span>
+                                            ) : (
+                                              <button role="menuitem" className="ok" onClick={() => {
+                                                setOpenRowMenu(null);
+                                                openPayModal({
+                                                  id: r.id, attendee_name: r.attendee_name, amount: owed, paid,
+                                                  balance: Math.max(0, owed - paid),
+                                                });
+                                              }}>
+                                                <i className="fas fa-peso-sign"></i> Collect <em>₱{Math.max(0, owed - paid)} left</em>
+                                              </button>
+                                            )
+                                          ) : (r.status === 'payment_submitted' || r.status === 'pending_payment') && (
+                                            <button role="menuitem" className="ok" onClick={() => { setOpenRowMenu(null); verifyRegistration(r.id, 'payment_verified'); }}>
+                                              <i className="fas fa-check"></i> Verify
+                                            </button>
+                                          )}
+
+                                          {/* A verified payment can be put back - the
+                                              reference sometimes turns out not to match. */}
+                                          {r.status === 'payment_verified' && r.payment_plan !== 'flexible' && (
+                                            <button role="menuitem" className="warn" onClick={() => {
+                                              setOpenRowMenu(null);
+                                              askConfirm(
+                                                `Mark ${name}'s payment as unverified? Their registration goes back to "payment submitted" so it can be checked again.`,
+                                                () => verifyRegistration(r.id, 'payment_submitted'),
+                                                { title: 'Unverify Payment?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Unverify', icon: 'fa-rotate-left' },
+                                              );
+                                            }}>
+                                              <i className="fas fa-rotate-left"></i> Unverify
+                                            </button>
+                                          )}
+
+                                          {r.status !== 'cancelled' && (
+                                            <button role="menuitem" className="danger" onClick={() => {
+                                              setOpenRowMenu(null);
+                                              askConfirm(
+                                                `Cancel ${name}'s registration for this event? They will no longer be able to check in, and this cannot be undone.`,
+                                                () => verifyRegistration(r.id, 'cancelled'),
+                                                { title: 'Cancel Registration?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Cancel Registration', icon: 'fa-ban' },
+                                              );
+                                            }}>
+                                              <i className="fas fa-ban"></i> Cancel
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                       </div>
+                      {visibleRegs.length > 0 && (
+                        <TablePager
+                          page={regPageSafe} pageSize={regPageSize} total={visibleRegs.length}
+                          onPage={setRegPage} onSize={setRegPageSize} label="registrations"
+                        />
+                      )}
                     </>
                   )}
 
@@ -7621,9 +8636,9 @@ Examples:
                               <tr><td colSpan={4}>Loading…</td></tr>
                             ) : confirmedRegs.length === 0 ? (
                               <tr><td colSpan={4}>No confirmed registrations yet.</td></tr>
-                            ) : confirmedRegs.map((r) => (
+                            ) : confirmedRegs.slice((attPage - 1) * attPageSize, attPage * attPageSize).map((r) => (
                               <tr key={r.id}>
-                                <td className="evt-cell-name evt-td-primary" data-label="Attendee">{r.attendee_name}</td>
+                                <td className="evt-cell-name evt-td-primary" data-label="Attendee">{formatPersonName(r.attendee_name)}</td>
                                 <td className="evt-cell-sub" data-label="Contact">{r.attendee_email}{r.attendee_mobile ? ` · ${r.attendee_mobile}` : ''}</td>
                                 <td className="evt-nowrap" data-label="Status"><span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span></td>
                                 <td className="evt-nowrap evt-td-actions" data-label="Attendance">
@@ -7648,6 +8663,13 @@ Examples:
                           </tbody>
                         </table>
                       </div>
+                      {confirmedRegs.length > 0 && (
+                        <TablePager
+                          page={Math.min(attPage, Math.max(1, Math.ceil(confirmedRegs.length / attPageSize)))}
+                          pageSize={attPageSize} total={confirmedRegs.length}
+                          onPage={setAttPage} onSize={setAttPageSize} label="attendees"
+                        />
+                      )}
                     </>
                   )}
                 </>
@@ -7774,7 +8796,7 @@ Examples:
                               <i className="fas fa-calendar-days"></i>
                               <input
                                 type="date"
-                                value={datePartOf(eventForm.eventDate)}
+                                value={firstSession().startDate}
                                 min={datePartOf(nowLocalDatetimeString())}
                                 onChange={(e) => setEventStart('date', e.target.value)}
                               />
@@ -7784,7 +8806,7 @@ Examples:
                               <i className="fas fa-clock"></i>
                               <input
                                 type="time"
-                                value={timePartOf(eventForm.eventDate)}
+                                value={firstSession().startTime}
                                 onChange={(e) => setEventStart('time', e.target.value)}
                               />
                             </span>
@@ -7799,8 +8821,8 @@ Examples:
                               <i className="fas fa-calendar-days"></i>
                               <input
                                 type="date"
-                                value={datePartOf(eventForm.endDate)}
-                                min={datePartOf(eventForm.eventDate) || datePartOf(nowLocalDatetimeString())}
+                                value={firstSession().endDate}
+                                min={firstSession().startDate || datePartOf(nowLocalDatetimeString())}
                                 onChange={(e) => setEventEnd('date', e.target.value)}
                               />
                             </span>
@@ -7809,7 +8831,7 @@ Examples:
                               <i className="fas fa-clock"></i>
                               <input
                                 type="time"
-                                value={timePartOf(eventForm.endDate)}
+                                value={firstSession().endTime}
                                 onChange={(e) => setEventEnd('time', e.target.value)}
                               />
                             </span>
@@ -7827,134 +8849,127 @@ Examples:
                           </div>
                         </div>
                       </div>
-                      {/* Multi-day helper: sets the END DATE from a day count so admins never
-                          have to work out "start + 2 days" by hand. Times stay editable above. */}
-                      <div className="evt-multiday">
-                        <div className="evt-multiday-head">
-                          <i className="fas fa-calendar-week"></i> How many days does this run?
-                        </div>
-                        <div className="evt-multiday-row">
-                          {[1, 2, 3, 4, 5, 7].map((n) => (
-                            <button
-                              key={n}
-                              type="button"
-                              className={`evt-day-chip ${eventDayCount(eventForm.eventDate, eventForm.endDate) === n ? 'on' : ''}`}
-                              disabled={!eventForm.eventDate}
-                              onClick={() => setEventDayCount(n)}
-                            >
-                              {n === 1 ? 'Single day' : `${n} days`}
-                            </button>
-                          ))}
-                          <span className="evt-day-custom">
-                            or
-                            <input
-                              type="number"
-                              min="1"
-                              max="365"
-                              className="form-control"
-                              disabled={!eventForm.eventDate}
-                              value={eventDayCount(eventForm.eventDate, eventForm.endDate)}
-                              onChange={(e) => setEventDayCount(e.target.value)}
-                            />
-                            days
+                      {/* Sessions. One session is the default and describes the whole
+                          event, so nothing extra is shown for it on the public page.
+                          Add more for a conference / retreat that runs in blocks. */}
+                      <div className="evt-sessions">
+                        <div className="evt-sessions-head">
+                          <span className="evt-sessions-title">
+                            <i className="fas fa-layer-group"></i> Sessions
+                            <span className="evt-sessions-count">{sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}</span>
                           </span>
+                          <div className="evt-sessions-actions">
+                            {sessionCount > 1 && (
+                              <button type="button" className="evt-days-copy" onClick={applySessionOneTimesToAll}>
+                                <i className="fas fa-clone"></i> Use Session 1 times for all
+                              </button>
+                            )}
+                            <button type="button" className="evt-session-add" onClick={addEventSession} disabled={!eventForm.eventDate}>
+                              <i className="fas fa-plus"></i> Add Session
+                            </button>
+                          </div>
                         </div>
-                        {!eventForm.eventDate ? (
-                          <div className="evt-multiday-note">
-                            <i className="fas fa-info-circle"></i> Pick a start date &amp; time first &mdash; the end date is calculated from it.
-                          </div>
-                        ) : eventForm.endDate ? (
-                          <div className="evt-multiday-note on">
-                            <i className="fas fa-calendar-check"></i>
-                            <span>
-                              Runs <strong>{eventDayCount(eventForm.eventDate, eventForm.endDate)} day{eventDayCount(eventForm.eventDate, eventForm.endDate) !== 1 ? 's' : ''}</strong>
-                              {eventForm.days && eventForm.days.length > 1 && (
-                                <>{' '}&middot; {eventDayDatesLabel(eventForm.days)}</>
-                              )}
-                              {' '}&middot; {new Date(eventForm.eventDate).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                              {' '}&ndash; {new Date(eventForm.endDate).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="evt-multiday-note">
-                            <i className="fas fa-info-circle"></i> Pick a length above, then fine-tune the finish time in <strong>End Date</strong>.
+
+                        {eventFieldErrors.sessionEnd && (
+                          <div className="evt-field-error-msg" style={{ marginBottom: 10 }}>
+                            Every session needs an end date and time &mdash; attendees see &quot;10:00 AM &ndash; 6:30 PM&quot;, not just the start.
                           </div>
                         )}
-                      </div>
-
-                      {/* One editable row per day. Only shown for a genuine multi-day event -
-                          a single day is fully described by Start/End above. */}
-                      {eventForm.days && eventForm.days.length > 1 && (
-                        <div className="evt-days-editor">
-                          <div className="evt-days-head">
-                            <span className="evt-days-title">
-                              <i className="fas fa-list-ol"></i> Set the time for each day
-                            </span>
-                            <button type="button" className="evt-days-copy" onClick={applyDayOneTimesToAll}>
-                              <i className="fas fa-clone"></i> Use Day 1 times for all
-                            </button>
+                        {sessionCount === 1 ? (
+                          <div className="evt-multiday-note">
+                            <i className="fas fa-info-circle"></i>
+                            This event runs as a <strong>single session</strong> &mdash; the dates above are it, and only the
+                            event title is shown to members. Add a session if it runs in separate blocks.
                           </div>
-
+                        ) : (
                           <div className="evt-days-list">
-                            {eventForm.days.map((d, i) => (
+                            {eventForm.sessions.map((s, i) => (
                               <div className="evt-day-line" key={i}>
-                                <span className="evt-day-num">Day {i + 1}</span>
+                                <span className="evt-day-num">Session {i + 1}</span>
                                 <div className="evt-day-fields">
-                                  <label className="evt-day-field">
-                                    <span>Date</span>
+                                  <label className="evt-day-field evt-day-field-label">
+                                    <span>Session Title</span>
                                     <input
-                                      type="date"
+                                      type="text"
                                       className="form-control"
-                                      value={d.date}
-                                      onChange={(e) => updateEventDay(i, { date: e.target.value })}
+                                      placeholder={`e.g. Opening Night`}
+                                      value={s.title}
+                                      onChange={(e) => updateEventSession(i, { title: e.target.value })}
                                     />
                                   </label>
                                   <label className="evt-day-field">
                                     <span>Starts</span>
                                     <input
+                                      type="date"
+                                      className="form-control"
+                                      value={s.startDate}
+                                      onChange={(e) => updateEventSession(i, { startDate: e.target.value })}
+                                    />
+                                  </label>
+                                  <label className="evt-day-field">
+                                    <span>Start Time</span>
+                                    <input
                                       type="time"
                                       className="form-control"
-                                      value={d.start}
-                                      onChange={(e) => updateEventDay(i, { start: e.target.value })}
+                                      value={s.startTime}
+                                      onChange={(e) => updateEventSession(i, { startTime: e.target.value })}
                                     />
                                   </label>
                                   <label className="evt-day-field">
                                     <span>Ends</span>
                                     <input
+                                      type="date"
+                                      className="form-control"
+                                      value={s.endDate}
+                                      min={s.startDate || undefined}
+                                      onChange={(e) => updateEventSession(i, { endDate: e.target.value })}
+                                    />
+                                  </label>
+                                  <label className="evt-day-field">
+                                    <span>End Time</span>
+                                    <input
                                       type="time"
                                       className="form-control"
-                                      value={d.end}
-                                      onChange={(e) => updateEventDay(i, { end: e.target.value })}
+                                      value={s.endTime}
+                                      onChange={(e) => updateEventSession(i, { endTime: e.target.value })}
                                     />
                                   </label>
-                                  <label className="evt-day-field evt-day-field-label">
-                                    <span>Label <em>(optional)</em></span>
-                                    <input
-                                      type="text"
-                                      className="form-control"
-                                      placeholder="e.g. Opening Night"
-                                      value={d.label}
-                                      onChange={(e) => updateEventDay(i, { label: e.target.value })}
-                                    />
-                                  </label>
+                                  {i > 0 && (
+                                    <button type="button" className="evt-session-remove" onClick={() => removeEventSession(i)} aria-label={`Remove session ${i + 1}`}>
+                                      <i className="fas fa-trash"></i>
+                                    </button>
+                                  )}
                                 </div>
-                                {d.date && d.start && d.end && d.end <= d.start && (
+                                {s.startTime && !s.endTime && (
+                                  <div className="evt-day-hint">
+                                    <i className="fas fa-clock"></i>
+                                    Add an end time so attendees see the full block &mdash; e.g. <strong>10:00 AM &ndash; 6:30 PM</strong>.
+                                  </div>
+                                )}
+                                {s.endDate && s.endTime && s.startDate && new Date(sessionEndStr(s)) < new Date(sessionStartStr(s)) && (
                                   <div className="evt-day-warn">
                                     <i className="fas fa-triangle-exclamation"></i>
-                                    Ends before it starts &mdash; the end time will be ignored for this day.
+                                    Ends before it starts &mdash; the end will be ignored for this session.
                                   </div>
                                 )}
                               </div>
                             ))}
                           </div>
+                        )}
 
-                          <div className="evt-days-note">
-                            <i className="fas fa-database"></i>
-                            Each day is saved as its own row, so a conference can run different
-                            hours on different days instead of one long overnight block.
+                        {sessionCount > 1 && eventForm.eventDate && (
+                          <div className="evt-multiday-note on">
+                            <i className="fas fa-calendar-check"></i>
+                            <span>
+                              <strong>{sessionCount} sessions</strong>
+                              {' '}&middot; {eventSessionDatesLabel(eventForm.sessions)}
+                              {' '}&middot; {new Date(eventForm.eventDate).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              {eventForm.endDate && <>{' '}&ndash; {new Date(eventForm.endDate).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</>}
+                              {' '}&middot; each session&apos;s title, date and time are shown on the event details.
+                            </span>
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
 
                       <div className="evt-config-title"><i className="fas fa-map-marked-alt"></i> Location</div>
                       {/* Map on the left, the fields you actually type into on the right. */}
@@ -8060,7 +9075,15 @@ Examples:
                     <div className="evt-step-panel">
                       <div className="evt-config-title"><i className="fas fa-peso-sign"></i> Pricing</div>
                       <label className="evt-toggle-row">
-                        <input type="checkbox" checked={eventForm.hasFee} onChange={(e) => setEventForm({ ...eventForm, hasFee: e.target.checked })} />
+                        <input
+                          type="checkbox"
+                          checked={eventForm.hasFee}
+                          onChange={(e) => setEventForm({
+                            ...eventForm,
+                            hasFee: e.target.checked,
+                            registrationFee: e.target.checked && eventForm.registrationFee === '' ? DEFAULT_EVENT_FEE : eventForm.registrationFee,
+                          })}
+                        />
                         <span>This event has a registration fee</span>
                       </label>
 
@@ -8086,7 +9109,20 @@ Examples:
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
                             <div className="form-group"><label>Early Bird Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.earlyBirdDeadline} onChange={(e) => setEventForm({ ...eventForm, earlyBirdDeadline: e.target.value })} /></div>
-                            <div className="form-group"><label>Payment Deadline</label><input type="datetime-local" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.paymentDeadline} onChange={(e) => setEventForm({ ...eventForm, paymentDeadline: e.target.value })} /></div>
+                            <div className="form-group">
+                              <label>Payment Deadline</label>
+                              <div className="evt-dt evt-dt-readonly">
+                                <span className="evt-dt-part">
+                                  <i className="fas fa-hourglass-half"></i>
+                                  <span className="evt-dt-static">
+                                    {eventForm.registrationDeadline
+                                      ? new Date(eventForm.registrationDeadline).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+                                      : 'Set the registration deadline in step 3'}
+                                  </span>
+                                </span>
+                              </div>
+                              <div className="evt-field-hint">Payment is due when registration closes &mdash; change it in <strong>Registration</strong>.</div>
+                            </div>
                           </div>
                           <div className="form-group"><label>Payment Instructions</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={2} value={eventForm.paymentInstructions} onChange={(e) => setEventForm({ ...eventForm, paymentInstructions: e.target.value })} placeholder="e.g. Send payment then upload your receipt." /></div>
                           <div className="form-group"><label>Refund Policy (optional)</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.refundPolicy} onChange={(e) => setEventForm({ ...eventForm, refundPolicy: e.target.value })} /></div>
@@ -8132,6 +9168,88 @@ Examples:
                             </div>
                           )}
                         </>
+                      )}
+
+                      {/* Optional paid questions. These work on a free event too -
+                          picking one simply makes that attendee's total non-zero. */}
+                      <div className="evt-config-title" style={{ marginTop: 18 }}><i className="fas fa-circle-question"></i> Add-On Questions</div>
+                      <p className="evt-muted" style={{ marginTop: -4, marginBottom: 12, fontSize: '0.85rem' }}>
+                        Ask something extra that costs extra &mdash; e.g. <em>&quot;Do you want accommodation?&quot;</em> for ₱200.
+                        Attendees tick the ones they want while registering and the fees are added to their total.
+                      </p>
+
+                      {(eventForm.addons || []).length === 0 && (
+                        <p className="evt-muted" style={{ fontSize: '0.82rem', marginBottom: 10 }}>
+                          <i className="fas fa-info-circle"></i> No add-ons &mdash; everyone pays the same registration fee.
+                        </p>
+                      )}
+
+                      <div className="evt-addon-list">
+                        {(eventForm.addons || []).map((a, i) => (
+                          <div className="evt-addon-row" key={i}>
+                            <div className="evt-addon-fields">
+                              <label className="evt-day-field evt-addon-q">
+                                <span>Question</span>
+                                <input
+                                  type="text"
+                                  className="form-control"
+                                  placeholder="e.g. Do you want accommodation?"
+                                  value={a.question}
+                                  onChange={(e) => updateEventAddon(i, { question: e.target.value })}
+                                />
+                              </label>
+                              <label className="evt-day-field">
+                                <span>Additional Fee (PHP)</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="form-control"
+                                  placeholder="200"
+                                  value={a.fee}
+                                  onChange={(e) => updateEventAddon(i, { fee: e.target.value })}
+                                />
+                              </label>
+                              <button type="button" className="evt-session-remove" onClick={() => removeEventAddon(i)} aria-label="Remove this question">
+                                <i className="fas fa-trash"></i>
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              className="form-control evt-addon-desc"
+                              placeholder="Short note shown under the question (optional) — e.g. Includes 2 nights, room shared"
+                              value={a.description}
+                              onChange={(e) => updateEventAddon(i, { description: e.target.value })}
+                            />
+                            <textarea
+                              className="form-control evt-addon-desc"
+                              rows={2}
+                              placeholder="View Details text (optional) — explain why this add-on exists, what it covers, and anything attendees should know before ticking it."
+                              value={a.details}
+                              onChange={(e) => updateEventAddon(i, { details: e.target.value })}
+                            />
+                            <label className="evt-addon-required">
+                              <input type="checkbox" checked={!!a.isRequired} onChange={(e) => updateEventAddon(i, { isRequired: e.target.checked })} />
+                              <span>Required &mdash; always charged, attendees can&apos;t opt out</span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button type="button" className="evt-session-add" onClick={addEventAddon}>
+                        <i className="fas fa-plus"></i> Add Question
+                      </button>
+
+                      {(eventForm.addons || []).some((a) => Number(a.fee) > 0) && (
+                        <div className="evt-addon-total">
+                          <i className="fas fa-receipt"></i>
+                          <span>
+                            Base {eventForm.hasFee ? `₱${Number(eventForm.registrationFee) || 0}` : 'Free'}
+                            {(eventForm.addons || []).filter((a) => Number(a.fee) > 0).map((a, i) => (
+                              <span key={i}> + ₱{Number(a.fee)}{a.question ? ` (${a.question})` : ''}</span>
+                            ))}
+                            {' '}= <strong>₱{eventMaxTotal()}</strong> if they say yes to everything.
+                          </span>
+                        </div>
                       )}
                     </div>
                   )}
@@ -8371,7 +9489,12 @@ Examples:
                                 </div>
                               </div>
                             </td>
-                            <td className="evt-nowrap" data-label="Date">{formatDateTime(evt.event_date)}</td>
+                            <td className="evt-nowrap" data-label="Date">
+                              {formatEventSpan(evt.event_date, evt.end_date)}
+                              {Array.isArray(evt.event_days) && evt.event_days.length > 1 && (
+                                <div className="evt-cell-sub">{evt.event_days.length} sessions</div>
+                              )}
+                            </td>
                             <td data-label="Venue">
                               {evt.location || '—'}
                               {evt.loc_city && <div className="evt-cell-sub">{[evt.loc_city, evt.loc_province].filter(Boolean).join(', ')}</div>}
@@ -8577,49 +9700,648 @@ Examples:
               </div>
             )}
 
+            {/* ---- Proof of payment: the receipt beside the numbers it should match ---- */}
+            {proofModal && (
+              <div className="evt-modal-overlay" onClick={() => setProofModal(null)}>
+                <div className="evt-modal evt-proof-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Proof of Payment</h3><p>{formatPersonName(proofModal.attendee_name)}</p></div>
+                    <button className="evt-modal-close" onClick={() => setProofModal(null)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body evt-proof-body">
+                    {/* Left: the screenshot itself, full size and openable in a new
+                        tab when the reference is too small to read here. */}
+                    <div className="evt-proof-image">
+                      {proofModal.payment_proof_url ? (
+                        <>
+                          <img src={proofModal.payment_proof_url} alt="Payment proof" />
+                          <a href={proofModal.payment_proof_url} target="_blank" rel="noreferrer" className="evt-proof-zoom">
+                            <i className="fas fa-up-right-and-down-left-from-center"></i> Open full size
+                          </a>
+                        </>
+                      ) : (
+                        <div className="evt-proof-empty"><i className="fas fa-image"></i> No proof uploaded</div>
+                      )}
+                    </div>
+
+                    {/* Right: who paid, and the arithmetic behind the total.
+                        One label/value pattern the whole way down, so nothing
+                        wanders out of alignment. */}
+                    <div className="evt-proof-details">
+                      <div className="evt-proof-section">
+                        <h4>Attendee</h4>
+                        <dl className="evt-proof-list">
+                          <div><dt>Full Name</dt><dd>{formatPersonName(proofModal.attendee_name) || '—'}</dd></div>
+                          <div><dt>Church Name</dt><dd>{formatChurchName(proofModal.church_name) || '—'}</dd></div>
+                          {proofModal.church_pastor && (
+                            <div><dt>Church Pastor</dt><dd>{`Ptr. ${formatPersonName(String(proofModal.church_pastor).replace(/^ptr\.?\s*/i, ''))}`}</dd></div>
+                          )}
+                          {proofModal.attendee_mobile && (
+                            <div><dt>Contact</dt><dd>{proofModal.attendee_mobile}</dd></div>
+                          )}
+                          {proofModal.representative && (
+                            <div><dt>Registered By</dt><dd>{formatPersonName(proofModal.representative)}</dd></div>
+                          )}
+                        </dl>
+                      </div>
+
+                      <div className="evt-proof-section">
+                        <h4>Receipt</h4>
+                        <div className="evt-proof-receipt">
+                          <div className="evt-proof-line">
+                            <span>Registration Fee</span>
+                            <b>&#8369;{Number(proofModal.base_amount ?? proofModal.amount) || 0}</b>
+                          </div>
+                          {(proofModal.addons || []).map((a, i) => (
+                            <div className="evt-proof-line" key={i}>
+                              <span>{a.question}</span>
+                              <b>&#8369;{Number(a.fee) || 0}</b>
+                            </div>
+                          ))}
+                          <div className="evt-proof-line total">
+                            <span>Total</span>
+                            <b>&#8369;{Number(proofModal.amount) || 0}</b>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="evt-proof-section">
+                        <h4>Payment</h4>
+                        <dl className="evt-proof-list">
+                          <div>
+                            <dt>Mode of Payment</dt>
+                            <dd>{proofModal.payment_method
+                              ? (/cash on|walk|^cash$/i.test(proofModal.payment_method)
+                                  ? proofModal.payment_method
+                                  : `Online (${proofModal.payment_method})`)
+                              : '—'}</dd>
+                          </div>
+                          {/* The one thing an admin actually has to match against
+                              the screenshot, so it is impossible to miss. */}
+                          <div>
+                            <dt>Reference Number</dt>
+                            <dd className="evt-proof-ref">{proofModal.payment_reference || '—'}</dd>
+                          </div>
+                          <div>
+                            <dt>Status</dt>
+                            <dd>
+                              <span className={`evt-status evt-status-${proofModal.status}`}>
+                                {String(proofModal.status || '').replace(/_/g, ' ')}
+                              </span>
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="evt-modal-foot evt-proof-foot">
+                    <button className="evt-foot-btn ghost" onClick={() => setProofModal(null)}>
+                      <i className="fas fa-xmark"></i> Close
+                    </button>
+                    {proofModal.status === 'payment_verified' ? (
+                      <button
+                        className="evt-foot-btn unverify"
+                        onClick={() => verifyRegistration(proofModal.id, 'payment_submitted')}
+                      ><i className="fas fa-rotate-left"></i> Unverify Payment</button>
+                    ) : (
+                      <button
+                        className="evt-foot-btn verify"
+                        onClick={() => verifyRegistration(proofModal.id, 'payment_verified')}
+                      ><i className="fas fa-circle-check"></i> Verify Payment</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- Flexible installment plans: who owes what, and when they paid ---- */}
+            {eventRegsModal && manageTab === 'installments' && (
+              <>
+                <div className="evt-viewbar">
+                  <div className="evt-inst-totals">
+                    <span><b>{installments.length}</b> on a plan</span>
+                    <span>Collected <b>₱{installments.reduce((sum, r) => sum + (Number(r.paid) || 0), 0)}</b></span>
+                    <span className="due">Outstanding <b>₱{installments.reduce((sum, r) => sum + (Number(r.balance) || 0), 0)}</b></span>
+                  </div>
+                </div>
+                <div className="evt-table-wrapper">
+                  <table className="evt-table">
+                    <thead>
+                      <tr>
+                        <th>Attendee</th><th>Total</th><th>Paid</th><th>Balance</th>
+                        <th>Payment Dates</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {installmentsLoading ? (
+                        <tr><td colSpan={7}>Loading…</td></tr>
+                      ) : installmentsError ? (
+                        <tr><td colSpan={7} style={{ color: '#b91c1c' }}>
+                          <i className="fas fa-triangle-exclamation"></i> {installmentsError}
+                          {/payment_plan|amount_paid|event_registration_payments|column|relation/i.test(installmentsError) && (
+                            <div className="evt-cell-sub">Run <b>supabase/migrations/event_flexible_payment.sql</b> to enable installment plans.</div>
+                          )}
+                        </td></tr>
+                      ) : installments.length === 0 ? (
+                        <tr><td colSpan={7}>
+                          Nobody is on a flexible plan for this event yet. Put someone on one with
+                          <b> Add Attendee &rarr; Payment &rarr; Flexible Payment Plan</b>.
+                        </td></tr>
+                      ) : installments.slice((instPage - 1) * instPageSize, instPage * instPageSize).map((r) => {
+                        const settled = r.balance <= 0;
+                        return (
+                          <tr key={r.id}>
+                            <td className="evt-cell-name evt-td-primary" data-label="Attendee">
+                              {formatPersonName(r.attendee_name)}
+                              <div className="evt-cell-sub">{formatChurchName(r.church_name) || '—'}</div>
+                            </td>
+                            <td data-label="Total"><strong>₱{Number(r.amount) || 0}</strong>
+                              {Array.isArray(r.addons) && r.addons.length > 0 && (
+                                <div className="evt-cell-sub">₱{Number(r.base_amount) || 0} + extras</div>
+                              )}
+                            </td>
+                            <td data-label="Paid" className="evt-inst-paid">₱{Number(r.paid) || 0}</td>
+                            <td data-label="Balance">
+                              <strong className={settled ? 'evt-inst-clear' : 'evt-inst-due'}>₱{Number(r.balance) || 0}</strong>
+                            </td>
+                            {/* every date money came in, so a plan reads as a history */}
+                            <td data-label="Payment Dates">
+                              {r.payments.length === 0 ? <span className="evt-cell-sub">No payments yet</span> : (
+                                <div className="evt-inst-dates">
+                                  {r.payments.map((pmt) => (
+                                    <span className="evt-inst-date" key={pmt.id}>
+                                      <b>{new Date(pmt.paid_on).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</b>
+                                      <em>₱{Number(pmt.amount) || 0}</em>
+                                      {pmt.method && <i>{pmt.method}</i>}
+                                      <button type="button" onClick={() => deleteInstallment(pmt)} title="Remove this payment"><i className="fas fa-xmark"></i></button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="evt-nowrap" data-label="Status">
+                              <span className={`evt-status evt-status-${settled ? 'payment_verified' : 'payment_submitted'}`}>
+                                {settled ? 'fully paid' : 'in progress'}
+                              </span>
+                            </td>
+                            <td className="evt-td-actions" data-label="Actions">
+                              <button className="evt-mini-btn ok" disabled={settled} onClick={() => openPayModal(r)}>
+                                <i className="fas fa-peso-sign"></i> Record Payment
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {installments.length > 0 && (
+                  <TablePager
+                    page={Math.min(instPage, Math.max(1, Math.ceil(installments.length / instPageSize)))}
+                    pageSize={instPageSize} total={installments.length}
+                    onPage={setInstPage} onSize={setInstPageSize} label="plans"
+                  />
+                )}
+              </>
+            )}
+
+            {/* ---- Record one installment ---- */}
+            {payModal && (
+              <div className="evt-modal-overlay" onClick={() => setPayModal(null)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Record Payment</h3><p>{formatPersonName(payModal.attendee_name)}</p></div>
+                    <button className="evt-modal-close" onClick={() => setPayModal(null)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    {/* The three numbers this decision turns on, big enough to
+                        read across a desk, with the balance as the headline. */}
+                    <div className="evt-plan-summary big">
+                      <div><span>Total</span><b>₱{Number(payModal.amount) || 0}</b></div>
+                      <div><span>Paid So Far</span><b>₱{Number(payModal.paid) || 0}</b></div>
+                      <div className="bal"><span>Balance To Pay</span><b>₱{Number(payModal.balance) || 0}</b></div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group">
+                        <label>Amount Received *</label>
+                        <input
+                          className="form-control"
+                          inputMode="numeric"
+                          value={payForm.amount}
+                          onChange={(e) => setPayForm({ ...payForm, amount: onlyDigits(e.target.value) })}
+                          placeholder={String(payModal.balance)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Date Paid *</label>
+                        <input type="date" className="form-control" value={payForm.paidOn} onChange={(e) => setPayForm({ ...payForm, paidOn: e.target.value })} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group"><label>Paid Through</label>
+                        <select className="form-control" value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
+                          <option value="">Select…</option>
+                          {adminPaymentMethods().map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-group"><label>Reference (optional)</label>
+                        <input className="form-control" value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} />
+                      </div>
+                    </div>
+
+                    <div className="form-group"><label>Note (optional)</label>
+                      <input className="form-control" value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} placeholder="e.g. paid at the office" />
+                    </div>
+
+                    <p className="evt-muted" style={{ fontSize: '0.8rem' }}>
+                      <i className="fas fa-circle-info"></i> Remaining after this payment:{' '}
+                      <b>₱{Math.max(0, (Number(payModal.balance) || 0) - (Number(payForm.amount) || 0))}</b>
+                      {(Number(payForm.amount) || 0) >= (Number(payModal.balance) || 0) && (Number(payForm.amount) || 0) > 0
+                        && ' — this settles the registration and confirms their slot.'}
+                    </p>
+                  </div>
+                  <div className="evt-modal-foot">
+                    <button className="btn-secondary" onClick={() => setPayModal(null)} disabled={paySaving}>Cancel</button>
+                    <button className="btn-primary" onClick={submitInstallment} disabled={paySaving}>
+                      <i className={`fas ${paySaving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {paySaving ? 'Saving…' : 'Record Payment'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ---- Admin: manually add a registration (walk-in / offline) ---- */}
             {showAdminAddReg && eventRegsModal && (
               <div className="evt-modal-overlay" onClick={() => setShowAdminAddReg(false)}>
                 <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="evt-modal-head">
-                    <div><h3>Add Registration</h3><p>{eventRegsModal.title}</p></div>
+                    <div><h3>Add Attendee</h3><p>{eventRegsModal.title}</p></div>
                     <button className="evt-modal-close" onClick={() => setShowAdminAddReg(false)}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
-                    <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
-                      <i className="fas fa-circle-info"></i> Use this to record a walk-in or offline sign-up on the attendee&apos;s behalf.
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div className="form-group"><label>First Name *</label><input className="form-control" value={adminAddRegForm.attendeeFirstName} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeFirstName: e.target.value })} /></div>
-                      <div className="form-group"><label>Last Name *</label><input className="form-control" value={adminAddRegForm.attendeeLastName} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeLastName: e.target.value })} /></div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div className="form-group"><label>Email</label><input className="form-control" value={adminAddRegForm.attendeeEmail} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, attendeeEmail: e.target.value })} /></div>
-                      <div className="form-group"><label>Mobile</label><PhoneInput value={adminAddRegForm.attendeeMobile} onChange={(v) => setAdminAddRegForm({ ...adminAddRegForm, attendeeMobile: v })} /></div>
+                    {/* Who is coming, then how they are paying - the second half
+                        changes shape entirely depending on the plan chosen. */}
+                    <div className="evt-steps">
+                      {adminStepLabels.map((label, i) => (
+                        <span className="evt-step-wrap" key={label}>
+                          {i > 0 && <span className="evt-step-line"></span>}
+                          <button
+                            type="button"
+                            className={`evt-step ${adminAddStep === i ? 'on' : ''} ${adminAddStep > i ? 'done' : ''}`}
+                            onClick={() => (i < adminAddStep ? setAdminAddStep(i) : adminAddNext())}
+                          >
+                            <b>{adminAddStep > i ? <i className="fas fa-check"></i> : i + 1}</b> {label}
+                          </button>
+                        </span>
+                      ))}
                     </div>
 
-                    {!eventRegsModal.has_fee ? (
-                      <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event — they&apos;ll be registered instantly.</p>
-                    ) : (
-                      <div className="evt-pay-box">
-                        <div className="evt-pay-amount">Amount: <strong>₱{eventRegsModal.early_bird_price != null && eventRegsModal.early_bird_deadline && new Date() <= new Date(eventRegsModal.early_bird_deadline) ? eventRegsModal.early_bird_price : eventRegsModal.registration_fee}</strong></div>
-                        <div className="form-group"><label>Payment Method</label>
-                          <select className="form-control" value={adminAddRegForm.paymentMethod} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentMethod: e.target.value })}>
-                            <option value="">Select…</option>
-                            {(eventRegsModal.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
-                          </select>
+                    {adminAddStep === 0 && (
+                      <>
+                        <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
+                          <i className="fas fa-circle-info"></i> Use this to record a walk-in or offline sign-up on the attendee&apos;s behalf.
+                        </p>
+
+                        {/* One person, or a group on one payment - the same choice
+                            the public form offers. */}
+                        <div className="evt-plan-pick" style={{ marginTop: 0 }}>
+                          <div className="evt-plan-head">Registration Type</div>
+                          <div className="evt-type-choice">
+                            <button
+                              type="button"
+                              className={`evt-plan-option ${adminRegType === 'individual' ? 'on' : ''}`}
+                              onClick={() => setAdminRegType('individual')}
+                            >
+                              <i className="fas fa-user"></i>
+                              <span><strong>Individual</strong><small>One attendee.</small></span>
+                            </button>
+                            <button
+                              type="button"
+                              className={`evt-plan-option ${adminRegType === 'bulk' ? 'on' : ''}`}
+                              onClick={() => setAdminRegType('bulk')}
+                            >
+                              <i className="fas fa-user-group"></i>
+                              <span><strong>Bulk</strong><small>Several people under one representative.</small></span>
+                            </button>
+                          </div>
                         </div>
-                        <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={adminAddRegForm.paymentReference} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentReference: e.target.value })} /></div>
-                        <label className="evt-toggle-row" style={{ marginTop: 4 }}>
-                          <input type="checkbox" checked={adminAddRegForm.markVerified} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, markVerified: e.target.checked })} />
-                          <span>Mark payment as verified immediately (already collected in person)</span>
-                        </label>
-                      </div>
+
+                        {adminIsBulk && (
+                          <p className="evt-muted" style={{ margin: '0 0 12px', fontSize: '0.82rem' }}>
+                            <i className="fas fa-id-card"></i> These are the <b>representative&apos;s</b> details &mdash; the
+                            person responsible for the group. Their church and contact apply to everyone on the list.
+                          </p>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <div className="form-group">
+                            <label>First Name *</label>
+                            <input
+                              className={`form-control ${adminAddErrors.firstName ? 'evt-field-error' : ''}`}
+                              value={adminAddRegForm.attendeeFirstName}
+                              onChange={(e) => { setAdminAddRegForm({ ...adminAddRegForm, attendeeFirstName: e.target.value }); setAdminAddErrors({}); }}
+                            />
+                            {adminAddErrors.firstName && <div className="evt-field-error-msg">{adminAddErrors.firstName}</div>}
+                          </div>
+                          <div className="form-group">
+                            <label>Last Name *</label>
+                            <input
+                              className={`form-control ${adminAddErrors.lastName ? 'evt-field-error' : ''}`}
+                              value={adminAddRegForm.attendeeLastName}
+                              onChange={(e) => { setAdminAddRegForm({ ...adminAddRegForm, attendeeLastName: e.target.value }); setAdminAddErrors({}); }}
+                            />
+                            {adminAddErrors.lastName && <div className="evt-field-error-msg">{adminAddErrors.lastName}</div>}
+                          </div>
+                        </div>
+
+                        {/* Already on this event: adding them again would double-book
+                            the slot and the payment. */}
+                        {adminDupName && (
+                          <div className="evt-dup-warn">
+                            <i className="fas fa-triangle-exclamation"></i>
+                            <span>
+                              <b>{`${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`}</b>
+                              {' '}is already registered for this event
+                              {adminDupName.status ? ` (${String(adminDupName.status).replace(/_/g, ' ')})` : ''}.
+                              Use a different name, or edit the existing registration instead.
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Full church name, offered from past registrations with a count */}
+                        <div className="form-group evt-church-field">
+                          <label>Church Name * <em style={{ fontStyle: 'normal', fontWeight: 500, color: 'var(--text-muted, #999)' }}>(complete name)</em></label>
+                          <input
+                            className={`form-control ${adminAddErrors.churchName ? 'evt-field-error' : ''}`}
+                            value={adminAddRegForm.churchName}
+                            onChange={(e) => { setAdminAddRegForm({ ...adminAddRegForm, churchName: e.target.value }); setAdminChurchOpen(true); setAdminAddErrors({}); }}
+                            onFocus={() => setAdminChurchOpen(true)}
+                            onBlur={() => setTimeout(() => setAdminChurchOpen(false), 160)}
+                            placeholder="e.g. Joyful Sound Church - International"
+                            autoComplete="off"
+                          />
+                          {adminChurchOpen && adminChurchOptions.length > 0 && (
+                            <ul className="evt-church-list">
+                              {adminChurchOptions.map((c) => (
+                                <li key={c.name}>
+                                  <button type="button" onMouseDown={() => { setAdminAddRegForm((f) => ({ ...f, churchName: c.name })); setAdminChurchOpen(false); }}>
+                                    <span>{c.name}</span><em>{c.count} registered</em>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {adminAddErrors.churchName && <div className="evt-field-error-msg">{adminAddErrors.churchName}</div>}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <div className="form-group">
+                            <label>Church Pastor *</label>
+                            <div className={`evt-prefix-input ${adminAddErrors.churchPastor ? 'evt-field-error' : ''}`}>
+                              <span>Ptr.</span>
+                              <input
+                                value={adminAddRegForm.churchPastor}
+                                onChange={(e) => { setAdminAddRegForm({ ...adminAddRegForm, churchPastor: e.target.value }); setAdminAddErrors({}); }}
+                                placeholder="Juan Cruz"
+                              />
+                            </div>
+                            {adminAddErrors.churchPastor && <div className="evt-field-error-msg">{adminAddErrors.churchPastor}</div>}
+                          </div>
+                          <div className="form-group">
+                            <label>Contact Number *</label>
+                            <input
+                              className={`form-control ${adminAddErrors.mobile ? 'evt-field-error' : ''}`}
+                              inputMode="numeric"
+                              maxLength={11}
+                              value={adminAddRegForm.attendeeMobile}
+                              onChange={(e) => { setAdminAddRegForm({ ...adminAddRegForm, attendeeMobile: onlyDigits(e.target.value) }); setAdminAddErrors({}); }}
+                              placeholder="09XXXXXXXXX"
+                            />
+                            {adminAddErrors.mobile && <div className="evt-field-error-msg">{adminAddErrors.mobile}</div>}
+                          </div>
+                        </div>
+
+                        <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={adminAddNext}>
+                          {adminIsBulk ? 'Add the People' : 'Continue to Payment'} <i className="fas fa-arrow-right"></i>
+                        </button>
+                      </>
                     )}
 
-                    <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitAdminAddReg} disabled={adminAddRegSubmitting}>
-                      <i className={`fas ${adminAddRegSubmitting ? 'fa-spinner fa-spin' : 'fa-user-plus'}`}></i> {adminAddRegSubmitting ? 'Adding…' : 'Add Registration'}
-                    </button>
+                    {/* Bulk step 2: the people the representative is bringing. */}
+                    {adminIsBulk && adminAddStep === 1 && (
+                      <>
+                        <div className="evt-bulk-entry">
+                          <div className="evt-bulk-entry-head">
+                            <span>
+                              <i className={`fas ${adminBulkEditing == null ? 'fa-user-plus' : 'fa-pen'}`}></i>
+                              {adminBulkEditing == null ? ' Add an Attendee' : ` Editing attendee #${adminBulkEditing + 1}`}
+                            </span>
+                            {adminBulkEditing != null && (
+                              <button type="button" className="evt-bulk-cancel" onClick={() => { setAdminBulkEditing(null); setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal.event_addons || []).filter((a) => a.is_required).map((a) => a.id) }); }}>Cancel</button>
+                            )}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div className="form-group"><label>First Name *</label>
+                              <input className="form-control" value={adminBulkDraft.firstName}
+                                onChange={(e) => { setAdminBulkDraft({ ...adminBulkDraft, firstName: e.target.value }); setAdminBulkError(''); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adminCommitPerson(); } }} />
+                            </div>
+                            <div className="form-group"><label>Last Name *</label>
+                              <input className="form-control" value={adminBulkDraft.lastName}
+                                onChange={(e) => { setAdminBulkDraft({ ...adminBulkDraft, lastName: e.target.value }); setAdminBulkError(''); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adminCommitPerson(); } }} />
+                            </div>
+                          </div>
+                          {/* extras are per person - only some of a group need accommodation */}
+                          {(eventRegsModal.event_addons || []).length > 0 && (
+                            <div className="evt-addon-pick" style={{ marginTop: 4 }}>
+                              {eventRegsModal.event_addons.map((a) => (
+                                <label key={a.id} className={`evt-addon-option ${adminBulkDraft.addonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
+                                  <input type="checkbox" checked={adminBulkDraft.addonIds.includes(a.id)} disabled={a.is_required} onChange={() => adminToggleDraftAddon(a)} />
+                                  <span className="evt-addon-option-text"><strong>{a.question}</strong></span>
+                                  <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          {adminBulkError && <div className="evt-field-error-msg">{adminBulkError}</div>}
+                          <button className="btn-primary" style={{ width: '100%' }} onClick={adminCommitPerson}>
+                            <i className={`fas ${adminBulkEditing == null ? 'fa-plus' : 'fa-check'}`}></i> {adminBulkEditing == null ? ' Add Attendee' : ' Save Changes'}
+                          </button>
+                        </div>
+
+                        <div className="evt-bulk-listhead">
+                          <span><i className="fas fa-user-group"></i> People You Are Registering</span>
+                          <em>{adminBulkList.length} {adminBulkList.length === 1 ? 'person' : 'people'}</em>
+                        </div>
+                        {adminBulkList.length === 0 ? (
+                          <p className="evt-bulk-empty"><i className="fas fa-inbox"></i> No one added yet.</p>
+                        ) : (
+                          <div className="evt-table-wrapper" style={{ marginBottom: 12 }}>
+                            <table className="evt-table">
+                              <thead><tr><th>Attendee</th><th>Registration Fee</th><th>Extras</th><th></th></tr></thead>
+                              <tbody>
+                                {adminBulkList.map((a, i) => (
+                                  <tr key={i} className={adminBulkEditing === i ? 'evt-row-editing' : ''}>
+                                    <td data-label="Attendee"><b>{i + 1}.</b> {formatPersonName(`${a.firstName} ${a.lastName}`)}</td>
+                                    <td data-label="Registration Fee">₱{adminBaseAmount(eventRegsModal)}</td>
+                                    <td data-label="Extras">
+                                      {adminPersonAddons(a).length === 0 ? '—' : (
+                                        <>₱{adminPersonExtras(a)}<div className="evt-cell-sub">{adminPersonAddons(a).map((x) => x.question).join(', ')}</div></>
+                                      )}
+                                    </td>
+                                    <td data-label="" className="evt-td-actions">
+                                      <button className="evt-mini-btn" onClick={() => adminEditPerson(i)}><i className="fas fa-pen"></i></button>
+                                      <button className="evt-mini-btn danger" onClick={() => adminRemovePerson(i)}><i className="fas fa-trash"></i></button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot><tr><td>Total</td><td colSpan={3} style={{ textAlign: 'right' }}>₱{adminTotalAmount(eventRegsModal)}</td></tr></tfoot>
+                            </table>
+                          </div>
+                        )}
+
+                        <div className="evt-modal-foot" style={{ padding: '4px 0 0', border: 'none', background: 'transparent' }}>
+                          <button className="btn-secondary" onClick={() => setAdminAddStep(0)}><i className="fas fa-arrow-left"></i> Back</button>
+                          <button className="btn-primary" onClick={adminAddNext}>Continue to Payment <i className="fas fa-arrow-right"></i></button>
+                        </div>
+                      </>
+                    )}
+
+                    {adminAddStep === adminPayStep && (
+                      <>
+                        {/* Same paid extras the attendee would have been offered */}
+                        {!adminIsBulk && (eventRegsModal.event_addons || []).length > 0 && (
+                          <div className="evt-addon-pick">
+                            <div className="evt-addon-pick-head"><i className="fas fa-circle-plus"></i> Optional Extras</div>
+                            {eventRegsModal.event_addons.map((a) => (
+                              <label key={a.id} className={`evt-addon-option ${adminAddRegAddons.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
+                                <input type="checkbox" checked={adminAddRegAddons.includes(a.id)} disabled={a.is_required} onChange={() => toggleAdminAddon(a)} />
+                                <span className="evt-addon-option-text">
+                                  <strong>{a.question}</strong>
+                                  {a.is_required && <small>Required &mdash; included for everyone.</small>}
+                                </span>
+                                <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+
+                        {adminTotalAmount(eventRegsModal) <= 0 ? (
+                          <p className="evt-free-note"><i className="fas fa-gift"></i> Nothing to collect &mdash; they&apos;ll be registered instantly.</p>
+                        ) : (
+                          <div className="evt-pay-box">
+                            {/* itemised, like the receipt the attendee sees */}
+                            <div className="evt-receipt">
+                              {adminIsBulk ? adminBulkList.map((a, i) => (
+                                <div className="evt-receipt-line" key={i}>
+                                  <span>{formatPersonName(`${a.firstName} ${a.lastName}`)}{adminPersonExtras(a) > 0 ? ` (+ ${adminPersonAddons(a).map((x) => x.question).join(', ')})` : ''}</span>
+                                  <b>₱{adminPersonTotal(a)}</b>
+                                </div>
+                              )) : (
+                                <>
+                                  <div className="evt-receipt-line"><span>Registration Fee</span><b>₱{adminBaseAmount(eventRegsModal)}</b></div>
+                                  {(eventRegsModal.event_addons || []).filter((a) => adminAddRegAddons.includes(a.id)).map((a) => (
+                                    <div className="evt-receipt-line" key={a.id}><span>Extras ({a.question})</span><b>₱{Number(a.fee) || 0}</b></div>
+                                  ))}
+                                </>
+                              )}
+                              <div className="evt-receipt-total"><span>Total</span><b>₱{adminTotalAmount(eventRegsModal)}</b></div>
+                            </div>
+
+                            {/* How this is being settled decides everything below it. */}
+                            <div className="evt-plan-pick">
+                              <div className="evt-plan-head">Payment Options</div>
+                              <button
+                                type="button"
+                                className={`evt-plan-option ${adminAddRegForm.paymentPlan === 'full' ? 'on' : ''}`}
+                                onClick={() => setAdminAddRegForm({ ...adminAddRegForm, paymentPlan: 'full' })}
+                              >
+                                <i className="fas fa-money-bill-wave"></i>
+                                <span>
+                                  <strong>Pay in Full</strong>
+                                  <small>The whole ₱{adminTotalAmount(eventRegsModal)} is settled now.</small>
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`evt-plan-option ${adminAddRegForm.paymentPlan === 'flexible' ? 'on' : ''}`}
+                                disabled={adminIsBulk}
+                                title={adminIsBulk ? 'A plan is per person - add them individually to use one' : ''}
+                                onClick={() => setAdminAddRegForm({ ...adminAddRegForm, paymentPlan: 'flexible' })}
+                              >
+                                <i className="fas fa-calendar-day"></i>
+                                <span>
+                                  <strong>Flexible Payment Plan</strong>
+                                  <small>Paid down over several visits. Tracked under Flexible Installment.</small>
+                                </span>
+                              </button>
+                            </div>
+
+                            {/* Only once Pay in Full is picked is there a method to ask about. */}
+                            {adminAddRegForm.paymentPlan === 'full' && (
+                              <>
+                                <div className="form-group"><label>Payment Method</label>
+                                  <select className="form-control" value={adminAddRegForm.paymentMethod} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentMethod: e.target.value })}>
+                                    <option value="">Select…</option>
+                                    {adminPaymentMethods().map(m => <option key={m} value={m}>{m}</option>)}
+                                  </select>
+                                </div>
+                                <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={adminAddRegForm.paymentReference} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentReference: e.target.value })} placeholder={/^cash$/i.test(adminAddRegForm.paymentMethod) ? 'Not needed for cash' : ''} /></div>
+                                <label className="evt-toggle-row" style={{ marginTop: 4 }}>
+                                  <input type="checkbox" checked={adminAddRegForm.markVerified} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, markVerified: e.target.checked })} />
+                                  <span>Mark payment as verified immediately (already collected in person)</span>
+                                </label>
+                              </>
+                            )}
+
+                            {adminAddRegForm.paymentPlan === 'flexible' && (
+                              <div className="evt-plan-detail">
+                                <div className="evt-plan-summary">
+                                  <div><span>Total to pay</span><b>₱{adminTotalAmount(eventRegsModal)}</b></div>
+                                  <div><span>Paying now</span><b>₱{Number(adminAddRegForm.initialPayment) || 0}</b></div>
+                                  <div className="bal"><span>Remaining balance</span><b>₱{Math.max(0, adminTotalAmount(eventRegsModal) - (Number(adminAddRegForm.initialPayment) || 0))}</b></div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                  <div className="form-group">
+                                    <label>First Payment (optional)</label>
+                                    <input
+                                      className="form-control"
+                                      inputMode="numeric"
+                                      value={adminAddRegForm.initialPayment}
+                                      onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, initialPayment: onlyDigits(e.target.value) })}
+                                      placeholder="0"
+                                    />
+                                  </div>
+                                  <div className="form-group"><label>Paid Through</label>
+                                    <select className="form-control" value={adminAddRegForm.paymentMethod} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentMethod: e.target.value })}>
+                                      <option value="">Select…</option>
+                                      {adminPaymentMethods().map(m => <option key={m} value={m}>{m}</option>)}
+                                    </select>
+                                  </div>
+                                </div>
+                                <p className="evt-muted" style={{ fontSize: '0.8rem', margin: 0 }}>
+                                  <i className="fas fa-circle-info"></i> The rest is recorded under the <b>Flexible Installment</b> tab as it comes in.
+                                  The registration is confirmed automatically once the balance reaches zero.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="evt-modal-foot" style={{ padding: '14px 0 0', border: 'none', background: 'transparent' }}>
+                          <button className="btn-secondary" onClick={() => setAdminAddStep(adminPayStep - 1)} disabled={adminAddRegSubmitting}>
+                            <i className="fas fa-arrow-left"></i> Back
+                          </button>
+                          <button className="btn-primary" onClick={submitAdminAddReg} disabled={adminAddRegSubmitting}>
+                            <i className={`fas ${adminAddRegSubmitting ? 'fa-spinner fa-spin' : 'fa-user-plus'}`}></i> {adminAddRegSubmitting ? 'Adding…' : 'Add Attendee'}
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -8647,6 +10369,20 @@ Examples:
                       {eventDetail.description && <p className="evt-detail-desc">{eventDetail.description}</p>}
                       <div className="evt-detail-info">
                         <div className="evt-detail-row"><i className="fas fa-calendar-check"></i><div><span className="evt-detail-label">When</span><span>{formatDateTime(eventDetail.event_date)}{eventDetail.end_date ? ` – ${formatDateTime(eventDetail.end_date)}` : ''}</span></div></div>
+                        {eventSessionsToShow(eventDetail).length > 0 && (
+                          <div className="evt-detail-row"><i className="fas fa-layer-group"></i><div>
+                            <span className="evt-detail-label">Sessions</span>
+                            <ul className="evt-session-list">
+                              {eventSessionsToShow(eventDetail).map((d, i) => (
+                                <li key={d.id || i}>
+                                  <em className="evt-session-day">Day {i + 1}</em>
+                                  <span>{formatSessionRange(d.starts_at, d.ends_at)}</span>
+                                  {d.label && <strong>{d.label}</strong>}
+                                </li>
+                              ))}
+                            </ul>
+                          </div></div>
+                        )}
                         {(eventDetail.location || eventDetail.loc_city) && <div className="evt-detail-row"><i className="fas fa-location-dot"></i><div><span className="evt-detail-label">Where</span><span>{[eventDetail.location, eventDetail.loc_barangay, eventDetail.loc_city, eventDetail.loc_province].filter(Boolean).join(', ')}</span>{eventDetail.latitude && eventDetail.longitude && <a className="hp-evt-directions" style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none', marginTop: 4, display: 'inline-flex', gap: 6 }} href={`https://www.google.com/maps/dir/?api=1&destination=${eventDetail.latitude},${eventDetail.longitude}`} target="_blank" rel="noreferrer"><i className="fas fa-directions"></i> Get Directions</a>}</div></div>}
                         {eventDetail.max_participants && (() => {
                           const left = eventDetail.slots_left != null ? eventDetail.slots_left : Math.max(0, eventDetail.max_participants - (eventDetail.registered_count || 0));
@@ -8697,11 +10433,56 @@ Examples:
                       <div className="form-group"><label>Mobile</label><PhoneInput value={registerForm.attendeeMobile} onChange={(v) => setRegisterForm({ ...registerForm, attendeeMobile: v })} /></div>
                     </div>
 
-                    {!registerModal.has_fee ? (
+                    {eventSessionsToShow(registerModal).length > 0 && (
+                      <div className="evt-addon-pick">
+                        <div className="evt-addon-pick-head"><i className="fas fa-calendar-week"></i> Schedule</div>
+                        <ul className="evt-session-list">
+                          {eventSessionsToShow(registerModal).map((d, i) => (
+                            <li key={d.id || i}>
+                              <em className="evt-session-day">Day {i + 1}</em>
+                              <span>{formatSessionRange(d.starts_at, d.ends_at)}</span>
+                              {d.label && <strong>{d.label}</strong>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Paid extras the admin set up, e.g. "Do you want accommodation? +₱200" */}
+                    {(registerModal.event_addons || []).length > 0 && (
+                      <div className="evt-addon-pick">
+                        <div className="evt-addon-pick-head"><i className="fas fa-circle-plus"></i> Optional Extras</div>
+                        {(registerModal.event_addons || []).map((a) => (
+                          <label key={a.id} className={`evt-addon-option ${registerAddonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
+                            <input
+                              type="checkbox"
+                              checked={registerAddonIds.includes(a.id)}
+                              disabled={a.is_required}
+                              onChange={() => toggleRegisterAddon(a)}
+                            />
+                            <span className="evt-addon-option-text">
+                              <strong>{a.question}</strong>
+                              {a.is_required && <small>Required — included for everyone.</small>}
+                            </span>
+                            <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+
+                    {registerTotalAmount(registerModal) <= 0 ? (
                       <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event — you&apos;ll be registered instantly.</p>
                     ) : (
                       <div className="evt-pay-box">
-                        <div className="evt-pay-amount">Amount to pay: <strong>₱{registerModal.early_bird_price != null && registerModal.early_bird_deadline && new Date() <= new Date(registerModal.early_bird_deadline) ? registerModal.early_bird_price : registerModal.registration_fee}</strong></div>
+                        <div className="evt-pay-amount">Amount to pay: <strong>₱{registerTotalAmount(registerModal)}</strong></div>
+                        {registerTotalAmount(registerModal) !== registerBaseAmount(registerModal) && (
+                          <div className="evt-muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
+                            ₱{registerBaseAmount(registerModal)} registration
+                            {(registerModal.event_addons || []).filter((a) => registerAddonIds.includes(a.id)).map((a) => (
+                              <span key={a.id}> + ₱{Number(a.fee) || 0} {a.question}</span>
+                            ))}
+                          </div>
+                        )}
                         {registerModal.payment_instructions && <p className="evt-muted" style={{ whiteSpace: 'pre-wrap' }}>{registerModal.payment_instructions}</p>}
                         {(registerModal.gcash_number || registerModal.gcash_qr_url) && (
                           <div className="evt-pay-detail"><strong>GCash:</strong> {registerModal.gcash_name} {registerModal.gcash_number}
@@ -8726,7 +10507,7 @@ Examples:
                       </div>
                     )}
                     <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitRegistration} disabled={registerSubmitting}>
-                      <i className={`fas ${registerSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {registerSubmitting ? 'Submitting…' : (registerModal.has_fee ? 'Submit Registration' : 'Register')}
+                      <i className={`fas ${registerSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {registerSubmitting ? 'Submitting…' : (registerTotalAmount(registerModal) > 0 ? 'Submit Registration' : 'Register')}
                     </button>
                   </div>
                 </div>

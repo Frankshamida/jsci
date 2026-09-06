@@ -2065,7 +2065,7 @@ body.dark-mode .hp-nav-isom { color: var(--accent) !important; }
   color: #1e1e1e;
   font-family: var(--font-body);
   font-weight: 800;
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
@@ -2279,24 +2279,24 @@ body.dark-mode .hp-isom-inquire-modal { background: #1e1e1e; color: #eee; }
 
 .hp-isom-inquire-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
 .hp-isom-inquire-logo { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; }
-.hp-isom-inquire-head h3 { margin: 0 0 4px; font-family: var(--font-body); font-weight: 800; font-size: 1.2rem; color: var(--primary); }
+.hp-isom-inquire-head h3 { margin: 0 0 4px; font-family: var(--font-body); font-weight: 800; font-size: 1.35rem; color: var(--primary); }
 body.dark-mode .hp-isom-inquire-head h3 { color: var(--accent); }
-.hp-isom-inquire-head p { margin: 0; font-size: 0.85rem; color: #777; }
+.hp-isom-inquire-head p { margin: 0; font-size: 0.95rem; color: #777; }
 body.dark-mode .hp-isom-inquire-head p { color: #aaa; }
 
-.hp-isom-inquire-form { display: flex; flex-direction: column; gap: 14px; }
+.hp-isom-inquire-form { display: flex; flex-direction: column; gap: 16px; }
 .hp-isom-inquire-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 480px) { .hp-isom-inquire-row { grid-template-columns: 1fr; } }
 
 .hp-form-group { display: flex; flex-direction: column; gap: 6px; }
-.hp-form-group label { font-size: 0.8rem; font-weight: 700; color: #555; }
+.hp-form-group label { font-size: 0.92rem; font-weight: 700; color: #555; }
 body.dark-mode .hp-form-group label { color: #ccc; }
 .hp-form-control {
   width: 100%;
-  padding: 11px 14px;
+  padding: 13px 15px;
   border-radius: 10px;
   border: 1.5px solid #e0e0e0;
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-family: inherit;
   background: #fff;
   color: #222;
@@ -2307,7 +2307,7 @@ body.dark-mode .hp-form-control { background: #2a2a2a; border-color: #444; color
 textarea.hp-form-control { resize: vertical; min-height: 70px; line-height: 1.6; }
 select.hp-form-control { cursor: pointer; }
 
-.hp-isom-inquire-error { display: flex; align-items: center; gap: 7px; color: #dc2626; font-size: 0.82rem; margin: 0; }
+.hp-isom-inquire-error { display: flex; align-items: center; gap: 7px; color: #dc2626; font-size: 0.9rem; margin: 0; }
 
 .hp-isom-inquire-submit { width: 100%; justify-content: center; margin-top: 4px; }
 
@@ -2329,10 +2329,10 @@ body.dark-mode .hp-isom-inquire-success p { color: #aaa; }
 /* ============================================ */
 .hp-event-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .hp-event-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
-.hp-event-fee { font-size: 0.75rem; font-weight: 800; padding: 3px 12px; border-radius: 20px; }
+.hp-event-fee { font-size: 0.82rem; font-weight: 800; padding: 4px 13px; border-radius: 20px; }
 .hp-event-fee.free { background: rgba(22,163,74,0.15); color: #16a34a; }
 .hp-event-fee.paid { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; }
-.hp-event-roles { font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; background: rgba(59,130,246,0.14); color: #2563eb; }
+.hp-event-roles { font-size: 0.8rem; font-weight: 700; padding: 4px 12px; border-radius: 20px; background: rgba(59,130,246,0.14); color: #2563eb; }
 .hp-event-actions { display: flex; gap: 8px; margin-top: 12px; }
 .hp-event-btn {
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -2352,6 +2352,32 @@ body.dark-mode .hp-event-btn.outline { color: var(--accent); border-color: var(-
    align-items must be flex-start (not center) or an over-tall modal gets its
    top clipped and becomes unreachable; `margin: auto` on the modal restores
    true centring whenever there IS room. */
+/* ---- Floating "go to the events" arrow at the foot of the hero ---- */
+.hp-hero-jump {
+  position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%);
+  z-index: 4; display: inline-flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 10px 20px 8px; border-radius: 30px; cursor: pointer;
+  border: 1.5px solid rgba(255,255,255,0.45); background: rgba(0,0,0,0.32);
+  backdrop-filter: blur(6px); color: #fff;
+  font-family: var(--font-body); font-size: 0.82rem; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  animation: hpHeroJump 2.2s ease-in-out infinite;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+.hp-hero-jump i { font-size: 0.95rem; line-height: 1; }
+.hp-hero-jump:hover {
+  animation-play-state: paused;
+  background: var(--primary); border-color: var(--primary); color: #fff;
+}
+@keyframes hpHeroJump {
+  0%, 100% { transform: translate(-50%, 0); }
+  50% { transform: translate(-50%, 8px); }
+}
+@media (prefers-reduced-motion: reduce) { .hp-hero-jump { animation: none; } }
+@media (max-width: 768px) {
+  .hp-hero-jump { bottom: 50px; padding: 8px 16px 6px; font-size: 0.72rem; }
+}
+
 .hp-evt-overlay { position: fixed; inset: 0; z-index: 13000; background: rgba(0,0,0,0.6); display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 20px; animation: hpEvtFade 0.2s ease; }
 @keyframes hpEvtFade { from { opacity: 0; } to { opacity: 1; } }
 .hp-evt-modal { width: 100%; max-width: 560px; margin: auto; background: #fff; border-radius: 20px; position: relative; box-shadow: 0 24px 70px rgba(0,0,0,0.4); }
@@ -2359,7 +2385,7 @@ body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
 .hp-evt-close { position: absolute; top: 14px; right: 14px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; border: none; background: rgba(0,0,0,0.45); color: #fff; cursor: pointer; font-size: 1rem; }
 .hp-evt-banner { width: 100%; aspect-ratio: 1080 / 1380; object-fit: cover; border-radius: 20px 20px 0 0; display: block; }
 .hp-evt-banner.placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.5rem; }
-.hp-evt-content { padding: 22px 26px 26px; }
+.hp-evt-content { padding: 24px 22px 26px; display: flex; flex-direction: column; }
 
 /* Desktop: poster left, details right. Below 900px it stays stacked. */
 @media (min-width: 900px) {
@@ -2383,7 +2409,9 @@ body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
     object-position: top center;
     min-height: 511px; /* 400px column at 1080:1380 */
   }
-  .hp-evt-content { padding: 26px 30px 30px; }
+  /* The poster is taller than the text on most events, so the details column
+     centres against it instead of hugging the top and leaving a dead strip. */
+  .hp-evt-content { padding: 32px 34px; justify-content: center; }
   /* close button now sits over the white details column, not the poster */
   .hp-evt-close { background: rgba(0,0,0,0.32); }
   .hp-evt-close:hover { background: rgba(0,0,0,0.55); }
@@ -2392,8 +2420,8 @@ body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
 /* Status pill: where the event sits relative to right now. */
 .hp-evt-status {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 12px; border-radius: 20px;
-  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 5px 13px; border-radius: 20px;
+  font-size: 0.8rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
 }
 .hp-evt-status.upcoming { background: rgba(146,108,21,0.14); color: var(--primary); }
 .hp-evt-status.ongoing  { background: rgba(22,163,74,0.15); color: #16a34a; }
@@ -2409,27 +2437,34 @@ body.dark-mode .hp-evt-status.ended { background: rgba(255,255,255,0.1); color: 
   /* parent .hp-evt-info-row > div is a column flex container, so without
      align-self this pill would stretch to the full column width. */
   display: inline-flex; align-self: flex-start;
-  align-items: center; gap: 6px; margin-top: 5px;
-  font-size: 0.78rem; font-weight: 700; color: var(--primary);
-  background: rgba(146,108,21,0.10); padding: 3px 10px; border-radius: 20px;
+  align-items: center; gap: 6px; margin: 0;
+  font-size: 0.86rem; font-weight: 700; color: var(--primary);
+  background: rgba(146,108,21,0.10); padding: 4px 12px; border-radius: 20px;
 }
 body.dark-mode .hp-evt-days { background: rgba(255,195,0,0.14); color: var(--accent); }
-.hp-evt-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.hp-evt-title { font-family: var(--font-body); font-weight: 800; font-size: 1.6rem; color: var(--primary); margin: 0 0 10px; }
+/* padding-right keeps the pills clear of the round close button. */
+.hp-evt-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; padding-right: 46px; }
+.hp-evt-title { font-family: var(--font-body); font-weight: 800; font-size: 1.75rem; line-height: 1.25; color: var(--primary); margin: 0 0 8px; padding-right: 46px; }
 body.dark-mode .hp-evt-title { color: var(--accent); }
-.hp-evt-text { color: #555; line-height: 1.6; margin: 0 0 18px; white-space: pre-wrap; }
+.hp-evt-text { color: #555; line-height: 1.65; font-size: 1rem; margin: 0 0 4px; white-space: pre-wrap; }
 body.dark-mode .hp-evt-text { color: #ccc; }
-.hp-evt-info { display: flex; flex-direction: column; gap: 14px; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 16px; }
+.hp-evt-info { display: flex; flex-direction: column; gap: 18px; border-top: 1px solid rgba(0,0,0,0.08); margin-top: 20px; padding-top: 20px; }
 body.dark-mode .hp-evt-info { border-color: rgba(255,255,255,0.1); }
-.hp-evt-info-row { display: flex; gap: 12px; align-items: flex-start; }
-.hp-evt-info-row > i { color: var(--primary); font-size: 1.05rem; width: 22px; text-align: center; margin-top: 2px; flex-shrink: 0; }
-.hp-evt-info-row > div { display: flex; flex-direction: column; gap: 2px; }
-.hp-evt-info-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; color: #999; }
-.hp-evt-directions { color: var(--primary); font-weight: 700; font-size: 0.85rem; text-decoration: none; margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; }
+/* icon gutter is a fixed width on every row, so all the labels start on the
+   same vertical line no matter which icon is used. */
+.hp-evt-info-row { display: flex; gap: 14px; align-items: flex-start; }
+.hp-evt-info-row > i { color: var(--primary); font-size: 1rem; width: 20px; text-align: center; line-height: 1.35; margin-top: 1px; flex-shrink: 0; }
+.hp-evt-info-row > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.hp-evt-info-row > div > span { font-size: 1.02rem; line-height: 1.5; }
+.hp-evt-info-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; color: #9a9a9a; line-height: 1; }
+/* the label already provides the gap under it - value lines sit tight together */
+.hp-evt-info-label + span { margin-top: -1px; }
+.hp-evt-directions { color: var(--primary); font-weight: 700; font-size: 0.95rem; text-decoration: none; margin-top: 2px; display: inline-flex; align-self: flex-start; align-items: center; gap: 7px; }
 .hp-evt-directions:hover { text-decoration: underline; }
-.hp-evt-register { width: 100%; margin-top: 20px; padding: 14px; border: none; border-radius: 30px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: var(--font-body); font-weight: 800; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.25s ease; }
+.hp-evt-register { width: 100%; margin-top: 24px; padding: 14px; border: none; border-radius: 30px; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-family: var(--font-body); font-weight: 800; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.25s ease; }
 .hp-evt-register:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(146,108,21,0.4); }
-.hp-evt-note { text-align: center; font-size: 0.78rem; color: #999; margin: 10px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.hp-evt-note { text-align: center; font-size: 0.86rem; line-height: 1.5; color: #999; margin: 12px 0 0; display: flex; align-items: flex-start; justify-content: center; gap: 7px; }
+.hp-evt-note i { margin-top: 2px; flex-shrink: 0; }
 
 /* ============================================ */
 /* Elegant "You're Invited" event cards          */
@@ -2602,4 +2637,823 @@ body.dark-mode .hp-invite-btn.outline { background: transparent; color: var(--ac
   font-size: 0.95rem;
   cursor: default;
   pointer-events: none;
+}
+
+/* ---- Event session breakdown (public details modal, 2+ sessions) ---- */
+.hp-evt-sessions { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.hp-evt-sessions li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+  padding: 8px 12px; border-radius: 8px; background: rgba(146,108,21,0.08);
+  border-left: 3px solid var(--primary);
+}
+.hp-evt-sessions li strong { font-size: 0.88rem; color: var(--primary); }
+.hp-evt-sessions li span { font-size: 0.83rem; color: #666; }
+
+/* ---- Optional paid extras listed on the public event details ---- */
+.hp-evt-addons { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.hp-evt-addons li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 7px 11px; border-radius: 8px; background: rgba(146,108,21,0.07); font-size: 0.84rem;
+}
+.hp-evt-addons li strong { color: var(--primary); white-space: nowrap; }
+
+/* ---- Session schedule strip: DAY 1 | OCT 2 | 10:00 AM - 6:00 PM | Session 1 ----
+   A grid, not a flex row: the four columns are sized once for the whole list, so
+   day 2's time and label land directly under day 1's however long each string
+   is. max-content on the date/time columns means the widest row sets them all. */
+.hp-evt-sessions { gap: 8px; margin-top: 2px; }
+.hp-evt-sessions li {
+  display: grid;
+  grid-template-columns: max-content max-content max-content minmax(0, 1fr);
+  align-items: stretch;
+  padding: 0; overflow: hidden; border-left-width: 0;
+}
+.hp-evt-session-day {
+  padding: 10px 13px; background: var(--primary); color: #fff;
+  font-size: 0.8rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  display: flex; align-items: center; justify-content: center;
+}
+.hp-evt-session-date {
+  padding: 10px 15px; font-weight: 700; font-size: 0.92rem; text-transform: uppercase;
+  white-space: nowrap; display: flex; align-items: center;
+  border-right: 1px solid rgba(146,108,21,0.22);
+}
+.hp-evt-session-time {
+  padding: 10px 15px; font-size: 0.92rem; color: #555; white-space: nowrap;
+  display: flex; align-items: center;
+}
+.hp-evt-session-name {
+  padding: 10px 15px; font-size: 0.88rem; font-style: italic; color: var(--primary);
+  display: flex; align-items: center; justify-content: flex-end; text-align: right;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Narrow phones: the strip wraps to two lines rather than squeezing the time. */
+@media (max-width: 480px) {
+  .hp-evt-sessions li { grid-template-columns: max-content minmax(0, 1fr); }
+  .hp-evt-session-day { grid-row: span 2; }
+  .hp-evt-session-date { border-right: none; padding-bottom: 2px; }
+  .hp-evt-session-time { padding-top: 2px; padding-bottom: 9px; }
+  .hp-evt-session-name { grid-column: 2; justify-content: flex-start; text-align: left; padding-top: 0; }
+}
+
+/* ---- "How do you want to register?" ---- */
+.hp-reg-choice {
+  position: relative; width: min(520px, 94vw); max-height: 90vh; overflow-y: auto;
+  background: #fff; border-radius: 18px; padding: 30px 26px 26px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.28);
+}
+.hp-reg-choice h3 { margin: 0 0 5px; font-size: 1.4rem; padding-right: 40px; }
+.hp-reg-choice-sub { margin: 0 0 20px; color: #666; font-size: 1rem; }
+.hp-reg-option {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  padding: 16px; margin-bottom: 12px; border-radius: 14px; cursor: pointer;
+  border: 1.5px solid rgba(0,0,0,0.10); background: #fff;
+  font-family: inherit; color: inherit; transition: all 0.18s ease;
+}
+.hp-reg-option:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 10px 24px rgba(146,108,21,0.16); }
+.hp-reg-option-icon {
+  flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; font-size: 1.05rem;
+  background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff;
+}
+.hp-reg-option-icon.alt { background: rgba(146,108,21,0.12); color: var(--primary); }
+.hp-reg-option-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hp-reg-option-text strong { font-size: 1.05rem; }
+.hp-reg-option-text strong em { font-style: normal; font-weight: 600; font-size: 0.86rem; color: var(--primary); }
+.hp-reg-option-text small { font-size: 0.9rem; color: #666; line-height: 1.5; }
+/* Back link on the second choice screen (individual vs bulk). */
+.hp-reg-choice-back {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 4px;
+  background: none; border: none; padding: 6px 2px; cursor: pointer;
+  font: inherit; font-size: 0.92rem; font-weight: 700; color: #777;
+}
+.hp-reg-choice-back:hover { color: var(--primary); }
+
+/* Which guest flow the stepper is running, under the event title. */
+.hp-reg-mode {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 7px;
+  padding: 4px 12px; border-radius: 20px;
+  font-size: 0.82rem; font-weight: 700; letter-spacing: 0.01em;
+  background: rgba(146,108,21,0.12); color: var(--primary);
+}
+.hp-reg-mode.bulk { background: rgba(37,99,235,0.12); color: #2563eb; }
+
+/* ---- Bulk step 1: the person holding the whole registration ---- */
+.hp-rep-intro {
+  padding: 14px 16px; border-radius: 14px; margin-bottom: 2px;
+  background: rgba(37,99,235,0.07); border: 1px solid rgba(37,99,235,0.20);
+}
+.hp-rep-intro-head {
+  display: flex; align-items: center; gap: 9px; margin-bottom: 7px;
+  font-size: 0.95rem; font-weight: 800; color: #2563eb;
+}
+.hp-rep-intro p { margin: 0; font-size: 0.9rem; line-height: 1.6; color: #555; }
+.hp-rep-intro strong { color: #b91c1c; }
+body.dark-mode .hp-rep-intro { background: rgba(37,99,235,0.12); }
+body.dark-mode .hp-rep-intro p { color: #ccc; }
+
+/* The promise that the details above are real, before the group is built. */
+.hp-rep-agree {
+  display: flex; align-items: flex-start; gap: 11px; cursor: pointer;
+  padding: 13px 15px; border-radius: 12px;
+  border: 1.5px solid rgba(0,0,0,0.12); background: rgba(0,0,0,0.015);
+  font-size: 0.9rem; line-height: 1.55; color: #555;
+}
+.hp-rep-agree.on { border-color: var(--primary); background: rgba(146,108,21,0.07); color: #444; }
+.hp-rep-agree.invalid { border-color: #dc2626; background: #fef2f2; }
+.hp-rep-agree input { width: 19px; height: 19px; margin-top: 1px; flex-shrink: 0; accent-color: var(--primary); }
+.hp-rep-agree strong { color: var(--primary); }
+body.dark-mode .hp-rep-agree { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.14); color: #bbb; }
+
+/* "You are already registered" - offer to reuse what we already hold. */
+.hp-dup-known {
+  display: flex; flex-direction: column; gap: 9px; margin: -4px 0 0;
+  padding: 14px 15px; border-radius: 12px;
+  background: rgba(22,163,74,0.08); border: 1px solid rgba(22,163,74,0.30);
+}
+.hp-dup-known-head { display: flex; align-items: flex-start; gap: 9px; font-size: 0.92rem; line-height: 1.5; color: #15803d; }
+.hp-dup-known-head i { margin-top: 3px; flex-shrink: 0; }
+.hp-dup-known-head strong { font-weight: 800; }
+.hp-dup-known p { margin: 0; font-size: 0.88rem; line-height: 1.55; color: #666; }
+.hp-dup-known-btn {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px; border-radius: 22px; cursor: pointer;
+  border: none; background: #16a34a; color: #fff;
+  font: inherit; font-size: 0.9rem; font-weight: 700;
+}
+.hp-dup-known-btn:hover { background: #15803d; }
+.hp-dup-known-btn.danger { background: #ea580c; }
+.hp-dup-known-btn.danger:hover { background: #c2410c; }
+.hp-dup-known-done { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 700; color: #15803d; }
+body.dark-mode .hp-dup-known p { color: #bbb; }
+/* Waiting on an admin: the same panel, without the green "all good" reading. */
+.hp-dup-known.waiting { background: rgba(234,88,12,0.08); border-color: rgba(234,88,12,0.30); }
+.hp-dup-known.waiting .hp-dup-known-head { color: #9a3412; }
+.hp-dup-known-wait { display: flex; align-items: flex-start; gap: 8px; }
+.hp-dup-known-wait i { margin-top: 3px; flex-shrink: 0; color: #ea580c; }
+
+/* "I am also attending" - the representative joins their own group. */
+.hp-rep-join {
+  display: flex; flex-direction: column; gap: 11px;
+  padding: 14px 15px; border-radius: 12px;
+  border: 1.5px solid rgba(0,0,0,0.12); background: rgba(0,0,0,0.015);
+}
+.hp-rep-join-head { display: flex; align-items: flex-start; gap: 11px; }
+.hp-rep-join-head > i { margin-top: 3px; color: var(--primary); }
+.hp-rep-join-head > span { display: flex; flex-direction: column; gap: 3px; }
+.hp-rep-join-head strong { font-size: 0.95rem; font-weight: 800; color: var(--primary); }
+.hp-rep-join-head small { font-size: 0.85rem; line-height: 1.5; color: #888; }
+.hp-rep-addons { padding-left: 30px; }
+/* an extra that is already settled reads as information, not a choice */
+.hp-bulk-addon.locked { opacity: 0.7; background: rgba(0,0,0,0.04); }
+.hp-bulk-addon.locked.on { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.14); color: #777; }
+.hp-bulk-addon.locked.on em { color: #999; }
+.hp-bulk-topup td { background: rgba(37,99,235,0.05); }
+.hp-bulk-addon.locked i { color: #999; font-size: 0.78rem; }
+.hp-rep-locked-note {
+  display: flex; align-items: flex-start; gap: 7px; padding-left: 30px; line-height: 1.5;
+  font-size: 0.82rem; color: #999;
+}
+body.dark-mode .hp-rep-join { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.14); }
+
+/* Where an existing registration stands, beside the name it belongs to. */
+.hp-status-chip {
+  display: inline-block; margin-left: 8px; padding: 2px 10px; border-radius: 20px;
+  font-size: 0.7rem; font-weight: 900; letter-spacing: 0.06em; vertical-align: middle;
+}
+.hp-status-chip.paid { background: rgba(22,163,74,0.16); color: #15803d; }
+.hp-status-chip.pending { background: rgba(37,99,235,0.14); color: #2563eb; }
+.hp-status-chip.unpaid { background: rgba(220,38,38,0.14); color: #b91c1c; }
+.hp-dup-name { font-weight: 800; }
+
+/* The representative's own line in the roster table / receipt. */
+.hp-bulk-you {
+  display: inline-block; margin-left: 8px; padding: 2px 9px; border-radius: 20px;
+  font-style: normal; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em;
+  background: rgba(37,99,235,0.14); color: #2563eb; vertical-align: middle;
+}
+
+/* Someone typed a name that is already on this event. */
+.hp-dup-warn {
+  display: flex; align-items: flex-start; gap: 9px; margin: -4px 0 0;
+  padding: 11px 13px; border-radius: 10px;
+  background: rgba(234,88,12,0.10); border: 1px solid rgba(234,88,12,0.28);
+  font-size: 0.88rem; line-height: 1.5; color: #9a3412;
+}
+.hp-dup-warn i { margin-top: 2px; flex-shrink: 0; }
+.hp-dup-warn strong { font-weight: 800; }
+
+/* ---- Bulk roster: an entry form, then the table it fills ---- */
+.hp-bulk-entry {
+  display: flex; flex-direction: column; gap: 13px;
+  padding: 16px; border-radius: 14px;
+  border: 1.5px solid rgba(146,108,21,0.28); background: rgba(146,108,21,0.05);
+}
+.hp-bulk-entry-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-size: 0.95rem; font-weight: 800; color: var(--primary);
+}
+.hp-bulk-entry-head i { margin-right: 4px; }
+.hp-bulk-entry-cancel {
+  background: none; border: none; padding: 2px 4px; cursor: pointer;
+  font: inherit; font-size: 0.88rem; font-weight: 700; color: #777; text-decoration: underline;
+}
+.hp-bulk-entry-cancel:hover { color: #dc2626; }
+.hp-bulk-entry .hp-form-control { background: #fff; }
+body.dark-mode .hp-bulk-entry { background: rgba(255,195,0,0.06); border-color: rgba(255,195,0,0.25); }
+
+.hp-bulk-addons { display: flex; flex-wrap: wrap; gap: 8px; }
+.hp-bulk-addon {
+  display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
+  padding: 9px 14px; border-radius: 10px; font-size: 0.9rem; font-weight: 600;
+  border: 1.5px solid rgba(0,0,0,0.10); background: #fff;
+}
+.hp-bulk-addon.on { border-color: var(--primary); background: rgba(146,108,21,0.10); }
+.hp-bulk-addon.locked { cursor: default; opacity: 0.85; }
+.hp-bulk-addon input { width: 17px; height: 17px; accent-color: var(--primary); }
+.hp-bulk-addon em { font-style: normal; font-weight: 800; color: var(--primary); }
+body.dark-mode .hp-bulk-addon { background: #2a2a2a; border-color: #444; }
+
+/* the one button that both adds and saves */
+.hp-bulk-add {
+  align-self: stretch; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  padding: 12px 20px; border-radius: 26px; cursor: pointer;
+  border: none; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff;
+  font: inherit; font-size: 0.95rem; font-weight: 800;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.hp-bulk-add:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(146,108,21,0.32); }
+
+.hp-bulk-table-wrap { display: flex; flex-direction: column; gap: 10px; }
+.hp-bulk-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-size: 0.95rem; font-weight: 800; color: var(--primary);
+}
+.hp-bulk-head i { margin-right: 8px; }
+.hp-bulk-head em {
+  font-style: normal; font-size: 0.82rem; font-weight: 700;
+  padding: 3px 11px; border-radius: 20px; background: rgba(146,108,21,0.12);
+}
+.hp-bulk-empty {
+  display: flex; align-items: center; gap: 10px; margin: 0;
+  padding: 18px 16px; border-radius: 12px; text-align: left;
+  border: 1.5px dashed rgba(0,0,0,0.14); color: #888; font-size: 0.9rem; line-height: 1.5;
+}
+.hp-bulk-empty strong { color: var(--primary); }
+
+.hp-bulk-table-scroll { overflow-x: auto; border-radius: 12px; border: 1px solid rgba(0,0,0,0.10); }
+.hp-bulk-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.hp-bulk-table th {
+  text-align: left; padding: 11px 13px; white-space: nowrap;
+  background: rgba(146,108,21,0.08); color: var(--primary);
+  font-size: 0.76rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.hp-bulk-table td { padding: 12px 13px; border-top: 1px solid rgba(0,0,0,0.07); vertical-align: middle; }
+.hp-bulk-table tbody tr.editing { background: rgba(146,108,21,0.09); }
+.hp-bulk-table tbody tr.invalid { background: #fef2f2; }
+.hp-bulk-row-name { font-weight: 700; }
+.hp-bulk-row-name b { color: var(--primary); margin-right: 4px; }
+.hp-bulk-table td small { display: block; margin-top: 2px; font-size: 0.78rem; color: #999; font-weight: 500; }
+.hp-bulk-none { color: #bbb; }
+.hp-bulk-row-actions { text-align: right; white-space: nowrap; }
+.hp-bulk-row-actions button {
+  width: 32px; height: 32px; border-radius: 9px; cursor: pointer; margin-left: 6px;
+  border: 1px solid rgba(0,0,0,0.12); background: #fff; color: var(--primary); font-size: 0.85rem;
+}
+.hp-bulk-row-actions button:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+.hp-bulk-row-actions button.danger { color: #dc2626; border-color: rgba(220,38,38,0.30); }
+.hp-bulk-row-actions button.danger:hover { background: #dc2626; color: #fff; border-color: #dc2626; }
+.hp-bulk-table tfoot td {
+  background: rgba(146,108,21,0.07); font-weight: 800; color: var(--primary);
+  border-top: 2px solid rgba(146,108,21,0.25);
+}
+.hp-bulk-table tfoot td:last-child { text-align: right; font-size: 1.1rem; }
+body.dark-mode .hp-bulk-table-scroll { border-color: rgba(255,255,255,0.12); }
+body.dark-mode .hp-bulk-table td { border-color: rgba(255,255,255,0.09); }
+body.dark-mode .hp-bulk-row-actions button { background: #2a2a2a; border-color: #444; }
+
+/* Phones: each row becomes a labelled stack instead of a squeezed table. */
+@media (max-width: 560px) {
+  .hp-bulk-table, .hp-bulk-table tbody, .hp-bulk-table tr, .hp-bulk-table td, .hp-bulk-table tfoot { display: block; width: 100%; }
+  .hp-bulk-table thead { display: none; }
+  .hp-bulk-table tbody tr { border-top: 1px solid rgba(0,0,0,0.10); padding: 6px 0; }
+  .hp-bulk-table tbody tr:first-child { border-top: none; }
+  .hp-bulk-table td { border: none; display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 5px 13px; }
+  .hp-bulk-table td::before {
+    content: attr(data-label);
+    font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #999;
+  }
+  .hp-bulk-table td[data-label=""] { justify-content: flex-end; }
+  .hp-bulk-table td small { text-align: right; }
+  .hp-bulk-table tfoot td { display: flex; justify-content: space-between; padding: 12px 13px; }
+  .hp-bulk-table tfoot td:last-child { text-align: right; }
+}
+
+.hp-bulk-shared-note {
+  display: flex; align-items: flex-start; gap: 8px; margin: 0;
+  font-size: 0.88rem; line-height: 1.5; color: #777;
+}
+
+/* Per-person lines in the review receipt. */
+.hp-receipt-person + .hp-receipt-person { border-top: 1px dashed rgba(0,0,0,0.10); padding-top: 8px; margin-top: 8px; }
+.hp-receipt-sub { font-size: 0.82rem; color: #888; margin-top: 2px; }
+
+.hp-reg-choice-note {
+  display: flex; align-items: center; gap: 8px; margin: 4px 0 0;
+  padding: 12px 14px; border-radius: 10px; background: rgba(146,108,21,0.08);
+  font-size: 0.82rem; color: #555;
+}
+
+/* ---- Guest registration form extras ---- */
+.hp-reg-addons { margin: 4px 0 16px; }
+.hp-reg-addons-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; font-size: 0.95rem; font-weight: 700; color: var(--primary); }
+.hp-reg-addon {
+  display: flex; align-items: center; gap: 11px; cursor: pointer;
+  padding: 11px 13px; margin-bottom: 8px; border-radius: 10px;
+  border: 1.5px solid rgba(0,0,0,0.10); transition: all 0.18s ease;
+}
+.hp-reg-addon:hover { border-color: var(--primary); }
+.hp-reg-addon.on { border-color: var(--primary); background: rgba(146,108,21,0.07); }
+.hp-reg-addon.locked { cursor: default; }
+.hp-reg-addon input { width: 19px; height: 19px; flex-shrink: 0; accent-color: var(--primary); }
+.hp-reg-addon-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hp-reg-addon-text strong { font-size: 0.98rem; }
+.hp-reg-addon-text small { font-size: 0.86rem; color: #777; }
+.hp-reg-addon-fee { flex-shrink: 0; font-size: 1rem; font-weight: 800; color: var(--primary); }
+.hp-reg-free {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 14px;
+  padding: 12px 14px; border-radius: 10px; background: rgba(34,197,94,0.10);
+  color: #15803d; font-size: 0.95rem; font-weight: 600;
+}
+.hp-reg-pay {
+  padding: 14px; margin-bottom: 14px; border-radius: 12px;
+  background: rgba(146,108,21,0.06); border: 1px solid rgba(146,108,21,0.16);
+}
+.hp-reg-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.hp-reg-total span { font-size: 0.95rem; font-weight: 600; color: #555; }
+.hp-reg-total strong { font-size: 1.55rem; color: var(--primary); }
+.hp-reg-total-breakdown { font-size: 0.88rem; color: #777; margin-bottom: 10px; }
+.hp-reg-instructions { font-size: 0.92rem; line-height: 1.55; white-space: pre-wrap; color: #555; margin: 0 0 10px; }
+.hp-reg-paydetail { font-size: 0.92rem; color: #555; margin-bottom: 10px; }
+.hp-reg-paydetail img { width: 120px; height: 120px; object-fit: contain; display: block; margin-top: 6px; border-radius: 8px; background: #fff; padding: 4px; }
+.hp-reg-note { font-size: 0.88rem; line-height: 1.5; color: #777; margin: 6px 0 0; }
+.hp-reg-error {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 12px;
+  padding: 11px 13px; border-radius: 10px; background: rgba(220,38,38,0.10);
+  color: #b91c1c; font-size: 0.92rem; line-height: 1.45; font-weight: 600;
+}
+.hp-reg-switch { text-align: center; font-size: 0.92rem; color: #777; margin: 14px 0 0; }
+.hp-reg-switch button {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; font-weight: 700; color: var(--primary); text-decoration: underline;
+}
+
+/* ---- Guest registration: 2-step stepper ---- */
+.hp-reg-steps { display: flex; align-items: center; gap: 10px; margin: 0 0 20px; }
+.hp-reg-step {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 0.9rem; font-weight: 700; color: #999; white-space: nowrap;
+}
+.hp-reg-step b {
+  width: 29px; height: 29px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #e9e5dd; color: #999; font-size: 0.86rem;
+}
+.hp-reg-step.on { color: var(--primary); }
+.hp-reg-step.on b { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; }
+.hp-reg-step.done { color: var(--primary); }
+.hp-reg-step.done b { background: var(--primary); color: #fff; }
+.hp-reg-step-line { flex: 1; height: 2px; background: #e9e5dd; border-radius: 2px; }
+
+.hp-reg-actions { display: flex; align-items: center; gap: 10px; }
+.hp-reg-actions .hp-isom-btn { flex: 1; margin-top: 0; }
+.hp-reg-back {
+  display: inline-flex; align-items: center; gap: 7px; padding: 13px 18px;
+  border-radius: 30px; cursor: pointer; background: transparent;
+  border: 1.5px solid rgba(0,0,0,0.14); color: #555;
+  font-family: inherit; font-size: 0.95rem; font-weight: 700;
+  transition: all 0.18s ease;
+}
+.hp-reg-back:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ---- Payment account cards: QR on top, name and number below ---- */
+.hp-pay-card {
+  padding: 16px; margin-bottom: 12px; border-radius: 14px;
+  background: #fff; border: 1.5px solid rgba(146,108,21,0.20);
+}
+.hp-pay-card-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+  font-size: 1rem; font-weight: 800; color: var(--primary);
+}
+.hp-pay-qr { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 14px; }
+.hp-pay-qr img {
+  width: 190px; height: 190px; object-fit: contain;
+  background: #fff; padding: 10px; border-radius: 14px;
+  border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+}
+.hp-pay-qr-dl {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px; border-radius: 22px; cursor: pointer;
+  border: 1.5px solid var(--primary); background: transparent; color: var(--primary);
+  font-family: inherit; font-size: 0.88rem; font-weight: 700; transition: all 0.18s ease;
+}
+.hp-pay-qr-dl:hover { background: var(--primary); color: #fff; }
+.hp-pay-line {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 0; border-top: 1px solid rgba(0,0,0,0.06);
+}
+.hp-pay-line-label { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #999; min-width: 122px; }
+.hp-pay-line-value { flex: 1; min-width: 0; font-size: 1.02rem; font-weight: 700; word-break: break-word; }
+.hp-pay-line-value.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.5px; }
+.hp-pay-copy {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 13px; border-radius: 20px; cursor: pointer;
+  border: 1.5px solid rgba(146,108,21,0.30); background: rgba(146,108,21,0.06); color: var(--primary);
+  font-family: inherit; font-size: 0.85rem; font-weight: 700; transition: all 0.18s ease;
+}
+.hp-pay-copy:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* ---- Fraud warning ---- */
+.hp-reg-fraud {
+  display: flex; align-items: flex-start; gap: 11px; margin-bottom: 14px;
+  padding: 13px 15px; border-radius: 12px;
+  background: rgba(220,38,38,0.07); border: 1px solid rgba(220,38,38,0.22);
+  font-size: 0.8rem; line-height: 1.55; color: #7f1d1d;
+}
+.hp-reg-fraud i { font-size: 1rem; color: #dc2626; margin-top: 2px; flex-shrink: 0; }
+.hp-reg-fraud strong { display: block; margin-bottom: 2px; }
+
+/* ---- Receipt upload ---- */
+.hp-pay-upload {
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  min-height: 110px; padding: 12px; border-radius: 12px;
+  border: 2px dashed rgba(146,108,21,0.35); background: rgba(146,108,21,0.04);
+  transition: all 0.18s ease;
+}
+.hp-pay-upload:hover { border-color: var(--primary); background: rgba(146,108,21,0.08); }
+.hp-pay-upload img { max-height: 190px; border-radius: 10px; object-fit: contain; }
+.hp-pay-upload-ph { display: flex; align-items: center; gap: 9px; font-size: 0.84rem; font-weight: 600; color: var(--primary); }
+.hp-pay-upload-note { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 0.75rem; color: #16a34a; font-weight: 600; }
+.hp-form-group label em { font-style: normal; font-weight: 500; font-size: 0.86rem; color: #999; }
+
+/* ---- Registration modals sit in the middle of the screen ---- */
+.hp-reg-overlay { align-items: center; padding: 16px; }
+.hp-reg-overlay .hp-isom-inquire-modal { max-width: 560px; margin: auto; }
+.hp-reg-overlay .hp-reg-choice { margin: auto; }
+
+/* The DAY badge text is white on the gold pill - the generic
+   ".hp-evt-sessions li span" colour was overriding it. */
+.hp-evt-sessions li .hp-evt-session-day { color: #fff; }
+.hp-evt-sessions li .hp-evt-session-date { color: inherit; }
+.hp-evt-sessions li .hp-evt-session-name { color: var(--primary); }
+body.dark-mode .hp-evt-session-time { color: #bbb; }
+body.dark-mode .hp-evt-info-label { color: #8d8d8d; }
+
+/* Single payment method: nothing to choose, just say what it is. */
+.hp-pay-single {
+  display: flex; align-items: center; gap: 9px; margin-bottom: 12px;
+  padding: 11px 14px; border-radius: 10px;
+  background: rgba(146,108,21,0.08); color: var(--primary); font-size: 0.86rem;
+}
+.hp-pay-single strong { font-weight: 800; }
+
+/* ---- Mobile ---- */
+@media (max-width: 560px) {
+  .hp-reg-overlay { padding: 10px; align-items: flex-start; }
+  .hp-reg-overlay .hp-isom-inquire-modal,
+  .hp-reg-overlay .hp-reg-choice { max-height: calc(100vh - 20px); padding: 24px 16px 20px; margin: auto; }
+  .hp-isom-inquire-row { grid-template-columns: 1fr; }
+  .hp-reg-steps { gap: 7px; }
+  .hp-reg-step { font-size: 0.72rem; }
+  .hp-reg-step b { width: 23px; height: 23px; font-size: 0.72rem; }
+  .hp-pay-qr img { width: 160px; height: 160px; }
+  .hp-pay-line { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .hp-pay-line-label { min-width: 0; }
+  .hp-pay-line-value { font-size: 0.95rem; }
+  .hp-reg-actions { flex-direction: column-reverse; align-items: stretch; }
+  .hp-reg-back { justify-content: center; }
+  .hp-evt-sessions li { font-size: 0.8rem; }
+  .hp-evt-session-day, .hp-evt-session-date, .hp-evt-session-time, .hp-evt-session-name { padding: 7px 9px; }
+  .hp-evt-session-name { margin-left: 0; width: 100%; padding-top: 0; }
+  .hp-reg-option { padding: 13px; gap: 11px; }
+  .hp-reg-option-icon { width: 38px; height: 38px; }
+  .hp-reg-addon { padding: 10px; }
+  .hp-reg-addon-text strong { font-size: 0.84rem; }
+}
+
+/* ---- Church name autocomplete ---- */
+.hp-church-field { position: relative; }
+.hp-church-list {
+  position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 5px;
+  list-style: none; background: #fff; border-radius: 12px;
+  border: 1px solid rgba(0,0,0,0.10); box-shadow: 0 14px 34px rgba(0,0,0,0.16);
+  max-height: 210px; overflow-y: auto;
+}
+.hp-church-list button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 9px 11px; border: none; border-radius: 8px; cursor: pointer;
+  background: transparent; font: inherit; text-align: left; color: inherit;
+}
+.hp-church-list button:hover { background: rgba(146,108,21,0.10); }
+.hp-church-list button span { font-size: 0.95rem; font-weight: 600; }
+.hp-church-list button em {
+  flex-shrink: 0; font-style: normal; font-size: 0.78rem; font-weight: 700;
+  padding: 3px 10px; border-radius: 20px; background: rgba(146,108,21,0.14); color: var(--primary);
+}
+.hp-field-hint { display: block; margin-top: 6px; font-size: 0.84rem; line-height: 1.45; color: #999; }
+.hp-field-error { display: block; margin-top: 6px; font-size: 0.84rem; line-height: 1.45; color: #dc2626; font-weight: 600; }
+.hp-form-control.invalid { border-color: #dc2626 !important; }
+/* Required fields the visitor skipped: red border + a red note under them, so
+   the stepper says which box is missing rather than only that something is. */
+.hp-form-control.invalid { background: #fef2f2; }
+.hp-prefix-input.invalid { border-color: #dc2626; background: #fef2f2; }
+.hp-pay-inline-input.invalid { border-color: #dc2626; background: #fef2f2; }
+.hp-pay-upload-btn.invalid { box-shadow: 0 0 0 2px #dc2626; }
+.hp-pay-line-error {
+  display: flex; align-items: center; gap: 7px;
+  margin: -2px 0 8px; font-size: 0.84rem; color: #dc2626; font-weight: 600;
+}
+
+/* "Ptr." is fixed; only the name is typed. */
+.hp-prefix-input {
+  display: flex; align-items: center; border-radius: 10px;
+  border: 1.5px solid rgba(0,0,0,0.12); background: #fff; overflow: hidden;
+}
+.hp-prefix-input:focus-within { border-color: var(--primary); }
+.hp-prefix-input span {
+  padding: 0 10px; align-self: stretch; display: flex; align-items: center;
+  background: rgba(146,108,21,0.09); color: var(--primary);
+  font-size: 0.85rem; font-weight: 800;
+}
+.hp-prefix-input input { flex: 1; min-width: 0; border: none; outline: none; padding: 13px 13px; font: inherit; font-size: 1rem; background: transparent; }
+
+/* ---- Receipt-style total ---- */
+.hp-receipt {
+  padding: 14px 16px; margin-bottom: 14px; border-radius: 12px;
+  background: rgba(146,108,21,0.06); border: 1px solid rgba(146,108,21,0.18);
+}
+.hp-receipt-line {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  padding: 5px 0; font-size: 0.87rem; color: #555;
+}
+.hp-receipt-line b { font-weight: 700; font-variant-numeric: tabular-nums; color: #333; }
+.hp-receipt-total {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  margin-top: 8px; padding-top: 10px; border-top: 2px dashed rgba(146,108,21,0.35);
+  font-size: 0.92rem; font-weight: 800;
+}
+.hp-receipt-total b { font-size: 1.3rem; color: var(--primary); font-variant-numeric: tabular-nums; }
+
+/* ---- "Why is this extra here?" ---- */
+.hp-addon-details-btn {
+  align-self: flex-start; margin-top: 4px; padding: 0; border: none; background: none;
+  cursor: pointer; font: inherit; font-size: 0.85rem; font-weight: 700;
+  color: var(--primary); text-decoration: underline;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.hp-addon-modal {
+  position: relative; width: min(440px, 94vw); max-height: 86vh; overflow-y: auto;
+  background: #fff; border-radius: 18px; padding: 28px 24px 24px; margin: auto;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.3);
+}
+.hp-addon-modal h3 { margin: 0 0 6px; font-size: 1.1rem; color: var(--primary); padding-right: 34px; }
+.hp-addon-modal-fee {
+  display: inline-block; margin-bottom: 12px; padding: 3px 12px; border-radius: 20px;
+  background: rgba(146,108,21,0.12); color: var(--primary); font-size: 0.76rem; font-weight: 800;
+}
+.hp-addon-modal-lead { margin: 0 0 10px; font-size: 0.88rem; font-weight: 600; color: #444; }
+.hp-addon-modal-body { margin: 0 0 16px; font-size: 0.86rem; line-height: 1.6; color: #666; white-space: pre-wrap; }
+
+/* ---- Registration modal buttons: solid, formal, readable ---- */
+.hp-isom-inquire-form .hp-isom-btn {
+  width: 100%; justify-content: center; gap: 10px;
+  padding: 14px 22px; border-radius: 12px;
+  background: linear-gradient(135deg, #7a5a11, var(--primary));
+  color: #fff; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.2px;
+  box-shadow: 0 8px 20px rgba(146,108,21,0.30);
+}
+.hp-isom-inquire-form .hp-isom-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--primary), #7a5a11);
+  box-shadow: 0 10px 26px rgba(146,108,21,0.38);
+}
+.hp-isom-inquire-form .hp-isom-btn:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+.hp-isom-inquire-form .hp-isom-btn i, .hp-isom-inquire-form .hp-isom-btn span { color: #fff; }
+
+/* ---- Compact, centred stepper ---- */
+.hp-reg-steps { justify-content: center; gap: 8px; margin: 0 0 18px; }
+.hp-reg-step { font-size: 0.74rem; gap: 6px; }
+.hp-reg-step b { width: 21px; height: 21px; font-size: 0.68rem; }
+.hp-reg-step-line { flex: 0 0 46px; }
+
+/* ---- Online payments only ---- */
+.hp-pay-online-only {
+  display: flex; align-items: flex-start; gap: 9px; margin: 0 0 12px;
+  padding: 11px 13px; border-radius: 10px;
+  background: rgba(146,108,21,0.08); border: 1px solid rgba(146,108,21,0.22);
+  font-size: 0.8rem; line-height: 1.5; color: #6b4f0f;
+}
+.hp-pay-online-only i { margin-top: 2px; color: var(--primary); }
+
+/* ---- Scam warning: small, floating, dismissible ---- */
+.hp-fraud-tip {
+  position: sticky; bottom: 8px; z-index: 4;
+  display: flex; align-items: flex-start; gap: 9px; margin: 0 0 12px;
+  padding: 11px 12px; border-radius: 12px;
+  background: #fff5f5; border: 1px solid rgba(220,38,38,0.30);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.14);
+  font-size: 0.88rem; line-height: 1.55; color: #7f1d1d;
+  animation: hpEvtFade 0.25s ease;
+}
+.hp-fraud-tip > i { margin-top: 1px; color: #dc2626; flex-shrink: 0; }
+.hp-fraud-tip strong { font-weight: 800; }
+.hp-fraud-tip button {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+  border: none; background: rgba(220,38,38,0.12); color: #b91c1c; font-size: 0.7rem;
+}
+.hp-fraud-tip button:hover { background: rgba(220,38,38,0.22); }
+
+/* ---- The header + stepper stay put while the step content scrolls ---- */
+.hp-reg-overlay .hp-isom-inquire-modal { padding-top: 0; }
+.hp-reg-overlay .hp-isom-inquire-head,
+.hp-reg-overlay .hp-reg-steps {
+  position: sticky; z-index: 6; background: #fff;
+}
+.hp-reg-overlay .hp-isom-inquire-head { top: 0; padding: 26px 0 12px; margin-bottom: 0; }
+.hp-reg-overlay .hp-reg-steps {
+  top: 0; margin: 0 0 18px; padding: 10px 0 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+body.dark-mode .hp-reg-overlay .hp-isom-inquire-head,
+body.dark-mode .hp-reg-overlay .hp-reg-steps { background: #1e1e1e; }
+
+/* three steps, evenly spaced, never wrapping into a scrollbar */
+.hp-reg-steps { display: flex; align-items: center; justify-content: center; gap: 0; flex-wrap: nowrap; }
+.hp-reg-step-wrap { display: flex; align-items: center; gap: 0; min-width: 0; }
+.hp-reg-step { gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-reg-step-line { flex: 0 0 24px; margin: 0 8px; }
+
+/* ---- Review summary ---- */
+.hp-review {
+  padding: 4px 16px; margin-bottom: 14px; border-radius: 12px;
+  background: #fff; border: 1px solid rgba(0,0,0,0.10);
+}
+.hp-review-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  padding: 11px 0; border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.hp-review-row:last-child { border-bottom: none; }
+.hp-review-row span { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #999; flex-shrink: 0; }
+.hp-review-row b { font-size: 0.9rem; font-weight: 700; text-align: right; word-break: break-word; }
+
+/* ---- The amount, on the payment step ---- */
+.hp-paytotal {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 18px 16px; margin-bottom: 16px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(146,108,21,0.10), rgba(146,108,21,0.04));
+  border: 1px solid rgba(146,108,21,0.22);
+}
+.hp-paytotal span { font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #8a7440; }
+.hp-paytotal strong { font-size: 2.4rem; font-weight: 800; line-height: 1.1; color: var(--primary); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 560px) {
+  .hp-reg-step { font-size: 0.66rem; }
+  .hp-reg-step b { width: 19px; height: 19px; font-size: 0.62rem; }
+  .hp-reg-step-line { flex-basis: 12px; margin: 0 5px; }
+  .hp-paytotal strong { font-size: 2rem; }
+  .hp-review-row { flex-direction: column; gap: 3px; }
+  .hp-review-row b { text-align: left; }
+}
+
+/* Popup buttons match the registration buttons: solid, white, readable. */
+.hp-isom-btn.hp-modal-btn {
+  width: 100%; justify-content: center; gap: 10px;
+  padding: 13px 22px; border-radius: 12px;
+  background: linear-gradient(135deg, #7a5a11, var(--primary));
+  color: #fff; font-size: 0.92rem; font-weight: 800;
+  box-shadow: 0 8px 20px rgba(146,108,21,0.28);
+}
+.hp-isom-btn.hp-modal-btn:hover { background: linear-gradient(135deg, var(--primary), #7a5a11); color: #fff; }
+
+/* "View Details" next to the date line in the registration header. */
+.hp-schedule-link {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: 8px;
+  padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; font-size: 0.78rem; font-weight: 700;
+  color: var(--primary); text-decoration: underline;
+}
+
+/* The close button must sit above the sticky header, not under it. */
+.hp-reg-overlay .hp-evt-close {
+  position: sticky; z-index: 20; top: 12px; float: right; margin: 12px -6px 0 0;
+  background: rgba(0,0,0,0.55);
+}
+.hp-reg-overlay .hp-evt-close:hover { background: rgba(0,0,0,0.75); }
+
+/* Stepper items are buttons now. */
+.hp-reg-step {
+  border: none; background: none; font-family: inherit; padding: 0;
+  cursor: pointer; transition: color 0.18s ease;
+}
+.hp-reg-step:disabled { cursor: default; }
+.hp-reg-step:not(:disabled):hover { color: var(--primary); }
+
+/* Swap an attached receipt without starting over. */
+.hp-pay-upload-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 7px; flex-wrap: wrap; }
+.hp-pay-reupload {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 6px 14px; border-radius: 20px;
+  border: 1.5px solid rgba(146,108,21,0.35); background: transparent; color: var(--primary);
+  font-size: 0.76rem; font-weight: 700; transition: all 0.18s ease;
+}
+.hp-pay-reupload:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* Reference + proof continue the account card rather than starting a new one. */
+.hp-pay-card-attached {
+  margin-top: -13px; border-top-left-radius: 0; border-top-right-radius: 0;
+  border-top: none; padding-top: 4px;
+}
+.hp-pay-inline-input {
+  flex: 1; min-width: 140px; padding: 9px 11px; border-radius: 9px;
+  border: 1.5px solid rgba(0,0,0,0.12); background: #fff;
+  font: inherit; font-size: 0.98rem; outline: none;
+}
+.hp-pay-inline-input:focus { border-color: var(--primary); }
+.hp-pay-upload-btn, .hp-pay-file {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  font-family: inherit; font-size: 0.9rem; font-weight: 700;
+}
+.hp-pay-upload-btn {
+  padding: 9px 20px; border-radius: 22px; border: none;
+  background: linear-gradient(135deg, #7a5a11, var(--primary)); color: #fff;
+  transition: opacity 0.18s ease;
+}
+.hp-pay-upload-btn:hover { opacity: 0.9; }
+/* the attached file, as a link you can open to check it */
+.hp-pay-file {
+  flex: 1; min-width: 0; padding: 8px 11px; border-radius: 9px;
+  border: 1px solid rgba(146,108,21,0.28); background: rgba(146,108,21,0.06);
+  color: var(--primary); text-align: left; overflow: hidden;
+}
+.hp-pay-file span, .hp-pay-file { white-space: nowrap; text-overflow: ellipsis; }
+.hp-pay-file:hover { background: rgba(146,108,21,0.13); }
+.hp-pay-file em { margin-left: auto; font-style: normal; font-size: 0.8rem; font-weight: 600; color: #8a7440; flex-shrink: 0; }
+
+/* "View Details" sits under the extras box, aligned right. */
+.hp-reg-addon-item { margin-bottom: 10px; }
+.hp-reg-addon-item .hp-reg-addon { margin-bottom: 0; }
+.hp-reg-addon-item .hp-addon-details-btn {
+  display: flex; width: fit-content; margin: 6px 2px 0 auto; align-self: auto;
+}
+
+/* ---- Pinned registration header: title + stepper + close ---- */
+.hp-reg-top {
+  position: sticky; top: 0; z-index: 12; background: #fff;
+  padding: 22px 0 10px; margin-bottom: 16px;
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+body.dark-mode .hp-reg-top { background: #1e1e1e; }
+.hp-reg-top .hp-isom-inquire-head { margin-bottom: 12px; padding-right: 46px; position: static; }
+.hp-reg-top .hp-reg-steps { margin: 0; padding: 0; border: none; position: static; }
+/* hard right, level with the title */
+.hp-evt-close.hp-reg-close { position: absolute; top: 18px; right: 0; float: none; margin: 0; z-index: 14; }
+.hp-reg-overlay .hp-isom-inquire-modal { position: relative; }
+
+/* A step needs a name once you are standing in it. */
+.hp-step-title {
+  font-size: 0.95rem; font-weight: 800; color: var(--primary); margin-bottom: 12px;
+}
+
+/* ---- Registration complete ---- */
+.hp-reg-done { text-align: center; padding: 30px 4px 8px; }
+.hp-reg-done-check {
+  width: 68px; height: 68px; margin: 0 auto 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #22c55e, #15803d); color: #fff; font-size: 1.7rem;
+  box-shadow: 0 10px 26px rgba(34,197,94,0.35);
+  animation: hpDonePop 0.45s cubic-bezier(0.2, 1.3, 0.5, 1);
+}
+@keyframes hpDonePop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.hp-reg-done h3 { margin: 0 0 4px; font-size: 1.35rem; color: var(--primary); }
+.hp-reg-done-see { margin: 0 0 18px; font-size: 1rem; font-weight: 700; color: #444; }
+.hp-reg-done-card {
+  display: flex; flex-direction: column; gap: 6px; text-align: left;
+  padding: 14px 16px; margin-bottom: 14px; border-radius: 12px;
+  background: rgba(146,108,21,0.07); border: 1px solid rgba(146,108,21,0.20);
+}
+.hp-reg-done-event { font-weight: 800; font-size: 0.95rem; color: var(--primary); }
+.hp-reg-done-where { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: #666; }
+.hp-reg-done-note {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 0 0 16px; font-size: 0.82rem; color: #777;
+}
+/* A calendar file only helps where a tap opens the calendar app. */
+.hp-reg-cal { display: none; }
+@media (max-width: 760px) {
+  .hp-reg-cal {
+    display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+    width: 100%; margin-bottom: 10px; padding: 13px 20px; border-radius: 12px; cursor: pointer;
+    border: 1.5px solid var(--primary); background: transparent; color: var(--primary);
+    font-family: inherit; font-size: 0.9rem; font-weight: 800;
+  }
+  .hp-reg-cal:active { background: rgba(146,108,21,0.10); }
 }

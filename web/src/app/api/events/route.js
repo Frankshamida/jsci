@@ -194,6 +194,43 @@ async function syncEventDays(eventId, rows) {
   if (error) throw error;
 }
 
+// ---- Paid add-on questions (event_addons) ---------------------------------
+// The client sends `addons` as a JSON array of
+//   { question, description, fee, isRequired }
+// Each one is a yes/no question that adds `fee` to an attendee's total when
+// they tick it. events.registration_fee stays the BASE price.
+function parseEventAddons(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  let parsed;
+  try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
+  if (!Array.isArray(parsed)) return null;
+  const rows = [];
+  parsed.forEach((a) => {
+    const question = (a && a.question ? String(a.question) : '').trim();
+    if (!question) return;                       // skip half-typed rows
+    const fee = Number(a.fee);
+    rows.push({
+      position: rows.length + 1,
+      question: question.slice(0, 300),
+      description: a.description ? String(a.description).slice(0, 500) : null,
+      details: a.details ? String(a.details).slice(0, 2000) : null,
+      fee: Number.isFinite(fee) && fee > 0 ? fee : 0,
+      is_required: a.isRequired === true || a.isRequired === 'true',
+    });
+  });
+  return rows;
+}
+
+// Replace an event's add-ons wholesale, for the same reason as the day rows:
+// an upsert would leave a deleted question still showing on the public page.
+async function syncEventAddons(eventId, rows) {
+  await supabase.from('event_addons').delete().eq('event_id', eventId);
+  if (!rows || rows.length === 0) return;
+  const payload = rows.map((r, i) => ({ ...r, position: i + 1, event_id: eventId }));
+  const { error } = await supabase.from('event_addons').insert(payload);
+  if (error) throw error;
+}
+
 // GET - Fetch events
 export async function GET(request) {
   try {
@@ -203,7 +240,7 @@ export async function GET(request) {
     // Public/member views pass published=true to hide drafts. Admin omits it.
     const publishedOnly = searchParams.get('published') === 'true';
 
-    let query = supabase.from('events').select('*, event_days(*)').eq('is_active', true).order('event_date', { ascending: true }).limit(limit);
+    let query = supabase.from('events').select('*, event_days(*), event_addons(*)').eq('is_active', true).order('event_date', { ascending: true }).limit(limit);
     if (upcoming) {
       query = query.gte('event_date', new Date().toISOString());
     }
@@ -238,6 +275,9 @@ export async function GET(request) {
       if (Array.isArray(e.event_days)) {
         e.event_days.sort((a, b) => (a.day_number || 0) - (b.day_number || 0));
       }
+      if (Array.isArray(e.event_addons)) {
+        e.event_addons.sort((a, b) => (a.position || 0) - (b.position || 0));
+      }
     });
 
     return NextResponse.json({ success: true, data: events });
@@ -271,6 +311,7 @@ export async function POST(request) {
     // A per-day schedule, when present, is the source of truth for the span.
     const dayRows = parseEventDays(fields.days);
     const span = spanFromDays(dayRows);
+    const addonRows = parseEventAddons(fields.addons);
 
     const insertData = mapEventConfig(fields, {
       title, description,
@@ -285,6 +326,7 @@ export async function POST(request) {
 
     if (error) throw error;
     if (dayRows && dayRows.length > 0) await syncEventDays(data.id, dayRows);
+    if (addonRows && addonRows.length > 0) await syncEventAddons(data.id, addonRows);
     await logEventAudit(actor, 'create_event', data.id, `Created event "${title}"`);
     return NextResponse.json({ success: true, data, message: 'Event created successfully' });
   } catch (error) {
@@ -306,6 +348,7 @@ export async function PUT(request) {
 
     const dayRows = parseEventDays(updates.days);
     const span = spanFromDays(dayRows);
+    const addonRows = parseEventAddons(updates.addons);
 
     const updateData = {};
     if (updates.title) updateData.title = updates.title;
@@ -327,6 +370,7 @@ export async function PUT(request) {
     if (error) throw error;
     // null (field absent) leaves existing days alone; [] clears them.
     if (dayRows !== null) await syncEventDays(id, dayRows);
+    if (addonRows !== null) await syncEventAddons(id, addonRows);
 
     const isArchive = updates.isActive === false || updates.isActive === 'false';
     await logEventAudit(actor, isArchive ? 'archive_event' : 'update_event', id, isArchive ? 'Archived event' : `Updated event "${data.title}"`);

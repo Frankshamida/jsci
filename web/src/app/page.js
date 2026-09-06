@@ -16,6 +16,41 @@ const HERO_SLIDES = [
   { img: '/assets/baptism-service.jpg', title: 'New Life in Christ', sub: 'Celebrating lives transformed through faith and baptism' },
 ];
 
+// A guest registration needs only who is coming and, when there is something
+// to pay, how they paid it.
+const EMPTY_GUEST_REG_FORM = {
+  firstName: '', lastName: '', churchName: '', churchPastor: '', mobile: '', email: '',
+  paymentMethod: '', paymentReference: '',
+};
+
+// Receipts are phone photos - often 3-5MB of JPEG for a picture of a screen.
+// Re-encoding to WebP at a sane width cuts that to a couple of hundred KB
+// before it ever leaves the browser, so uploads stay quick on mobile data.
+// Anything that can't be decoded (an odd format, a huge file) is uploaded as-is.
+const MAX_RECEIPT_WIDTH = 1600;
+const toWebpFile = (file) => new Promise((resolve) => {
+  if (!file || !file.type?.startsWith('image/')) { resolve(file); return; }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const scale = Math.min(1, MAX_RECEIPT_WIDTH / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob) { resolve(file); return; }
+        const name = (file.name || 'receipt').replace(/\.[^.]+$/, '') + '.webp';
+        resolve(new File([blob], name, { type: 'image/webp' }));
+      }, 'image/webp', 0.82);
+    } catch { URL.revokeObjectURL(url); resolve(file); }
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+  img.src = url;
+});
+
 const PASTORS = [
   { name: 'Dr. Weldon Pior', title: 'Senior Pastor', photo: '/assets/dr-weldon-pior.png' },
   { name: 'Dr. Dorothy Pior', title: 'Senior Pastor', photo: '/assets/dr-dorothy-pior.png' },
@@ -64,6 +99,50 @@ const evtDayCount = (startStr, endStr) => {
   const e0 = new Date(e.getFullYear(), e.getMonth(), e.getDate());
   const days = Math.round((e0.getTime() - s0.getTime()) / 86400000) + 1;
   return days < 1 ? 1 : days;
+};
+
+// "Cebu Event" - the place people know the event by. Uses the city, falling
+// back to the province or region, and drops a redundant "City" suffix so it
+// reads "Cebu Event" rather than "Cebu City Event".
+const evtRegionLabel = (evt) => {
+  const place = (evt?.loc_city || evt?.loc_province || evt?.loc_region || '').trim();
+  if (!place) return 'Event Registration';
+  return place.replace(/\s+city$/i, '') + ' Event';
+};
+
+// One session split into the pieces the schedule strip shows:
+// "Oct 2" and "10:00 AM - 6:00 PM" (or a second date when it runs overnight).
+const evtSessionParts = (d, evt) => {
+  const s = d?.starts_at ? new Date(d.starts_at) : null;
+  if (!s || Number.isNaN(s.getTime())) return null;
+  let e = d.ends_at ? new Date(d.ends_at) : null;
+  // Sessions saved before end times were required have none. Rather than showing
+  // a bare "10:00 AM", fall back to the event's own finishing time of day - the
+  // hours the event as a whole runs.
+  if ((!e || Number.isNaN(e.getTime()) || e.getTime() <= s.getTime()) && evt?.end_date) {
+    const evtEnd = new Date(evt.end_date);
+    if (!Number.isNaN(evtEnd.getTime())) {
+      const guess = new Date(s.getFullYear(), s.getMonth(), s.getDate(), evtEnd.getHours(), evtEnd.getMinutes());
+      e = guess.getTime() > s.getTime() ? guess : null;
+    }
+  }
+  const hasEnd = e && !Number.isNaN(e.getTime()) && e.getTime() > s.getTime();
+  const day = (x) => x.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const time = (x) => x.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const sameDay = hasEnd && s.toDateString() === e.toDateString();
+  return {
+    date: hasEnd && !sameDay ? `${day(s)} – ${day(e)}` : day(s),
+    time: hasEnd ? `${time(s)} – ${time(e)}` : time(s),
+  };
+};
+
+// A single-session event IS the event, so its session is never listed on its
+// own - the event title and the When line already say everything. Two or more
+// sessions each get their title and their own date & time.
+const evtSessions = (evt) => {
+  const rows = Array.isArray(evt?.event_days) ? evt.event_days : [];
+  if (rows.length < 2) return [];
+  return rows.slice().sort((a, b) => (a.day_number || 0) - (b.day_number || 0));
 };
 
 // Where the event sits relative to now. Used for the status pill.
@@ -128,6 +207,7 @@ export default function HomePage() {
     slides: ISOM_SLIDES.map((url) => ({ url })),
   });
   const [newsEvents, setNewsEvents] = useState([]);
+  const [eventsVersion, setEventsVersion] = useState(0); // bumped after a registration so the slot counts refresh
   const [detailEvent, setDetailEvent] = useState(null);
 
   // ---- ISOM Inquire modal ----
@@ -178,14 +258,646 @@ export default function HomePage() {
     }
   };
 
-  // Public register: not logged in -> create account first (remember the event)
+  // ---- Public registration -------------------------------------------
+  // Registering used to jump straight to the signup page. Now the visitor
+  // chooses: make an account first (so they can track and pay later), or just
+  // register for this one event as a guest.
+  const [regChoiceEvent, setRegChoiceEvent] = useState(null);   // the "how do you want to register?" step
+  const [regChoiceScreen, setRegChoiceScreen] = useState('how'); // 'how' -> account vs no account, 'who' -> one person vs a group
+  const [guestRegEvent, setGuestRegEvent] = useState(null);     // the guest form itself
+  const [guestRegForm, setGuestRegForm] = useState(EMPTY_GUEST_REG_FORM);
+  const [guestRegAddonIds, setGuestRegAddonIds] = useState([]);
+  const [guestRegProof, setGuestRegProof] = useState(null);      // already converted to .webp
+  const [guestRegProofPreview, setGuestRegProofPreview] = useState('');
+  const [guestRegStep, setGuestRegStep] = useState(0);           // 0 = who's coming, 1 = payment
+  const [copiedField, setCopiedField] = useState('');            // which account number was just copied
+  const [addonDetail, setAddonDetail] = useState(null);          // add-on shown in the "why is this here?" popup
+  const [fraudTip, setFraudTip] = useState(false);               // the scam warning, shown a moment into the payment step
+  const [guestRegSubmitting, setGuestRegSubmitting] = useState(false);
+  const [guestRegResult, setGuestRegResult] = useState(null);   // { ok, message }
+  const [guestFieldErrors, setGuestFieldErrors] = useState({}); // which inputs to paint red, by field name
+  const [guestRegMode, setGuestRegMode] = useState('individual'); // 'individual' = just me, 'bulk' = a group on one payment
+  const [bulkAttendees, setBulkAttendees] = useState([]);         // [{ firstName, lastName, addonIds }]
+  const [repAgreed, setRepAgreed] = useState(false);              // the representative vouched for their own details
+  const [dupNames, setDupNames] = useState([]);                   // names already registered for this event (lower-cased)
+  const [dupDetails, setDupDetails] = useState([]);               // what those existing registrations already know
+  const [repAddonIds, setRepAddonIds] = useState([]);             // the representative's own extras
+  const [repUsedSaved, setRepUsedSaved] = useState(false);        // they accepted "use my saved details"
+  const [attendeeDraft, setAttendeeDraft] = useState(null);       // the person being typed in above the table
+  const [editingAttendee, setEditingAttendee] = useState(null);   // index being edited, or null while adding
+  const [draftError, setDraftError] = useState('');
+
   const handlePublicRegister = (evt) => {
+    setDetailEvent(null);
+    setRegChoiceScreen('how');
+    setRegChoiceEvent(evt);
+  };
+
+  const closeRegChoice = () => { setRegChoiceEvent(null); setRegChoiceScreen('how'); };
+
+  // "Create an account first" - remember the event so signup can pick it up.
+  const goToSignupForEvent = (evt) => {
     try {
       if (typeof window !== 'undefined' && evt?.id) {
         localStorage.setItem('pendingEventRegistration', JSON.stringify({ id: evt.id, title: evt.title }));
       }
     } catch { /* ignore */ }
     router.push('/signup?next=events');
+  };
+
+  // A blank person in a bulk roster, with the compulsory extras already ticked.
+  const emptyAttendee = (evt) => ({
+    firstName: '', lastName: '',
+    addonIds: (evt?.event_addons || []).filter((a) => a.is_required).map((a) => a.id),
+  });
+
+  const openGuestRegistration = (evt, mode = 'individual') => {
+    setRegChoiceEvent(null);
+    setRegChoiceScreen('how');
+    setGuestRegMode(mode);
+    setGuestRegEvent(evt);
+    const methods = evt.payment_methods || [];
+    setGuestRegForm({ ...EMPTY_GUEST_REG_FORM, paymentMethod: methods.length === 1 ? methods[0] : '' });
+    setGuestFieldErrors({});
+    // The roster starts empty and is built one person at a time, above the table.
+    setBulkAttendees([]);
+    setAttendeeDraft(mode === 'bulk' ? emptyAttendee(evt) : null);
+    setEditingAttendee(null);
+    setDraftError('');
+    setRepAgreed(false);
+    setRepAddonIds((evt.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
+    setRepUsedSaved(false);
+    setDupNames([]);
+    setDupDetails([]);
+    // Required add-ons are charged either way, so they start ticked and locked.
+    setGuestRegAddonIds((evt.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
+    setGuestRegProof(null);
+    setGuestRegProofPreview('');
+    setGuestRegStep(0);
+    setGuestRegResult(null);
+  };
+
+  // Shrink + convert the receipt before it is attached, so the upload is small.
+  const handleGuestProofPick = async (file) => {
+    if (!file) { setGuestRegProof(null); setGuestRegProofPreview(''); return; }
+    const converted = await toWebpFile(file);
+    setGuestRegProof(converted);
+    setGuestRegProofPreview(URL.createObjectURL(converted));
+  };
+
+  // "Gomez_GCash_POP_09-01-2026.webp" - so a folder of receipts can be scanned
+  // by eye without opening every one.
+  const proofFileName = () => {
+    const last = (guestRegForm.lastName || 'Attendee').trim().replace(/[^a-z0-9]+/gi, '') || 'Attendee';
+    const method = (guestRegForm.paymentMethod || 'Payment').replace(/[^a-z0-9]+/gi, '') || 'Payment';
+    const d = new Date();
+    const stamp = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
+    return `${last}_${method}_POP_${stamp}.webp`;
+  };
+
+  // Copying beats re-typing an 11-digit number off a screen - one wrong digit
+  // sends the money to a stranger.
+  const copyToClipboard = async (text, field) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(''), 1800);
+    } catch { /* clipboard blocked - the number is still on screen to read */ }
+  };
+
+  // A calendar entry for the event, generated in the browser. Opening the file
+  // on a phone hands it straight to the calendar app.
+  const addEventToCalendar = (evt) => {
+    if (!evt?.event_date) return;
+    const stamp = (d) => new Date(d).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const end = evt.end_date || evt.event_date;
+    const where = [evt.location, evt.loc_barangay, evt.loc_city, evt.loc_province].filter(Boolean).join(', ');
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//JSCI//Events//EN', 'BEGIN:VEVENT',
+      `UID:${evt.id}@jsci`,
+      `DTSTAMP:${stamp(Date.now())}`,
+      `DTSTART:${stamp(evt.event_date)}`,
+      `DTEND:${stamp(end)}`,
+      `SUMMARY:${(evt.title || 'Event').replace(/[\n,;]/g, ' ')}`,
+      where ? `LOCATION:${where.replace(/[\n,;]/g, ' ')}` : '',
+      'END:VEVENT', 'END:VCALENDAR',
+    ].filter(Boolean).join('\r\n');
+    const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(evt.title || 'event').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.ics`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // Save the QR to the phone so it can be opened inside the payment app.
+  const downloadQr = async (url, title) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = `${(title || 'event').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-gcash-qr.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(href);
+    } catch {
+      // cross-origin fetch blocked: open it so the user can long-press / save
+      window.open(url, '_blank', 'noopener');
+    }
+  };
+
+  // Church name suggestions, so the same church is always spelled the same way.
+  // Each suggestion carries how many people already registered under it, which
+  // is the quickest signal that you are picking the right one.
+  const [churchOptions, setChurchOptions] = useState([]);
+  const [churchOpen, setChurchOpen] = useState(false);
+
+  useEffect(() => {
+    if (!guestRegEvent || !churchOpen) return undefined;
+    const q = guestRegForm.churchName.trim();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?churches=1&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setChurchOptions(data.success ? data.data || [] : []);
+      } catch { setChurchOptions([]); }
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [guestRegForm.churchName, churchOpen, guestRegEvent]);
+
+  // A Philippine mobile number: 11 digits starting 09. Anything typed that
+  // isn't a digit is dropped as it is entered, so the field can't drift.
+  const onlyDigits = (v) => (v || '').replace(/\D/g, '').slice(0, 11);
+  const isValidPhMobile = (v) => /^09\d{9}$/.test(v || '');
+
+  // The warning matters most while someone is actually looking at an account
+  // number, so it arrives a few seconds into the payment step rather than
+  // taking up half the screen before they get there.
+  useEffect(() => {
+    if (!guestRegEvent || guestRegStep !== 2) { setFraudTip(false); return undefined; }
+    const timer = setTimeout(() => setFraudTip(true), 5000);
+    return () => clearTimeout(timer);
+  }, [guestRegEvent, guestRegStep]);
+
+  // Which account block to show: the one they picked, or all of them while no
+  // choice has been made yet.
+  const guestShowsMethod = (method) => !guestRegForm.paymentMethod || guestRegForm.paymentMethod === method;
+
+  // Which account card carries the reference / proof rows, so they read as the
+  // last two lines of the same box rather than a second one. 'none' means the
+  // chosen method has no account details of its own (e.g. Cash).
+  const payFieldsCard = () => {
+    const e = guestRegEvent;
+    if (!e) return 'none';
+    if ((e.gcash_number || e.gcash_qr_url) && guestShowsMethod('GCash')) return 'gcash';
+    if (e.bank_account_number && guestShowsMethod('Bank Transfer')) return 'bank';
+    return 'none';
+  };
+
+  // The two things we need back from the payer.
+  const payFieldRows = () => (
+    <>
+      <div className="hp-pay-line">
+        <span className="hp-pay-line-label">Reference Number *</span>
+        <input
+          type="text"
+          className={`hp-pay-inline-input ${guestFieldErrors.paymentReference ? 'invalid' : ''}`}
+          value={guestRegForm.paymentReference}
+          onChange={(e) => { setGuestRegForm({ ...guestRegForm, paymentReference: e.target.value }); clearGuestFieldError('paymentReference'); }}
+          placeholder="From your payment receipt"
+        />
+      </div>
+      {guestFieldErrors.paymentReference && (
+        <p className="hp-pay-line-error"><i className="fas fa-circle-exclamation"></i> {guestFieldErrors.paymentReference}</p>
+      )}
+      <div className="hp-pay-line">
+        <span className="hp-pay-line-label">Proof of Payment *</span>
+        {guestRegProof ? (
+          <>
+            {/* the saved filename, and a click to check it */}
+            <button type="button" className="hp-pay-file" onClick={() => window.open(guestRegProofPreview, '_blank', 'noopener')}>
+              <i className="fas fa-file-image"></i> {proofFileName()}
+              <em>{(guestRegProof.size / 1024).toFixed(0)} KB</em>
+            </button>
+            <label className="hp-pay-reupload" htmlFor="hp-reg-proof"><i className="fas fa-rotate"></i> Change</label>
+          </>
+        ) : (
+          <label className={`hp-pay-upload-btn ${guestFieldErrors.proof ? 'invalid' : ''}`} htmlFor="hp-reg-proof">
+            <i className="fas fa-cloud-arrow-up"></i> Upload
+          </label>
+        )}
+        <input id="hp-reg-proof" type="file" accept="image/*" hidden onChange={(e) => handleGuestProofPick(e.target.files?.[0] || null)} />
+      </div>
+      {guestFieldErrors.proof && (
+        <p className="hp-pay-line-error"><i className="fas fa-circle-exclamation"></i> {guestFieldErrors.proof}</p>
+      )}
+    </>
+  );
+
+  const isBulk = guestRegMode === 'bulk';
+
+  // A group has one extra step at the front: who is holding the registration.
+  const guestStepLabels = isBulk
+    ? ['Representative', 'Attendees', 'Review', 'Payment']
+    : ['Your Details', 'Review', 'Payment'];
+  const rosterStep = isBulk ? 1 : -1;
+  const reviewStep = isBulk ? 2 : 1;
+  const payStep = isBulk ? 3 : 2;
+
+  // Names already registered for this event. Checked against the server (which
+  // only ever answers with the names we asked about, never the whole list) so a
+  // representative is told before paying that someone is signed up twice.
+  const nameKey = (first, last) => `${(first || '').trim()} ${(last || '').trim()}`.trim().toLowerCase().replace(/\s+/g, ' ');
+  const isDuplicateName = (first, last) => {
+    const key = nameKey(first, last);
+    return !!key && dupNames.includes(key);
+  };
+
+  useEffect(() => {
+    if (!guestRegEvent) { setDupNames([]); return undefined; }
+    const names = [];
+    if (isBulk) {
+      bulkAttendees.forEach((a) => names.push(nameKey(a.firstName, a.lastName)));
+      if (attendeeDraft) names.push(nameKey(attendeeDraft.firstName, attendeeDraft.lastName));
+    }
+    names.push(nameKey(guestRegForm.firstName, guestRegForm.lastName));
+    const wanted = [...new Set(names.filter((n) => n.includes(' ')))]; // a first name alone is not worth asking about
+    if (wanted.length === 0) { setDupNames([]); return undefined; }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?eventId=${guestRegEvent.id}&duplicates=${encodeURIComponent(wanted.join('|'))}`);
+        const data = await res.json();
+        setDupNames(data.success ? (data.data || []).map((n) => String(n).toLowerCase()) : []);
+        setDupDetails(data.success ? (data.details || []) : []);
+      } catch { /* a failed check must never block the form - the server checks again on submit */ }
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guestRegEvent, isBulk, bulkAttendees, attendeeDraft, guestRegForm.firstName, guestRegForm.lastName]);
+
+  // How an existing registration reads on a chip next to the name.
+  const REG_STATUS_CHIP = {
+    payment_verified: { label: 'PAID', cls: 'paid' },
+    registered: { label: 'REGISTERED', cls: 'paid' },
+    payment_submitted: { label: 'FOR VERIFICATION', cls: 'pending' },
+    pending_payment: { label: 'UNPAID', cls: 'unpaid' },
+  };
+  const statusChip = (status) => REG_STATUS_CHIP[status] || { label: String(status || '').replace(/_/g, ' ').toUpperCase(), cls: 'pending' };
+
+  // What we already hold about this person, if they registered for this event
+  // before. Drives both the "use my details" offer and the locked extras.
+  const dupInfoFor = (first, last) => {
+    const key = nameKey(first, last);
+    return key ? dupDetails.find((d) => String(d.name).toLowerCase() === key) || null : null;
+  };
+  const repMatch = isBulk ? dupInfoFor(guestRegForm.firstName, guestRegForm.lastName) : null;
+
+  // Already registered means their extras are settled - shown as they stand and
+  // not editable here, and they are not added to the roster a second time.
+  const repLocked = !!repMatch;
+  // The add-ons on a registration are a snapshot taken when it was made, so an
+  // id can be stale (renamed, re-created). Fall back to matching the question
+  // text, or the padlock never appears against what they already availed.
+  const repLockedAddonIds = (() => {
+    const held = repMatch?.addons || [];
+    if (held.length === 0) return [];
+    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    return (guestRegEvent?.event_addons || [])
+      .filter((x) => held.some((h) => h.id === x.id || same(h.question, x.question)))
+      .map((x) => x.id);
+  })();
+
+  // Only a verified registration can be reused - an unverified one may still be
+  // rejected, and its details would then be the wrong ones to copy.
+  const repVerified = !!repMatch && (repMatch.status === 'payment_verified' || repMatch.status === 'registered');
+  // Extras the representative is adding now. For someone already registered these
+  // are the ones they had NOT availed before, charged on top of what they hold.
+  const repNewAddonIds = repAddonIds.filter((id) => !repLockedAddonIds.includes(id));
+  const repTopUpAddons = () => (guestRegEvent?.event_addons || []).filter((x) => repNewAddonIds.includes(x.id));
+  const repTopUpTotal = () => repTopUpAddons().reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+
+  // Copy across what the earlier registration already recorded, so a returning
+  // representative does not retype their church, pastor and number.
+  const useSavedRepDetails = () => {
+    if (!repMatch || !repVerified) return;
+    setGuestRegForm((f) => ({
+      ...f,
+      churchName: repMatch.churchName || f.churchName,
+      churchPastor: (repMatch.churchPastor || f.churchPastor).replace(/^ptr\.?\s*/i, ''),
+      mobile: repMatch.mobile || f.mobile,
+    }));
+    setGuestFieldErrors({});
+    setRepUsedSaved(true);
+  };
+
+  // An unverified registration cannot be built on, so the name that matched it
+  // has to go - and with it everything typed under that name.
+  const clearRepDetails = () => {
+    const methods = guestRegEvent?.payment_methods || [];
+    setGuestRegForm({ ...EMPTY_GUEST_REG_FORM, paymentMethod: methods.length === 1 ? methods[0] : '' });
+    setRepAddonIds((guestRegEvent?.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
+    setRepAgreed(false);
+    setRepUsedSaved(false);
+    setGuestFieldErrors({});
+    setGuestRegResult(null);
+    setChurchOpen(false);
+  };
+
+  const toggleRepAddon = (addon) => {
+    // Required extras, and anything already availed, are not up for debate.
+    if (addon.is_required || repLockedAddonIds.includes(addon.id)) return;
+    setRepAddonIds((ids) => (ids.includes(addon.id) ? ids.filter((v) => v !== addon.id) : [...ids, addon.id]));
+  };
+
+  // The representative as a roster entry, when they are attending and are not
+  // already registered from an earlier submission.
+  // The representative is one of the people being registered - unless they
+  // already have a slot for this event, in which case they only top up extras.
+  const repAsAttendee = () => ((isBulk && !repLocked && guestRegForm.firstName.trim() && guestRegForm.lastName.trim())
+    ? { firstName: guestRegForm.firstName.trim(), lastName: guestRegForm.lastName.trim(), addonIds: repAddonIds, isRep: true }
+    : null);
+
+  // Everyone being registered by this submission: the representative first when
+  // they are coming, then the people they added.
+  const fullRoster = () => {
+    const rep = repAsAttendee();
+    return rep ? [rep, ...bulkAttendees] : bulkAttendees;
+  };
+
+  // ---- Bulk roster: fill in the person above, then they drop into the table ----
+  const draft = attendeeDraft || emptyAttendee(guestRegEvent);
+  const setDraft = (patch) => { setAttendeeDraft({ ...draft, ...patch }); setDraftError(''); };
+  const toggleDraftAddon = (addon) => {
+    if (addon.is_required) return;
+    const has = draft.addonIds.includes(addon.id);
+    setDraft({ addonIds: has ? draft.addonIds.filter((v) => v !== addon.id) : [...draft.addonIds, addon.id] });
+  };
+
+  // Add, or save the row that is being edited. The same button does both, so
+  // there is only ever one place a name is typed.
+  const commitAttendee = () => {
+    const first = draft.firstName.trim();
+    const last = draft.lastName.trim();
+    if (!first || !last) { setDraftError('Enter both the first and last name.'); return; }
+    const key = nameKey(first, last);
+    if (isBulk && key === nameKey(guestRegForm.firstName, guestRegForm.lastName)) {
+      setDraftError(repLocked
+        ? 'That is you - you already have a slot for this event.'
+        : 'That is you - you are already on the list as the representative.');
+      return;
+    }
+    const clash = bulkAttendees.findIndex((a, i) => i !== editingAttendee && nameKey(a.firstName, a.lastName) === key);
+    if (clash > -1) { setDraftError('That person is already on the list below.'); return; }
+    if (dupNames.includes(key)) {
+      setDraftError('already-registered');
+      return;
+    }
+
+    const person = { firstName: first, lastName: last, addonIds: draft.addonIds };
+    setBulkAttendees((list) => (editingAttendee == null
+      ? [...list, person]
+      : list.map((a, i) => (i === editingAttendee ? person : a))));
+    setAttendeeDraft(emptyAttendee(guestRegEvent));
+    setEditingAttendee(null);
+    setDraftError('');
+    clearGuestFieldError('roster');
+  };
+
+  // Editing lifts the row back into the form above, so it is edited where it
+  // was typed rather than turning the table into a grid of inputs.
+  const editAttendee = (index) => {
+    setAttendeeDraft({ ...bulkAttendees[index] });
+    setEditingAttendee(index);
+    setDraftError('');
+  };
+  const cancelEditAttendee = () => {
+    setAttendeeDraft(emptyAttendee(guestRegEvent));
+    setEditingAttendee(null);
+    setDraftError('');
+  };
+  const removeAttendee = (index) => {
+    setBulkAttendees((list) => list.filter((_, i) => i !== index));
+    if (editingAttendee === index) cancelEditAttendee();
+    else if (editingAttendee != null && index < editingAttendee) setEditingAttendee(editingAttendee - 1);
+  };
+  // What a person's extras cost, and what they are called - the table shows both.
+  const attendeeAddons = (a) => (guestRegEvent?.event_addons || []).filter((x) => a.addonIds.includes(x.id));
+  const attendeeExtrasTotal = (a) => attendeeAddons(a).reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+  // What one person in the roster costs: the base fee plus whatever they ticked.
+  const attendeeAmount = (a) => guestBaseAmount(guestRegEvent)
+    + (guestRegEvent?.event_addons || [])
+        .filter((x) => a.addonIds.includes(x.id))
+        .reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+
+  // Step 1: for an individual, who is coming. For a group, who is holding the
+  // registration - the same fields, plus the promise that they are true.
+  const guestStepOneErrors = () => {
+    const errs = {};
+    if (!guestRegForm.firstName.trim()) errs.firstName = 'First name is required.';
+    if (!guestRegForm.lastName.trim()) errs.lastName = 'Last name is required.';
+    if (!guestRegForm.churchName.trim()) errs.churchName = 'Church name is required.';
+    if (!guestRegForm.churchPastor.trim()) errs.churchPastor = 'Church pastor is required.';
+    if (!guestRegForm.mobile.trim()) errs.mobile = 'Contact number is required.';
+    else if (!isValidPhMobile(guestRegForm.mobile)) errs.mobile = 'Philippine mobile number: 11 digits starting with 09.';
+    // A representative whose own registration is still unverified cannot hold a
+    // group booking - the name has to be changed before anything else matters.
+    if (isBulk && repMatch && !repVerified) {
+      errs.firstName = 'This registration is still waiting for verification.';
+      errs.lastName = 'Please use a name that is not registered yet.';
+    }
+    if (isBulk && !repAgreed) errs.agree = 'Please confirm that the details above are true.';
+    return errs;
+  };
+
+  // The bulk roster step: everyone needs a full name, and nobody may be on the
+  // list twice - neither within the form nor against what is already registered.
+  const guestRosterErrors = () => {
+    const errs = {};
+    if (fullRoster().length === 0 && !(repLocked && repNewAddonIds.length > 0)) {
+      errs.roster = 'Add at least one attendee before continuing.';
+      return errs;
+    }
+    // Names are checked as each person is added, but the list is re-checked here
+    // in case a duplicate showed up on the server while the form was open.
+    bulkAttendees.forEach((a, i) => {
+      if (dupNames.includes(nameKey(a.firstName, a.lastName))) errs[`attendee-${i}`] = 'This person is already registered for this event.';
+    });
+    return errs;
+  };
+
+  // The same for the payment step - only asked when there is something to pay.
+  const guestPaymentErrors = () => {
+    const errs = {};
+    if (guestTotalAmount(guestRegEvent) <= 0) return errs;
+    if ((guestRegEvent?.payment_methods || []).length > 1 && !guestRegForm.paymentMethod) errs.paymentMethod = 'Please choose how you paid.';
+    if (!guestRegForm.paymentReference.trim()) errs.paymentReference = 'Reference number is required.';
+    if (!guestRegProof) errs.proof = 'Proof of payment is required.';
+    return errs;
+  };
+
+  // Typing in a field clears its own red state, so the form stops shouting as
+  // soon as it is being fixed.
+  const clearGuestFieldError = (field) => setGuestFieldErrors((errs) => {
+    if (!errs[field]) return errs;
+    const next = { ...errs };
+    delete next[field];
+    return next;
+  });
+
+  const guestStepOneValid = () => Object.keys(guestStepOneErrors()).length === 0;
+  // Everything that must be true before the step after `step` can be opened.
+  const guestStepsValidUpTo = (step) => {
+    if (step > 0 && !guestStepOneValid()) return false;
+    if (isBulk && step > rosterStep && Object.keys(guestRosterErrors()).length > 0) return false;
+    return true;
+  };
+
+  // Jumping around the stepper: back is always fine, forward has to satisfy the
+  // same rules as the Continue buttons.
+  const goToGuestStep = (step) => {
+    if (step === guestRegStep) return;
+    if (step < guestRegStep) { setGuestRegResult(null); setGuestRegStep(step); return; }
+    if (!guestStepsValidUpTo(step)) return;
+    if (step === payStep && guestTotalAmount(guestRegEvent) <= 0) return;
+    setGuestRegResult(null);
+    setGuestRegStep(step);
+  };
+
+  const guestRegNext = () => {
+    const errs = guestRegStep === rosterStep ? guestRosterErrors() : guestStepOneErrors();
+    if (Object.keys(errs).length > 0) {
+      setGuestFieldErrors(errs);
+      setGuestRegResult({
+        ok: false,
+        message: Object.values(errs).some((m) => m.includes('already'))
+          ? 'Someone on the list is already registered. Please check the highlighted names.'
+          : 'Please complete the highlighted fields.',
+      });
+      return;
+    }
+    setGuestFieldErrors({});
+    setGuestRegResult(null);
+    if (guestRegStep < reviewStep) { setGuestRegStep(guestRegStep + 1); return; }
+    // Nothing to pay - the review IS the last step.
+    if (guestTotalAmount(guestRegEvent) <= 0) { submitGuestRegistration(); return; }
+    setGuestRegStep(payStep);
+  };
+
+  // Back out of the form to the individual-vs-bulk choice, keeping the event so
+  // the wrong pick is a one-tap fix rather than starting over from the poster.
+  const backToRegType = () => {
+    const evt = guestRegEvent;
+    closeGuestRegistration();
+    if (evt) { setRegChoiceScreen('who'); setRegChoiceEvent(evt); }
+  };
+
+  const closeGuestRegistration = () => {
+    setGuestRegEvent(null); setGuestRegResult(null); setGuestFieldErrors({});
+    setRepAgreed(false); setRepUsedSaved(false);
+    setDupNames([]); setDupDetails([]);
+  };
+
+  const toggleGuestAddon = (addon) => {
+    if (addon.is_required) return;
+    setGuestRegAddonIds((ids) => (ids.includes(addon.id) ? ids.filter((v) => v !== addon.id) : [...ids, addon.id]));
+  };
+
+  // A genuinely free event: no base fee and no compulsory paid extra. Not the
+  // same as "the total is currently zero", which is also true of a bulk form
+  // before anyone has been added.
+  const eventIsFree = (evt) => guestBaseAmount(evt) <= 0
+    && (evt?.event_addons || []).filter((a) => a.is_required).every((a) => !(Number(a.fee) > 0));
+
+  // Base price for this visitor (early bird if it still applies).
+  const guestBaseAmount = (evt) => {
+    if (!evt || !evt.has_fee) return 0;
+    const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
+    return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+  };
+
+  // Base + the extras ticked. Only a preview - the server recomputes the real
+  // total from the database so the form can't understate what is owed.
+  const guestTotalAmount = (evt) => {
+    // A group pays for each person on the roster, extras and all.
+    if (guestRegMode === 'bulk') {
+      const base = guestBaseAmount(evt);
+      const topUp = repLocked ? repTopUpTotal() : 0;
+      return topUp + fullRoster().reduce((sum, a) => sum + base
+        + (evt?.event_addons || [])
+            .filter((x) => a.addonIds.includes(x.id))
+            .reduce((s, x) => s + (Number(x.fee) || 0), 0), 0);
+    }
+    return guestBaseAmount(evt)
+      + (evt?.event_addons || [])
+          .filter((a) => guestRegAddonIds.includes(a.id))
+          .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+  };
+
+  const submitGuestRegistration = async () => {
+    if (!guestRegEvent) return;
+    const stepOneErrs = guestStepOneErrors();
+    if (Object.keys(stepOneErrs).length > 0) {
+      setGuestFieldErrors(stepOneErrs);
+      setGuestRegResult({ ok: false, message: 'Please complete the highlighted fields.' });
+      setGuestRegStep(0);
+      return;
+    }
+    if (isBulk) {
+      const rosterErrs = guestRosterErrors();
+      if (Object.keys(rosterErrs).length > 0) {
+        setGuestFieldErrors(rosterErrs);
+        setGuestRegResult({ ok: false, message: 'Please check the highlighted names.' });
+        setGuestRegStep(rosterStep);
+        return;
+      }
+    }
+    // With more than one account to choose from, we need to know which one they
+    // used before an admin can match the payment.
+    const payErrs = guestPaymentErrors();
+    if (Object.keys(payErrs).length > 0) {
+      setGuestFieldErrors(payErrs);
+      setGuestRegResult({ ok: false, message: 'Please complete the highlighted fields.' });
+      return;
+    }
+    setGuestFieldErrors({});
+    setGuestRegSubmitting(true);
+    setGuestRegResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('eventId', guestRegEvent.id);
+      fd.append('attendeeFirstName', guestRegForm.firstName.trim());
+      fd.append('attendeeLastName', guestRegForm.lastName.trim());
+      if (isBulk) {
+        fd.append('attendees', JSON.stringify(fullRoster().map((a) => ({
+          firstName: a.firstName.trim(), lastName: a.lastName.trim(), addonIds: a.addonIds,
+        }))));
+        // Who to call about this booking - stored on every row of the group.
+        fd.append('representative', `${guestRegForm.firstName.trim()} ${guestRegForm.lastName.trim()}`.trim());
+        // Extras the representative is availing on the slot they already hold.
+        if (repLocked && repNewAddonIds.length > 0) fd.append('repAddonTopUp', JSON.stringify(repNewAddonIds));
+      }
+      fd.append('attendeeEmail', guestRegForm.email || '');
+      fd.append('attendeeMobile', guestRegForm.mobile || '');
+      fd.append('churchName', guestRegForm.churchName || '');
+      fd.append('churchPastor', guestRegForm.churchPastor ? `Ptr. ${guestRegForm.churchPastor.trim()}` : '');
+      fd.append('addonIds', JSON.stringify(guestRegAddonIds));
+      if (guestTotalAmount(guestRegEvent) > 0) {
+        fd.append('paymentMethod', guestRegForm.paymentMethod || '');
+        fd.append('paymentReference', guestRegForm.paymentReference || '');
+        if (guestRegProof) fd.append('proof', guestRegProof, proofFileName());
+      }
+      const res = await fetch('/api/events/registrations', { method: 'POST', body: fd });
+      const data = await res.json();
+      setGuestRegResult({ ok: !!data.success, message: data.message || (data.success ? 'You are registered!' : 'Something went wrong. Please try again.') });
+      // Slots left and the church counts both come off the registration rows, so
+      // pull the events again - a group of five has just taken five seats.
+      if (data.success) setEventsVersion((v) => v + 1);
+    } catch {
+      setGuestRegResult({ ok: false, message: 'Network error. Please try again.' });
+    } finally {
+      setGuestRegSubmitting(false);
+    }
   };
 
   // ---- Chatbot (Joy AI Assistant) ----
@@ -284,7 +996,7 @@ export default function HomePage() {
       } catch { /* fall back to defaults */ }
     };
     loadNews();
-  }, []);
+  }, [eventsVersion]);
 
 
   // ---- Scroll listener ----
@@ -568,6 +1280,18 @@ If you don't know something specific, professionally encourage the user to conta
             <button key={i} className={`hp-hero-dot ${i === heroIndex ? 'active' : ''}`} onClick={() => goSlide(i)} />
           ))}
         </div>
+
+        {/* The events are the thing most visitors came for, and they sit far down
+            the page - this drops them straight there. */}
+        <button
+          type="button"
+          className="hp-hero-jump"
+          onClick={() => scrollToSection('news')}
+          aria-label="Jump to upcoming events"
+        >
+          <span>Events</span>
+          <i className="fas fa-chevron-down"></i>
+        </button>
       </section>
 
       {/* ---- WELCOME / ABOUT ---- */}
@@ -787,6 +1511,854 @@ If you don't know something specific, professionally encourage the user to conta
         </div>
       </section>
 
+      {/* ---- HOW DO YOU WANT TO REGISTER? ---- */}
+      {regChoiceEvent && (
+        <div className="hp-evt-overlay hp-reg-overlay" onClick={closeRegChoice}>
+          <div className="hp-reg-choice" onClick={(e) => e.stopPropagation()}>
+            <button className="hp-evt-close" onClick={closeRegChoice} aria-label="Close"><i className="fas fa-times"></i></button>
+            <h3>{evtRegionLabel(regChoiceEvent)} &mdash; {regChoiceEvent.title}</h3>
+
+            {/* Screen 1: with an account, or without one. */}
+            {regChoiceScreen === 'how' && (
+              <>
+                <p className="hp-reg-choice-sub">How would you like to continue?</p>
+
+                <button type="button" className="hp-reg-option" onClick={() => goToSignupForEvent(regChoiceEvent)}>
+                  <span className="hp-reg-option-icon"><i className="fas fa-user-plus"></i></span>
+                  <span className="hp-reg-option-text">
+                    <strong>Create an Account <em>(recommended)</em></strong>
+                    <small>You get your own account where you can see your payments, your QR code for check-in, and every event you have joined &mdash; all in one place.</small>
+                  </span>
+                  <i className="fas fa-chevron-right"></i>
+                </button>
+
+                {/* An event limited to specific roles can only be joined by a member, so
+                    guest registration is not offered - the server would reject it. */}
+                {(regChoiceEvent.allowed_roles && regChoiceEvent.allowed_roles.length > 0) ? (
+                  <p className="hp-reg-choice-note">
+                    <i className="fas fa-lock"></i> This event is for {regChoiceEvent.allowed_roles.join(', ')} only, so an account is required.
+                  </p>
+                ) : (
+                  <button type="button" className="hp-reg-option" onClick={() => setRegChoiceScreen('who')}>
+                    <span className="hp-reg-option-icon alt"><i className="fas fa-bolt"></i></span>
+                    <span className="hp-reg-option-text">
+                      <strong>Register Now</strong>
+                      <small>No account needed. Just fill in the form for this event and you are done.</small>
+                    </span>
+                    <i className="fas fa-chevron-right"></i>
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* Screen 2: registering yourself, or a whole group at once. */}
+            {regChoiceScreen === 'who' && (
+              <>
+                <p className="hp-reg-choice-sub">Who are you registering?</p>
+
+                <button type="button" className="hp-reg-option" onClick={() => openGuestRegistration(regChoiceEvent, 'individual')}>
+                  <span className="hp-reg-option-icon"><i className="fas fa-user"></i></span>
+                  <span className="hp-reg-option-text">
+                    <strong>Individual Registration</strong>
+                    <small>Only 1 person will be registered. Fill in your own details and pay for one slot.</small>
+                  </span>
+                  <i className="fas fa-chevron-right"></i>
+                </button>
+
+                <button type="button" className="hp-reg-option" onClick={() => openGuestRegistration(regChoiceEvent, 'bulk')}>
+                  <span className="hp-reg-option-icon alt"><i className="fas fa-user-group"></i></span>
+                  <span className="hp-reg-option-text">
+                    <strong>Bulk Registration</strong>
+                    <small>Many people will be registered at once. Add each person&apos;s name in one form and pay for all of them together.</small>
+                  </span>
+                  <i className="fas fa-chevron-right"></i>
+                </button>
+
+                <button type="button" className="hp-reg-choice-back" onClick={() => setRegChoiceScreen('how')}>
+                  <i className="fas fa-arrow-left"></i> Back
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ---- GUEST REGISTRATION ---- */}
+      {guestRegEvent && (
+        <div className="hp-evt-overlay hp-reg-overlay" onClick={closeGuestRegistration}>
+          <div className="hp-isom-inquire-modal" onClick={(e) => e.stopPropagation()}>
+            {guestRegResult?.ok ? (
+              <div className="hp-reg-done">
+                <div className="hp-reg-done-check"><i className="fas fa-check"></i></div>
+                <h3>{isBulk
+                  ? `${fullRoster().length} ${fullRoster().length === 1 ? 'person is' : 'people are'} registered!`
+                  : `Thank you${guestRegForm.firstName ? `, ${guestRegForm.firstName.trim()}` : ''}!`}</h3>
+                <p className="hp-reg-done-see">
+                  See you on {new Date(guestRegEvent.event_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                </p>
+
+                <div className="hp-reg-done-card">
+                  <span className="hp-reg-done-event">{guestRegEvent.title}</span>
+                  <span className="hp-reg-done-where">
+                    <i className="fas fa-location-dot"></i>
+                    {[guestRegEvent.location, guestRegEvent.loc_city].filter(Boolean).join(', ') || 'Venue to be announced'}
+                  </span>
+                </div>
+
+                <p className="hp-reg-done-note">
+                  <i className="fas fa-circle-info"></i> {guestRegResult.message}
+                </p>
+
+                {/* Only worth offering where a tap actually lands in a calendar app. */}
+                <button type="button" className="hp-reg-cal" onClick={() => addEventToCalendar(guestRegEvent)}>
+                  <i className="fas fa-calendar-plus"></i> Add to Calendar
+                </button>
+
+                <button type="button" className="hp-isom-btn hp-modal-btn" onClick={closeGuestRegistration}>Done</button>
+              </div>
+            ) : (
+              <>
+                {/* Title, stepper and close stay put; only the step content scrolls. */}
+                <div className="hp-reg-top">
+                  <button className="hp-evt-close hp-reg-close" onClick={closeGuestRegistration} aria-label="Close"><i className="fas fa-times"></i></button>
+                  <div className="hp-isom-inquire-head">
+                    <div>
+                      <h3>{evtRegionLabel(guestRegEvent)} &mdash; {guestRegEvent.title}</h3>
+                      {/* which of the two guest flows this is, so nobody wonders why
+                          the form is asking for a list of names. */}
+                      <span className={`hp-reg-mode ${isBulk ? 'bulk' : ''}`}>
+                        <i className={`fas ${isBulk ? 'fa-user-group' : 'fa-user'}`}></i>
+                        {isBulk ? 'Bulk Registration' : 'Individual Registration'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="hp-reg-steps">
+                    {guestStepLabels.map((label, i) => (
+                      <span className="hp-reg-step-wrap" key={label}>
+                        {i > 0 && <span className="hp-reg-step-line"></span>}
+                        <button
+                          type="button"
+                          className={`hp-reg-step ${guestRegStep === i ? 'on' : ''} ${guestRegStep > i ? 'done' : ''}`}
+                          onClick={() => goToGuestStep(i)}
+                          disabled={guestRegSubmitting || (i > guestRegStep && !guestStepsValidUpTo(i))}
+                        >
+                          <b>{guestRegStep > i ? <i className="fas fa-check"></i> : i + 1}</b> {label}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="hp-isom-inquire-form">
+
+                  {guestRegStep === 0 && (
+                    <>
+                      {/* A group is held by one person: their details, their word
+                          that they are true, then the list of who is coming. */}
+                      {isBulk && (
+                        <div className="hp-rep-intro">
+                          <div className="hp-rep-intro-head"><i className="fas fa-id-card"></i> Representative Details</div>
+                          <p>
+                            You are the one holding this registration for your group, so please
+                            make sure to <strong>input your legit information</strong> &mdash; this is
+                            where we call or message about the payment, the slots, and any change
+                            to the schedule.
+                          </p>
+                        </div>
+                      )}
+
+                      {(
+                        <div className="hp-isom-inquire-row">
+                          <div className="hp-form-group">
+                            <label>First Name *</label>
+                            <input type="text" className={`hp-form-control ${guestFieldErrors.firstName ? 'invalid' : ''}`} value={guestRegForm.firstName} onChange={(e) => { setGuestRegForm({ ...guestRegForm, firstName: e.target.value }); clearGuestFieldError('firstName'); }} placeholder="Juan" />
+                            {guestFieldErrors.firstName && <small className="hp-field-error">{guestFieldErrors.firstName}</small>}
+                          </div>
+                          <div className="hp-form-group">
+                            <label>Last Name *</label>
+                            <input type="text" className={`hp-form-control ${guestFieldErrors.lastName ? 'invalid' : ''}`} value={guestRegForm.lastName} onChange={(e) => { setGuestRegForm({ ...guestRegForm, lastName: e.target.value }); clearGuestFieldError('lastName'); }} placeholder="Dela Cruz" />
+                            {guestFieldErrors.lastName && <small className="hp-field-error">{guestFieldErrors.lastName}</small>}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Traced against this event's existing registrations while
+                          they type, so a repeat sign-up is caught before payment. */}
+                      {isBulk && repMatch && (
+                        <div className={`hp-dup-known ${repVerified ? '' : 'waiting'}`}>
+                          <div className="hp-dup-known-head">
+                            <i className={`fas ${repVerified ? 'fa-circle-check' : 'fa-hourglass-half'}`}></i>
+                            <span>
+                              <strong>{`${guestRegForm.firstName.trim()} ${guestRegForm.lastName.trim()}`}</strong>
+                              <span className={`hp-status-chip ${statusChip(repMatch.status).cls}`}>{statusChip(repMatch.status).label}</span>
+                              <br />You are already registered for this event.
+                            </span>
+                          </div>
+                          {repVerified ? (
+                            <>
+                              <p>Want to use the information from that registration? Your church, pastor and contact number will be filled in for you.</p>
+                              {repUsedSaved ? (
+                                <span className="hp-dup-known-done"><i className="fas fa-check"></i> Your saved details are in.</span>
+                              ) : (
+                                <button type="button" className="hp-dup-known-btn" onClick={useSavedRepDetails}>
+                                  <i className="fas fa-wand-magic-sparkles"></i> Use my information
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            /* Not verified yet: it could still be rejected, so its
+                               details are not offered as something to build on. */
+                            <>
+                              <p className="hp-dup-known-wait">
+                                <i className="fas fa-clock"></i> That registration is still waiting for an admin to verify the
+                                payment, so this name cannot be used to hold a group booking yet.
+                                Please use someone whose registration is verified, or who is not registered yet.
+                              </p>
+                              <button type="button" className="hp-dup-known-btn danger" onClick={clearRepDetails}>
+                                <i className="fas fa-eraser"></i> Clear and use another name
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {!isBulk && isDuplicateName(guestRegForm.firstName, guestRegForm.lastName) && (
+                        <p className="hp-dup-warn">
+                          <i className="fas fa-triangle-exclamation"></i>
+                          <span>
+                            <strong>{`${guestRegForm.firstName.trim()} ${guestRegForm.lastName.trim()}`}</strong> is already registered for this event.
+                            Registering again will create a second slot.
+                          </span>
+                        </p>
+                      )}
+
+
+                      {/* The full church name, spelled the same way every time - past
+                          registrations are offered as you type, with how many people
+                          already came from each. */}
+                      <div className="hp-form-group hp-church-field">
+                        <label>Church Name * <em>(complete name)</em></label>
+                        <input
+                          type="text"
+                          className={`hp-form-control ${guestFieldErrors.churchName ? 'invalid' : ''}`}
+                          value={guestRegForm.churchName}
+                          onChange={(e) => { setGuestRegForm({ ...guestRegForm, churchName: e.target.value }); setChurchOpen(true); clearGuestFieldError('churchName'); }}
+                          onFocus={() => setChurchOpen(true)}
+                          onBlur={() => setTimeout(() => setChurchOpen(false), 160)}
+                          placeholder="e.g. Joyful Sound Church - International"
+                          autoComplete="off"
+                        />
+                        {churchOpen && churchOptions.length > 0 && (
+                          <ul className="hp-church-list">
+                            {churchOptions.map((c) => (
+                              <li key={c.name}>
+                                <button type="button" onMouseDown={() => { setGuestRegForm((f) => ({ ...f, churchName: c.name })); setChurchOpen(false); }}>
+                                  <span>{c.name}</span>
+                                  <em>{c.count} registered</em>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {guestFieldErrors.churchName
+                          ? <small className="hp-field-error">{guestFieldErrors.churchName}</small>
+                          : <small className="hp-field-hint">Write it in full, e.g. &quot;Joyful Sound Church - International&quot;.</small>}
+                      </div>
+
+                      <div className="hp-isom-inquire-row">
+                        <div className="hp-form-group">
+                          <label>Church Pastor *</label>
+                          {/* "Ptr." is fixed, so only the name is typed */}
+                          <div className={`hp-prefix-input ${guestFieldErrors.churchPastor ? 'invalid' : ''}`}>
+                            <span>Ptr.</span>
+                            <input type="text" value={guestRegForm.churchPastor} onChange={(e) => { setGuestRegForm({ ...guestRegForm, churchPastor: e.target.value }); clearGuestFieldError('churchPastor'); }} placeholder="Juan Cruz" />
+                          </div>
+                          {guestFieldErrors.churchPastor && <small className="hp-field-error">{guestFieldErrors.churchPastor}</small>}
+                        </div>
+                        <div className="hp-form-group">
+                          <label>Contact Number *</label>
+                          <input
+                            type="tel"
+                            inputMode="numeric"
+                            className={`hp-form-control ${guestFieldErrors.mobile || (guestRegForm.mobile && !isValidPhMobile(guestRegForm.mobile)) ? 'invalid' : ''}`}
+                            value={guestRegForm.mobile}
+                            onChange={(e) => { setGuestRegForm({ ...guestRegForm, mobile: onlyDigits(e.target.value) }); clearGuestFieldError('mobile'); }}
+                            placeholder="09XXXXXXXXX"
+                            maxLength={11}
+                          />
+                          {(guestFieldErrors.mobile || (guestRegForm.mobile && !isValidPhMobile(guestRegForm.mobile))) && (
+                            <small className="hp-field-error">{guestFieldErrors.mobile || 'Philippine mobile number: 11 digits starting with 09.'}</small>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Paid extras belong here - they decide the total shown on step 2. */}
+                      {!isBulk && (guestRegEvent.event_addons || []).length > 0 && (
+                        <div className="hp-reg-addons">
+                          <div className="hp-reg-addons-head"><i className="fas fa-circle-plus"></i> Optional Extras</div>
+                          {/* The question and its price are all the box shows - the
+                              explanation lives behind View Details, under the box. */}
+                          {guestRegEvent.event_addons.map((a) => (
+                            <div className="hp-reg-addon-item" key={a.id}>
+                              <label className={`hp-reg-addon ${guestRegAddonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
+                                <input type="checkbox" checked={guestRegAddonIds.includes(a.id)} disabled={a.is_required} onChange={() => toggleGuestAddon(a)} />
+                                <span className="hp-reg-addon-text">
+                                  <strong>{a.question}</strong>
+                                  {a.is_required && <small>Required &mdash; included for everyone.</small>}
+                                </span>
+                                <span className="hp-reg-addon-fee">+&#8369;{Number(a.fee) || 0}</span>
+                              </label>
+                              {(a.details || a.description) && (
+                                <button type="button" className="hp-addon-details-btn" onClick={() => setAddonDetail(a)}>
+                                  <i className="fas fa-circle-info"></i> View Details
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {eventIsFree(guestRegEvent) && (
+                        <p className="hp-reg-free"><i className="fas fa-gift"></i> Free &mdash; you&apos;ll be registered instantly.</p>
+                      )}
+
+                      {/* The representative usually attends too - when they do they
+                          become the first line of the group, priced like anyone else. */}
+                      {isBulk && (
+                        <div className="hp-rep-join">
+                          <div className="hp-rep-join-head">
+                            <i className="fas fa-suitcase-rolling"></i>
+                            <span>
+                              <strong>Your Extras</strong>
+                              <small>
+                                {repLocked
+                                  ? 'What your existing registration already covers. Anything not yet availed can still be added below.'
+                                  : 'You are the first person in your group - tick anything you need for yourself.'}
+                              </small>
+                            </span>
+                          </div>
+
+                          {(guestRegEvent.event_addons || []).length > 0 ? (
+                            <div className="hp-bulk-addons hp-rep-addons">
+                              {guestRegEvent.event_addons.map((x) => {
+                                // Already availed on an earlier registration: shown
+                                // ticked and greyed out. Not yet availed: still open,
+                                // so it can be added and paid for with this booking.
+                                const settled = repLockedAddonIds.includes(x.id);
+                                const on = settled || repAddonIds.includes(x.id);
+                                const frozen = settled || x.is_required;
+                                return (
+                                  <label className={`hp-bulk-addon ${on ? 'on' : ''} ${frozen ? 'locked' : ''}`} key={x.id}>
+                                    <input type="checkbox" checked={on} disabled={frozen} onChange={() => toggleRepAddon(x)} />
+                                    <span>{x.question}</span>
+                                    <em>+&#8369;{Number(x.fee) || 0}</em>
+                                    {settled && <i className="fas fa-lock" title="Already availed on your existing registration"></i>}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <small className="hp-rep-locked-note">This event has no optional extras.</small>
+                          )}
+
+                          {repLocked && (
+                            <small className="hp-rep-locked-note">
+                              {repLockedAddonIds.length > 0
+                                ? <><i className="fas fa-lock"></i> The ticked ones came from your existing registration and cannot be changed here.</>
+                                : <><i className="fas fa-circle-info"></i> You have not availed any extras yet - tick one to add it to this payment.</>}
+                            </small>
+                          )}
+                        </div>
+                      )}
+
+                      {isBulk && (
+                        <label className={`hp-rep-agree ${guestFieldErrors.agree ? 'invalid' : ''} ${repAgreed ? 'on' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={repAgreed}
+                            onChange={(e) => { setRepAgreed(e.target.checked); clearGuestFieldError('agree'); }}
+                          />
+                          <span>
+                            I confirm that the information above is <strong>true and correct</strong>, and that
+                            I am the representative responsible for the people I am registering.
+                          </span>
+                        </label>
+                      )}
+                      {guestFieldErrors.agree && <small className="hp-field-error">{guestFieldErrors.agree}</small>}
+
+                      {guestRegResult && !guestRegResult.ok && (
+                        <p className="hp-reg-error"><i className="fas fa-circle-exclamation"></i> {guestRegResult.message}</p>
+                      )}
+
+                      <div className="hp-reg-actions">
+                        <button type="button" className="hp-reg-back" onClick={backToRegType} disabled={guestRegSubmitting}>
+                          <i className="fas fa-arrow-left"></i> Change type
+                        </button>
+                        <button type="button" className="hp-isom-btn" onClick={guestRegNext} disabled={guestRegSubmitting}>
+                          <span>{isBulk ? 'Add the People' : 'Review Details'}</span> <i className="fas fa-arrow-right"></i>
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* ---- Bulk step 2: who the representative is bringing ----
+                       One entry form at the top, one row per person in the table
+                       below. Editing a row lifts it back into that same form. */}
+                  {isBulk && guestRegStep === rosterStep && (
+                    <>
+                      <div className="hp-bulk-entry">
+                        <div className="hp-bulk-entry-head">
+                          <span>
+                            <i className={`fas ${editingAttendee == null ? 'fa-user-plus' : 'fa-pen'}`}></i>
+                            {editingAttendee == null ? ' Add an Attendee' : ` Editing attendee #${editingAttendee + 1}`}
+                          </span>
+                          {editingAttendee != null && (
+                            <button type="button" className="hp-bulk-entry-cancel" onClick={cancelEditAttendee}>Cancel</button>
+                          )}
+                        </div>
+
+                        <div className="hp-isom-inquire-row">
+                          <div className="hp-form-group">
+                            <label>First Name *</label>
+                            <input
+                              type="text"
+                              className={`hp-form-control ${draftError && !draft.firstName.trim() ? 'invalid' : ''}`}
+                              value={draft.firstName}
+                              onChange={(e) => setDraft({ firstName: e.target.value })}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitAttendee(); } }}
+                              placeholder="Juan"
+                            />
+                          </div>
+                          <div className="hp-form-group">
+                            <label>Last Name *</label>
+                            <input
+                              type="text"
+                              className={`hp-form-control ${draftError && !draft.lastName.trim() ? 'invalid' : ''}`}
+                              value={draft.lastName}
+                              onChange={(e) => setDraft({ lastName: e.target.value })}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitAttendee(); } }}
+                              placeholder="Dela Cruz"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Extras are per person - only some of a group usually need
+                            accommodation, so they are ticked with the name. */}
+                        {(guestRegEvent.event_addons || []).length > 0 && (
+                          <div className="hp-bulk-addons">
+                            {guestRegEvent.event_addons.map((x) => (
+                              <label className={`hp-bulk-addon ${draft.addonIds.includes(x.id) ? 'on' : ''} ${x.is_required ? 'locked' : ''}`} key={x.id}>
+                                <input type="checkbox" checked={draft.addonIds.includes(x.id)} disabled={x.is_required} onChange={() => toggleDraftAddon(x)} />
+                                <span>{x.question}</span>
+                                <em>+&#8369;{Number(x.fee) || 0}</em>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Already on this event: say who, and where their payment
+                            stands, rather than a bare "already registered". */}
+                        {draftError === 'already-registered' ? (() => {
+                          const info = dupInfoFor(draft.firstName, draft.lastName);
+                          const chip = statusChip(info?.status);
+                          return (
+                            <p className="hp-dup-warn">
+                              <i className="fas fa-triangle-exclamation"></i>
+                              <span>
+                                <b className="hp-dup-name">{`${draft.firstName.trim()} ${draft.lastName.trim()}`}</b>
+                                <span className={`hp-status-chip ${chip.cls}`}>{chip.label}</span>
+                                <br />is already registered for this event, so they cannot be added again.
+                              </span>
+                            </p>
+                          );
+                        })() : draftError ? <small className="hp-field-error">{draftError}</small> : null}
+
+                        <button type="button" className="hp-bulk-add" onClick={commitAttendee}>
+                          <i className={`fas ${editingAttendee == null ? 'fa-plus' : 'fa-check'}`}></i>
+                          {editingAttendee == null ? ' Add Attendee' : ' Save Changes'}
+                        </button>
+                      </div>
+
+                      {/* The list so far, priced line by line. */}
+                      <div className="hp-bulk-table-wrap">
+                        <div className="hp-bulk-head">
+                          <span><i className="fas fa-user-group"></i> People You Are Registering</span>
+                          <em>{fullRoster().length} {fullRoster().length === 1 ? 'person' : 'people'}</em>
+                        </div>
+
+                        {fullRoster().length === 0 && !(repLocked && repTopUpAddons().length > 0) ? (
+                          <p className="hp-bulk-empty">
+                            <i className="fas fa-inbox"></i>
+                            No one added yet. Fill in the name above and tap <strong>Add Attendee</strong>.
+                          </p>
+                        ) : (
+                          <div className="hp-bulk-table-scroll">
+                            <table className="hp-bulk-table">
+                              <thead>
+                                <tr>
+                                  <th>Attendee</th>
+                                  <th>Registration Fee</th>
+                                  <th>Extras</th>
+                                  <th aria-label="Actions"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {fullRoster().map((a, i) => {
+                                  // the representative's own line is edited back on
+                                  // step 1, where their details live
+                                  const listIndex = a.isRep ? -1 : i - (repAsAttendee() ? 1 : 0);
+                                  return (
+                                    <tr key={a.isRep ? 'rep' : listIndex} className={`${editingAttendee === listIndex ? 'editing' : ''} ${guestFieldErrors[`attendee-${listIndex}`] ? 'invalid' : ''}`}>
+                                      <td data-label="Attendee">
+                                        <span className="hp-bulk-row-name">
+                                          <b>{i + 1}.</b> {`${a.firstName} ${a.lastName}`.trim()}
+                                          {a.isRep && <em className="hp-bulk-you">You</em>}
+                                        </span>
+                                        {guestFieldErrors[`attendee-${listIndex}`] && (
+                                          <small className="hp-field-error">{guestFieldErrors[`attendee-${listIndex}`]}</small>
+                                        )}
+                                      </td>
+                                      <td data-label="Registration Fee">&#8369;{guestBaseAmount(guestRegEvent)}</td>
+                                      <td data-label="Extras">
+                                        {attendeeAddons(a).length === 0 ? <span className="hp-bulk-none">&mdash;</span> : (
+                                          <>
+                                            &#8369;{attendeeExtrasTotal(a)}
+                                            <small>{attendeeAddons(a).map((x) => x.question).join(', ')}</small>
+                                          </>
+                                        )}
+                                      </td>
+                                      <td data-label="" className="hp-bulk-row-actions">
+                                        {a.isRep ? (
+                                          <button type="button" onClick={() => setGuestRegStep(0)} title="Edit your details"><i className="fas fa-pen"></i></button>
+                                        ) : (
+                                          <>
+                                            <button type="button" onClick={() => editAttendee(listIndex)} title="Edit"><i className="fas fa-pen"></i></button>
+                                            <button type="button" className="danger" onClick={() => removeAttendee(listIndex)} title="Remove"><i className="fas fa-trash"></i></button>
+                                          </>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                {/* Extras the representative is availing on the slot
+                                    they already hold - not a new seat, but money due. */}
+                                {repLocked && repTopUpAddons().length > 0 && (
+                                  <tr className="hp-bulk-topup">
+                                    <td data-label="Attendee">
+                                      <span className="hp-bulk-row-name">
+                                        {`${guestRegForm.firstName} ${guestRegForm.lastName}`.trim()}
+                                        <em className="hp-bulk-you">You</em>
+                                      </span>
+                                      <small>Already registered &mdash; adding extras only</small>
+                                    </td>
+                                    <td data-label="Registration Fee"><span className="hp-bulk-none">&mdash;</span></td>
+                                    <td data-label="Extras">
+                                      &#8369;{repTopUpTotal()}
+                                      <small>{repTopUpAddons().map((x) => x.question).join(', ')}</small>
+                                    </td>
+                                    <td data-label="" className="hp-bulk-row-actions">
+                                      <button type="button" onClick={() => setGuestRegStep(0)} title="Edit your extras"><i className="fas fa-pen"></i></button>
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                              <tfoot>
+                                <tr>
+                                  <td>Total</td>
+                                  <td colSpan={3}>&#8369;{guestTotalAmount(guestRegEvent)}</td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="hp-bulk-shared-note">
+                        <i className="fas fa-circle-info"></i> Everyone here is registered under
+                        {` ${guestRegForm.churchName.trim() || 'your church'}`}, with
+                        {` ${guestRegForm.firstName.trim() || 'you'}`} as the contact person.
+                      </p>
+
+                      {guestRegResult && !guestRegResult.ok && (
+                        <p className="hp-reg-error"><i className="fas fa-circle-exclamation"></i> {guestRegResult.message}</p>
+                      )}
+
+                      <div className="hp-reg-actions">
+                        <button type="button" className="hp-reg-back" onClick={() => setGuestRegStep(0)} disabled={guestRegSubmitting}>
+                          <i className="fas fa-arrow-left"></i> Back
+                        </button>
+                        <button type="button" className="hp-isom-btn" onClick={guestRegNext} disabled={guestRegSubmitting}>
+                          <span>Review Details</span> <i className="fas fa-arrow-right"></i>
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* ---- Step 2: check everything before any money moves ---- */}
+                  {guestRegStep === reviewStep && (
+                    <>
+                      <div className="hp-step-title">Review your details</div>
+
+                      {/* The days being signed up for, right above the summary. */}
+                      {evtSessions(guestRegEvent).length > 0 && (
+                        <ul className="hp-evt-sessions" style={{ marginBottom: 14 }}>
+                          {evtSessions(guestRegEvent).map((d, i) => {
+                            const parts = evtSessionParts(d, detailEvent);
+                            if (!parts) return null;
+                            return (
+                              <li key={d.id || i}>
+                                <span className="hp-evt-session-day">Day {i + 1}</span>
+                                <span className="hp-evt-session-date">{parts.date}</span>
+                                <span className="hp-evt-session-time">{parts.time}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+
+                      <div className="hp-review">
+                        {isBulk ? (
+                          <>
+                            <div className="hp-review-row">
+                              <span>Representative</span>
+                              <b>{`${guestRegForm.firstName} ${guestRegForm.lastName}`.trim() || '—'}</b>
+                            </div>
+                            <div className="hp-review-row">
+                              <span>Attendees</span>
+                              <b>{fullRoster().length} {fullRoster().length === 1 ? 'person' : 'people'}</b>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="hp-review-row">
+                            <span>Full Name</span>
+                            <b>{`${guestRegForm.firstName} ${guestRegForm.lastName}`.trim() || '—'}</b>
+                          </div>
+                        )}
+                        <div className="hp-review-row">
+                          <span>Church Name</span>
+                          <b>{guestRegForm.churchName.trim() || '—'}</b>
+                        </div>
+                        <div className="hp-review-row">
+                          <span>Church Pastor</span>
+                          <b>{guestRegForm.churchPastor.trim() ? `Ptr. ${guestRegForm.churchPastor.trim()}` : '—'}</b>
+                        </div>
+                        <div className="hp-review-row">
+                          <span>Contact Number</span>
+                          <b>{guestRegForm.mobile || '—'}</b>
+                        </div>
+                      </div>
+
+                      {/* Itemised like a receipt, so the total is never a mystery.
+                          A group is itemised person by person for the same reason. */}
+                      <div className="hp-receipt">
+                        {isBulk && repLocked && repTopUpAddons().length > 0 && (
+                          <div className="hp-receipt-person">
+                            <div className="hp-receipt-line">
+                              <span><b>{`${guestRegForm.firstName} ${guestRegForm.lastName}`.trim()}</b><em className="hp-bulk-you">You</em></span>
+                              <b>&#8369;{repTopUpTotal()}</b>
+                            </div>
+                            <div className="hp-receipt-sub">
+                              Already registered &mdash; extras only:{repTopUpAddons().map((x) => ` ${x.question} ₱${Number(x.fee) || 0}`).join(',')}
+                            </div>
+                          </div>
+                        )}
+                        {isBulk ? fullRoster().map((a, i) => (
+                          <div className="hp-receipt-person" key={i}>
+                            <div className="hp-receipt-line">
+                              <span><b>{`${a.firstName} ${a.lastName}`.trim() || `Person ${i + 1}`}</b>{a.isRep && <em className="hp-bulk-you">You</em>}</span>
+                              <b>&#8369;{attendeeAmount(a)}</b>
+                            </div>
+                            <div className="hp-receipt-sub">
+                              Registration &#8369;{guestBaseAmount(guestRegEvent)}
+                              {(guestRegEvent.event_addons || [])
+                                .filter((x) => a.addonIds.includes(x.id))
+                                .map((x) => ` + ${x.question} ₱${Number(x.fee) || 0}`)
+                                .join('')}
+                            </div>
+                          </div>
+                        )) : (
+                          <>
+                            <div className="hp-receipt-line">
+                              <span>Registration Fee</span>
+                              <b>&#8369;{guestBaseAmount(guestRegEvent)}</b>
+                            </div>
+                            {(guestRegEvent.event_addons || []).filter((a) => guestRegAddonIds.includes(a.id)).map((a) => (
+                              <div className="hp-receipt-line" key={a.id}>
+                                <span>Extras ({a.question})</span>
+                                <b>&#8369;{Number(a.fee) || 0}</b>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        <div className="hp-receipt-total">
+                          <span>Total</span>
+                          <b>&#8369;{guestTotalAmount(guestRegEvent)}</b>
+                        </div>
+                      </div>
+
+                      {guestTotalAmount(guestRegEvent) <= 0 && (
+                        <p className="hp-reg-free"><i className="fas fa-gift"></i> Free &mdash; you&apos;ll be registered instantly.</p>
+                      )}
+
+                      {guestRegResult && !guestRegResult.ok && (
+                        <p className="hp-reg-error"><i className="fas fa-circle-exclamation"></i> {guestRegResult.message}</p>
+                      )}
+
+                      <div className="hp-reg-actions">
+                        <button type="button" className="hp-reg-back" onClick={() => setGuestRegStep(reviewStep - 1)} disabled={guestRegSubmitting}>
+                          <i className="fas fa-arrow-left"></i> Edit
+                        </button>
+                        <button type="button" className="hp-isom-btn" onClick={guestRegNext} disabled={guestRegSubmitting}>
+                          {guestTotalAmount(guestRegEvent) > 0 ? (
+                            <><span>Continue to Payment</span> <i className="fas fa-arrow-right"></i></>
+                          ) : (
+                            <><i className={`fas ${guestRegSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> <span>{guestRegSubmitting ? 'Submitting…' : 'Register'}</span></>
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* ---- Step 3: pay ---- */}
+                  {guestRegStep === payStep && (
+                    <>
+                      <div className="hp-paytotal">
+                        <span>Total Payment</span>
+                        <strong>&#8369;{guestTotalAmount(guestRegEvent)}</strong>
+                      </div>
+
+                      {(guestRegEvent.payment_methods || []).length > 1 && (
+                        <div className="hp-form-group">
+                          <label>Payment Method *</label>
+                          <select className="hp-form-control" value={guestRegForm.paymentMethod} onChange={(e) => setGuestRegForm({ ...guestRegForm, paymentMethod: e.target.value })}>
+                            <option value="">Select&hellip;</option>
+                            {guestRegEvent.payment_methods.map((m) => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Nobody can hand over cash for this one, so say it plainly
+                          before they arrive expecting to pay at the door. */}
+                      {(guestRegEvent.payment_methods || []).length > 0
+                        && !(guestRegEvent.payment_methods || []).some((m) => /cash|church|walk/i.test(m) && !/gcash/i.test(m)) && (
+                        <p className="hp-pay-online-only">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span><strong>Online payment only.</strong> We do not accept cash for this event &mdash; please pay through the account below and upload your receipt.</span>
+                        </p>
+                      )}
+
+                      {guestRegEvent.payment_instructions && <p className="hp-reg-instructions">{guestRegEvent.payment_instructions}</p>}
+
+                      {/* GCash: QR first, account name and number BELOW it. */}
+                      {(guestRegEvent.gcash_number || guestRegEvent.gcash_qr_url) && guestShowsMethod('GCash') && (
+                        <div className="hp-pay-card">
+                          <div className="hp-pay-card-head"><i className="fas fa-mobile-screen-button"></i> GCash</div>
+                          {guestRegEvent.gcash_qr_url && (
+                            <div className="hp-pay-qr">
+                              <img src={guestRegEvent.gcash_qr_url} alt="GCash QR code" />
+                              <button type="button" className="hp-pay-qr-dl" onClick={() => downloadQr(guestRegEvent.gcash_qr_url, guestRegEvent.title)}>
+                                <i className="fas fa-download"></i> Save QR
+                              </button>
+                            </div>
+                          )}
+                          {guestRegEvent.gcash_name && (
+                            <div className="hp-pay-line">
+                              <span className="hp-pay-line-label">Account Name</span>
+                              <span className="hp-pay-line-value">{guestRegEvent.gcash_name}</span>
+                            </div>
+                          )}
+                          {guestRegEvent.gcash_number && (
+                            <div className="hp-pay-line">
+                              <span className="hp-pay-line-label">Mobile Number</span>
+                              <span className="hp-pay-line-value mono">{guestRegEvent.gcash_number}</span>
+                              <button type="button" className="hp-pay-copy" onClick={() => copyToClipboard(guestRegEvent.gcash_number, 'gcash')}>
+                                <i className={`fas ${copiedField === 'gcash' ? 'fa-check' : 'fa-copy'}`}></i> {copiedField === 'gcash' ? 'Copied' : 'Copy'}
+                              </button>
+                            </div>
+                          )}
+                          {payFieldsCard() === 'gcash' && payFieldRows()}
+                        </div>
+                      )}
+
+                      {guestRegEvent.bank_account_number && guestShowsMethod('Bank Transfer') && (
+                        <div className="hp-pay-card">
+                          <div className="hp-pay-card-head"><i className="fas fa-building-columns"></i> Bank Transfer</div>
+                          <div className="hp-pay-line">
+                            <span className="hp-pay-line-label">Bank</span>
+                            <span className="hp-pay-line-value">{guestRegEvent.bank_name}</span>
+                          </div>
+                          <div className="hp-pay-line">
+                            <span className="hp-pay-line-label">Account Name</span>
+                            <span className="hp-pay-line-value">{guestRegEvent.bank_account_name}</span>
+                          </div>
+                          <div className="hp-pay-line">
+                            <span className="hp-pay-line-label">Account Number</span>
+                            <span className="hp-pay-line-value mono">{guestRegEvent.bank_account_number}</span>
+                            <button type="button" className="hp-pay-copy" onClick={() => copyToClipboard(guestRegEvent.bank_account_number, 'bank')}>
+                              <i className={`fas ${copiedField === 'bank' ? 'fa-check' : 'fa-copy'}`}></i> {copiedField === 'bank' ? 'Copied' : 'Copy'}
+                            </button>
+                          </div>
+                          {payFieldsCard() === 'bank' && payFieldRows()}
+                        </div>
+                      )}
+
+                      {/* A method with no account of its own (e.g. Cash) still needs
+                          the reference and the receipt. */}
+                      {payFieldsCard() === 'none' && (
+                        <div className="hp-pay-card">
+                          <div className="hp-pay-card-head"><i className="fas fa-receipt"></i> Payment Details</div>
+                          {payFieldRows()}
+                        </div>
+                      )}
+
+                      <p className="hp-reg-note">Your registration is confirmed once an admin verifies your payment.</p>
+
+                      {guestRegResult && !guestRegResult.ok && (
+                        <p className="hp-reg-error"><i className="fas fa-circle-exclamation"></i> {guestRegResult.message}</p>
+                      )}
+
+                      {fraudTip && (
+                        <div className="hp-fraud-tip" role="alert">
+                          <i className="fas fa-shield-halved"></i>
+                          <span><strong>Be careful of scams.</strong> Only pay the account shown here. We never ask for an OTP, a PIN, or a &quot;release&quot; fee.</span>
+                          <button type="button" onClick={() => setFraudTip(false)} aria-label="Dismiss"><i className="fas fa-times"></i></button>
+                        </div>
+                      )}
+
+                      <div className="hp-reg-actions">
+                        <button type="button" className="hp-reg-back" onClick={() => setGuestRegStep(reviewStep)} disabled={guestRegSubmitting}>
+                          <i className="fas fa-arrow-left"></i> Back
+                        </button>
+                        <button type="button" className="hp-isom-btn" onClick={submitGuestRegistration} disabled={guestRegSubmitting}>
+                          <i className={`fas ${guestRegSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i>
+                          <span>{guestRegSubmitting ? ' Submitting…' : ' Submit Registration'}</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  <p className="hp-reg-switch">
+                    Want to track this later? <button type="button" onClick={() => goToSignupForEvent(guestRegEvent)}>Create an account instead</button>
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ---- WHY IS THIS EXTRA HERE? ---- */}
+      {addonDetail && (
+        <div className="hp-evt-overlay hp-reg-overlay" style={{ zIndex: 14000 }} onClick={() => setAddonDetail(null)}>
+          <div className="hp-addon-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{addonDetail.question}</h3>
+            <div className="hp-addon-modal-fee">+&#8369;{Number(addonDetail.fee) || 0}{addonDetail.is_required ? ' · required' : ' · optional'}</div>
+            {addonDetail.description && <p className="hp-addon-modal-lead">{addonDetail.description}</p>}
+            {addonDetail.details && <p className="hp-addon-modal-body">{addonDetail.details}</p>}
+            <button type="button" className="hp-isom-btn hp-modal-btn" onClick={() => setAddonDetail(null)}>Got it</button>
+          </div>
+        </div>
+      )}
+
       {/* ---- ISOM INQUIRE MODAL ---- */}
       {showIsomInquire && (
         <div className="hp-evt-overlay" onClick={() => setShowIsomInquire(false)}>
@@ -963,12 +2535,30 @@ If you don't know something specific, professionally encourage the user to conta
                   <i className="fas fa-calendar-check"></i>
                   <div>
                     <span className="hp-evt-info-label">When</span>
-                    <span>{evtWhen(detailEvent.event_date, detailEvent.end_date)}</span>
+                    {evtSessions(detailEvent).length === 0 && (
+                      <span>{evtWhen(detailEvent.event_date, detailEvent.end_date)}</span>
+                    )}
                     {evtDayCount(detailEvent.event_date, detailEvent.end_date) > 1 && (
                       <span className="hp-evt-days">
                         <i className="fas fa-calendar-week"></i>
                         Runs {evtDayCount(detailEvent.event_date, detailEvent.end_date)} days
                       </span>
+                    )}
+                    {evtSessions(detailEvent).length > 0 && (
+                      <ul className="hp-evt-sessions">
+                        {evtSessions(detailEvent).map((d, i) => {
+                          const parts = evtSessionParts(d, detailEvent);
+                          if (!parts) return null;
+                          return (
+                            <li key={d.id || i}>
+                              <span className="hp-evt-session-day">Day {i + 1}</span>
+                              <span className="hp-evt-session-date">{parts.date}</span>
+                              <span className="hp-evt-session-time">{parts.time}</span>
+                              {d.label && <span className="hp-evt-session-name">{d.label}</span>}
+                            </li>
+                          );
+                        })}
+                      </ul>
                     )}
                   </div>
                 </div>
@@ -997,18 +2587,12 @@ If you don't know something specific, professionally encourage the user to conta
                         <span>
                           {full
                             ? <strong style={{ color: '#dc2626' }}>Fully booked</strong>
-                            : <><strong style={{ color: 'var(--primary)' }}>{left}</strong> of {detailEvent.max_participants} slots left</>}
+                            : <><strong style={{ color: 'var(--primary)' }}>{left}</strong> {left === 1 ? 'Slot' : 'Slots'} Available</>}
                         </span>
                       </div>
                     </div>
                   );
                 })()}
-                {detailEvent.registration_deadline && (
-                  <div className="hp-evt-info-row">
-                    <i className="fas fa-hourglass-half"></i>
-                    <div><span className="hp-evt-info-label">Register By</span><span>{new Date(detailEvent.registration_deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span></div>
-                  </div>
-                )}
                 {detailEvent.has_fee && detailEvent.payment_instructions && (
                   <div className="hp-evt-info-row">
                     <i className="fas fa-money-check-dollar"></i>
@@ -1020,17 +2604,48 @@ If you don't know something specific, professionally encourage the user to conta
               {detailEvent.registration_required !== false && (() => {
                 const left = detailEvent.slots_left != null ? detailEvent.slots_left : (detailEvent.max_participants ? Math.max(0, detailEvent.max_participants - (detailEvent.registered_count || 0)) : null);
                 const full = left != null && left <= 0;
-                return full ? (
-                  <button className="hp-evt-register" disabled style={{ opacity: 0.55, cursor: 'not-allowed' }}>
-                    <i className="fas fa-ban"></i> Fully Booked
-                  </button>
-                ) : (
-                  <button className="hp-evt-register" onClick={() => handlePublicRegister(detailEvent)}>
-                    <i className="fas fa-user-plus"></i> Register for this Event
-                  </button>
+                // Registration can be scheduled to open later; until that moment the
+                // button is dead rather than letting someone submit and be rejected.
+                const opensAt = detailEvent.registration_start_date ? new Date(detailEvent.registration_start_date) : null;
+                const notOpenYet = opensAt && !Number.isNaN(opensAt.getTime()) && Date.now() < opensAt.getTime();
+                const closesAt = detailEvent.registration_deadline ? new Date(detailEvent.registration_deadline) : null;
+                const closed = closesAt && !Number.isNaN(closesAt.getTime()) && Date.now() > closesAt.getTime();
+
+                if (notOpenYet) {
+                  return (
+                    <>
+                      <button className="hp-evt-register" disabled style={{ opacity: 0.55, cursor: 'not-allowed' }}>
+                        <i className="fas fa-hourglass-start"></i> Upcoming Soon
+                      </button>
+                      <p className="hp-evt-note">
+                        <i className="fas fa-circle-info"></i> Registration opens {opensAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.
+                      </p>
+                    </>
+                  );
+                }
+                if (closed) {
+                  return (
+                    <button className="hp-evt-register" disabled style={{ opacity: 0.55, cursor: 'not-allowed' }}>
+                      <i className="fas fa-lock"></i> Registration Closed
+                    </button>
+                  );
+                }
+                if (full) {
+                  return (
+                    <button className="hp-evt-register" disabled style={{ opacity: 0.55, cursor: 'not-allowed' }}>
+                      <i className="fas fa-ban"></i> Fully Booked
+                    </button>
+                  );
+                }
+                return (
+                  <>
+                    <button className="hp-evt-register" onClick={() => handlePublicRegister(detailEvent)}>
+                      <i className="fas fa-user-plus"></i> Register for this Event
+                    </button>
+                    <p className="hp-evt-note"><i className="fas fa-circle-info"></i> Register in a minute as a guest, or create a free account to track it.</p>
+                  </>
                 );
               })()}
-              <p className="hp-evt-note"><i className="fas fa-circle-info"></i> You&apos;ll create a free account first, then complete your registration.</p>
             </div>
           </div>
         </div>

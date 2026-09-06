@@ -24424,6 +24424,518 @@ body.dark-mode .evt-multiday-note.on { color: var(--accent); }
 .evt-mini-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-color, rgba(0,0,0,0.15)); background: transparent; cursor: pointer; font-size: 0.8rem; font-weight: 600; text-decoration: none; color: var(--text-primary, #333); }
 .evt-mini-btn.ok { background: #16a34a; color: #fff; border-color: #16a34a; }
 .evt-mini-btn.danger { color: #dc2626; border-color: rgba(220,38,38,0.4); }
+/* ---- Hero: the event on the left, the money on the right ---- */
+.evt-hero-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start; gap: 28px;
+}
+.evt-hero-main { min-width: 0; }
+@media (max-width: 1040px) { .evt-hero-grid { grid-template-columns: 1fr; gap: 20px; } }
+
+/* ---- What the event has taken in ---- */
+.evt-hero-stats {
+  /* one row, however many tiles there are - they share the width evenly */
+  display: flex; flex-wrap: nowrap; gap: 12px;
+  width: 100%; max-width: 780px; margin-left: auto;
+}
+.evt-stat { flex: 1 1 0; min-width: 150px; }
+/* Each figure is a button into the rows behind it. Three states, each one
+   readable on its own: resting, hovered, and selected. */
+.evt-stat {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 16px 18px; border-radius: 16px; text-align: left; cursor: pointer;
+  background: rgba(28, 20, 0, 0.22); border: 1px solid rgba(255,255,255,0.26);
+  font-family: inherit;
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+.evt-stat:hover {
+  transform: translateY(-2px);
+  background: rgba(28, 20, 0, 0.36); border-color: rgba(255,255,255,0.55);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.22);
+}
+.evt-stat:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* Selected: a solid card, so the figures read dark-on-light instead of
+   white-on-pale. */
+.evt-hero-stats .evt-stat.on,
+.evt-hero-stats .evt-stat.on:hover {
+  background: #fff; border-color: #fff; box-shadow: 0 10px 26px rgba(0,0,0,0.28);
+}
+.evt-hero-stats .evt-stat.on > span { color: var(--primary, #926c15); }
+.evt-hero-stats .evt-stat.on > b { color: #2b2100; }
+.evt-hero-stats .evt-stat.on > em { color: #6b6b6b; }
+.evt-hero-stats .evt-stat.on.due > b { color: #b45309; }
+.evt-hero-stats .evt-stat.on.wait > b { color: #b91c1c; }
+/* labels wrap rather than truncate - a statistic nobody can read is no use */
+.evt-stat > span {
+  font-size: 0.74rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase;
+  color: rgba(255,255,255,0.82); line-height: 1.3;
+}
+.evt-stat > b { font-size: 1.6rem; font-weight: 800; color: #fff; line-height: 1.15; white-space: nowrap; }
+.evt-stat > em { font-style: normal; font-size: 0.78rem; line-height: 1.35; color: rgba(255,255,255,0.7); }
+.evt-stat.lead { background: rgba(28, 20, 0, 0.30); border-color: rgba(255,255,255,0.45); }
+.evt-stat.lead:hover { background: rgba(28, 20, 0, 0.42); }
+.evt-stat.lead > b { font-size: 1.85rem; }
+.evt-stat.due > b { color: #ffd166; }
+.evt-stat.wait > b { color: #ffb4a2; }
+@media (max-width: 1040px) { .evt-hero-stats { max-width: none; margin-left: 0; } }
+/* only when a phone genuinely cannot hold four across do they wrap */
+@media (max-width: 780px) {
+  .evt-hero-stats { flex-wrap: wrap; }
+  .evt-stat { flex: 1 1 150px; }
+}
+
+/* ---- Table pager ---- */
+.evt-pager {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 12px; padding: 4px 2px;
+  font-size: 0.85rem; color: var(--text-muted, #888);
+}
+.evt-pager-size { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.evt-pager-size select {
+  padding: 6px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.15));
+  background: var(--bg-card, #fff); color: inherit; font: inherit; font-weight: 700;
+}
+.evt-pager-count { font-weight: 600; }
+.evt-pager-nav { display: inline-flex; align-items: center; gap: 4px; }
+.evt-pager-nav button {
+  min-width: 34px; height: 34px; padding: 0 8px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.15));
+  background: var(--bg-card, #fff); color: inherit; font: inherit; font-size: 0.84rem; font-weight: 700;
+}
+.evt-pager-nav button:hover:not(:disabled) { border-color: var(--primary, #926c15); color: var(--primary, #926c15); }
+.evt-pager-nav button.on { background: var(--primary, #926c15); border-color: var(--primary, #926c15); color: #fff; }
+.evt-pager-nav button:disabled { opacity: 0.4; cursor: not-allowed; }
+body.dark-mode .evt-pager-nav button, body.dark-mode .evt-pager-size select { background: #2a2a3a; border-color: rgba(255,255,255,0.18); }
+@media (max-width: 640px) {
+  .evt-pager { justify-content: center; }
+  .evt-pager-nav { order: 3; width: 100%; justify-content: center; }
+}
+
+/* Leaving and adding, one row, matched size, under the event title. The row
+   never wraps on a real screen - the two buttons belong together. */
+.evt-hero-actions {
+  display: flex !important; flex-direction: row; flex-wrap: nowrap;
+  align-items: center; gap: 12px; margin-top: 18px; width: 100%;
+}
+.evt-hero-action {
+  flex: 0 0 auto; min-width: 210px; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  padding: 12px 22px; border-radius: 26px; cursor: pointer; border: 1.5px solid transparent;
+  background: var(--accent, #ffc300); color: #1e1e1e;
+  font-family: inherit; font-size: 0.95rem; font-weight: 800; white-space: nowrap;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.evt-hero-action:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(0,0,0,0.22); }
+.evt-hero-action:disabled { opacity: 0.55; cursor: not-allowed; }
+.evt-hero-action.ghost {
+  background: rgba(255,255,255,0.16); color: #fff; border-color: rgba(255,255,255,0.45);
+}
+.evt-hero-action.ghost:hover { background: rgba(255,255,255,0.28); }
+@media (max-width: 560px) {
+  .evt-hero-actions { flex-wrap: wrap; }
+  .evt-hero-action { flex: 1 1 100%; min-width: 0; }
+}
+
+/* ---- Walk-in form: the two-step header ---- */
+.evt-steps { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; }
+.evt-step-wrap { display: contents; }
+.evt-step {
+  display: inline-flex; align-items: center; gap: 9px; padding: 0;
+  border: none; background: none; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: 0.88rem; font-weight: 700; color: var(--text-muted, #999);
+}
+.evt-step b {
+  width: 27px; height: 27px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.08); color: #999; font-size: 0.82rem;
+}
+.evt-step.on, .evt-step.done { color: var(--primary, #926c15); }
+.evt-step.on b, .evt-step.done b { background: var(--primary, #926c15); color: #fff; }
+.evt-step-line { flex: 1; height: 2px; border-radius: 2px; background: rgba(0,0,0,0.10); }
+body.dark-mode .evt-step b { background: rgba(255,255,255,0.12); }
+body.dark-mode .evt-step-line { background: rgba(255,255,255,0.12); }
+
+/* Someone already registered, caught before a second slot is created. */
+.evt-dup-warn {
+  display: flex; align-items: flex-start; gap: 9px; margin: -4px 0 14px;
+  padding: 11px 13px; border-radius: 10px;
+  background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.28);
+  font-size: 0.85rem; line-height: 1.5; color: #b91c1c;
+}
+.evt-dup-warn i { margin-top: 3px; flex-shrink: 0; }
+
+/* ---- One "Manage" button per row, with the actions behind it ---- */
+.evt-table-wrapper.menu-open { overflow: visible; }
+.evt-rowmenu { position: relative; display: inline-block; text-align: left; }
+.evt-manage-trigger {
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  padding: 8px 12px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.15));
+  background: var(--bg-card, #fff); color: var(--text-primary, #333);
+  font: inherit; font-size: 0.83rem; font-weight: 700;
+}
+.evt-manage-trigger:hover { border-color: var(--primary, #926c15); color: var(--primary, #926c15); }
+.evt-manage-trigger .caret { font-size: 0.68rem; opacity: 0.6; transition: transform 0.18s ease; }
+.evt-rowmenu.open .evt-manage-trigger { border-color: var(--primary, #926c15); color: var(--primary, #926c15); }
+.evt-rowmenu.open .caret { transform: rotate(180deg); }
+.evt-rowmenu-list {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  min-width: 208px; padding: 6px; border-radius: 12px;
+  background: var(--bg-card, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.12));
+  box-shadow: 0 16px 38px rgba(0,0,0,0.18);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.evt-rowmenu-list button {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 9px 11px; border: none; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--text-primary, #333);
+  font: inherit; font-size: 0.86rem; font-weight: 600;
+}
+.evt-rowmenu-list button i { width: 15px; text-align: center; opacity: 0.75; }
+.evt-rowmenu-list button em { margin-left: auto; font-style: normal; font-size: 0.76rem; opacity: 0.7; }
+.evt-rowmenu-list button:hover { background: rgba(0,0,0,0.06); }
+.evt-rowmenu-list button.ok { color: #15803d; }
+.evt-rowmenu-list button.ok:hover { background: rgba(22,163,74,0.12); }
+.evt-rowmenu-list button.warn { color: #b45309; }
+.evt-rowmenu-list button.warn:hover { background: rgba(180,83,9,0.12); }
+.evt-rowmenu-list button.danger { color: #dc2626; }
+.evt-rowmenu-list button.danger:hover { background: rgba(220,38,38,0.10); }
+.evt-rowmenu-note {
+  display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+  font-size: 0.82rem; font-weight: 700; border-radius: 8px;
+}
+.evt-rowmenu-note.ok { color: #15803d; background: rgba(22,163,74,0.10); }
+body.dark-mode .evt-rowmenu-list { background: #26263a; border-color: rgba(255,255,255,0.14); }
+body.dark-mode .evt-rowmenu-list button { color: #eee; }
+body.dark-mode .evt-rowmenu-list button:hover { background: rgba(255,255,255,0.08); }
+body.dark-mode .evt-manage-trigger { background: #2a2a3a; color: #eee; }
+
+/* The money column needs room: amounts never break mid-figure. */
+.evt-table td.evt-cell-payment { min-width: 168px; }
+.evt-cell-payment strong { white-space: nowrap; font-size: 0.98rem; }
+.evt-cell-payment .evt-cell-sub { white-space: normal; line-height: 1.45; }
+.evt-table th, .evt-table td { padding: 14px 16px; }
+.evt-table td.evt-td-actions { white-space: nowrap; }
+@media (max-width: 900px) {
+  .evt-rowmenu, .evt-manage-trigger { width: 100%; }
+  .evt-manage-trigger { justify-content: center; }
+  .evt-rowmenu-list { left: 0; right: 0; min-width: 0; }
+  .evt-table td.evt-cell-payment { min-width: 0; }
+}
+
+/* Individual / Bulk, side by side in the walk-in form. */
+.evt-type-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.evt-plan-option:disabled { opacity: 0.45; cursor: not-allowed; }
+@media (max-width: 560px) { .evt-type-choice { grid-template-columns: 1fr; } }
+
+/* The group roster inside the walk-in form. */
+.evt-bulk-entry {
+  display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;
+  padding: 14px; border-radius: 14px;
+  border: 1.5px solid rgba(146,108,21,0.28); background: rgba(146,108,21,0.05);
+}
+.evt-bulk-entry-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-size: 0.92rem; font-weight: 800; color: var(--primary, #926c15);
+}
+.evt-bulk-cancel {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; font-size: 0.85rem; font-weight: 700; color: #888; text-decoration: underline;
+}
+.evt-bulk-listhead {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 9px; font-size: 0.92rem; font-weight: 800; color: var(--primary, #926c15);
+}
+.evt-bulk-listhead i { margin-right: 7px; }
+.evt-bulk-listhead em {
+  font-style: normal; font-size: 0.78rem; font-weight: 700;
+  padding: 3px 10px; border-radius: 20px; background: rgba(146,108,21,0.12);
+}
+.evt-bulk-empty {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 12px;
+  padding: 16px; border-radius: 12px; border: 1.5px dashed rgba(0,0,0,0.14);
+  color: var(--text-muted, #888); font-size: 0.88rem;
+}
+.evt-row-editing td { background: rgba(146,108,21,0.09); }
+
+/* ---- Pay in full, or pay it down ---- */
+.evt-plan-pick { display: flex; flex-direction: column; gap: 9px; margin: 14px 0; }
+.evt-plan-head {
+  font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted, #999);
+}
+.evt-plan-option {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left;
+  padding: 13px 15px; border-radius: 12px; cursor: pointer;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.12));
+  background: var(--bg-card, #fff); color: inherit; font: inherit;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.evt-plan-option > i { margin-top: 3px; color: var(--primary, #926c15); }
+.evt-plan-option > span { display: flex; flex-direction: column; gap: 3px; }
+.evt-plan-option strong { font-size: 0.95rem; }
+.evt-plan-option small { font-size: 0.82rem; line-height: 1.45; color: var(--text-muted, #888); }
+.evt-plan-option.on { border-color: var(--primary, #926c15); background: rgba(146,108,21,0.07); }
+.evt-plan-option.on strong { color: var(--primary, #926c15); }
+body.dark-mode .evt-plan-option { background: #2a2a3a; }
+
+.evt-plan-detail { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.evt-plan-summary {
+  display: flex; flex-wrap: wrap; gap: 10px 22px; margin-bottom: 4px;
+  padding: 12px 14px; border-radius: 12px; background: rgba(146,108,21,0.07);
+}
+.evt-plan-summary > div { display: flex; flex-direction: column; gap: 2px; }
+.evt-plan-summary span {
+  font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted, #999);
+}
+.evt-plan-summary b { font-size: 1.05rem; }
+.evt-plan-summary .bal b { color: #b45309; }
+
+/* The Record Payment version: centred, and sized to be read at a glance. */
+.evt-plan-summary.big {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+  margin-bottom: 18px; padding: 18px 12px; border-radius: 14px;
+  background: rgba(146,108,21,0.08); border: 1px solid rgba(146,108,21,0.20);
+}
+.evt-plan-summary.big > div {
+  align-items: center; text-align: center; gap: 5px;
+  padding: 0 10px; border-right: 1px solid rgba(146,108,21,0.20);
+}
+.evt-plan-summary.big > div:last-child { border-right: none; }
+.evt-plan-summary.big span { font-size: 0.68rem; letter-spacing: 0.07em; }
+.evt-plan-summary.big b { font-size: 1.5rem; line-height: 1.15; white-space: nowrap; }
+/* the number the payment is measured against */
+.evt-plan-summary.big .bal b { font-size: 1.9rem; color: #b45309; }
+@media (max-width: 480px) {
+  .evt-plan-summary.big { grid-template-columns: 1fr 1fr; gap: 14px 0; }
+  .evt-plan-summary.big > div:nth-child(2) { border-right: none; }
+  .evt-plan-summary.big .bal { grid-column: 1 / -1; border-right: none; padding-top: 12px; border-top: 1px solid rgba(146,108,21,0.20); }
+}
+
+/* ---- The installment table ---- */
+.evt-inst-totals { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.86rem; }
+.evt-inst-totals b { color: var(--primary, #926c15); }
+.evt-inst-totals .due b { color: #b45309; }
+.evt-inst-paid { color: #16a34a; font-weight: 700; }
+.evt-inst-due { color: #b45309; }
+.evt-inst-clear { color: #16a34a; }
+.evt-inst-dates { display: flex; flex-wrap: wrap; gap: 6px; }
+.evt-inst-date {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 6px 4px 11px; border-radius: 20px;
+  background: rgba(22,163,74,0.10); font-size: 0.76rem; white-space: nowrap;
+}
+.evt-inst-date b { font-weight: 700; }
+.evt-inst-date em { font-style: normal; font-weight: 800; color: #15803d; }
+.evt-inst-date i { font-style: normal; color: var(--text-muted, #999); }
+.evt-inst-date button {
+  width: 19px; height: 19px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(0,0,0,0.10); color: #b91c1c; font-size: 0.65rem; line-height: 1;
+}
+.evt-inst-date button:hover { background: #dc2626; color: #fff; }
+.evt-mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.evt-added-admin {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-weight: 800; color: #8a6a12;
+}
+/* a Super Admin entry is the one to spot at a glance */
+.evt-added-admin.super {
+  color: #b8860b; padding: 2px 10px; border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255,195,0,0.22), rgba(146,108,21,0.16));
+  border: 1px solid rgba(184,134,11,0.35);
+}
+.evt-added-admin.super i { color: #b8860b; }
+body.dark-mode .evt-added-admin { color: #ffc300; }
+body.dark-mode .evt-added-admin.super { color: #ffd34d; border-color: rgba(255,195,0,0.4); }
+
+.evt-plan-tag {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 4px;
+  padding: 2px 9px; border-radius: 20px; font-size: 0.72rem; font-weight: 800;
+  background: rgba(180,83,9,0.14); color: #b45309; white-space: nowrap;
+}
+/* settled reads the same green as the Paid status - nothing left to chase */
+.evt-plan-tag.settled { background: rgba(22,163,74,0.14); color: #15803d; }
+
+/* The plan sits under whoever added the registration. */
+.evt-plan-chip {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 4px;
+  padding: 2px 9px; border-radius: 20px; font-size: 0.7rem; font-weight: 700;
+  background: rgba(180,83,9,0.12); color: #b45309; white-space: nowrap;
+}
+
+/* Extras as marks: ticked if taken, dashed if not. */
+.evt-cell-extras { white-space: nowrap; }
+.evt-extra-marks { display: inline-flex; align-items: center; gap: 8px; }
+.evt-extra-mark { display: inline-flex; font-size: 1.05rem; line-height: 1; cursor: help; }
+.evt-extra-mark.yes { color: #16a34a; }
+.evt-extra-mark.no { color: rgba(0,0,0,0.20); }
+body.dark-mode .evt-extra-mark.no { color: rgba(255,255,255,0.22); }
+
+/* the extras half of a total, picked out in the extras colour */
+.evt-extra-amt { color: var(--primary, #926c15); font-weight: 800; }
+body.dark-mode .evt-extra-amt { color: #ffc300; }
+
+.evt-type-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+  font-size: 0.74rem; font-weight: 700;
+}
+.evt-type-tag.solo { background: rgba(120,120,120,0.14); color: #555; }
+.evt-type-tag.bulk { background: rgba(37,99,235,0.12); color: #2563eb; }
+.evt-type-tag.admin { background: rgba(146,108,21,0.14); color: #926c15; }
+body.dark-mode .evt-type-tag.solo { background: rgba(255,255,255,0.10); color: #ccc; }
+
+.evt-group-tag {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: 8px;
+  padding: 1px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 700;
+  background: rgba(37,99,235,0.12); color: #2563eb;
+}
+.evt-mini-btn.warn { color: #b45309; border-color: rgba(180,83,9,0.45); background: #fffbeb; }
+body.dark-mode .evt-mini-btn.warn { background: rgba(180,83,9,0.18); color: #fbbf24; }
+
+/* Contact numbers are copied into GCash constantly - the cell is the button. */
+.evt-copy-cell {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: none; background: transparent; padding: 2px 4px; margin: -2px -4px;
+  border-radius: 6px; cursor: pointer; font: inherit; color: inherit;
+}
+.evt-copy-cell i { font-size: 0.72em; opacity: 0.45; }
+.evt-copy-cell:hover { background: rgba(0,0,0,0.05); }
+.evt-copy-cell:hover i { opacity: 0.9; }
+.evt-copy-cell.copied { color: #16a34a; }
+.evt-copy-cell.copied i { opacity: 1; }
+body.dark-mode .evt-copy-cell:hover { background: rgba(255,255,255,0.08); }
+
+/* Registrations table: the wide columns get the room, the rest stay tight so
+   there are no acres of empty cell between Added By and Church. */
+.evt-table-regs { table-layout: fixed; }
+/* proportions, not pixels, so the row reads evenly at any width */
+.evt-table-regs th:nth-child(1), .evt-table-regs td:nth-child(1) { width: 15%; }  /* Attendee */
+.evt-table-regs th:nth-child(2), .evt-table-regs td:nth-child(2) { width: 9%; }   /* Type */
+.evt-table-regs th:nth-child(3), .evt-table-regs td:nth-child(3) { width: 14%; }  /* Added By */
+.evt-table-regs th:nth-child(4), .evt-table-regs td:nth-child(4) { width: 17%; }  /* Church */
+.evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { width: 11%; }  /* Contact */
+.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { width: 6%; }   /* Extras */
+.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { width: 13%; }  /* Payment */
+.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { width: 10%; }  /* Status */
+.evt-table-regs th:nth-child(9), .evt-table-regs td:nth-child(9) { width: 132px; } /* Actions */
+/* the same gutter the Attendee column gets on the other side */
+.evt-table-regs th:nth-child(9), .evt-table-regs td:nth-child(9) { padding-right: 18px; padding-left: 18px; }
+/* the extras tick sits under the middle of its heading, not off in the margin */
+.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { text-align: center; }
+/* Manage keeps company with Status instead of hugging the table edge */
+.evt-table-regs th:nth-child(9), .evt-table-regs td:nth-child(9) { text-align: right; }
+.evt-table-regs td { word-break: break-word; }
+.evt-table-regs th, .evt-table-regs td { padding: 13px 12px; }
+.evt-table-regs th:first-child, .evt-table-regs td:first-child { padding-left: 18px; }
+.evt-table-regs th:last-child, .evt-table-regs td:last-child { padding-right: 18px; }
+@media (max-width: 1200px) {
+  /* below this the table scrolls instead of squeezing */
+  .evt-table-regs { table-layout: auto; min-width: 1080px; }
+}
+@media (max-width: 900px) { .evt-table-regs { min-width: 0; } }
+
+/* ---- Proof of payment: receipt on the right, the screenshot on the left ---- */
+.evt-proof-modal { max-width: 940px; }
+.evt-proof-body { display: grid; grid-template-columns: 1.05fr 1fr; gap: 18px; align-items: start; }
+.evt-proof-image {
+  position: relative; border-radius: 12px; overflow: hidden;
+  background: #0f0f14; display: flex; align-items: center; justify-content: center;
+  min-height: 320px; max-height: 62vh;
+}
+/* The whole receipt has to stay readable - no cropping, no blur. */
+.evt-proof-image img {
+  width: 100%; max-height: 62vh; object-fit: contain;
+  image-rendering: auto; display: block;
+}
+.evt-proof-zoom {
+  position: absolute; right: 10px; bottom: 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 8px; font-size: 0.75rem; font-weight: 600;
+  background: rgba(0,0,0,0.65); color: #fff; text-decoration: none; backdrop-filter: blur(4px);
+}
+.evt-proof-zoom:hover { background: rgba(0,0,0,0.85); }
+.evt-proof-empty { color: #888; font-size: 0.85rem; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+.evt-proof-details { display: flex; flex-direction: column; gap: 18px; }
+.evt-proof-section { display: flex; flex-direction: column; gap: 9px; }
+.evt-proof-section > h4 {
+  margin: 0; padding-bottom: 7px;
+  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.10));
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--primary, #926c15);
+}
+/* label left, value right, on one baseline the whole way down */
+.evt-proof-list { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.evt-proof-list > div {
+  display: grid; grid-template-columns: 128px minmax(0, 1fr);
+  align-items: baseline; gap: 14px;
+}
+.evt-proof-list dt {
+  font-size: 0.76rem; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--text-muted, #8b8b8b);
+}
+.evt-proof-list dd {
+  margin: 0; font-size: 0.95rem; font-weight: 700; line-height: 1.45;
+  word-break: break-word; text-align: right;
+}
+@media (max-width: 520px) {
+  .evt-proof-list > div { grid-template-columns: 1fr; gap: 2px; }
+  .evt-proof-list dd { text-align: left; }
+}
+
+.evt-proof-receipt {
+  border: 1px dashed var(--border-color, rgba(0,0,0,0.18));
+  border-radius: 12px; padding: 12px 14px;
+  background: var(--bg-subtle, #faf7f0);
+}
+.evt-proof-line { display: flex; justify-content: space-between; gap: 14px; font-size: 0.9rem; padding: 5px 0; }
+.evt-proof-line > span { color: var(--text-muted, #777); }
+.evt-proof-line.total { border-top: 1px solid var(--border-color, rgba(0,0,0,0.18)); margin-top: 7px; padding-top: 9px; font-size: 1.05rem; }
+.evt-proof-line.total > b { color: var(--primary, #926c15); }
+.evt-proof-line.total > span { color: inherit; font-weight: 700; }
+body.dark-mode .evt-proof-receipt { background: rgba(255,255,255,0.04); }
+
+/* The number the admin is here to check. */
+.evt-proof-ref { color: #dc2626; font-weight: 900; font-size: 1.05rem; letter-spacing: 0.03em; }
+
+.evt-modal-foot {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 14px 20px; border-top: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  background: var(--bg-card, #fff);
+}
+body.dark-mode .evt-modal-foot { background: #1e1e2e; border-color: rgba(255,255,255,0.08); }
+/* The two things to do from here, both unmistakable. */
+.evt-proof-foot { gap: 12px; padding: 16px 20px; }
+.evt-foot-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  min-width: 168px; padding: 13px 26px; border-radius: 12px; cursor: pointer;
+  border: 1.5px solid transparent; font-family: inherit; font-size: 0.95rem; font-weight: 800;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+.evt-foot-btn:hover { transform: translateY(-1px); }
+.evt-foot-btn.ghost {
+  background: transparent; color: var(--text-primary, #444);
+  border-color: var(--border-color, rgba(0,0,0,0.20));
+}
+.evt-foot-btn.ghost:hover { border-color: #999; background: rgba(0,0,0,0.04); }
+.evt-foot-btn.verify { background: #16a34a; color: #fff; box-shadow: 0 6px 18px rgba(22,163,74,0.35); }
+.evt-foot-btn.verify:hover { background: #15803d; box-shadow: 0 10px 24px rgba(22,163,74,0.42); }
+.evt-foot-btn.unverify { background: #b45309; color: #fff; box-shadow: 0 6px 18px rgba(180,83,9,0.32); }
+.evt-foot-btn.unverify:hover { background: #92400e; }
+body.dark-mode .evt-foot-btn.ghost { color: #ddd; border-color: rgba(255,255,255,0.24); }
+@media (max-width: 520px) {
+  .evt-proof-foot { flex-direction: column-reverse; }
+  .evt-foot-btn { width: 100%; }
+}
+
+@media (max-width: 820px) {
+  .evt-proof-body { grid-template-columns: 1fr; }
+  .evt-proof-image { max-height: 44vh; min-height: 220px; }
+  .evt-proof-image img { max-height: 44vh; }
+}
 .evt-status { display: inline-block; font-size: 0.72rem; font-weight: 700; text-transform: capitalize; padding: 2px 9px; border-radius: 20px; width: fit-content; }
 .evt-status-registered, .evt-status-payment_verified { background: rgba(22,163,74,0.15); color: #16a34a; }
 .evt-status-pending_payment { background: rgba(234,179,8,0.18); color: #b45309; }
@@ -24680,7 +25192,7 @@ body.dark-mode .evt-draft-badge { background: rgba(255,255,255,0.12); color: #bb
 .evt-table tbody tr:hover { background: rgba(146,108,21,0.05); }
 .evt-nowrap { white-space: nowrap; }
 .evt-cell-title { display: flex; align-items: center; gap: 12px; }
-.evt-cell-banner { width: 54px; height: 40px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.evt-cell-banner { width: 52px; height: 68px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
 .evt-cell-banner.placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); }
 .evt-cell-name { font-weight: 700; }
 .evt-cell-desc { font-size: 0.76rem; color: var(--text-muted, #999); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -24913,6 +25425,9 @@ body.dark-mode .evt-detail-ended { background: rgba(255,255,255,0.08); color: #a
     radial-gradient(circle at 70% 120%, rgba(255,255,255,0.12), transparent 45%);
 }
 .um-hero-content { position: relative; z-index: 1; }
+/* the event hero is a flex row - its content has to take the full width or the
+   statistics end up floating in the middle of the card */
+.evt-hero .um-hero-content { flex: 1 1 auto; width: 100%; }
 .um-hero-title { font-family: var(--font-body); font-weight: 800; font-size: 2.1rem; color: #fff; margin: 0 0 10px; text-shadow: 0 2px 12px rgba(0,0,0,0.25); }
 .um-hero-sub { color: rgba(255,255,255,0.9); font-size: 1rem; max-width: 640px; margin: 0 0 20px; line-height: 1.5; }
 .um-hero-btn {
@@ -25027,7 +25542,81 @@ body.dark-mode .evt-rows-per-page b { background: #2a2a35; color: #eee; }
 /* Events table: fixed container, view toggle, grid */
 /* ============================================ */
 /* View toggle (top-right, reference) */
-.evt-viewbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.evt-viewbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+
+/* Search / sort / type controls above the registrations table. */
+.evt-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
+
+.evt-search {
+  /* the row is as wide as the table under it, so the search takes the slack */
+  position: relative; display: inline-flex; align-items: center;
+  flex: 1 1 320px; min-width: 220px;
+}
+.evt-search > i {
+  position: absolute; left: 13px; pointer-events: none;
+  color: var(--text-muted, #999); font-size: 0.85rem;
+}
+.evt-search input {
+  width: 100%; height: 42px; padding: 0 34px 0 36px; border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.15));
+  background: var(--bg-card, #fff); color: inherit;
+  font: inherit; font-size: 0.88rem;
+}
+.evt-search input:focus { outline: none; border-color: var(--primary, #926c15); }
+.evt-search input::-webkit-search-cancel-button { display: none; }
+.evt-search > button {
+  position: absolute; right: 8px; width: 22px; height: 22px; border-radius: 50%;
+  border: none; cursor: pointer; background: rgba(0,0,0,0.08); color: inherit; font-size: 0.7rem;
+}
+.evt-search > button:hover { background: var(--primary, #926c15); color: #fff; }
+body.dark-mode .evt-search input { background: #2a2a3a; border-color: rgba(255,255,255,0.18); }
+body.dark-mode .evt-search > button { background: rgba(255,255,255,0.12); }
+.evt-filter { display: inline-flex; align-items: center; gap: 8px; }
+/* Label-free selects: the first option names the control, and the native
+   widget is replaced so it matches the search field beside it. */
+.evt-filter-select {
+  flex: 1 1 180px; min-width: 160px; max-width: 260px; height: 42px;
+  appearance: none; -webkit-appearance: none;
+  padding: 0 36px 0 14px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.15));
+  background-color: var(--bg-card, #fff); color: inherit;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23926c15' d='M1.4 0 6 4.6 10.6 0 12 1.4 6 7.4 0 1.4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 13px center;
+  font: inherit; font-size: 0.88rem; font-weight: 600; text-overflow: ellipsis;
+}
+.evt-filter-select:hover { border-color: var(--primary, #926c15); }
+.evt-filter-select:focus { outline: none; border-color: var(--primary, #926c15); box-shadow: 0 0 0 3px rgba(146,108,21,0.14); }
+body.dark-mode .evt-filter-select { background-color: #2a2a3a; border-color: rgba(255,255,255,0.18); }
+@media (max-width: 640px) { .evt-filter-select { flex: 1 1 100%; max-width: none; } }
+.evt-filter > span {
+  font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted, #999);
+}
+.evt-filter select {
+  padding: 8px 12px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.15));
+  background: var(--bg-card, #fff); color: inherit;
+  font: inherit; font-size: 0.85rem; font-weight: 600;
+}
+.evt-filter select:focus { outline: none; border-color: var(--primary, #926c15); }
+.evt-filter-count {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 6px 5px 12px; border-radius: 20px;
+  background: rgba(146,108,21,0.12); color: #926c15;
+  font-size: 0.78rem; font-weight: 700;
+}
+.evt-filter-what { margin-right: 4px; }
+.evt-filter-count button {
+  width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: none;
+  background: rgba(146,108,21,0.20); color: inherit; font-size: 0.7rem; line-height: 1;
+}
+.evt-filter-count button:hover { background: #926c15; color: #fff; }
+body.dark-mode .evt-filter select { background: #2a2a3a; border-color: rgba(255,255,255,0.18); }
+@media (max-width: 640px) {
+  .evt-search { flex: 1 1 100%; }
+  .evt-filter { flex: 1; min-width: 140px; }
+  .evt-filter select { flex: 1; width: 100%; }
+}
 .evt-view-toggle { display: inline-flex; border: 1px solid var(--border-color, #e0d8c4); border-radius: 10px; overflow: hidden; }
 .evt-view-toggle button {
   display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border: none; background: transparent;
@@ -25140,7 +25729,7 @@ body.dark-mode .evt-admin-card { background: #1e1e2e; }
   }
   body.dark-mode .evt-table tbody td.evt-td-primary { background: rgba(255,255,255,0.04); }
   .evt-cell-title { align-items: flex-start; }
-  .evt-cell-banner { width: 60px; height: 46px; }
+  .evt-cell-banner { width: 58px; height: 74px; }
   .evt-cell-desc { white-space: normal; -webkit-line-clamp: 2; max-width: 100%; }
 
   /* Actions cell: full-width row, buttons wrap and get bigger tap targets */
@@ -25194,3 +25783,180 @@ body.dark-mode .phone-input-dial, body.dark-mode .phone-input-number { backgroun
   display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease;
 }
 .myreg-cancel-btn:hover { background: #dc2626; color: #fff; }
+
+/* ============================================================
+   EVENT SESSIONS (Schedule step)
+   One session is the default and is the event itself; extra
+   sessions each carry their own title and start/end date-time.
+   Reuses the .evt-day-* row styles above for the editable rows.
+   ============================================================ */
+.evt-sessions {
+  background: rgba(146,108,21,0.05);
+  border: 1px solid var(--border-color, rgba(146,108,21,0.18));
+  border-radius: 12px; padding: 16px; margin: 0 0 18px;
+}
+.evt-sessions-head {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px; margin-bottom: 12px;
+}
+.evt-sessions-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem; color: var(--primary); }
+.evt-sessions-count {
+  padding: 2px 10px; border-radius: 20px; background: rgba(146,108,21,0.14);
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.3px;
+}
+.evt-sessions-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.evt-session-add {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px; border-radius: 20px; border: none; cursor: pointer;
+  background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff;
+  font-family: inherit; font-size: 0.82rem; font-weight: 700;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+.evt-session-add:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(146,108,21,0.28); }
+.evt-session-add:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Sits in the field grid, aligned with the inputs rather than their labels. */
+.evt-session-remove {
+  align-self: end; justify-self: start; margin-bottom: 2px;
+  width: 36px; height: 36px; border-radius: 9px; cursor: pointer;
+  border: 1.5px solid rgba(220,38,38,0.35); background: transparent; color: #dc2626;
+  transition: all 0.18s ease;
+}
+.evt-session-remove:hover { background: rgba(220,38,38,0.10); border-color: #dc2626; }
+/* Five controls + the remove button, so the 4-column rule above is overridden. */
+@media (min-width: 900px) {
+  .evt-sessions .evt-day-fields { grid-template-columns: 1.4fr 1fr 0.8fr 1fr 0.8fr auto; }
+  .evt-sessions .evt-day-field-label { grid-column: auto; }
+}
+body.dark-mode .evt-sessions { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); }
+body.dark-mode .evt-sessions-count { background: rgba(255,255,255,0.10); color: var(--accent); }
+
+/* Session list inside the event details modal (2+ sessions only). */
+.evt-session-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.evt-session-list li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+  padding: 7px 11px; border-radius: 8px; background: rgba(146,108,21,0.07);
+  border-left: 3px solid var(--primary);
+}
+.evt-session-list li strong { font-size: 0.86rem; color: var(--primary); }
+.evt-session-list li span { font-size: 0.82rem; color: var(--text-muted, #666); }
+body.dark-mode .evt-session-list li { background: rgba(255,255,255,0.05); }
+body.dark-mode .evt-session-list li strong { color: var(--accent); }
+
+/* ============================================================
+   EVENT ADD-ON QUESTIONS
+   Admin builder (Pricing step) + attendee picker (Register modal).
+   ============================================================ */
+.evt-addon-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.evt-addon-row {
+  padding: 12px; border-radius: 10px; background: rgba(146,108,21,0.05);
+  border: 1px solid var(--border-color, rgba(146,108,21,0.16));
+  display: flex; flex-direction: column; gap: 9px;
+}
+.evt-addon-fields {
+  display: grid; grid-template-columns: 1fr; gap: 10px; align-items: end;
+}
+.evt-addon-fields .form-control { padding: 8px 10px !important; font-size: 0.85rem; }
+.evt-addon-desc { padding: 8px 10px !important; font-size: 0.82rem; }
+.evt-addon-required { display: flex; align-items: center; gap: 8px; font-size: 0.79rem; color: var(--text-muted, #777); cursor: pointer; }
+.evt-addon-required input { width: 15px; height: 15px; accent-color: var(--primary); }
+.evt-addon-total {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 12px;
+  padding: 10px 13px; border-radius: 9px; background: rgba(146,108,21,0.09);
+  font-size: 0.82rem; line-height: 1.5; color: var(--primary);
+}
+@media (min-width: 760px) {
+  .evt-addon-fields { grid-template-columns: 1fr 180px auto; }
+}
+body.dark-mode .evt-addon-row { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
+body.dark-mode .evt-addon-total { background: rgba(255,255,255,0.06); color: var(--accent); }
+
+/* ---- Attendee side: pick the extras you want ---- */
+.evt-addon-pick { margin: 4px 0 14px; }
+.evt-addon-pick-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  font-size: 0.85rem; font-weight: 700; color: var(--primary);
+}
+.evt-addon-option {
+  display: flex; align-items: center; gap: 11px; cursor: pointer;
+  padding: 11px 13px; margin-bottom: 8px; border-radius: 10px;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.10)); background: transparent;
+  transition: all 0.18s ease;
+}
+.evt-addon-option:hover { border-color: var(--primary); }
+.evt-addon-option.on { border-color: var(--primary); background: rgba(146,108,21,0.07); }
+.evt-addon-option.locked { cursor: default; opacity: 0.9; }
+.evt-addon-option input { width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--primary); }
+.evt-addon-option-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.evt-addon-option-text strong { font-size: 0.88rem; }
+.evt-addon-option-text small { font-size: 0.76rem; color: var(--text-muted, #777); }
+.evt-addon-option-fee { flex-shrink: 0; font-weight: 800; font-size: 0.9rem; color: var(--primary); }
+body.dark-mode .evt-addon-option { border-color: rgba(255,255,255,0.14); }
+body.dark-mode .evt-addon-option.on { background: rgba(255,255,255,0.07); }
+body.dark-mode .evt-addon-option-fee, body.dark-mode .evt-addon-pick-head { color: var(--accent); }
+
+/* Add-ons an attendee picked, under their contact line in the registrations table. */
+.evt-reg-addons { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-size: 0.74rem; color: var(--primary); }
+body.dark-mode .evt-reg-addons { color: var(--accent); }
+
+/* Day badge in the session list (details + register modals). */
+.evt-session-list li .evt-session-day {
+  font-style: normal; font-weight: 800; font-size: 0.7rem; letter-spacing: 0.6px;
+  text-transform: uppercase; padding: 2px 8px; border-radius: 20px;
+  background: var(--primary); color: #fff;
+}
+.evt-session-list li strong { font-weight: 600; font-style: italic; }
+
+/* Nudge on a session with a start but no finish time. */
+.evt-day-hint {
+  flex-basis: 100%; display: flex; align-items: center; gap: 7px;
+  font-size: 0.74rem; color: var(--text-muted, #888); margin-top: 2px;
+}
+
+/* Actions sit hard right, under the right-aligned ACTIONS heading. */
+.evt-table tbody td.evt-td-actions { text-align: right; white-space: nowrap; }
+.evt-table tbody td.evt-td-actions .evt-manage-wrap { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+
+/* Registrations table: the extras column stays readable without stretching the row. */
+.evt-table td[data-label="Extras"] { max-width: 260px; }
+.evt-table td[data-label="Church"] { max-width: 220px; }
+
+/* ---- Add Registration: same shape as the public form ---- */
+.evt-church-field { position: relative; }
+.evt-church-list {
+  position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 5px;
+  list-style: none; background: var(--card-bg, #fff); border-radius: 12px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10)); box-shadow: 0 14px 34px rgba(0,0,0,0.16);
+  max-height: 200px; overflow-y: auto;
+}
+.evt-church-list button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 9px 11px; border: none; border-radius: 8px; cursor: pointer;
+  background: transparent; font: inherit; text-align: left; color: inherit;
+}
+.evt-church-list button:hover { background: rgba(146,108,21,0.10); }
+.evt-church-list button span { font-size: 0.85rem; font-weight: 600; }
+.evt-church-list button em {
+  flex-shrink: 0; font-style: normal; font-size: 0.7rem; font-weight: 700;
+  padding: 2px 9px; border-radius: 20px; background: rgba(146,108,21,0.14); color: var(--primary);
+}
+.evt-prefix-input {
+  display: flex; align-items: center; border-radius: 10px; overflow: hidden;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.12)); background: var(--input-bg, #fff);
+}
+.evt-prefix-input:focus-within { border-color: var(--primary); }
+.evt-prefix-input span {
+  align-self: stretch; display: flex; align-items: center; padding: 0 10px;
+  background: rgba(146,108,21,0.09); color: var(--primary); font-size: 0.85rem; font-weight: 800;
+}
+.evt-prefix-input input { flex: 1; min-width: 0; border: none; outline: none; padding: 11px 12px; font: inherit; background: transparent; color: inherit; }
+
+/* Receipt inside the Add Registration modal. */
+.evt-receipt { margin-bottom: 12px; }
+.evt-receipt-line { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 4px 0; font-size: 0.85rem; color: var(--text-muted, #666); }
+.evt-receipt-line b { font-weight: 700; color: inherit; font-variant-numeric: tabular-nums; }
+.evt-receipt-total {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  margin-top: 7px; padding-top: 9px; border-top: 2px dashed rgba(146,108,21,0.35);
+  font-weight: 800; font-size: 0.9rem;
+}
+.evt-receipt-total b { font-size: 1.2rem; color: var(--primary); font-variant-numeric: tabular-nums; }
