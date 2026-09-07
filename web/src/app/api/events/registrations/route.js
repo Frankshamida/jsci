@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 import { cached, cacheInvalidate } from '@/lib/serverCache';
+import { SLOT_HOLDING_STATUSES } from '@/lib/eventSlots';
 
 // Churches are typed by hand, so the same church arrives as "joyful sound church"
 // and "Joyful Sound Church". Stored in Title Case so the list stays one entry.
@@ -64,6 +65,7 @@ async function findRegistrationsByName(eventId, names) {
     .select('attendee_name, church_name, church_pastor, attendee_mobile, addons, status, created_at')
     .eq('event_id', eventId)
     .neq('status', 'cancelled')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(5000);
   const byName = new Map();
@@ -90,13 +92,56 @@ async function findRegistrationsByName(eventId, names) {
 const PENDING_ALERTS_TTL_MS = 60 * 1000;
 const PENDING_ALERTS_KEY = 'events:pending-registrations';
 
+// Columns added by the later migrations. A database that has not run them can
+// still take a registration; it just cannot label it.
+const OPTIONAL_COLUMNS = [
+  'group_ref', 'group_size', 'representative', 'registration_type',
+  'added_by', 'added_by_role', 'payment_plan', 'amount_paid',
+  'church_name', 'church_pastor', 'base_amount', 'addons',
+  'deleted_at', 'deleted_by', 'deleted_by_name', 'deleted_reason',
+];
+
+// Of those, the ones a staff-entered registration is meaningless without: they
+// are what makes the row say who added it and how it is being paid.
+const ATTRIBUTION_COLUMNS = ['added_by', 'added_by_role', 'registration_type', 'payment_plan'];
+
+// PostgREST and Postgres name the offending column in a few different shapes.
+// Only a name we recognise as optional counts - anything else is a real error
+// and has to be allowed to surface.
+function missingOptionalColumn(message) {
+  const text = String(message || '');
+  const found = text.match(/Could not find the '([^']+)' column/i)
+    || text.match(/column "([^"]+)"/i)
+    || text.match(/'([^']+)' column/i);
+  const name = found && found[1];
+  return name && OPTIONAL_COLUMNS.includes(name) ? name : null;
+}
+
+// Callers may send a single `id`, or `ids` as an array or a comma-separated
+// string. Normalised here so every batch-capable branch reads the same.
+function idList(ids, single) {
+  const raw = Array.isArray(ids)
+    ? ids
+    : String(ids || '').split(',');
+  const all = [...raw, single].map((v) => String(v || '').trim()).filter(Boolean);
+  return [...new Set(all)];
+}
+
 async function verifyEventManager(actorId) {
+  const actor = await findActor(actorId);
+  return actor && EVENT_MANAGER_ROLES.includes(actor.role) ? actor : null;
+}
+
+// The account behind an id, whatever its role. Kept separate from the
+// permission check so a caller can tell "we do not know who you are" apart
+// from "we know, and you are not allowed" - two problems with two different
+// answers for the person reading the error.
+async function findActor(actorId) {
   if (!actorId) return null;
   try {
     const { data } = await supabase.from('users').select('id, firstname, lastname, role').eq('id', actorId).single();
-    if (data && EVENT_MANAGER_ROLES.includes(data.role)) return data;
-  } catch { /* ignore */ }
-  return null;
+    return data || null;
+  } catch { return null; }
 }
 
 async function logAudit(actor, action, resourceId, details) {
@@ -132,6 +177,7 @@ export async function GET(request) {
           .from('event_registrations')
           .select('id, attendee_name, status, created_at, event:events(id, title)')
           .in('status', ['payment_submitted', 'pending_payment', 'registered'])
+          .is('deleted_at', null)
           .order('created_at', { ascending: false })
           .limit(100);
         if (error) throw error;
@@ -161,6 +207,7 @@ export async function GET(request) {
         .select('church_name')
         .not('church_name', 'is', null)
         .neq('status', 'cancelled')
+        .is('deleted_at', null)
         .limit(2000);
       const counts = new Map();
       (rows || []).forEach((r) => {
@@ -187,12 +234,47 @@ export async function GET(request) {
         .select('*, event:events(id, title, description, image_url, event_date, end_date, location, loc_city, loc_province, latitude, longitude, has_fee, registration_fee)')
         .eq('user_id', userId)
         .neq('status', 'cancelled')
+        .is('deleted_at', null)
         .order('created_at', { ascending: false });
       if (error) throw error;
       return NextResponse.json({ success: true, data: data || [] });
     }
 
-    let query = supabase.from('event_registrations').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
+    // The Recycle Bin: what was removed from this event, newest first, each row
+    // carrying the installments recorded against it so the admin can see what
+    // restoring would bring back before deciding.
+    if (searchParams.get('deleted')) {
+      const actor = await verifyEventManager(searchParams.get('actorId'));
+      if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
+      const { data: rows, error: binErr } = await supabase
+        .from('event_registrations')
+        .select('*')
+        .eq('event_id', eventId)
+        .not('deleted_at', 'is', null)
+        .order('deleted_at', { ascending: false });
+      if (binErr) throw binErr;
+
+      const ids = (rows || []).map((r) => r.id);
+      let payments = [];
+      if (ids.length > 0) {
+        const { data: pays } = await supabase
+          .from('event_registration_payments')
+          .select('*')
+          .in('registration_id', ids)
+          .order('paid_on', { ascending: true });
+        payments = pays || [];
+      }
+      const data = (rows || []).map((r) => ({
+        ...r,
+        payments: payments.filter((p) => p.registration_id === r.id),
+      }));
+      return NextResponse.json({ success: true, data });
+    }
+
+    let query = supabase.from('event_registrations').select('*').eq('event_id', eventId)
+      // Binned rows are hidden here - they live in the Recycle Bin instead.
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
     if (userId) query = query.eq('user_id', userId);
 
     const { data, error } = await query;
@@ -290,11 +372,15 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'Registration is closed for this event' }, { status: 400 });
     }
 
-    // Capacity check (count non-cancelled registrations)
+    // Capacity check. Counted the same way the "slots available" figure is, or
+    // the two would disagree about whether the event is full.
     if (event.max_participants) {
       const { count } = await supabase.from('event_registrations')
         .select('id', { count: 'exact', head: true })
-        .eq('event_id', eventId).neq('status', 'cancelled');
+        .eq('event_id', eventId)
+        .in('status', SLOT_HOLDING_STATUSES)
+        // Binned registrations released their seat when they were deleted.
+        .is('deleted_at', null);
       const seats = isBulk ? people.length : 1;
       const left = event.max_participants - (count || 0);
       if (left < seats) {
@@ -392,9 +478,6 @@ export async function POST(request) {
       .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
     const dueNow = isBulk ? groupTotal + topUpTotal : amount;
     if (dueNow > 0) status = (proofUrl || paymentReference) ? 'payment_submitted' : 'pending_payment';
-    // An installment plan starts owing money whatever was handed over today, so
-    // it stays "submitted" until the payments add up to the total.
-    if (fields.paymentPlan === 'flexible' && dueNow > 0) status = 'payment_submitted';
 
     // One id shared by every row of the same group, so the admin can see the
     // five people who arrived on one payment as one booking.
@@ -406,16 +489,61 @@ export async function POST(request) {
     //   individual -> the attendee themselves
     // The TYPE is always about how many people this covers - one, or a group.
     // WHO entered it is a separate question, answered by added_by_role.
-    const addedByAdmin = !!fields.addedByAdmin;
     const registrationType = isBulk ? 'bulk' : 'individual';
-    const addedByRole = addedByAdmin
-      ? (String(fields.addedByRole || 'Admin').trim() || 'Admin')   // 'Admin' | 'Super Admin'
+
+    // "Added by Super Admin" is a record of who did this, so the role and the
+    // name are read from the logged-in account rather than taken from the form.
+    //
+    // If that account cannot be confirmed, the request is REFUSED rather than
+    // saved under the attendee's own name. A silent fallback here is what makes
+    // a walk-in entered by staff show up as though the attendee registered
+    // themselves - a wrong row that nobody notices beats no row that says why.
+    const addedByAdmin = !!fields.addedByAdmin;
+    let adminActor = null;
+    if (addedByAdmin) {
+      const who = await findActor(fields.actorId);
+      if (!who) {
+        return NextResponse.json({
+          success: false,
+          message: fields.actorId
+            ? 'Your account could not be found. Please sign out and sign in again, then add the attendee.'
+            : 'Could not tell who is signed in. Please sign out and sign in again, then add the attendee.',
+        }, { status: 401 });
+      }
+      if (!EVENT_MANAGER_ROLES.includes(who.role)) {
+        return NextResponse.json({
+          success: false,
+          message: `Only an Admin or Super Admin can add an attendee. Your account is signed in as "${who.role || 'no role'}".`,
+        }, { status: 403 });
+      }
+      adminActor = who;
+    }
+
+    const addedByRole = adminActor
+      ? adminActor.role                              // 'Admin' | 'Super Admin', from the account
       : (isBulk ? 'Representative' : 'Attendee');
     const addedByName = (() => {
-      if (addedByAdmin) return titleCaseName(fields.addedByName) || null;
+      // The staff member's own name, so the row reads "Super Admin / Frank
+      // Gomez" and never the name of the person being added.
+      if (adminActor) return titleCaseName(`${adminActor.firstname} ${adminActor.lastname}`.trim()) || addedByRole;
       if (isBulk) return titleCaseName(fields.representative || attendeeName) || null;
       return attendeeName || null;
     })();
+
+    // ---- What the registration's status should say ----
+    // An installment plan is never "waiting for someone to check a payment" -
+    // it is being paid down, and it says so until the payments add up. Its own
+    // status, rather than borrowing 'payment_submitted', so the bell, the
+    // filters and the bin all read it the same way.
+    if (fields.paymentPlan === 'flexible' && dueNow > 0) {
+      status = 'installment';
+    } else if (addedByAdmin && dueNow > 0 && fields.markVerified !== false) {
+      // Staff entering a walk-in ARE the verification: the money was handed
+      // over in front of the person recording it, so there is nobody left to
+      // check it. Pay-in-full is paid. Unticking "already collected" on the
+      // form is the way to say the money has not arrived yet.
+      status = 'payment_verified';
+    }
 
     // Everything the whole group shares - typed once by the organiser.
     const shared = {
@@ -441,6 +569,9 @@ export async function POST(request) {
       payment_reference: paymentReference || null,
       payment_proof_url: proofUrl,
       status,
+      ...(status === 'payment_verified' && adminActor
+        ? { verified_by: adminActor.id, verified_at: new Date().toISOString() }
+        : {}),
     };
 
     const rows = isBulk
@@ -467,26 +598,49 @@ export async function POST(request) {
 
     let inserted = [];
     let columnWarning = null;
+    const droppedColumns = [];
     if (rows.length > 0) {
-      const { data, error } = await supabase.from('event_registrations').insert(rows).select();
-      if (error) {
-        // These columns only exist once the bulk migration has been run. Without
-        // them a registration still saves - the rows are simply not labelled.
-        if (/group_ref|group_size|representative|registration_type|added_by|added_by_role|payment_plan|column/i.test(error.message || '')) {
-          const bare = rows.map(({
-            group_ref: _g, group_size: _s, representative: _r,
-            registration_type: _t, added_by: _a, added_by_role: _ar, payment_plan: _p, ...rest
-          }) => rest);
-          const retry = await supabase.from('event_registrations').insert(bare).select();
-          if (retry.error) throw retry.error;
-          inserted = retry.data;
-          // Saved, but the labelling was dropped on the floor. The caller is told
-          // so this does not look like the feature quietly not working.
-          columnWarning = 'Saved, but this database is missing the newer registration columns '
-            + '(registration type, added by, payment plan). Run supabase/migrations/event_bulk_registration.sql '
-            + 'and event_flexible_payment.sql to record them.';
-        } else throw error;
-      } else inserted = data;
+      // Retry per column, and only for the column the database actually
+      // complained about. The old version stripped every optional column on any
+      // error mentioning "column", so a grumble about one of them cost us all
+      // of them - which is how a staff-entered walk-in ended up with no
+      // `added_by`, no `payment_plan` and no way to tell that had happened.
+      let attempt = rows;
+      for (;;) {
+        const { data, error } = await supabase.from('event_registrations').insert(attempt).select();
+        if (!error) { inserted = data || []; break; }
+        const missing = missingOptionalColumn(error.message);
+        // Anything that is not a known-optional column is a real failure. Saving
+        // a half-written row would bury it.
+        if (!missing || droppedColumns.includes(missing)) throw error;
+        droppedColumns.push(missing);
+        attempt = attempt.map(({ [missing]: _drop, ...rest }) => rest);
+      }
+    }
+
+    // Losing the attribution is not cosmetic on a staff-entered row: the whole
+    // point of the entry is that it records who made it and how they are
+    // paying. Rather than save a row that says the attendee registered
+    // themselves, the entry is undone and the reason is reported.
+    const lostLabels = droppedColumns.filter((c) => ATTRIBUTION_COLUMNS.includes(c));
+    if (addedByAdmin && lostLabels.length > 0) {
+      if (inserted.length > 0) {
+        await supabase.from('event_registrations').delete().in('id', inserted.map((r) => r.id));
+      }
+      return NextResponse.json({
+        success: false,
+        message: `This database is missing the ${lostLabels.map((c) => `"${c}"`).join(', ')} column${lostLabels.length > 1 ? 's' : ''}, `
+          + 'so the attendee could not be recorded as added by you. Nothing was saved. Run '
+          + 'supabase/migrations/event_bulk_registration.sql and event_flexible_payment.sql, then add the attendee again.',
+      }, { status: 500 });
+    }
+    if (droppedColumns.length > 0) {
+      // A guest registering for themselves is not blocked by a missing label
+      // column - their slot matters more than the labelling - but the gap is
+      // still reported rather than left to look like a feature not working.
+      columnWarning = `Saved, but this database is missing the ${droppedColumns.map((c) => `"${c}"`).join(', ')} `
+        + `column${droppedColumns.length > 1 ? 's' : ''}. Run supabase/migrations/event_bulk_registration.sql `
+        + 'and event_flexible_payment.sql to record them.';
     }
 
     // The representative may be availing an extra on a slot they already hold -
@@ -496,9 +650,10 @@ export async function POST(request) {
       const repName = normName(fields.representative || attendeeName);
       const { data: candidates } = await supabase
         .from('event_registrations')
-        .select('id, attendee_name, addons, amount')
+        .select('id, attendee_name, addons, amount, amount_paid, payment_plan, status')
         .eq('event_id', eventId)
         .neq('status', 'cancelled')
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
         .limit(5000);
       const target = (candidates || []).find((r) => normName(r.attendee_name) === repName);
@@ -510,17 +665,36 @@ export async function POST(request) {
           .map((a) => ({ id: a.id, question: a.question, fee: Number(a.fee) || 0 }));
         if (added.length > 0) {
           const extra = added.reduce((sum, a) => sum + a.fee, 0);
+          const owedAfter = (Number(target.amount) || 0) + extra;
           const patch = {
             addons: [...held, ...added],
-            amount: (Number(target.amount) || 0) + extra,
-            status: 'payment_submitted',
-            verified_by: null,
-            verified_at: null,
+            amount: owedAfter,
           };
+
+          // What the extra money does to the registration's status depends on
+          // who added it and how the registration is being settled.
+          if (target.payment_plan === 'flexible') {
+            // The plan simply owes more now. It stays a plan, and settles when
+            // the payments catch up with the new total.
+            const paidSoFar = Number(target.amount_paid) || 0;
+            patch.status = paidSoFar >= owedAfter ? 'payment_verified' : 'installment';
+            if (patch.status === 'installment') { patch.verified_by = null; patch.verified_at = null; }
+          } else if (adminActor) {
+            // Staff took the extra payment at the desk, so there is nobody left
+            // to verify it - the same rule as any other walk-in entry.
+            patch.status = 'payment_verified';
+            patch.verified_by = adminActor.id;
+            patch.verified_at = new Date().toISOString();
+          } else {
+            // A guest adding an extra owes fresh money that has to be checked.
+            patch.status = 'payment_submitted';
+            patch.verified_by = null;
+            patch.verified_at = null;
+          }
           if (paymentReference) patch.payment_reference = paymentReference;
           if (proofUrl) patch.payment_proof_url = proofUrl;
           await supabase.from('event_registrations').update(patch).eq('id', target.id);
-          await logAudit(null, 'event_registration_update', target.id,
+          await logAudit(adminActor, 'event_registration_update', target.id,
             `${fields.representative || attendeeName} added ${added.map((a) => a.question).join(', ')} (+P${extra}) to their registration for "${event.title}"`);
         }
       }
@@ -539,8 +713,14 @@ export async function POST(request) {
           note: 'Recorded with the registration',
           recorded_by_name: addedByName,
         });
+        // Somebody can pick a plan and then hand over the whole amount anyway.
+        // That is a settled registration, not a plan with nothing left on it.
+        const owedNow = Number(inserted[0].amount) || 0;
         await supabase.from('event_registrations')
-          .update({ amount_paid: firstPayment })
+          .update({
+            amount_paid: firstPayment,
+            ...(owedNow > 0 && firstPayment >= owedNow ? { status: 'payment_verified' } : {}),
+          })
           .eq('id', inserted[0].id);
       } catch { /* the registration itself is saved; the payment can be added again */ }
     }
@@ -557,7 +737,9 @@ export async function POST(request) {
         warning: columnWarning,
         count: inserted.length,
         message: inserted.length === 0
-          ? 'Your extras have been submitted for verification.'
+          // Nobody new was registered - this was extras added to a slot that
+          // already existed. Staff took the money, so nothing is pending.
+          ? (adminActor ? 'Extras added to their registration.' : 'Your extras have been submitted for verification.')
           : (groupTotal > 0
             ? `${inserted.length} registrations submitted`
             : `${inserted.length} people are registered!`),
@@ -576,12 +758,69 @@ export async function POST(request) {
 
 // PUT /api/events/registrations  { id, actorId, status }            -> admin verifies/updates a registration
 //                                { id, actorId, attended: true|false } -> admin marks/clears attendance (QR check-in)
+//                                { id, actorId, action: 'soft_delete', reason } -> admin moves it to the Recycle Bin
+//                                { id, actorId, action: 'restore' }   -> admin brings it back out of the bin
 // DELETE /api/events/registrations?id=..&userId=..  -> a member cancels their OWN registration
+//        /api/events/registrations?id=..&actorId=..&purge=1      -> admin permanently deletes a binned registration
+//        /api/events/registrations?ids=a,b,c&actorId=..&purge=1   -> ...or several at once
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const userId = searchParams.get('userId');
+
+    // Emptying the bin: the only path that destroys anything. Restricted to a
+    // row that is already binned, so a live registration can never be wiped by
+    // a stray request - it has to be deleted, seen in the bin, and deleted again.
+    if (searchParams.get('purge')) {
+      const actor = await verifyEventManager(searchParams.get('actorId'));
+      if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
+      const wanted = idList(searchParams.get('ids'), id);
+      if (wanted.length === 0) return NextResponse.json({ success: false, message: 'id or ids required' }, { status: 400 });
+
+      const { data: regs } = await supabase
+        .from('event_registrations')
+        .select('id, attendee_name, amount, amount_paid, deleted_at')
+        .in('id', wanted);
+      if (!regs || regs.length === 0) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+
+      // Only ever destroys what is already in the bin. A live registration
+      // cannot be wiped by a stray id in a list - it has to be deleted, seen in
+      // the bin, and deleted again.
+      const binned = regs.filter((r) => r.deleted_at);
+      const skipped = regs.length - binned.length;
+      if (binned.length === 0) {
+        return NextResponse.json({
+          success: false,
+          message: 'Move the registration to the Recycle Bin first.',
+        }, { status: 400 });
+      }
+
+      // The installment rows cascade with the registration, so the money
+      // recorded against it goes too - which is why the UI shows it first.
+      const { error: purgeErr } = await supabase
+        .from('event_registrations').delete().in('id', binned.map((r) => r.id));
+      if (purgeErr) throw purgeErr;
+
+      cacheInvalidate(PENDING_ALERTS_KEY);
+      for (const r of binned) {
+        await logAudit(actor, 'event_registration_purge', r.id,
+          `Permanently deleted ${r.attendee_name} (₱${Number(r.amount_paid) || 0} of ₱${Number(r.amount) || 0} recorded)`);
+      }
+
+      const n = binned.length;
+      return NextResponse.json({
+        success: true,
+        count: n,
+        message: (n === 1
+          ? 'Registration permanently deleted'
+          : `${n} registrations permanently deleted`)
+          // Said out loud rather than quietly ignored, so a selection that did
+          // not do what was expected is visible.
+          + (skipped > 0 ? ` — ${skipped} skipped (not in the Recycle Bin)` : ''),
+      });
+    }
+
     if (!id || !userId) return NextResponse.json({ success: false, message: 'id and userId required' }, { status: 400 });
 
     // Ownership check: the registration must belong to this user
@@ -602,22 +841,90 @@ export async function DELETE(request) {
 
 export async function PUT(request) {
   try {
-    const { id, actorId, status, attended } = await request.json();
-    if (!id) return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
-    if (!status && attended === undefined) return NextResponse.json({ success: false, message: 'status or attended required' }, { status: 400 });
+    const { id, ids, actorId, status, attended, action, reason } = await request.json();
+    if (!id && !(Array.isArray(ids) && ids.length > 0)) {
+      return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
+    }
+    if (!status && attended === undefined && !action) return NextResponse.json({ success: false, message: 'status, attended or action required' }, { status: 400 });
 
     const actor = await verifyEventManager(actorId);
     if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
 
+    // Moving a registration to the Recycle Bin, or bringing it back out. Nothing
+    // about the registration itself changes - not its status, not the payments
+    // recorded against it - only whether it is in the bin, so a restore puts
+    // back exactly what was removed.
+    if (action === 'soft_delete' || action === 'restore') {
+      // One id or many - the work is identical, so the batch case is the only
+      // case and a single id is just a batch of one.
+      const wanted = idList(ids, id);
+      if (wanted.length === 0) return NextResponse.json({ success: false, message: 'id or ids required' }, { status: 400 });
+
+      const { data: regs } = await supabase
+        .from('event_registrations')
+        .select('id, attendee_name, amount, amount_paid, deleted_at')
+        .in('id', wanted);
+      if (!regs || regs.length === 0) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+
+      const binning = action === 'soft_delete';
+      // Rows already in the state being asked for are skipped rather than
+      // failing the whole batch - selecting one twice is not an error.
+      const todo = regs.filter((r) => (binning ? !r.deleted_at : !!r.deleted_at));
+      if (todo.length === 0) {
+        return NextResponse.json({
+          success: true,
+          count: 0,
+          message: binning ? 'Already in the Recycle Bin' : 'Nothing there to restore',
+        });
+      }
+
+      const patch = binning
+        ? {
+            deleted_at: new Date().toISOString(),
+            deleted_by: actor.id,
+            deleted_by_name: `${actor.firstname} ${actor.lastname}`.trim(),
+            deleted_reason: (reason || '').trim() || null,
+          }
+        : { deleted_at: null, deleted_by: null, deleted_by_name: null, deleted_reason: null };
+
+      const { data: saved, error: binErr } = await supabase
+        .from('event_registrations').update(patch).in('id', todo.map((r) => r.id)).select();
+      if (binErr) throw binErr;
+
+      cacheInvalidate(PENDING_ALERTS_KEY);
+      // One audit entry per registration: the log is read to find out what
+      // happened to a particular person, not to count batches.
+      for (const r of todo) {
+        await logAudit(
+          actor,
+          binning ? 'event_registration_soft_delete' : 'event_registration_restore',
+          r.id,
+          binning
+            ? `Moved ${r.attendee_name} to the Recycle Bin (₱${Number(r.amount_paid) || 0} of ₱${Number(r.amount) || 0} recorded)${(reason || '').trim() ? ` — ${reason.trim()}` : ''}`
+            : `Restored ${r.attendee_name} from the Recycle Bin`,
+        );
+      }
+
+      const n = todo.length;
+      return NextResponse.json({
+        success: true,
+        data: n === 1 ? (saved || [])[0] : saved,
+        count: n,
+        message: binning
+          ? (n === 1 ? 'Moved to Recycle Bin' : `${n} registrations moved to the Recycle Bin`)
+          : (n === 1 ? 'Registration restored' : `${n} registrations restored`),
+      });
+    }
+
     const update = {};
     if (status) {
-      const valid = ['pending_payment', 'payment_submitted', 'payment_verified', 'registered', 'cancelled'];
+      const valid = ['pending_payment', 'payment_submitted', 'installment', 'payment_verified', 'registered', 'cancelled'];
       if (!valid.includes(status)) return NextResponse.json({ success: false, message: 'Invalid status' }, { status: 400 });
       update.status = status;
       if (status === 'payment_verified' || status === 'registered') { update.verified_by = actor.id; update.verified_at = new Date().toISOString(); }
       // Going back to unverified must drop the old signature, or the row still
       // reads as "checked by X" while it waits to be checked again.
-      if (status === 'payment_submitted' || status === 'pending_payment') { update.verified_by = null; update.verified_at = null; }
+      if (status === 'payment_submitted' || status === 'pending_payment' || status === 'installment') { update.verified_by = null; update.verified_at = null; }
     }
     if (attended === true) { update.attended = true; update.attended_at = new Date().toISOString(); update.attended_by = actor.id; }
     else if (attended === false) { update.attended = false; update.attended_at = null; update.attended_by = null; }

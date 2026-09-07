@@ -88,13 +88,35 @@ const ISOM_SLIDES = [
 const ISOM_BULLET_ICONS = ['fa-bible', 'fa-dove', 'fa-people-group', 'fa-earth-americas'];
 
 // ---- Event date helpers -------------------------------------------------
+// Event datetimes are stored as WALL-CLOCK time: the form posts what the admin
+// typed ("2026-09-08T10:00") and Postgres stamps it +00:00, so Supabase hands
+// back "2026-09-08T10:00:00+00:00" meaning "10:00 on the day", not an instant
+// in UTC. Passing that to `new Date()` shifts it by the viewer's offset - in
+// Manila a 10:00 AM - 6:00 PM event rendered as 6:00 PM - 2:00 AM and so looked
+// like it spanned two days. So the components are read off the string and
+// rebuilt as a local Date, which is what every display below expects.
+const evtDate = (str) => {
+  if (!str) return null;
+  if (str instanceof Date) return Number.isNaN(str.getTime()) ? null : str;
+  const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) {
+    const fallback = new Date(str);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+// Same value as a millisecond stamp, or null. Handy for the many
+// `? ... .getTime() : null` comparisons against Date.now().
+const evtMs = (str) => { const d = evtDate(str); return d ? d.getTime() : null; };
+
 // How many CALENDAR days an event covers: Fri 9am -> Sun 5pm is 3 days to a
 // person even though it is 56 hours, so both ends are normalised to midnight.
 const evtDayCount = (startStr, endStr) => {
   if (!startStr || !endStr) return 1;
-  const s = new Date(startStr);
-  const e = new Date(endStr);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
+  const s = evtDate(startStr);
+  const e = evtDate(endStr);
+  if (!s || !e) return 1;
   const s0 = new Date(s.getFullYear(), s.getMonth(), s.getDate());
   const e0 = new Date(e.getFullYear(), e.getMonth(), e.getDate());
   const days = Math.round((e0.getTime() - s0.getTime()) / 86400000) + 1;
@@ -110,23 +132,28 @@ const evtRegionLabel = (evt) => {
   return place.replace(/\s+city$/i, '') + ' Event';
 };
 
+// Just the place itself ("Cebu"), for the "Upcoming Cebu Event" card pill.
+// Empty when the event has no location yet, so the pill reads "Upcoming Event".
+const evtPlaceWord = (evt) => (evt?.loc_city || evt?.loc_province || evt?.loc_region || '')
+  .trim().replace(/\s+city$/i, '');
+
 // One session split into the pieces the schedule strip shows:
 // "Oct 2" and "10:00 AM - 6:00 PM" (or a second date when it runs overnight).
 const evtSessionParts = (d, evt) => {
-  const s = d?.starts_at ? new Date(d.starts_at) : null;
-  if (!s || Number.isNaN(s.getTime())) return null;
-  let e = d.ends_at ? new Date(d.ends_at) : null;
+  const s = evtDate(d?.starts_at);
+  if (!s) return null;
+  let e = evtDate(d.ends_at);
   // Sessions saved before end times were required have none. Rather than showing
   // a bare "10:00 AM", fall back to the event's own finishing time of day - the
   // hours the event as a whole runs.
-  if ((!e || Number.isNaN(e.getTime()) || e.getTime() <= s.getTime()) && evt?.end_date) {
-    const evtEnd = new Date(evt.end_date);
-    if (!Number.isNaN(evtEnd.getTime())) {
+  if ((!e || e.getTime() <= s.getTime()) && evt?.end_date) {
+    const evtEnd = evtDate(evt.end_date);
+    if (evtEnd) {
       const guess = new Date(s.getFullYear(), s.getMonth(), s.getDate(), evtEnd.getHours(), evtEnd.getMinutes());
       e = guess.getTime() > s.getTime() ? guess : null;
     }
   }
-  const hasEnd = e && !Number.isNaN(e.getTime()) && e.getTime() > s.getTime();
+  const hasEnd = e && e.getTime() > s.getTime();
   const day = (x) => x.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const time = (x) => x.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   const sameDay = hasEnd && s.toDateString() === e.toDateString();
@@ -149,11 +176,10 @@ const evtSessions = (evt) => {
 // An event with no end date is treated as over once its start has passed.
 const evtStatus = (startStr, endStr) => {
   if (!startStr) return null;
-  const s = new Date(startStr);
-  if (Number.isNaN(s.getTime())) return null;
+  const s = evtDate(startStr);
+  if (!s) return null;
   const now = Date.now();
-  const e = endStr ? new Date(endStr) : null;
-  const endMs = e && !Number.isNaN(e.getTime()) ? e.getTime() : s.getTime();
+  const endMs = evtMs(endStr) ?? s.getTime();
   if (now < s.getTime()) return 'upcoming';
   if (now <= endMs) return 'ongoing';
   return 'ended';
@@ -165,13 +191,13 @@ const evtStatus = (startStr, endStr) => {
 // end date entirely. Same-day events still collapse to just the end time.
 const evtWhen = (startStr, endStr) => {
   if (!startStr) return 'TBA';
-  const s = new Date(startStr);
-  if (Number.isNaN(s.getTime())) return 'TBA';
+  const s = evtDate(startStr);
+  if (!s) return 'TBA';
   const full = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' };
   const startTxt = s.toLocaleString('en-US', full);
   if (!endStr) return startTxt;
-  const e = new Date(endStr);
-  if (Number.isNaN(e.getTime())) return startTxt;
+  const e = evtDate(endStr);
+  if (!e) return startTxt;
   const sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
   if (sameDay) return startTxt + ' \u2013 ' + e.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' });
   const sameYear = s.getFullYear() === e.getFullYear();
@@ -287,9 +313,18 @@ export default function HomePage() {
   const [editingAttendee, setEditingAttendee] = useState(null);   // index being edited, or null while adding
   const [draftError, setDraftError] = useState('');
 
+  // An event limited to specific roles can only be joined from an account - the
+  // server rejects a guest registration for one - so those still have to be
+  // asked to sign up first.
+  const regNeedsAccount = (evt) => Array.isArray(evt?.allowed_roles) && evt.allowed_roles.length > 0;
+
   const handlePublicRegister = (evt) => {
     setDetailEvent(null);
-    setRegChoiceScreen('how');
+    // The "create an account, or register without one?" step is switched off
+    // for now: Register goes straight to Individual / Bulk. The screen itself
+    // is left in place (and is still used for role-restricted events), so
+    // turning it back on is a matter of starting at 'how' again.
+    setRegChoiceScreen(regNeedsAccount(evt) ? 'how' : 'who');
     setRegChoiceEvent(evt);
   };
 
@@ -369,13 +404,23 @@ export default function HomePage() {
   // on a phone hands it straight to the calendar app.
   const addEventToCalendar = (evt) => {
     if (!evt?.event_date) return;
-    const stamp = (d) => new Date(d).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    // DTSTAMP is a real instant, so it keeps the trailing Z. The event's own
+    // times are wall-clock (see evtDate), so they are written as ICS "floating"
+    // local times - no Z - which is what puts 10:00 AM in the phone calendar at
+    // 10:00 AM instead of shifting it by the UTC offset.
+    const utcStamp = (d) => new Date(d).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = (v) => {
+      const d = evtDate(v);
+      if (!d) return utcStamp(Date.now());
+      return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+    };
     const end = evt.end_date || evt.event_date;
     const where = [evt.location, evt.loc_barangay, evt.loc_city, evt.loc_province].filter(Boolean).join(', ');
     const ics = [
       'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//JSCI//Events//EN', 'BEGIN:VEVENT',
       `UID:${evt.id}@jsci`,
-      `DTSTAMP:${stamp(Date.now())}`,
+      `DTSTAMP:${utcStamp(Date.now())}`,
       `DTSTART:${stamp(evt.event_date)}`,
       `DTEND:${stamp(end)}`,
       `SUMMARY:${(evt.title || 'Event').replace(/[\n,;]/g, ' ')}`,
@@ -391,20 +436,58 @@ export default function HomePage() {
   };
 
   // Save the QR to the phone so it can be opened inside the payment app.
-  const downloadQr = async (url, title) => {
+  const downloadQr = async (url, title, label = 'qr') => {
     try {
       const res = await fetch(url);
       const blob = await res.blob();
       const href = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = href;
-      a.download = `${(title || 'event').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-gcash-qr.png`;
+      // The stored QR is a .webp; name the file after the channel so a payer with
+      // several saved QRs can tell them apart.
+      const ext = (blob.type && blob.type.split('/')[1]) || 'webp';
+      const slug = (v) => String(v || '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+      a.download = [slug(title) || 'event', slug(label) || 'qr'].filter(Boolean).join('-') + '.' + ext;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(href);
     } catch {
       // cross-origin fetch blocked: open it so the user can long-press / save
       window.open(url, '_blank', 'noopener');
     }
+  };
+
+  // The church's saved payment channels (Mode of Payment). Events reference them
+  // by id, so the account number, name and QR always match what the office set
+  // and never have to be retyped into the event.
+  const [payChannels, setPayChannels] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/payment-methods');
+        const data = await res.json();
+        if (!cancelled && data?.success) setPayChannels(data.data || []);
+      } catch { /* the legacy per-event fields still render */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // The channels this event accepts, in the order the office arranged them.
+  const eventChannels = (evt) => {
+    const ids = evt?.payment_method_ids || [];
+    if (!ids.length) return [];
+    return ids.map((id) => payChannels.find((c) => c.id === id)).filter(Boolean);
+  };
+
+  // Initials fallback when a channel has no logo image ("BDO", "GCash" -> "GC").
+  const channelInitials = (name) => {
+    const t = (name || '').trim();
+    if (!t) return '\u20B1';
+    if (t.length <= 3 && !t.includes(' ')) return t.toUpperCase();
+    const words = t.split(/\s+/).filter((w) => !['of', 'the', 'and'].includes(w.toLowerCase()));
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return words.slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   };
 
   // Church name suggestions, so the same church is always spelled the same way.
@@ -450,6 +533,10 @@ export default function HomePage() {
   const payFieldsCard = () => {
     const e = guestRegEvent;
     if (!e) return 'none';
+    // A saved channel is shown, so the reference / receipt rows belong to the
+    // last of those cards rather than to a separate box.
+    const shown = eventChannels(e).filter((c) => guestShowsMethod(c.name));
+    if (shown.length) return `channel:${shown[shown.length - 1].id}`;
     if ((e.gcash_number || e.gcash_qr_url) && guestShowsMethod('GCash')) return 'gcash';
     if (e.bank_account_number && guestShowsMethod('Bank Transfer')) return 'bank';
     return 'none';
@@ -542,6 +629,8 @@ export default function HomePage() {
     registered: { label: 'REGISTERED', cls: 'paid' },
     payment_submitted: { label: 'FOR VERIFICATION', cls: 'pending' },
     pending_payment: { label: 'UNPAID', cls: 'unpaid' },
+    // Being paid down over several visits - not something waiting on an admin.
+    installment: { label: 'INSTALLMENT', cls: 'pending' },
   };
   const statusChip = (status) => REG_STATUS_CHIP[status] || { label: String(status || '').replace(/_/g, ' ').toUpperCase(), cls: 'pending' };
 
@@ -812,7 +901,7 @@ export default function HomePage() {
   // Base price for this visitor (early bird if it still applies).
   const guestBaseAmount = (evt) => {
     if (!evt || !evt.has_fee) return 0;
-    const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
+    const early = evt.early_bird_price != null && evt.early_bird_deadline && Date.now() <= (evtMs(evt.early_bird_deadline) ?? 0);
     return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
   };
 
@@ -976,12 +1065,12 @@ export default function HomePage() {
           if (json.success && Array.isArray(json.data)) {
             const now = Date.now();
             const notCompleted = json.data.filter((evt) => {
-              const end = evt.end_date ? new Date(evt.end_date).getTime() : (evt.event_date ? new Date(evt.event_date).getTime() : null);
+              const end = evtMs(evt.end_date) ?? evtMs(evt.event_date);
               return !end || end >= now;
             });
             const sorted = [...notCompleted].sort((a, b) => {
-              const da = new Date(a.event_date).getTime();
-              const db = new Date(b.event_date).getTime();
+              const da = evtMs(a.event_date) ?? 0;
+              const db = evtMs(b.event_date) ?? 0;
               const aUpcoming = da >= now;
               const bUpcoming = db >= now;
               // Upcoming events first (soonest first), then past events (most recent first)
@@ -1574,9 +1663,13 @@ If you don't know something specific, professionally encourage the user to conta
                   <i className="fas fa-chevron-right"></i>
                 </button>
 
-                <button type="button" className="hp-reg-choice-back" onClick={() => setRegChoiceScreen('how')}>
-                  <i className="fas fa-arrow-left"></i> Back
-                </button>
+                {/* Only offered when there is a previous screen - the account
+                    question is skipped for an event anyone can join. */}
+                {regNeedsAccount(regChoiceEvent) && (
+                  <button type="button" className="hp-reg-choice-back" onClick={() => setRegChoiceScreen('how')}>
+                    <i className="fas fa-arrow-left"></i> Back
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -1594,7 +1687,7 @@ If you don't know something specific, professionally encourage the user to conta
                   ? `${fullRoster().length} ${fullRoster().length === 1 ? 'person is' : 'people are'} registered!`
                   : `Thank you${guestRegForm.firstName ? `, ${guestRegForm.firstName.trim()}` : ''}!`}</h3>
                 <p className="hp-reg-done-see">
-                  See you on {new Date(guestRegEvent.event_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                  See you on {evtDate(guestRegEvent.event_date)?.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
                 </p>
 
                 <div className="hp-reg-done-card">
@@ -1608,6 +1701,21 @@ If you don't know something specific, professionally encourage the user to conta
                 <p className="hp-reg-done-note">
                   <i className="fas fa-circle-info"></i> {guestRegResult.message}
                 </p>
+
+                {/* Registering is not the end of it - a name is spelled wrong, an
+                    extra needs changing, somebody can no longer come. A tel:
+                    link opens the dialler with the number already in it, so the
+                    fix is one tap away rather than a hunt for a contact page. */}
+                {guestRegEvent.contact_number && (
+                  <p className="hp-reg-done-contact">
+                    If anything about your details changes,{' '}
+                    <a href={`tel:${String(guestRegEvent.contact_number).replace(/[^\d+]/g, '')}`}>
+                      <i className="fas fa-phone"></i> Contact Us
+                    </a>
+                    {' '}&mdash; {guestRegEvent.contact_number}
+                    {guestRegEvent.contact_name && ` (${guestRegEvent.contact_name})`}
+                  </p>
+                )}
 
                 {/* Only worth offering where a tap actually lands in a calendar app. */}
                 <button type="button" className="hp-reg-cal" onClick={() => addEventToCalendar(guestRegEvent)}>
@@ -2248,14 +2356,64 @@ If you don't know something specific, professionally encourage the user to conta
 
                       {guestRegEvent.payment_instructions && <p className="hp-reg-instructions">{guestRegEvent.payment_instructions}</p>}
 
-                      {/* GCash: QR first, account name and number BELOW it. */}
-                      {(guestRegEvent.gcash_number || guestRegEvent.gcash_qr_url) && guestShowsMethod('GCash') && (
+                      {/* The channels the office saved in Mode of Payment: QR first,
+                          then the account details, exactly as set there. */}
+                      {eventChannels(guestRegEvent)
+                        .filter((c) => guestShowsMethod(c.name))
+                        .map((c) => (
+                          <div className="hp-pay-card" key={c.id}>
+                            <div className="hp-pay-card-head">
+                              <span className="hp-pay-logo" style={{ background: c.logo_url ? 'transparent' : (c.logo_color || '#1e3a8a') }}>
+                                {c.logo_url ? <img src={c.logo_url} alt={c.name} /> : <span>{channelInitials(c.name)}</span>}
+                              </span>
+                              <span className="hp-pay-card-name">{c.name}</span>
+                              <span className={`hp-pay-card-type ${c.category}`}>
+                                {c.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}
+                              </span>
+                            </div>
+
+                            {c.qr_url && (
+                              <div className="hp-pay-qr">
+                                <img src={c.qr_url} alt={`${c.name} QR code`} />
+                                <button type="button" className="hp-pay-qr-dl" onClick={() => downloadQr(c.qr_url, guestRegEvent.title, `${c.name}-qr`)}>
+                                  <i className="fas fa-download"></i> Save QR
+                                </button>
+                              </div>
+                            )}
+
+                            {c.account_name && (
+                              <div className="hp-pay-line">
+                                <span className="hp-pay-line-label">Account Name</span>
+                                <span className="hp-pay-line-value">{c.account_name}</span>
+                                <button type="button" className="hp-pay-copy" onClick={() => copyToClipboard(c.account_name, `name-${c.id}`)}>
+                                  <i className={`fas ${copiedField === `name-${c.id}` ? 'fa-check' : 'fa-copy'}`}></i> {copiedField === `name-${c.id}` ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                            )}
+                            {c.account_number && (
+                              <div className="hp-pay-line">
+                                <span className="hp-pay-line-label">{c.category === 'bank' ? 'Account Number' : 'Mobile Number'}</span>
+                                <span className="hp-pay-line-value mono">{c.account_number}</span>
+                                <button type="button" className="hp-pay-copy" onClick={() => copyToClipboard(c.account_number, `num-${c.id}`)}>
+                                  <i className={`fas ${copiedField === `num-${c.id}` ? 'fa-check' : 'fa-copy'}`}></i> {copiedField === `num-${c.id}` ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                            )}
+                            {c.notes && <p className="hp-pay-card-note"><i className="fas fa-circle-info"></i> {c.notes}</p>}
+
+                            {payFieldsCard() === `channel:${c.id}` && payFieldRows()}
+                          </div>
+                        ))}
+
+                      {/* Events created before Mode of Payment existed keep their
+                          own typed-in details - shown only when no channel is set. */}
+                      {eventChannels(guestRegEvent).length === 0 && (guestRegEvent.gcash_number || guestRegEvent.gcash_qr_url) && guestShowsMethod('GCash') && (
                         <div className="hp-pay-card">
                           <div className="hp-pay-card-head"><i className="fas fa-mobile-screen-button"></i> GCash</div>
                           {guestRegEvent.gcash_qr_url && (
                             <div className="hp-pay-qr">
                               <img src={guestRegEvent.gcash_qr_url} alt="GCash QR code" />
-                              <button type="button" className="hp-pay-qr-dl" onClick={() => downloadQr(guestRegEvent.gcash_qr_url, guestRegEvent.title)}>
+                              <button type="button" className="hp-pay-qr-dl" onClick={() => downloadQr(guestRegEvent.gcash_qr_url, guestRegEvent.title, 'gcash-qr')}>
                                 <i className="fas fa-download"></i> Save QR
                               </button>
                             </div>
@@ -2279,7 +2437,7 @@ If you don't know something specific, professionally encourage the user to conta
                         </div>
                       )}
 
-                      {guestRegEvent.bank_account_number && guestShowsMethod('Bank Transfer') && (
+                      {eventChannels(guestRegEvent).length === 0 && guestRegEvent.bank_account_number && guestShowsMethod('Bank Transfer') && (
                         <div className="hp-pay-card">
                           <div className="hp-pay-card-head"><i className="fas fa-building-columns"></i> Bank Transfer</div>
                           <div className="hp-pay-line">
@@ -2488,7 +2646,10 @@ If you don't know something specific, professionally encourage the user to conta
                     ? <img src={evt.image_url} alt={evt.title} className="hp-invite-hero-img" loading="lazy" decoding="async" />
                     : <span className="hp-invite-hero-ph"><i className="fas fa-calendar-day"></i></span>}
 
-                  <span className="hp-invite-pill"><i className="fas fa-star"></i> UPCOMING EVENT</span>
+                  <span className="hp-invite-pill">
+                    <i className="fas fa-star"></i>
+                    <span>Upcoming{evtPlaceWord(evt) ? <> <b>{evtPlaceWord(evt)}</b></> : null} Event</span>
+                  </span>
                 </div>
               </button>
             ))
@@ -2606,9 +2767,9 @@ If you don't know something specific, professionally encourage the user to conta
                 const full = left != null && left <= 0;
                 // Registration can be scheduled to open later; until that moment the
                 // button is dead rather than letting someone submit and be rejected.
-                const opensAt = detailEvent.registration_start_date ? new Date(detailEvent.registration_start_date) : null;
+                const opensAt = evtDate(detailEvent.registration_start_date);
                 const notOpenYet = opensAt && !Number.isNaN(opensAt.getTime()) && Date.now() < opensAt.getTime();
-                const closesAt = detailEvent.registration_deadline ? new Date(detailEvent.registration_deadline) : null;
+                const closesAt = evtDate(detailEvent.registration_deadline);
                 const closed = closesAt && !Number.isNaN(closesAt.getTime()) && Date.now() > closesAt.getTime();
 
                 if (notOpenYet) {

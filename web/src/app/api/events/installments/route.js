@@ -46,9 +46,11 @@ async function recomputePaid(registrationId) {
 
   const update = { amount_paid: paid };
   // Fully settled means the slot is confirmed; anything short of that is still
-  // a payment in progress and must not read as verified.
+  // a plan being paid down. It reads as 'installment' rather than
+  // 'payment_submitted', because there is no payment waiting to be checked -
+  // the money was recorded by the staff member who took it.
   const owed = Number(reg.amount) || 0;
-  if (owed > 0) update.status = paid >= owed ? 'payment_verified' : 'payment_submitted';
+  if (owed > 0) update.status = paid >= owed ? 'payment_verified' : 'installment';
   await supabase.from('event_registrations').update(update).eq('id', registrationId);
   return { paid, owed, settled: owed > 0 && paid >= owed };
 }
@@ -65,10 +67,14 @@ export async function GET(request) {
 
     const { data: regs, error } = await supabase
       .from('event_registrations')
-      .select('id, attendee_name, church_name, attendee_mobile, amount, base_amount, amount_paid, addons, status, payment_plan, created_at')
+      // The extra columns are what the tab filters and searches on: how the
+      // registration was made, who made it, and the reference to look up.
+      .select('id, attendee_name, church_name, church_pastor, attendee_mobile, attendee_email, amount, base_amount, amount_paid, addons, status, payment_plan, created_at, registration_type, group_size, added_by, representative, payment_method, payment_reference')
       .eq('event_id', eventId)
       .eq('payment_plan', 'flexible')
       .neq('status', 'cancelled')
+      // Registrations in the Recycle Bin are out of every list and total.
+      .is('deleted_at', null)
       .order('created_at', { ascending: true });
     if (error) throw error;
 

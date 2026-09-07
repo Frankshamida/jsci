@@ -24,6 +24,7 @@ const DASHBOARD_SECTIONS = [
   'ministry-oversight',
   'my-created-events',
   'my-profile',
+  'payment-methods',
   'permissions-control',
   'praise-worship',
   'recordings',

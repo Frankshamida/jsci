@@ -24714,9 +24714,58 @@ body.dark-mode .evt-plan-option { background: #2a2a3a; }
 }
 
 /* ---- The installment table ---- */
-.evt-inst-totals { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.86rem; }
-.evt-inst-totals b { color: var(--primary, #926c15); }
-.evt-inst-totals .due b { color: #b45309; }
+/* The headline figures for the tab. Sized like the cards in the event hero,
+   because this is the screen somebody opens to answer "how much is still out
+   there" - a number that has to survive being read from across a desk. They
+   follow the filters, so narrowing to one church re-answers the question for
+   that church rather than leaving a total the table no longer supports. */
+.evt-inst-stats {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px; margin: 0 0 16px;
+}
+.evt-inst-stat {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 15px 17px; border-radius: 14px;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+  box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+}
+.evt-inst-stat > span {
+  font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted, #999);
+}
+.evt-inst-stat > b {
+  font-size: 1.9rem; font-weight: 800; line-height: 1.1; white-space: nowrap;
+  color: var(--text-primary, #2b2100);
+}
+.evt-inst-stat > em {
+  font-style: normal; font-size: 0.78rem; line-height: 1.35; color: var(--text-muted, #999);
+}
+/* Each figure carries the colour it already has everywhere else in this tab:
+   money in is green, money owed is amber. */
+.evt-inst-stat.paid { border-color: rgba(22,163,74,0.30); background: rgba(22,163,74,0.05); }
+.evt-inst-stat.paid > b { color: #15803d; }
+.evt-inst-stat.due { border-color: rgba(180,83,9,0.32); background: rgba(180,83,9,0.06); }
+.evt-inst-stat.due > b { color: #b45309; }
+.evt-inst-stat.total { border-color: rgba(146,108,21,0.30); background: rgba(146,108,21,0.05); }
+.evt-inst-stat.total > b { color: var(--primary, #926c15); }
+body.dark-mode .evt-inst-stat { background: #26263a; border-color: rgba(255,255,255,0.12); }
+body.dark-mode .evt-inst-stat > b { color: #f3f3f3; }
+body.dark-mode .evt-inst-stat.paid { background: rgba(22,163,74,0.14); }
+body.dark-mode .evt-inst-stat.paid > b { color: #4ade80; }
+body.dark-mode .evt-inst-stat.due { background: rgba(180,83,9,0.16); }
+body.dark-mode .evt-inst-stat.due > b { color: #fbbf24; }
+body.dark-mode .evt-inst-stat.total { background: rgba(146,108,21,0.16); }
+body.dark-mode .evt-inst-stat.total > b { color: #e0b64a; }
+@media (max-width: 900px) {
+  .evt-inst-stats { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 460px) {
+  /* Two per row still fits the figures; one per row would push the table off
+     the first screen entirely. */
+  .evt-inst-stat { padding: 12px 13px; }
+  .evt-inst-stat > b { font-size: 1.5rem; }
+}
 .evt-inst-paid { color: #16a34a; font-weight: 700; }
 .evt-inst-due { color: #b45309; }
 .evt-inst-clear { color: #16a34a; }
@@ -24925,6 +24974,9 @@ body.dark-mode .evt-modal-foot { background: #1e1e2e; border-color: rgba(255,255
 .evt-foot-btn.verify:hover { background: #15803d; box-shadow: 0 10px 24px rgba(22,163,74,0.42); }
 .evt-foot-btn.unverify { background: #b45309; color: #fff; box-shadow: 0 6px 18px rgba(180,83,9,0.32); }
 .evt-foot-btn.unverify:hover { background: #92400e; }
+.evt-foot-btn.del { background: #dc2626; color: #fff; box-shadow: 0 6px 18px rgba(220,38,38,0.32); }
+.evt-foot-btn.del:hover { background: #b91c1c; box-shadow: 0 10px 24px rgba(220,38,38,0.40); }
+.evt-foot-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 body.dark-mode .evt-foot-btn.ghost { color: #ddd; border-color: rgba(255,255,255,0.24); }
 @media (max-width: 520px) {
   .evt-proof-foot { flex-direction: column-reverse; }
@@ -24940,6 +24992,11 @@ body.dark-mode .evt-foot-btn.ghost { color: #ddd; border-color: rgba(255,255,255
 .evt-status-registered, .evt-status-payment_verified { background: rgba(22,163,74,0.15); color: #16a34a; }
 .evt-status-pending_payment { background: rgba(234,179,8,0.18); color: #b45309; }
 .evt-status-payment_submitted { background: rgba(59,130,246,0.15); color: #2563eb; }
+/* A plan being paid down. Its own colour, because it is not the same state as
+   "somebody submitted a payment and nobody has checked it" - there is nothing
+   for an admin to do here except collect the rest. */
+.evt-status-installment { background: rgba(146,108,21,0.16); color: #926c15; }
+body.dark-mode .evt-status-installment { background: rgba(224,182,74,0.20); color: #e0b64a; }
 .evt-status-cancelled { background: rgba(220,38,38,0.15); color: #dc2626; }
 body.dark-mode .evt-modal { background: #1e1e2e; }
 body.dark-mode .evt-mini-btn { color: #eee; border-color: rgba(255,255,255,0.2); }
@@ -25960,3 +26017,1075 @@ body.dark-mode .evt-reg-addons { color: var(--accent); }
   font-weight: 800; font-size: 0.9rem;
 }
 .evt-receipt-total b { font-size: 1.2rem; color: var(--primary); font-variant-numeric: tabular-nums; }
+
+
+/* ============================================================
+   Deleting an attendee, and the Recycle Bin they land in
+   ------------------------------------------------------------
+   A delete can take money off the books with the person, so the
+   confirm screen is a briefing, not a prompt: who they are, what
+   they owe, and every payment recorded against them - laid out
+   before the red button is reachable.
+   ============================================================ */
+.evt-del-modal { max-width: 820px; }
+
+/* Said first, and in a colour that reads as "caution", not "danger":
+   the row is recoverable, and this is where it goes. */
+.evt-del-banner {
+  display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px;
+  padding: 13px 15px; border-radius: 12px;
+  background: rgba(180,83,9,0.08); border: 1px solid rgba(180,83,9,0.28);
+}
+.evt-del-banner > i { margin-top: 3px; font-size: 1.05rem; color: #b45309; flex-shrink: 0; }
+.evt-del-banner b { display: block; font-size: 0.9rem; color: #92400e; margin-bottom: 3px; }
+.evt-del-banner span { display: block; font-size: 0.83rem; line-height: 1.55; color: var(--text-muted, #777); }
+
+/* Who they are beside what they owe: the two halves of the decision,
+   side by side on a desktop and stacked on a phone. */
+.evt-del-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+/* Money already received. Louder than the rest of the modal, because
+   it is the fact most likely to stop an admin mid-click. */
+.evt-del-money {
+  display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;
+  padding: 12px 14px; border-radius: 11px;
+  background: rgba(22,163,74,0.09); border: 1px solid rgba(22,163,74,0.28);
+}
+.evt-del-money > i { margin-top: 3px; color: #15803d; flex-shrink: 0; }
+.evt-del-money b { display: block; font-size: 0.95rem; color: #15803d; margin-bottom: 3px; }
+.evt-del-money span { display: block; font-size: 0.81rem; line-height: 1.55; color: var(--text-muted, #777); }
+.evt-del-money.full { background: rgba(22,163,74,0.14); border-color: rgba(22,163,74,0.40); }
+
+/* Each payment as its own line, so "₱300 received" can be checked
+   against the dates it actually came in on. */
+.evt-del-paytable { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.evt-del-paytable th {
+  text-align: left; padding: 8px 10px; font-size: 0.7rem; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-muted, #999);
+  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.10));
+}
+.evt-del-paytable td {
+  padding: 9px 10px; border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  color: var(--text-primary, #333);
+}
+.evt-del-paytable tr:last-child td { border-bottom: none; }
+
+/* ---- The bin itself ---- */
+.evt-bin-note {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px; border-radius: 11px;
+  background: rgba(0,0,0,0.04); border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+}
+.evt-bin-note > i { margin-top: 3px; color: var(--text-muted, #888); flex-shrink: 0; }
+.evt-bin-note b { display: block; font-size: 0.9rem; color: var(--text-primary, #333); margin-bottom: 2px; }
+.evt-bin-note span { display: block; font-size: 0.82rem; line-height: 1.55; color: var(--text-muted, #777); }
+.evt-bin-note span b { display: inline; color: inherit; }
+
+/* Why it was removed, in the words the admin typed at the time. */
+.evt-bin-reason {
+  margin-top: 4px; font-size: 0.78rem; font-style: italic; line-height: 1.45;
+  color: var(--text-muted, #888);
+}
+.evt-bin-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.evt-bin-actions .evt-mini-btn + .evt-mini-btn { margin-left: 0; }
+
+body.dark-mode .evt-del-banner { background: rgba(180,83,9,0.18); border-color: rgba(180,83,9,0.40); }
+body.dark-mode .evt-del-banner b { color: #fbbf24; }
+body.dark-mode .evt-del-money { background: rgba(22,163,74,0.18); border-color: rgba(22,163,74,0.40); }
+body.dark-mode .evt-del-money b, body.dark-mode .evt-del-money > i { color: #4ade80; }
+body.dark-mode .evt-del-paytable td { color: #eee; border-bottom-color: rgba(255,255,255,0.08); }
+body.dark-mode .evt-del-paytable th { border-bottom-color: rgba(255,255,255,0.14); }
+body.dark-mode .evt-bin-note { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.12); }
+body.dark-mode .evt-bin-note b { color: #eee; }
+
+@media (max-width: 760px) {
+  .evt-del-grid { grid-template-columns: 1fr; gap: 14px; }
+  /* The payment history is the one thing here that cannot compress, so
+     it scrolls inside its own box rather than squeezing the modal. */
+  .evt-del-paytable { display: block; overflow-x: auto; white-space: nowrap; }
+  .evt-bin-actions { width: 100%; }
+  .evt-bin-actions .evt-mini-btn { flex: 1 1 auto; justify-content: center; }
+}
+
+
+/* Who the walk-in is being recorded by, shown on the form itself. The row in
+   the table is attributed to the signed-in account, and that is easier to trust
+   when it is stated up front than when it has to be discovered afterwards. */
+.evt-actas {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: -4px 0 16px; padding: 10px 13px; border-radius: 10px;
+  background: rgba(146,108,21,0.07); border: 1px solid rgba(146,108,21,0.22);
+  font-size: 0.82rem; color: var(--text-muted, #777);
+}
+.evt-actas b { color: var(--text-primary, #333); }
+body.dark-mode .evt-actas { background: rgba(146,108,21,0.16); border-color: rgba(146,108,21,0.38); }
+body.dark-mode .evt-actas b { color: #eee; }
+
+
+/* ============================================================
+   A representative who is already registered for this event
+   ------------------------------------------------------------
+   Not a warning: for a group this is useful news. They keep the
+   slot they have, their saved church and contact can be reused
+   instead of retyped, and only the people being added are
+   charged for. Coloured as information, with the existing
+   registration's status on it so staff can see what they are
+   building on.
+   ============================================================ */
+.evt-rep-known {
+  margin: -4px 0 14px; padding: 13px 15px; border-radius: 12px;
+  background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.26);
+}
+.evt-rep-known-head {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 6px;
+  font-size: 0.92rem; color: #1d4ed8;
+}
+.evt-rep-known-head b { color: var(--text-primary, #333); }
+.evt-rep-known > p {
+  margin: 0 0 10px; font-size: 0.83rem; line-height: 1.55; color: var(--text-muted, #777);
+}
+.evt-rep-known > p b { color: var(--text-primary, #333); }
+
+/* What the earlier registration already holds - the reason the
+   reuse button is worth pressing. */
+.evt-rep-known-list { display: grid; gap: 5px; margin: 0 0 11px; }
+.evt-rep-known-list > div { display: flex; gap: 10px; font-size: 0.82rem; }
+.evt-rep-known-list dt {
+  flex: 0 0 108px; font-weight: 700; color: var(--text-muted, #999);
+  font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; padding-top: 2px;
+}
+.evt-rep-known-list dd { margin: 0; color: var(--text-primary, #333); }
+.evt-rep-known-done {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.82rem; font-weight: 700; color: #15803d;
+}
+body.dark-mode .evt-rep-known { background: rgba(37,99,235,0.16); border-color: rgba(37,99,235,0.42); }
+body.dark-mode .evt-rep-known-head { color: #93c5fd; }
+body.dark-mode .evt-rep-known-head b,
+body.dark-mode .evt-rep-known > p b,
+body.dark-mode .evt-rep-known-list dd { color: #eee; }
+
+@media (max-width: 560px) {
+  .evt-rep-known-list > div { flex-direction: column; gap: 1px; }
+  .evt-rep-known-list dt { flex: none; }
+}
+
+
+/* A roster row that is listed but not billed: the representative who already
+   holds a slot for this event. Leaving them out of the table makes the group
+   look like it is missing someone, so they stay - visibly settled, with the fee
+   struck through so it reads as "already paid" rather than "free". */
+.evt-table tr.evt-row-paid { background: rgba(22,163,74,0.045); }
+.evt-table tr.evt-row-paid td { color: var(--text-muted, #777); }
+.evt-table tr.evt-row-paid s { color: var(--text-muted, #999); text-decoration-thickness: 1.5px; }
+.evt-table tr.evt-row-paid .evt-status { margin-left: 7px; vertical-align: middle; }
+body.dark-mode .evt-table tr.evt-row-paid { background: rgba(22,163,74,0.10); }
+
+
+/* An extra the representative already availed and paid for on an earlier
+   registration. Ticked, because they do have it - and greyed and unclickable,
+   because it is settled and must not be charged a second time. Visually
+   distinct from a required extra, which is also locked but IS being paid for
+   here. */
+.evt-addon-option.settled {
+  opacity: 0.62; cursor: not-allowed;
+  background: rgba(22,163,74,0.06); border-color: rgba(22,163,74,0.30);
+}
+.evt-addon-option.settled .evt-addon-option-fee {
+  color: #15803d; font-weight: 800; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.06em;
+}
+.evt-addon-option.settled input { accent-color: #16a34a; }
+body.dark-mode .evt-addon-option.settled { background: rgba(22,163,74,0.14); border-color: rgba(22,163,74,0.38); }
+
+/* A receipt line that is shown for completeness but not added up. */
+.evt-receipt-line.muted { opacity: 0.66; }
+.evt-receipt-line.muted s { text-decoration-thickness: 1.5px; }
+
+
+/* The province an event is held in, as a pill. A list of events is scanned by
+   where they are as much as by when, and a pill is picked out of a column of
+   plain text far faster than another line of it. */
+.evt-prov-pill {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 4px 11px; border-radius: 20px;
+  background: rgba(146,108,21,0.10); border: 1px solid rgba(146,108,21,0.26);
+  font-size: 0.78rem; font-weight: 700; color: var(--primary, #926c15);
+}
+.evt-prov-pill i { font-size: 0.7rem; opacity: 0.75; }
+body.dark-mode .evt-prov-pill {
+  background: rgba(224,182,74,0.16); border-color: rgba(224,182,74,0.34); color: #e0b64a;
+}
+
+
+/* The events listing carries the List/Grid switch AND a filter bar, which is
+   more than one row's worth - so they stack instead of competing for width. */
+.evt-viewbar-stack { flex-direction: column; align-items: stretch; gap: 12px; }
+.evt-viewbar-stack .evt-view-toggle { align-self: flex-start; }
+
+
+/* ---- Picking several rows out of the Recycle Bin ---- */
+/* The checkbox column stays narrow and out of the way: it is a control, not
+   data, so it should not compete with the names beside it. */
+.evt-table th.evt-th-check, .evt-table td.evt-td-check {
+  width: 42px; padding-right: 0; text-align: center;
+}
+.evt-table th.evt-th-check input, .evt-table td.evt-td-check input {
+  width: 17px; height: 17px; cursor: pointer; accent-color: var(--primary, #926c15);
+  vertical-align: middle;
+}
+.evt-table tr.evt-row-picked { background: rgba(146,108,21,0.07); }
+body.dark-mode .evt-table tr.evt-row-picked { background: rgba(224,182,74,0.12); }
+
+/* The bar that appears once something is ticked. It carries the only
+   irreversible button on the page, so it is only on screen while there is
+   actually a selection to act on. */
+.evt-bulkbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 11px 14px; border-radius: 12px;
+  background: rgba(146,108,21,0.08); border: 1px solid rgba(146,108,21,0.26);
+}
+.evt-bulkbar-count {
+  display: inline-flex; align-items: center; gap: 8px; margin-right: auto;
+  font-size: 0.86rem; color: var(--text-muted, #777);
+}
+.evt-bulkbar-count b { font-size: 1rem; color: var(--primary, #926c15); }
+.evt-bulkbar .evt-mini-btn + .evt-mini-btn { margin-left: 0; }
+.evt-bulkbar-clear {
+  border: none; background: none; cursor: pointer; padding: 6px 4px;
+  font: inherit; font-size: 0.8rem; font-weight: 600; text-decoration: underline;
+  color: var(--text-muted, #888);
+}
+.evt-bulkbar-clear:hover { color: var(--primary, #926c15); }
+body.dark-mode .evt-bulkbar { background: rgba(224,182,74,0.14); border-color: rgba(224,182,74,0.32); }
+body.dark-mode .evt-bulkbar-count b { color: #e0b64a; }
+
+@media (max-width: 900px) {
+  /* The stacked card layout has no columns to align to, so the tick sits on
+     its own line above the row it belongs to. */
+  .evt-table td.evt-td-check { width: auto; text-align: left; padding: 12px 16px 0; }
+  .evt-bulkbar { flex-direction: column; align-items: stretch; }
+  .evt-bulkbar-count { margin-right: 0; }
+  .evt-bulkbar .evt-mini-btn { justify-content: center; }
+}
+
+/* ============================================
+   MODE OF PAYMENT (payment-methods section)
+   ============================================ */
+.pm-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.pm-subtitle { margin: 4px 0 18px; color: var(--text-secondary, #6b7280); font-size: 0.9rem; max-width: 720px; line-height: 1.5; }
+
+.pm-add-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 18px; border: none; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(135deg, #d4a437, #b8860b); color: #fff;
+  font-weight: 700; font-size: 0.88rem; box-shadow: 0 2px 8px rgba(184,134,11,0.28);
+}
+.pm-add-btn:hover { filter: brightness(1.06); }
+
+.pm-tabs { margin-bottom: 18px; }
+.pm-tab-count {
+  margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+  background: rgba(0,0,0,0.08); font-size: 0.72rem; font-weight: 700;
+}
+
+/* ---- Circle logo ---- */
+.pm-logo {
+  width: 58px; height: 58px; flex: 0 0 58px;
+  border-radius: 50%; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.5px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  border: 2px solid rgba(255,255,255,0.85);
+}
+.pm-logo img { width: 100%; height: 100%; object-fit: contain; padding: 4px; }
+
+/* ---- Add / edit form ---- */
+.pm-form {
+  background: var(--card-bg, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.1));
+  border-radius: 14px; padding: 18px; margin-bottom: 22px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+}
+.pm-form-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.pm-form-head h3 { margin: 0; font-size: 1.02rem; display: flex; align-items: center; gap: 8px; }
+.pm-form-body { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.pm-form-preview { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 110px; }
+.pm-form-preview .pm-logo { width: 78px; height: 78px; flex: 0 0 78px; font-size: 1.3rem; }
+.pm-form-preview-label { font-size: 0.72rem; color: var(--text-secondary, #6b7280); text-align: center; }
+
+.pm-form-grid { flex: 1 1 420px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.pm-field { display: flex; flex-direction: column; gap: 6px; }
+.pm-field-wide { grid-column: 1 / -1; }
+.pm-field > span { font-size: 0.78rem; font-weight: 700; color: var(--text-secondary, #6b7280); text-transform: uppercase; letter-spacing: 0.3px; }
+.pm-field input, .pm-field select, .pm-field textarea {
+  padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border-color, #ddd);
+  font-family: inherit; font-size: 0.9rem; background: var(--input-bg, #fff); color: inherit; width: 100%;
+}
+.pm-field textarea { resize: vertical; }
+.pm-color-row { display: flex; gap: 8px; align-items: center; }
+.pm-color-row input[type="color"] { width: 46px; height: 40px; padding: 2px; cursor: pointer; }
+.pm-check { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; font-weight: 600; grid-column: 1 / -1; }
+.pm-check input { width: 17px; height: 17px; }
+.pm-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* ---- Cards ---- */
+.pm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.pm-card {
+  background: var(--card-bg, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.1));
+  border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05); transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.pm-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.09); }
+.pm-card.inactive { opacity: 0.62; }
+
+.pm-card-top { display: flex; gap: 14px; align-items: center; }
+.pm-card-title { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.pm-card-title h3 { margin: 0; font-size: 1.05rem; font-weight: 800; word-break: break-word; }
+
+.pm-badge {
+  display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  padding: 3px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;
+}
+.pm-badge.bank { background: rgba(30,58,138,0.1); color: #1e3a8a; }
+.pm-badge.online { background: rgba(22,163,74,0.12); color: #15803d; }
+.pm-badge.hidden-badge { background: rgba(107,114,128,0.15); color: #4b5563; }
+
+.pm-card-details { display: flex; flex-direction: column; gap: 10px; }
+.pm-detail { display: flex; flex-direction: column; gap: 2px; }
+.pm-detail-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-secondary, #6b7280); }
+.pm-detail-value { display: flex; align-items: center; gap: 8px; }
+.pm-detail-value strong { font-size: 0.95rem; font-weight: 700; word-break: break-word; }
+
+.pm-icon-btn {
+  border: none; background: transparent; cursor: pointer; padding: 4px 6px;
+  border-radius: 6px; color: var(--text-secondary, #6b7280); font-size: 0.85rem;
+}
+.pm-icon-btn:hover { background: rgba(0,0,0,0.07); color: inherit; }
+
+.pm-notes {
+  margin: 0; font-size: 0.82rem; line-height: 1.45; color: var(--text-secondary, #6b7280);
+  display: flex; gap: 7px; align-items: flex-start;
+}
+.pm-card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+
+.pm-empty {
+  text-align: center; padding: 48px 20px; color: var(--text-secondary, #6b7280);
+  border: 2px dashed var(--border-color, rgba(0,0,0,0.12)); border-radius: 14px;
+}
+.pm-empty i { font-size: 2.4rem; opacity: 0.35; margin-bottom: 12px; display: block; }
+.pm-empty p { margin: 0 0 16px; font-size: 0.95rem; }
+
+@media (max-width: 640px) {
+  .pm-head { flex-direction: column; align-items: stretch; }
+  .pm-add-btn { justify-content: center; }
+  .pm-form-body { flex-direction: column; align-items: center; }
+  .pm-form-grid { width: 100%; }
+  .pm-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- Mode of Payment: logo uploader ---- */
+.pm-upload-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pm-upload-btn {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  padding: 10px 14px; border-radius: 9px; font-size: 0.84rem; font-weight: 700;
+  border: 1px dashed var(--border-color, #c9ccd1); color: var(--text-primary, #333);
+  background: rgba(0,0,0,0.02);
+}
+.pm-upload-btn:hover { background: rgba(212,164,55,0.12); border-color: #d4a437; color: #b8860b; }
+.pm-upload-btn.busy { opacity: 0.7; cursor: progress; }
+.pm-upload-btn input[type="file"] { display: none; }
+.pm-upload-clear {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 9px 12px; border-radius: 9px; font-size: 0.8rem; font-weight: 600;
+  background: transparent; color: #dc2626; border: 1px solid rgba(220,38,38,0.35);
+}
+.pm-upload-clear:hover { background: rgba(220,38,38,0.08); }
+.pm-upload-hint { font-size: 0.72rem; line-height: 1.45; color: var(--text-secondary, #6b7280); }
+
+/* ---- Mode of Payment: marble / glossy shine layer over the circle logo ----
+   The logo itself is stored as a circle-cropped .webp, so the circle only has
+   to add the glass: a soft top highlight, a rim light, and a slow sheen sweep. */
+.pm-logo { position: relative; isolation: isolate; padding: 0; }
+.pm-logo img { width: 100%; height: 100%; object-fit: cover; padding: 0; border-radius: 50%; }
+.pm-logo > img, .pm-logo > span { position: relative; z-index: 0; }
+
+/* Marble body: highlight from the top-left, shadow pooling bottom-right. */
+.pm-logo::before {
+  content: '';
+  position: absolute; inset: 0; border-radius: 50%;
+  z-index: 1; pointer-events: none;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.18) 26%, rgba(255,255,255,0) 52%),
+    radial-gradient(circle at 74% 82%, rgba(0,0,0,0.22) 0%, rgba(0,0,0,0) 55%),
+    linear-gradient(150deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 42%, rgba(0,0,0,0.12) 100%);
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.75),
+    inset 0 -3px 8px rgba(0,0,0,0.20),
+    inset 0 0 0 1px rgba(255,255,255,0.30);
+}
+
+/* Sheen sweep: a soft diagonal light band travelling across the marble. */
+.pm-logo::after {
+  content: '';
+  position: absolute; inset: -30%; border-radius: 50%;
+  z-index: 2; pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    rgba(255,255,255,0) 38%,
+    rgba(255,255,255,0.10) 46%,
+    rgba(255,255,255,0.62) 50%,
+    rgba(255,255,255,0.10) 54%,
+    rgba(255,255,255,0) 62%
+  );
+  transform: translateX(-120%) rotate(4deg);
+  animation: pm-logo-sheen 4.5s ease-in-out infinite;
+}
+@keyframes pm-logo-sheen {
+  0%, 62%   { transform: translateX(-120%) rotate(4deg); }
+  100%      { transform: translateX(120%) rotate(4deg); }
+}
+
+/* The form preview is the showcase: a glassier dome and a lit outer ring. */
+.pm-form-preview .pm-logo {
+  box-shadow:
+    0 6px 18px rgba(0,0,0,0.28),
+    0 0 0 1px rgba(255,255,255,0.55),
+    0 0 22px rgba(212,164,55,0.35);
+}
+.pm-form-preview .pm-logo::before {
+  background:
+    radial-gradient(ellipse 78% 52% at 32% 14%, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.22) 40%, rgba(255,255,255,0) 68%),
+    radial-gradient(circle at 76% 86%, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 58%),
+    linear-gradient(155deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0) 45%, rgba(0,0,0,0.16) 100%);
+}
+.pm-form-preview .pm-logo::after { animation-duration: 3.2s; }
+
+/* Cards pick up the shine on hover so the grid stays calm at rest. */
+.pm-card .pm-logo::after { animation-play-state: paused; }
+.pm-card:hover .pm-logo::after { animation-play-state: running; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-logo::after { animation: none; transform: translateX(-30%) rotate(4deg); }
+}
+
+/* ---- Mode of Payment: logo crop editor ---- */
+.pm-upload-edit {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 9px 12px; border-radius: 9px; font-size: 0.8rem; font-weight: 600;
+  background: transparent; color: #b8860b; border: 1px solid rgba(184,134,11,0.45);
+}
+.pm-upload-edit:hover { background: rgba(212,164,55,0.12); }
+.pm-crop-hint {
+  margin: 8px 0 0; text-align: center;
+  font-size: 0.76rem; color: var(--text-secondary, #6b7280);
+}
+
+/* ============================================================
+   MODE OF PAYMENT — v2 layout (aligned form, professional cards)
+   Overrides the earlier .pm-* rules above.
+   ============================================================ */
+
+/* ---- Circle logo sizes ---- */
+.pm-logo-sm { width: 42px; height: 42px; flex: 0 0 42px; font-size: 0.78rem; }
+.pm-logo-lg { width: 96px; height: 96px; flex: 0 0 96px; font-size: 1.6rem; }
+
+/* ---- Form: fixed left rail + fields, so rows never go ragged ---- */
+.pm-form { padding: 0; overflow: hidden; }
+.pm-form-head {
+  padding: 16px 20px; margin: 0;
+  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  background: rgba(0,0,0,0.015);
+}
+.pm-form-body {
+  display: grid; grid-template-columns: 200px minmax(0, 1fr);
+  gap: 0; align-items: stretch;
+}
+.pm-form-aside {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 22px 18px; text-align: center;
+  border-right: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  background: rgba(0,0,0,0.015);
+}
+.pm-form-main { padding: 20px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+.pm-upload-stack { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 4px; }
+.pm-upload-stack .pm-upload-btn { justify-content: center; width: 100%; }
+.pm-upload-stack .pm-upload-row { display: flex; gap: 6px; }
+.pm-upload-stack .pm-upload-edit,
+.pm-upload-stack .pm-upload-clear { flex: 1; justify-content: center; padding: 7px 8px; }
+.pm-upload-hint { text-align: left; }
+
+/* ---- Grouped fieldsets ---- */
+.pm-fieldset {
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+  border-radius: 12px; padding: 14px 16px 16px; margin: 0; min-width: 0;
+}
+.pm-fieldset > legend {
+  padding: 0 8px; font-size: 0.72rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-secondary, #6b7280);
+}
+.pm-row { display: grid; gap: 14px; align-items: start; margin-bottom: 14px; }
+.pm-row:last-child { margin-bottom: 0; }
+.pm-row-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pm-fieldset > .pm-field { margin-bottom: 0; }
+
+/* Every label block is the same shape, so the inputs line up across columns. */
+.pm-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pm-field > span {
+  display: block; min-height: 15px; line-height: 1.25;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--text-secondary, #6b7280);
+}
+.pm-field > span small { text-transform: none; letter-spacing: 0; font-weight: 600; opacity: 0.75; }
+.pm-field input, .pm-field select, .pm-field textarea { height: auto; }
+.pm-field input:not([type="color"]), .pm-field select { height: 42px; }
+.pm-field input:focus, .pm-field select:focus, .pm-field textarea:focus {
+  outline: none; border-color: #d4a437; box-shadow: 0 0 0 3px rgba(212,164,55,0.18);
+}
+.pm-color-row input[type="color"] { height: 42px; width: 48px; flex: 0 0 48px; border-radius: 9px; }
+
+/* ---- Visible / hidden switch ---- */
+.pm-switch {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 14px; border-radius: 11px; cursor: pointer; text-align: left;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.12)); background: rgba(0,0,0,0.02);
+}
+.pm-switch:hover { border-color: rgba(212,164,55,0.55); }
+.pm-switch.on { border-color: rgba(22,163,74,0.45); background: rgba(22,163,74,0.07); }
+.pm-switch-track {
+  position: relative; flex: 0 0 42px; width: 42px; height: 24px;
+  border-radius: 999px; background: #cbd0d6; transition: background 0.18s ease;
+}
+.pm-switch.on .pm-switch-track { background: #16a34a; }
+.pm-switch-knob {
+  position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.18s ease;
+}
+.pm-switch.on .pm-switch-knob { transform: translateX(18px); }
+.pm-switch-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pm-switch-text strong { font-size: 0.88rem; }
+.pm-switch-text small { font-size: 0.75rem; color: var(--text-secondary, #6b7280); line-height: 1.35; }
+
+.pm-form-actions {
+  margin: 0; padding: 14px 20px;
+  border-top: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  background: rgba(0,0,0,0.015);
+}
+
+/* ---- Cards: one column of aligned rows, actions pinned to the bottom ---- */
+.pm-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: stretch; }
+.pm-card { position: relative; padding: 20px; gap: 0; }
+.pm-card.inactive { opacity: 1; background: rgba(0,0,0,0.02); border-style: dashed; }
+.pm-card.inactive .pm-logo, .pm-card.inactive .pm-card-details { filter: grayscale(0.7); opacity: 0.75; }
+
+.pm-status {
+  position: absolute; top: 14px; right: 14px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px;
+  font-size: 0.67rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+}
+.pm-status.on { background: rgba(22,163,74,0.12); color: #15803d; }
+.pm-status.off { background: rgba(107,114,128,0.16); color: #4b5563; }
+
+.pm-card-top { align-items: center; gap: 14px; padding-right: 78px; margin-bottom: 16px; }
+.pm-card-title h3 { font-size: 1.12rem; line-height: 1.2; }
+.pm-badge { text-transform: none; }
+
+.pm-card-details {
+  margin: 0 0 14px; padding: 14px 0 0;
+  border-top: 1px dashed var(--border-color, rgba(0,0,0,0.12));
+  display: flex; flex-direction: column; gap: 12px;
+}
+.pm-card-details dt {
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.6px;
+  text-transform: uppercase; color: var(--text-secondary, #6b7280); margin-bottom: 3px;
+}
+.pm-card-details dd { margin: 0; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pm-detail-text {
+  font-size: 0.98rem; font-weight: 700; word-break: break-word;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.2px;
+}
+
+.pm-notes {
+  margin: 0 0 14px; padding: 9px 11px; border-radius: 9px;
+  background: rgba(212,164,55,0.10); border-left: 3px solid rgba(212,164,55,0.7);
+  font-size: 0.8rem; line-height: 1.45; color: var(--text-primary, #444);
+}
+
+.pm-card-actions {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+  margin-top: auto; padding-top: 14px;
+  border-top: 1px solid var(--border-color, rgba(0,0,0,0.08));
+}
+.pm-act {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 6px; border-radius: 9px; cursor: pointer;
+  font-size: 0.79rem; font-weight: 700; white-space: nowrap;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.14));
+  background: transparent; color: var(--text-primary, #333);
+}
+.pm-act:hover { background: rgba(0,0,0,0.05); }
+.pm-act.danger { color: #dc2626; border-color: rgba(220,38,38,0.35); }
+.pm-act.danger:hover { background: rgba(220,38,38,0.08); }
+
+@media (max-width: 760px) {
+  .pm-form-body { grid-template-columns: 1fr; }
+  .pm-form-aside { border-right: none; border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.08)); }
+  .pm-row-2 { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   EVENT STEPPER — pick saved payment channels
+   ============================================================ */
+.evt-pick-hint { margin: -2px 0 10px; font-size: 0.82rem; line-height: 1.45; }
+.evt-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.evt-pick-card {
+  position: relative; display: flex; align-items: center; gap: 12px;
+  padding: 12px 40px 12px 12px; border-radius: 12px; cursor: pointer;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.14)); background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.evt-pick-card:hover { border-color: rgba(212,164,55,0.6); background: rgba(212,164,55,0.05); }
+.evt-pick-card.on { border-color: #16a34a; background: rgba(22,163,74,0.07); }
+.evt-pick-card input { position: absolute; opacity: 0; pointer-events: none; }
+.evt-pick-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.evt-pick-info strong { font-size: 0.92rem; }
+.evt-pick-info small { font-size: 0.75rem; color: var(--text-secondary, #6b7280); word-break: break-word; }
+.evt-pick-tick { position: absolute; right: 13px; top: 50%; transform: translateY(-50%); font-size: 1.05rem; color: rgba(0,0,0,0.18); }
+.evt-pick-card.on .evt-pick-tick { color: #16a34a; }
+.evt-pick-empty {
+  display: flex; align-items: center; gap: 10px; padding: 14px;
+  border: 1px dashed var(--border-color, rgba(0,0,0,0.18)); border-radius: 11px;
+  font-size: 0.84rem; line-height: 1.45; color: var(--text-secondary, #6b7280);
+}
+.evt-pick-empty i { font-size: 1.3rem; opacity: 0.45; }
+
+/* ---- Payer-facing channel list (register / pay-now modals) ---- */
+.evt-pay-channels { margin: 10px 0 14px; display: flex; flex-direction: column; gap: 10px; }
+.evt-pay-channels-head {
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--text-secondary, #6b7280); display: flex; align-items: center; gap: 6px;
+}
+.evt-pay-channel {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px;
+  border-radius: 12px; background: rgba(255,255,255,0.65);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+}
+.evt-pay-channel-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.evt-pay-channel-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 800; font-size: 0.95rem; }
+.evt-pay-channel-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 0.85rem; }
+.evt-pay-channel-row > span {
+  min-width: 92px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--text-secondary, #6b7280);
+}
+.evt-pay-channel-row strong { font-variant-numeric: tabular-nums; word-break: break-word; }
+.evt-pay-channel-note { margin: 2px 0 0; font-size: 0.78rem; line-height: 1.4; color: var(--text-secondary, #6b7280); }
+
+@media (max-width: 520px) {
+  .evt-pay-channel-row > span { min-width: 0; }
+}
+
+/* ============================================================
+   MODE OF PAYMENT — QR code
+   ============================================================ */
+.pm-row-qr { margin-bottom: 14px; }
+.pm-qr-picker { display: flex; gap: 14px; align-items: flex-start; }
+.pm-qr-thumb {
+  flex: 0 0 92px; width: 92px; height: 92px; border-radius: 12px; overflow: hidden;
+  background: #fff; border: 1px solid var(--border-color, rgba(0,0,0,0.14));
+  display: flex; align-items: center; justify-content: center;
+}
+.pm-qr-thumb img { width: 100%; height: 100%; object-fit: contain; cursor: zoom-in; }
+.pm-qr-empty { color: rgba(0,0,0,0.18); font-size: 2rem; }
+.pm-qr-controls { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
+.pm-qr-controls .pm-upload-btn,
+.pm-qr-controls .pm-upload-clear { align-self: flex-start; }
+
+/* Admin card: a compact "scan to pay" strip. */
+.pm-qr-card {
+  display: flex; align-items: center; gap: 12px; width: 100%; cursor: zoom-in;
+  margin: 0 0 14px; padding: 10px; border-radius: 11px; text-align: left;
+  background: rgba(0,0,0,0.02); border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+}
+.pm-qr-card:hover { border-color: rgba(212,164,55,0.6); background: rgba(212,164,55,0.07); }
+.pm-qr-card img {
+  flex: 0 0 58px; width: 58px; height: 58px; object-fit: contain;
+  background: #fff; border-radius: 8px; padding: 3px;
+}
+.pm-qr-card span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pm-qr-card strong { font-size: 0.85rem; }
+.pm-qr-card small { font-size: 0.72rem; color: var(--text-secondary, #6b7280); }
+
+/* Payer modal: same strip, tuned for the register / pay-now panels. */
+.evt-pay-qr {
+  display: flex; align-items: center; gap: 12px; width: 100%; cursor: zoom-in;
+  margin: 4px 0 0; padding: 10px; border-radius: 11px; text-align: left;
+  background: #fff; border: 1px solid var(--border-color, rgba(0,0,0,0.12));
+}
+.evt-pay-qr:hover { border-color: rgba(212,164,55,0.7); }
+.evt-pay-qr img { flex: 0 0 74px; width: 74px; height: 74px; object-fit: contain; background: #fff; border-radius: 8px; }
+.evt-pay-qr span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.evt-pay-qr strong { font-size: 0.86rem; }
+.evt-pay-qr small { font-size: 0.73rem; color: var(--text-secondary, #6b7280); }
+
+/* Fullscreen, scannable view. */
+.pm-qr-lightbox {
+  /* Above .evt-modal-overlay (15000) so it works from the register modal too. */
+  position: fixed; inset: 0; z-index: 16000; padding: 20px;
+  background: rgba(0,0,0,0.78); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  animation: pm-qr-fade 0.18s ease;
+}
+@keyframes pm-qr-fade { from { opacity: 0; } to { opacity: 1; } }
+.pm-qr-lightbox-inner {
+  background: #fff; border-radius: 16px; padding: 16px;
+  width: min(92vw, 420px); box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.pm-qr-lightbox-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pm-qr-lightbox-head strong { font-size: 0.95rem; display: flex; align-items: center; gap: 8px; color: #333; }
+.pm-qr-lightbox img {
+  width: 100%; aspect-ratio: 1; object-fit: contain;
+  background: #fff; border-radius: 10px;
+}
+.pm-qr-lightbox p { margin: 0; text-align: center; font-size: 0.8rem; color: #6b7280; }
+
+/* ============================================================
+   EVENT STEPPER — payment channel picker (v2)
+   The cards are <label>s inside a .form-group, which globally forces
+   uppercase + 1.5px tracking + muted grey on labels. Everything inside a
+   card opts back out so the bank name and account read as real text.
+   ============================================================ */
+.evt-pick-card,
+.evt-pick-card * ,
+.evt-pay-channel,
+.evt-pay-channel * ,
+.evt-pick-empty,
+.evt-pick-empty * {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.evt-pick-card, .evt-pick-card strong { color: var(--text-primary, #1f2937); }
+
+/* ---- Section heading ---- */
+.evt-pick-block { margin-bottom: 18px; }
+.evt-pick-block > .evt-pick-label {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+  font-size: 0.95rem; font-weight: 800; color: var(--text-primary, #1f2937);
+  text-transform: none; letter-spacing: normal;
+}
+.evt-pick-label i { color: var(--primary, #b8860b); font-size: 0.9rem; }
+.evt-pick-hint {
+  margin: 0 0 14px; font-size: 0.83rem; line-height: 1.5;
+  color: var(--text-secondary, #6b7280); max-width: 640px;
+}
+.evt-pick-count {
+  margin-left: auto; padding: 2px 10px; border-radius: 999px;
+  background: rgba(22,163,74,0.12); color: #15803d;
+  font-size: 0.7rem; font-weight: 800; letter-spacing: 0.3px;
+}
+
+/* ---- Channel cards ---- */
+.evt-pick-grid { grid-template-columns: repeat(auto-fill, minmax(276px, 1fr)); gap: 12px; }
+.evt-pick-card {
+  align-items: flex-start; gap: 14px;
+  padding: 16px 46px 16px 16px; border-radius: 14px;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.12));
+  background: var(--card-bg, #fff);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  overflow: hidden;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+.evt-pick-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: #16a34a; opacity: 0; transition: opacity 0.16s ease;
+}
+.evt-pick-card:hover {
+  border-color: rgba(212,164,55,0.75); background: var(--card-bg, #fff);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.08); transform: translateY(-1px);
+}
+.evt-pick-card.on {
+  border-color: #16a34a; background: rgba(22,163,74,0.045);
+  box-shadow: 0 4px 14px rgba(22,163,74,0.14);
+}
+.evt-pick-card.on::before { opacity: 1; }
+
+.evt-pick-card .pm-logo-sm { width: 46px; height: 46px; flex: 0 0 46px; margin-top: 1px; }
+.evt-pick-info { gap: 4px; }
+.evt-pick-info strong {
+  font-size: 0.98rem; font-weight: 800; line-height: 1.25;
+  color: var(--text-primary, #1f2937); word-break: break-word;
+}
+.evt-pick-type {
+  display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  padding: 2px 8px; border-radius: 999px; font-size: 0.66rem; font-weight: 800;
+}
+.evt-pick-type.bank { background: rgba(30,58,138,0.10); color: #1e3a8a; }
+.evt-pick-type.online { background: rgba(22,163,74,0.12); color: #15803d; }
+.evt-pick-line { display: flex; gap: 6px; align-items: baseline; font-size: 0.8rem; line-height: 1.4; }
+.evt-pick-line .k { flex: 0 0 62px; color: var(--text-secondary, #9ca3af); font-weight: 600; }
+.evt-pick-line .v { font-weight: 700; color: var(--text-primary, #374151); word-break: break-word; }
+.evt-pick-line .v.num { font-variant-numeric: tabular-nums; letter-spacing: 0.3px; }
+.evt-pick-qr {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 2px;
+  font-size: 0.72rem; font-weight: 700; color: #15803d;
+}
+
+.evt-pick-tick { right: 15px; top: 17px; transform: none; font-size: 1.15rem; }
+.evt-pick-card .evt-pick-tick { color: rgba(0,0,0,0.14); }
+.evt-pick-card.on .evt-pick-tick { color: #16a34a; }
+
+.evt-pick-empty {
+  align-items: flex-start; gap: 12px; padding: 16px 18px; border-radius: 13px;
+  background: rgba(212,164,55,0.06); border: 1px dashed rgba(212,164,55,0.55);
+  color: var(--text-secondary, #6b7280);
+}
+.evt-pick-empty i { color: rgba(184,134,11,0.8); opacity: 1; margin-top: 2px; }
+
+/* ---- "Other ways to pay" chips ---- */
+.evt-methods { gap: 8px; }
+.evt-method-chip {
+  text-transform: none !important; letter-spacing: normal !important;
+  padding: 9px 16px; border-radius: 999px; font-size: 0.84rem; font-weight: 700;
+  color: var(--text-primary, #374151) !important;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.14));
+  transition: all 0.15s ease;
+}
+.evt-method-chip:hover { border-color: rgba(212,164,55,0.7); background: rgba(212,164,55,0.07); }
+.evt-method-chip.on {
+  color: #fff !important; border-color: transparent;
+  box-shadow: 0 3px 10px rgba(184,134,11,0.3);
+}
+
+/* ============================================================
+   ATTENDEE PAYMENT PANEL — register / pay-now modals
+   ============================================================ */
+.evt-pay-box {
+  border-radius: 14px; padding: 16px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+}
+.evt-pay-amount {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin: -16px -16px 14px; padding: 14px 16px;
+  border-radius: 14px 14px 0 0;
+  background: linear-gradient(135deg, rgba(212,164,55,0.16), rgba(184,134,11,0.08));
+  border-bottom: 1px solid rgba(184,134,11,0.22);
+  font-size: 0.78rem; font-weight: 800; letter-spacing: 0.4px;
+  text-transform: uppercase; color: var(--text-secondary, #6b7280);
+}
+.evt-pay-amount strong {
+  font-size: 1.5rem; font-weight: 900; letter-spacing: -0.5px;
+  text-transform: none; color: var(--primary, #b8860b);
+  font-variant-numeric: tabular-nums;
+}
+
+.evt-pay-channels { margin: 0 0 16px; gap: 12px; }
+.evt-pay-channels-head {
+  padding-bottom: 8px; border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  font-size: 0.7rem; letter-spacing: 0.7px;
+}
+.evt-pay-channels-head i { color: var(--primary, #b8860b); }
+
+.evt-pay-channel {
+  padding: 14px; border-radius: 14px; gap: 14px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.evt-pay-channel .pm-logo-sm { width: 48px; height: 48px; flex: 0 0 48px; }
+.evt-pay-channel-name { font-size: 1rem; font-weight: 800; margin-bottom: 2px; }
+.evt-pay-channel-name .pm-badge { font-size: 0.64rem; font-weight: 800; }
+
+.evt-pay-channel-row {
+  gap: 10px; padding: 7px 10px; border-radius: 9px;
+  background: rgba(0,0,0,0.025);
+}
+.evt-pay-channel-row > span {
+  min-width: 86px; flex: 0 0 86px;
+  font-size: 0.64rem; letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--text-secondary, #9ca3af); font-weight: 800;
+}
+.evt-pay-channel-row strong {
+  flex: 1; font-size: 0.94rem; font-weight: 800; letter-spacing: 0.3px;
+  color: var(--text-primary, #1f2937);
+}
+.evt-pay-channel-row .pm-icon-btn {
+  flex: 0 0 auto; border-radius: 7px;
+  background: rgba(255,255,255,0.9); border: 1px solid var(--border-color, rgba(0,0,0,0.1));
+}
+.evt-pay-channel-row .pm-icon-btn:hover { background: rgba(212,164,55,0.15); color: #b8860b; }
+
+.evt-pay-channel-note {
+  padding: 8px 10px; border-radius: 8px; margin-top: 2px;
+  background: rgba(212,164,55,0.09); border-left: 3px solid rgba(212,164,55,0.65);
+}
+
+/* QR: a proper panel rather than a thumbnail strip. */
+.evt-pay-qr {
+  flex-direction: column; align-items: center; gap: 8px; text-align: center;
+  margin-top: 4px; padding: 14px; border-radius: 13px;
+  background: linear-gradient(180deg, rgba(212,164,55,0.09), rgba(212,164,55,0.02));
+  border: 1px dashed rgba(184,134,11,0.5);
+}
+.evt-pay-qr:hover { border-color: rgba(184,134,11,0.9); background: rgba(212,164,55,0.13); }
+.evt-pay-qr img {
+  flex: none; width: 132px; height: 132px; padding: 7px;
+  border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+}
+.evt-pay-qr span { align-items: center; }
+.evt-pay-qr strong { font-size: 0.88rem; font-weight: 800; }
+.evt-pay-qr small { display: inline-flex; align-items: center; gap: 5px; }
+
+/* The upload / reference fields read as one "confirm your payment" group. */
+.evt-pay-form {
+  margin-top: 4px; padding: 14px; border-radius: 13px;
+  background: rgba(0,0,0,0.02); border: 1px solid var(--border-color, rgba(0,0,0,0.08));
+}
+.evt-pay-form-head {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 12px;
+  font-size: 0.7rem; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+.evt-pay-form-head i { color: var(--primary, #b8860b); }
+.evt-pay-form .form-group:last-child { margin-bottom: 0; }
+.evt-pay-note {
+  display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 0;
+  padding: 10px 12px; border-radius: 9px;
+  background: rgba(37,99,235,0.07); border-left: 3px solid rgba(37,99,235,0.5);
+  font-size: 0.79rem; line-height: 1.45; color: var(--text-secondary, #4b5563);
+}
+.evt-pay-note i { color: #2563eb; margin-top: 2px; }
+
+/* Receipt picker */
+.evt-proof-drop {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px; border-radius: 11px; cursor: pointer;
+  border: 1px dashed var(--border-color, rgba(0,0,0,0.2)); background: rgba(0,0,0,0.015);
+}
+.evt-proof-drop:hover { border-color: rgba(212,164,55,0.8); background: rgba(212,164,55,0.07); }
+.evt-proof-drop input[type="file"] { display: none; }
+.evt-proof-drop img { width: 56px; height: 56px; object-fit: cover; border-radius: 9px; flex: 0 0 56px; }
+.evt-proof-icon {
+  width: 42px; height: 42px; flex: 0 0 42px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(212,164,55,0.14); color: #b8860b; font-size: 1rem;
+}
+.evt-proof-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+.evt-proof-text strong { font-size: 0.85rem; text-transform: none; letter-spacing: normal; color: var(--text-primary, #374151); }
+.evt-proof-text small { font-size: 0.74rem; color: var(--text-secondary, #6b7280); }
+
+@media (max-width: 520px) {
+  .evt-pick-grid { grid-template-columns: 1fr; }
+  .evt-pay-amount { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .evt-pay-channel-row { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .evt-pay-channel-row > span { flex: none; }
+}
+
+/* Dark mode: keep the plates readable. */
+body.dark-mode .evt-pick-card,
+body.dark-mode .evt-pay-channel { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.12); }
+body.dark-mode .evt-pick-card strong,
+body.dark-mode .evt-pick-line .v,
+body.dark-mode .evt-pay-channel-row strong { color: #f3f4f6; }
+body.dark-mode .evt-pay-channel-row { background: rgba(255,255,255,0.05); }
+body.dark-mode .evt-pay-box { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.12); }
+
+/* The global `.form-group label` rule (uppercase, 1.5px tracking, muted grey)
+   has higher specificity than a single class, so the channel cards - which are
+   <label> elements - need an equally specific reset to keep reading as text. */
+.evt-step-panel .evt-pick-card,
+.evt-step-panel .evt-pick-card *,
+.evt-step-panel .evt-method-chip,
+.evt-modal-body .evt-pay-channel,
+.evt-modal-body .evt-pay-channel * {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.evt-step-panel .evt-pick-card,
+.evt-step-panel .evt-pick-card .v,
+.evt-step-panel .evt-pick-card strong,
+.evt-step-panel .evt-method-chip {
+  color: var(--text-primary, #1f2937);
+}
+.evt-step-panel .evt-pick-card .k { color: var(--text-secondary, #9ca3af); }
+.evt-step-panel .evt-method-chip.on { color: #fff; }
+/* These keep their deliberate uppercase micro-label styling. */
+.evt-step-panel .evt-pick-card .evt-pick-type,
+.evt-modal-body .evt-pay-channel .evt-pay-channel-row > span { letter-spacing: 0.5px; }
+.evt-modal-body .evt-pay-channel .evt-pay-channel-row > span { text-transform: uppercase; }
+
+/* ============================================================
+   MODE OF PAYMENT — add / edit as a modal
+   ============================================================ */
+.pm-modal-overlay {
+  position: fixed; inset: 0; z-index: 15500; padding: 20px;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  animation: pm-modal-fade 0.18s ease;
+  overflow-y: auto;
+}
+@keyframes pm-modal-fade { from { opacity: 0; } to { opacity: 1; } }
+.pm-modal {
+  width: 100%; max-width: 860px; max-height: 90vh; margin: auto;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.4);
+  animation: pm-modal-rise 0.2s ease;
+}
+@keyframes pm-modal-rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* The head and the actions stay put; only the fields scroll. */
+.pm-modal .pm-form-head, .pm-modal .pm-form-actions { flex: 0 0 auto; }
+.pm-modal .pm-form-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.pm-modal .pm-form-head h3 { font-size: 1.06rem; }
+
+/* ---- Where a channel is in use ---- */
+.pm-usage {
+  display: flex; align-items: center; gap: 7px; margin: 0 0 14px;
+  font-size: 0.78rem; color: var(--text-secondary, #6b7280);
+}
+.pm-usage.none i { color: rgba(22,163,74,0.6); }
+
+.pm-usage-box {
+  margin: 0 0 14px; border-radius: 11px; overflow: hidden;
+  border: 1px solid rgba(37,99,235,0.28); background: rgba(37,99,235,0.05);
+}
+.pm-usage-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%; cursor: pointer;
+  padding: 9px 12px; border: none; background: transparent; text-align: left;
+  font-size: 0.8rem; font-weight: 700; color: #1d4ed8;
+}
+.pm-usage-toggle:hover { background: rgba(37,99,235,0.09); }
+.pm-usage-chev { margin-left: auto; font-size: 0.7rem; opacity: 0.7; }
+
+.pm-usage-list {
+  list-style: none; margin: 0; padding: 4px;
+  border-top: 1px solid rgba(37,99,235,0.2);
+  display: flex; flex-direction: column; gap: 3px;
+  max-height: 190px; overflow-y: auto;
+}
+.pm-usage-list button {
+  display: flex; align-items: center; gap: 9px; width: 100%; cursor: pointer;
+  padding: 8px 9px; border-radius: 8px; border: none; background: transparent;
+  text-align: left; font-size: 0.8rem; color: var(--text-primary, #333);
+}
+.pm-usage-list button:hover { background: rgba(255,255,255,0.85); }
+.pm-usage-list button > i:first-child { color: #1d4ed8; font-size: 0.8rem; flex: 0 0 auto; }
+.pm-usage-title {
+  font-weight: 700; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pm-usage-date { font-size: 0.72rem; color: var(--text-secondary, #6b7280); white-space: nowrap; }
+.pm-usage-go { font-size: 0.68rem; opacity: 0.45; flex: 0 0 auto; }
+
+/* A channel in use can be hidden but not deleted. */
+.pm-act.danger.locked {
+  color: var(--text-secondary, #9ca3af); border-color: var(--border-color, rgba(0,0,0,0.14));
+  border-style: dashed; cursor: not-allowed;
+}
+.pm-act.danger.locked:hover { background: rgba(0,0,0,0.03); }
+
+@media (max-width: 760px) {
+  .pm-modal-overlay { padding: 12px; align-items: flex-start; }
+  .pm-modal { max-height: none; }
+}

@@ -376,6 +376,7 @@ export function getSidebarMenu(role, userData) {
       { id: 'system', icon: 'fas fa-cogs', label: 'System Config', section: 'system-config' },
       { id: 'isom', icon: 'fas fa-graduation-cap', label: 'ISOM Management', section: 'isom-management' },
       { id: 'isom-inquiries', icon: 'fas fa-user-graduate', label: 'ISOM Inquiries', section: 'isom-inquiries' },
+      { id: 'payment-methods', icon: 'fas fa-money-check-dollar', label: 'Mode of Payment', section: 'payment-methods' },
       { id: 'terms-conditions', icon: 'fas fa-file-contract', label: 'Terms & Conditions', section: 'terms-conditions' },
       { id: 'audit', icon: 'fas fa-history', label: 'Audit Logs', section: 'audit-logs' },
       { id: 'bible', icon: 'fas fa-bible', label: 'Bible Reader', section: 'bible-reader' },
@@ -424,6 +425,11 @@ export function getSidebarMenu(role, userData) {
   // ISOM Inquiries: Admin & Pastor only (Super Admin gets it in its own menu above)
   if (dashboardType === 'admin' || dashboardType === 'pastor') {
     menu.push({ id: 'isom-inquiries', icon: 'fas fa-user-graduate', label: 'ISOM Inquiries', section: 'isom-inquiries' });
+  }
+
+  // Mode of Payment: Admin & Pastor only (Super Admin gets it in its own menu above)
+  if (dashboardType === 'admin' || dashboardType === 'pastor') {
+    menu.push({ id: 'payment-methods', icon: 'fas fa-money-check-dollar', label: 'Mode of Payment', section: 'payment-methods' });
   }
 
   menu.push(

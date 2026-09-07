@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { SLOT_HOLDING_STATUSES } from '@/lib/eventSlots';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 
 // Only these roles may create/edit/delete events.
@@ -96,6 +97,15 @@ function mapEventConfig(updates, target, gcashQrUrl) {
       ? updates.paymentMethods
       : String(updates.paymentMethods || '').split(',').map(s => s.trim()).filter(Boolean);
   }
+  // Channels picked from the shared "Mode of Payment" page. Only the ids are
+  // stored — name / account / logo are read live from payment_methods, so
+  // correcting an account number there fixes every event at once.
+  if (updates.paymentMethodIds !== undefined) {
+    const arr = Array.isArray(updates.paymentMethodIds)
+      ? updates.paymentMethodIds
+      : String(updates.paymentMethodIds || '').split(',').map((x) => x.trim()).filter(Boolean);
+    target.payment_method_ids = arr.length ? arr : null;
+  }
   if (updates.gcashName !== undefined) target.gcash_name = updates.gcashName || null;
   if (updates.gcashNumber !== undefined) target.gcash_number = updates.gcashNumber || null;
   if (gcashQrUrl) target.gcash_qr_url = gcashQrUrl;
@@ -103,6 +113,9 @@ function mapEventConfig(updates, target, gcashQrUrl) {
   if (updates.bankName !== undefined) target.bank_name = updates.bankName || null;
   if (updates.bankAccountName !== undefined) target.bank_account_name = updates.bankAccountName || null;
   if (updates.bankAccountNumber !== undefined) target.bank_account_number = updates.bankAccountNumber || null;
+  // Who a registrant calls about their own registration.
+  if (updates.contactNumber !== undefined) target.contact_number = updates.contactNumber || null;
+  if (updates.contactName !== undefined) target.contact_name = updates.contactName || null;
   if (updates.registrationRequired !== undefined) target.registration_required = bool(updates.registrationRequired);
   if (updates.maxParticipants !== undefined) target.max_participants = num(updates.maxParticipants);
   if (updates.registrationStartDate !== undefined) target.registration_start_date = updates.registrationStartDate || null;
@@ -251,20 +264,34 @@ export async function GET(request) {
     const { data, error } = await query;
     if (error) throw error;
 
-    // Attach a live registered count (non-cancelled) so the UI can show remaining slots
+    // Attach a live count of the registrations actually holding a seat, so the
+    // UI can show remaining slots. Paid and on-a-plan hold one; a payment
+    // nobody has checked yet does not. See lib/eventSlots.
     const events = data || [];
     try {
       const ids = events.map((e) => e.id);
       if (ids.length > 0) {
         const { data: regs } = await supabase
           .from('event_registrations')
-          .select('event_id')
+          .select('event_id, status')
           .in('event_id', ids)
-          .neq('status', 'cancelled');
+          .in('status', SLOT_HOLDING_STATUSES)
+          // A registration in the Recycle Bin must not go on holding a slot.
+          .is('deleted_at', null);
         const counts = {};
-        (regs || []).forEach((r) => { counts[r.event_id] = (counts[r.event_id] || 0) + 1; });
+        // One row, one seat - a registration on a plan is listed under both
+        // Registrations and Flexible Installment, but it is the same person.
+        // The split is carried alongside so the figure can explain itself.
+        (regs || []).forEach((r) => {
+          const c = counts[r.event_id] || (counts[r.event_id] = { total: 0, paid: 0, installment: 0 });
+          c.total += 1;
+          if (r.status === 'installment') c.installment += 1; else c.paid += 1;
+        });
         events.forEach((e) => {
-          e.registered_count = counts[e.id] || 0;
+          const c = counts[e.id] || { total: 0, paid: 0, installment: 0 };
+          e.registered_count = c.total;
+          e.paid_count = c.paid;
+          e.installment_count = c.installment;
           e.slots_left = e.max_participants ? Math.max(0, e.max_participants - e.registered_count) : null;
         });
       }

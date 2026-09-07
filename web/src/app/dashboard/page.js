@@ -107,6 +107,25 @@ const eventSessionsToShow = (evt) => {
 };
 
 const EventLocationPicker = dynamic(() => import('@/components/EventLocationPicker'), { ssr: false });
+
+// Offered under the Province field so the same province is always spelled the
+// same way - the events list groups on this, and "Cebu" and "cebu province"
+// would read as two places. Typing something not on the list is still allowed.
+const PH_PROVINCES = [
+  'Abra', 'Agusan del Norte', 'Agusan del Sur', 'Aklan', 'Albay', 'Antique', 'Apayao', 'Aurora',
+  'Basilan', 'Bataan', 'Batanes', 'Batangas', 'Benguet', 'Biliran', 'Bohol', 'Bukidnon', 'Bulacan',
+  'Cagayan', 'Camarines Norte', 'Camarines Sur', 'Camiguin', 'Capiz', 'Catanduanes', 'Cavite', 'Cebu',
+  'Cotabato', 'Davao de Oro', 'Davao del Norte', 'Davao del Sur', 'Davao Occidental', 'Davao Oriental',
+  'Dinagat Islands', 'Eastern Samar', 'Guimaras', 'Ifugao', 'Ilocos Norte', 'Ilocos Sur', 'Iloilo',
+  'Isabela', 'Kalinga', 'La Union', 'Laguna', 'Lanao del Norte', 'Lanao del Sur', 'Leyte',
+  'Maguindanao del Norte', 'Maguindanao del Sur', 'Marinduque', 'Masbate', 'Metro Manila',
+  'Misamis Occidental', 'Misamis Oriental', 'Mountain Province', 'Negros Occidental', 'Negros Oriental',
+  'Northern Samar', 'Nueva Ecija', 'Nueva Vizcaya', 'Occidental Mindoro', 'Oriental Mindoro',
+  'Palawan', 'Pampanga', 'Pangasinan', 'Quezon', 'Quirino', 'Rizal', 'Romblon', 'Samar', 'Sarangani',
+  'Siquijor', 'Sorsogon', 'South Cotabato', 'Southern Leyte', 'Sultan Kudarat', 'Sulu', 'Surigao del Norte',
+  'Surigao del Sur', 'Tarlac', 'Tawi-Tawi', 'Zambales', 'Zamboanga del Norte', 'Zamboanga del Sur',
+  'Zamboanga Sibugay',
+];
 const PhoneInput = dynamic(() => import('@/components/PhoneInput'), { ssr: false });
 
 // ============================================
@@ -625,6 +644,7 @@ export default function DashboardPage() {
     latitude: null, longitude: null, loc_country: '', loc_region: '', loc_province: '', loc_city: '', loc_barangay: '',
     // Registration & payment config
     registrationRequired: true, maxParticipants: '', registrationStartDate: '', registrationDeadline: '',
+    contactNumber: '', contactName: '',
     // 300 is the usual ticket price here, so it is pre-filled rather than typed
     // every time; it stays fully editable.
     hasFee: false, registrationFee: DEFAULT_EVENT_FEE, earlyBirdPrice: '', earlyBirdDeadline: '',
@@ -632,7 +652,7 @@ export default function DashboardPage() {
     addons: [],
     allowOnsitePayment: false, onsitePrice: '',
     paymentDeadline: '', paymentInstructions: '', refundPolicy: '',
-    paymentMethods: [], gcashName: '', gcashNumber: '', gcashQrUrl: '',
+    paymentMethods: [], paymentMethodIds: [], gcashName: '', gcashNumber: '', gcashQrUrl: '',
     bankName: '', bankAccountName: '', bankAccountNumber: '',
   };
   const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
@@ -644,7 +664,7 @@ export default function DashboardPage() {
   const [eventRegsModal, setEventRegsModal] = useState(null); // event object being managed (registrations/attendance page)
   const [eventRegs, setEventRegs] = useState([]);
   const [eventRegsLoading, setEventRegsLoading] = useState(false);
-  const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance'
+  const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance' | 'installments' | 'bin'
   // Admin/Super Admin manually adding a walk-in / offline registration
   const [showAdminAddReg, setShowAdminAddReg] = useState(false);
   const [adminAddRegForm, setAdminAddRegForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '', markVerified: true });
@@ -673,6 +693,11 @@ export default function DashboardPage() {
   const [eventActionMenu, setEventActionMenu] = useState(null); // event id whose Manage menu is open
   const [eventMenuAnchor, setEventMenuAnchor] = useState(null); // {top,left} for the portal menu
   const [eventsView, setEventsView] = useState('list'); // 'list' | 'grid'
+  // Narrowing the events listing. All three are view-only, so nothing is ever
+  // hidden from a count that is meant to be a total.
+  const [eventSearch, setEventSearch] = useState('');
+  const [eventStatusFilter, setEventStatusFilter] = useState('all'); // all | upcoming | ongoing | past | draft
+  const [eventProvinceFilter, setEventProvinceFilter] = useState('all');
   const [myRegistrations, setMyRegistrations] = useState([]);
   const [myRegIds, setMyRegIds] = useState(new Set()); // event ids the user is registered for
   const [regQrCodes, setRegQrCodes] = useState({}); // registrationId -> data URL
@@ -902,6 +927,34 @@ export default function DashboardPage() {
   const [isomInquiriesLoading, setIsomInquiriesLoading] = useState(false);
   const [isomInquiryStatusFilter, setIsomInquiryStatusFilter] = useState('all');
   const [isomInquiryUpdatingId, setIsomInquiryUpdatingId] = useState(null);
+
+  // Mode of Payment (online payment channels & bank transfer accounts)
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(false);
+  // The payer-facing subset (is_active only), used by the event stepper and the
+  // register / pay-now modals.
+  const [activePaymentMethods, setActivePaymentMethods] = useState([]);
+  const [paymentMethodSaving, setPaymentMethodSaving] = useState(false);
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState('all');
+  const [paymentMethodEditingId, setPaymentMethodEditingId] = useState(null);
+  const [paymentMethodShowForm, setPaymentMethodShowForm] = useState(false);
+  const [paymentLogoUploading, setPaymentLogoUploading] = useState(false);
+  // Circle-crop editor for the payment logo (its own state so it never clashes
+  // with the profile-picture cropper).
+  const [pmCropImage, setPmCropImage] = useState(null);
+  const [pmCropOpen, setPmCropOpen] = useState(false);
+  const [pmCrop, setPmCrop] = useState({ x: 0, y: 0 });
+  const [pmZoom, setPmZoom] = useState(1);
+  const [pmCroppedAreaPixels, setPmCroppedAreaPixels] = useState(null);
+  const [paymentMethodForm, setPaymentMethodForm] = useState({
+    category: 'bank', name: '', accountNumber: '', accountName: '',
+    logoUrl: '', qrUrl: '', logoColor: '#1e3a8a', notes: '', isActive: true, sortOrder: 0,
+  });
+  const [paymentQrUploading, setPaymentQrUploading] = useState(false);
+  // Which channel's "used by" list is expanded on the cards.
+  const [paymentUsageOpen, setPaymentUsageOpen] = useState(null);
+  // Tapping a QR anywhere (admin card or payer modal) opens it big enough to scan.
+  const [qrLightbox, setQrLightbox] = useState(null);
 
   // Super Admin: Permissions Control (real-time)
   const [permissionOverrides, setPermissionOverrides] = useState({});
@@ -1544,6 +1597,8 @@ export default function DashboardPage() {
     if (sectionId === 'terms-conditions') loadTermsConditions();
     if (sectionId === 'isom-management') loadIsomContent();
     if (sectionId === 'isom-inquiries') loadIsomInquiries();
+    if (sectionId === 'payment-methods') loadPaymentMethods();
+    if (['events', 'events-management', 'my-created-events', 'community-events'].includes(sectionId)) loadActivePaymentMethods();
     if (sectionId === 'permissions-control') { loadPermissionOverrides(); } else { setPermCtrlUnlocked(false); setPermCtrlPasswordInput(''); setPermCtrlPasswordError(''); }
     if (sectionId === 'create-lineup') { loadScheduleData(); loadLineupExcuses(); loadSubRequests(); loadPawMembers(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
     if (sectionId === 'my-lineups') loadScheduleData();
@@ -1731,8 +1786,13 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/events');
       const data = await res.json();
-      if (data.success) setEvents((data.data || []).map(withTitleCase));
+      if (data.success) {
+        const rows = (data.data || []).map(withTitleCase);
+        setEvents(rows);
+        return rows;   // callers that need a row right away don't have to wait a render
+      }
     } catch { /* silent */ }
+    return [];
   };
 
   // Admin bell: registrations awaiting payment verification, across all events
@@ -1782,7 +1842,7 @@ export default function DashboardPage() {
   const myRegPaymentDueCount = useMemo(() => {
     return myRegistrations.filter((r) => {
       const ev = r.event || {};
-      const evEnd = ev.end_date ? new Date(ev.end_date).getTime() : (ev.event_date ? new Date(ev.event_date).getTime() : null);
+      const evEnd = evtMs(ev.end_date) ?? evtMs(ev.event_date);
       const isDone = !!evEnd && evEnd < Date.now();
       return !isDone && r.status === 'registered' && ev.has_fee && Number(ev.registration_fee || 0) > 0 && Number(r.amount || 0) === 0;
     }).length;
@@ -1835,6 +1895,13 @@ export default function DashboardPage() {
     }
     loadMinistries();
   }, [activeSection, userData?.id]);
+
+  // The payer-facing channels are needed wherever a register / pay-now modal can
+  // open, so load them once the user is known rather than per section.
+  useEffect(() => {
+    if (userData?.id) loadActivePaymentMethods();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userData?.id]);
 
   // ============================================
   // FACEBOOK LIVE STREAMS
@@ -2676,6 +2743,340 @@ export default function DashboardPage() {
       setIsomInquiryUpdatingId(null);
     }
   };
+
+  // ---- Mode of Payment ----
+  const PAYMENT_METHOD_BLANK = {
+    category: 'bank', name: '', accountNumber: '', accountName: '',
+    logoUrl: '', qrUrl: '', logoColor: '#1e3a8a', notes: '', isActive: true, sortOrder: 0,
+  };
+
+  const loadPaymentMethods = async () => {
+    if (!userData?.id) return;
+    setPaymentMethodsLoading(true);
+    try {
+      const res = await fetch(`/api/payment-methods?actorId=${userData.id}`);
+      const data = await res.json();
+      if (data.success) setPaymentMethods(data.data || []);
+      else showToast(data.message || 'Unable to load payment methods', 'warning');
+    } catch { /* silent */ }
+    finally { setPaymentMethodsLoading(false); }
+  };
+
+  // Public list — only the channels marked "Visible to payers".
+  const loadActivePaymentMethods = async () => {
+    try {
+      const res = await fetch('/api/payment-methods');
+      const data = await res.json();
+      if (data.success) setActivePaymentMethods(data.data || []);
+    } catch { /* silent - the stepper just shows the empty state */ }
+  };
+
+  const openPaymentMethodForm = (method) => {
+    if (method) {
+      setPaymentMethodEditingId(method.id);
+      setPaymentMethodForm({
+        category: method.category || 'bank',
+        name: method.name || '',
+        accountNumber: method.account_number || '',
+        accountName: method.account_name || '',
+        logoUrl: method.logo_url || '',
+        qrUrl: method.qr_url || '',
+        logoColor: method.logo_color || '#1e3a8a',
+        notes: method.notes || '',
+        isActive: method.is_active !== false,
+        sortOrder: method.sort_order || 0,
+      });
+    } else {
+      setPaymentMethodEditingId(null);
+      setPaymentMethodForm(PAYMENT_METHOD_BLANK);
+    }
+    setPaymentMethodShowForm(true);
+  };
+
+  const closePaymentMethodForm = () => {
+    setPaymentMethodShowForm(false);
+    setPaymentMethodEditingId(null);
+    setPaymentMethodForm(PAYMENT_METHOD_BLANK);
+  };
+
+  const savePaymentMethod = async () => {
+    if (!paymentMethodForm.name.trim()) {
+      showToast('Bank / channel name is required', 'warning');
+      return;
+    }
+    setPaymentMethodSaving(true);
+    try {
+      const editing = !!paymentMethodEditingId;
+      const res = await fetch('/api/payment-methods', {
+        method: editing ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...paymentMethodForm, id: paymentMethodEditingId, actorId: userData?.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPaymentMethods((prev) => (editing
+          ? prev.map((m) => (m.id === paymentMethodEditingId ? data.data : m))
+          : [...prev, data.data]));
+        showToast(data.message || 'Saved', 'success');
+        closePaymentMethodForm();
+      } else {
+        showToast(data.message || 'Failed to save payment method', 'danger');
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'danger');
+    } finally {
+      setPaymentMethodSaving(false);
+    }
+  };
+
+  const togglePaymentMethodActive = async (method) => {
+    try {
+      const res = await fetch('/api/payment-methods', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: method.id, actorId: userData?.id, isActive: !(method.is_active !== false) }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPaymentMethods((prev) => prev.map((m) => (m.id === method.id ? data.data : m)));
+        showToast(data.data.is_active ? 'Now visible to payers' : 'Hidden from payers', 'success');
+      } else {
+        showToast(data.message || 'Failed to update', 'danger');
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'danger');
+    }
+  };
+
+  const deletePaymentMethod = (method) => {
+    // A channel an event points at can't be removed - its registrants would be
+    // left with no account to pay into. The server enforces this too (409).
+    const used = method.used_by_events || [];
+    if (used.length > 0) {
+      showToast(`"${method.name}" is used by ${used.length} event${used.length === 1 ? '' : 's'}. Hide it instead, or remove it from those events first.`, 'warning');
+      setPaymentUsageOpen(method.id);
+      return;
+    }
+    askConfirm(`Delete "${method.name}"? This cannot be undone.`, async () => {
+      try {
+        const res = await fetch(`/api/payment-methods?id=${method.id}&actorId=${userData?.id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          setPaymentMethods((prev) => prev.filter((m) => m.id !== method.id));
+          showToast('Payment method deleted', 'success');
+        } else {
+          if (data.inUse) {
+            // Another admin attached it to an event since this list was loaded.
+            setPaymentMethods((prev) => prev.map((m) => (m.id === method.id ? { ...m, used_by_events: data.usedByEvents || [] } : m)));
+            setPaymentUsageOpen(method.id);
+          }
+          showToast(data.message || 'Failed to delete', 'danger');
+        }
+      } catch (e) {
+        showToast('Error: ' + e.message, 'danger');
+      }
+    });
+  };
+
+  // Jump from a channel's usage list straight to that event.
+  const openEventFromPaymentUsage = async (usedEvent) => {
+    showSection('events-management');
+    const found = events.find((e) => e.id === usedEvent.id);
+    if (found) { setEventDetail(found); return; }
+    // The events list may not be loaded yet on a fresh session.
+    const rows = await loadEvents();
+    const hit = rows.find((e) => e.id === usedEvent.id);
+    if (hit) setEventDetail(hit);
+    else showToast('That event could no longer be found', 'warning');
+  };
+
+  // Resolve an event's picked channel ids into the live payment_methods rows.
+  const eventPaymentChannels = (evt) => {
+    const ids = evt?.payment_method_ids || [];
+    if (!ids.length) return [];
+    return ids
+      .map((id) => activePaymentMethods.find((m) => m.id === id))
+      .filter(Boolean);
+  };
+
+  const copyPaymentDetail = async (label, value) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast(`${label} copied`, 'success');
+    } catch {
+      showToast('Unable to copy', 'warning');
+    }
+  };
+
+  // Take the region the admin framed in the cropper and export it as a circular
+  // WebP: the square crop is drawn onto a transparent canvas clipped to a circle,
+  // so the stored file is already round and sized for the avatar.
+  const cropToCircularWebp = (imageSrc, pixelCrop, size = 512) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onerror = () => reject(new Error('That image could not be loaded'));
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(
+        img,
+        pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height,
+        0, 0, size, size,
+      );
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('WebP is not supported in this browser'))),
+        'image/webp',
+        0.92,
+      );
+    };
+    img.src = imageSrc;
+  });
+
+  const openPaymentLogoCropper = (src) => {
+    setPmCropImage(src);
+    setPmCrop({ x: 0, y: 0 });
+    setPmZoom(1);
+    setPmCroppedAreaPixels(null);
+    setPmCropOpen(true);
+  };
+
+  const closePaymentLogoCropper = () => {
+    setPmCropOpen(false);
+    // Release the object URL created when re-editing an already-uploaded logo.
+    if (pmCropImage && pmCropImage.startsWith('blob:')) URL.revokeObjectURL(pmCropImage);
+    setPmCropImage(null);
+    setPmCroppedAreaPixels(null);
+  };
+
+  // Picking a file opens the cropper instead of uploading straight away.
+  const handlePaymentLogoSelect = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please choose an image file', 'warning'); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast('Image is too large (max 10MB)', 'warning'); return; }
+
+    const reader = new FileReader();
+    reader.onerror = () => showToast('Could not read that file', 'danger');
+    reader.onload = () => openPaymentLogoCropper(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  // Re-open the cropper on a logo that is already uploaded. It is fetched as a
+  // blob first so the canvas is never tainted by cross-origin pixels.
+  const editPaymentLogo = async () => {
+    if (!paymentMethodForm.logoUrl) return;
+    setPaymentLogoUploading(true);
+    try {
+      const res = await fetch(paymentMethodForm.logoUrl, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Could not load the current logo');
+      const blob = await res.blob();
+      openPaymentLogoCropper(URL.createObjectURL(blob));
+    } catch (err) {
+      showToast('Error: ' + err.message, 'danger');
+    } finally {
+      setPaymentLogoUploading(false);
+    }
+  };
+
+  const confirmPaymentLogoCrop = async () => {
+    if (!pmCropImage || !pmCroppedAreaPixels) return;
+    setPaymentLogoUploading(true);
+    try {
+      const webp = await cropToCircularWebp(pmCropImage, pmCroppedAreaPixels);
+      const formData = new FormData();
+      formData.append('file', webp, 'logo.webp');
+      formData.append('actorId', userData?.id || '');
+      const res = await fetch('/api/payment-methods/upload-logo', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success) {
+        // Cache-bust so a re-crop of the same entry shows the new circle at once.
+        setPaymentMethodForm((f) => ({ ...f, logoUrl: `${data.url}?t=${Date.now()}` }));
+        showToast('Logo cropped and saved as WebP', 'success');
+        closePaymentLogoCropper();
+      } else {
+        showToast(data.message || 'Upload failed', 'danger');
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message, 'danger');
+    } finally {
+      setPaymentLogoUploading(false);
+    }
+  };
+
+  const clearPaymentLogo = () => setPaymentMethodForm((f) => ({ ...f, logoUrl: '' }));
+
+  // A QR must stay square and keep its quiet zone, so it is padded onto a white
+  // square rather than cropped to a circle like the logo.
+  const convertQrToWebp = (file, size = 720) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that file'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('That file is not a readable image'));
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        // White plate: scanners need the light quiet zone around the code.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+        const pad = Math.round(size * 0.04);
+        const box = size - pad * 2;
+        const scale = Math.min(box / img.width, box / img.height);
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error('WebP is not supported in this browser'))),
+          'image/webp',
+          0.95,
+        );
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handlePaymentQrSelect = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please choose an image file', 'warning'); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast('Image is too large (max 10MB)', 'warning'); return; }
+
+    setPaymentQrUploading(true);
+    try {
+      const webp = await convertQrToWebp(file);
+      const formData = new FormData();
+      formData.append('file', webp, 'qr.webp');
+      formData.append('actorId', userData?.id || '');
+      const res = await fetch('/api/payment-methods/upload-logo', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success) {
+        setPaymentMethodForm((f) => ({ ...f, qrUrl: `${data.url}?t=${Date.now()}` }));
+        showToast('QR code uploaded as WebP', 'success');
+      } else {
+        showToast(data.message || 'Upload failed', 'danger');
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message, 'danger');
+    } finally {
+      setPaymentQrUploading(false);
+    }
+  };
+
+  const clearPaymentQr = () => setPaymentMethodForm((f) => ({ ...f, qrUrl: '' }));
 
   // Permission Controls
   const loadPermissionOverrides = async () => {
@@ -3717,6 +4118,7 @@ export default function DashboardPage() {
       loc_country: evt.loc_country || '', loc_region: evt.loc_region || '', loc_province: evt.loc_province || '', loc_city: evt.loc_city || '', loc_barangay: evt.loc_barangay || '',
       audience: (evt.allowed_roles && evt.allowed_roles.length) ? 'specific' : 'all', allowedRoles: evt.allowed_roles || [], isPublished: evt.is_published !== false,
       registrationRequired: evt.registration_required !== false, maxParticipants: evt.max_participants ?? '',
+      contactNumber: evt.contact_number || '', contactName: evt.contact_name || '',
       registrationStartDate: evt.registration_start_date?.slice(0, 16) || '', registrationDeadline: evt.registration_deadline?.slice(0, 16) || '',
       hasFee: !!evt.has_fee, registrationFee: evt.registration_fee ?? '', earlyBirdPrice: evt.early_bird_price ?? '', earlyBirdDeadline: evt.early_bird_deadline?.slice(0, 16) || '',
       allowOnsitePayment: !!evt.allow_onsite_payment, onsitePrice: evt.onsite_price ?? '',
@@ -3724,7 +4126,7 @@ export default function DashboardPage() {
       addons: (Array.isArray(evt.event_addons) ? evt.event_addons : [])
         .slice().sort((a, b) => (a.position || 0) - (b.position || 0))
         .map((a) => ({ question: a.question || '', description: a.description || '', details: a.details || '', fee: a.fee ?? '', isRequired: !!a.is_required })),
-      paymentMethods: evt.payment_methods || [], gcashName: evt.gcash_name || '', gcashNumber: evt.gcash_number || '', gcashQrUrl: evt.gcash_qr_url || '',
+      paymentMethods: evt.payment_methods || [], paymentMethodIds: evt.payment_method_ids || [], gcashName: evt.gcash_name || '', gcashNumber: evt.gcash_number || '', gcashQrUrl: evt.gcash_qr_url || '',
       bankName: evt.bank_name || '', bankAccountName: evt.bank_account_name || '', bankAccountNumber: evt.bank_account_number || '',
     } : EMPTY_EVENT_FORM;
     setEditingEvent(evt);
@@ -3814,6 +4216,8 @@ export default function DashboardPage() {
       fd.append('allowedRoles', f.audience === 'all' ? '' : (f.allowedRoles || []).join(','));
       fd.append('isPublished', String(f.isPublished));
       fd.append('registrationRequired', String(f.registrationRequired));
+      fd.append('contactNumber', f.contactNumber || '');
+      fd.append('contactName', f.contactName || '');
       fd.append('maxParticipants', f.maxParticipants || '');
       fd.append('registrationStartDate', f.registrationStartDate || '');
       fd.append('registrationDeadline', f.registrationDeadline || '');
@@ -3840,6 +4244,7 @@ export default function DashboardPage() {
       fd.append('paymentInstructions', f.paymentInstructions || '');
       fd.append('refundPolicy', f.refundPolicy || '');
       fd.append('paymentMethods', (f.paymentMethods || []).join(','));
+      fd.append('paymentMethodIds', (f.paymentMethodIds || []).join(','));
       fd.append('gcashName', f.gcashName || '');
       fd.append('gcashNumber', f.gcashNumber || '');
       fd.append('gcashQrUrl', f.gcashQrUrl || '');
@@ -3895,6 +4300,20 @@ export default function DashboardPage() {
     return { ...f, allowedRoles: next };
   });
 
+  // Pick / unpick one of the church's saved payment channels for this event.
+  // The channel's name is mirrored into `paymentMethods` so the attendee's
+  // "Payment Method" dropdown and the existing payment reports keep working.
+  const toggleEventPaymentChannel = (method) => setEventForm((f) => {
+    const ids = f.paymentMethodIds || [];
+    const on = ids.includes(method.id);
+    const nextIds = on ? ids.filter((x) => x !== method.id) : [...ids, method.id];
+    const labels = f.paymentMethods || [];
+    const nextLabels = on
+      ? labels.filter((l) => l !== method.name)
+      : (labels.includes(method.name) ? labels : [...labels, method.name]);
+    return { ...f, paymentMethodIds: nextIds, paymentMethods: nextLabels };
+  });
+
   // -- Merchandise (Step 6) --
   const addMerchItem = () => {
     setEventMerchItems((items) => [...items, { id: `merch-${Date.now()}-${items.length}`, name: '', file: null, previewUrl: '', existingImageUrl: '' }]);
@@ -3927,7 +4346,25 @@ export default function DashboardPage() {
     // The installment plans decide whether the third tab exists at all, so they
     // are loaded alongside the registrations rather than on first click.
     loadInstallments(evt.id);
+    loadDeletedRegs(evt.id);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Just the registration rows again, for when something else on this page has
+  // changed what they say. Recording or removing an installment rewrites
+  // `amount_paid` and the status on the registration itself, so the
+  // Registrations table and the hero totals are stale the moment it happens.
+  //
+  // Deliberately not openEventRegistrations(): that one re-enters the page from
+  // the top, which resets the tab and scrolls away from the row just edited.
+  // Here only the data moves.
+  const refreshEventRegs = async (eventId = eventRegsModal?.id) => {
+    if (!eventId) return;
+    try {
+      const res = await fetch(`/api/events/registrations?eventId=${eventId}`);
+      const data = await res.json();
+      if (data.success) setEventRegs(data.data || []);
+    } catch { /* the rows on screen stay as they were */ }
   };
 
   const closeEventManage = () => {
@@ -3937,6 +4374,39 @@ export default function DashboardPage() {
     setShowQrScanner(false);
     setInstallments([]);
     setPayModal(null);
+    setDeletedRegs([]);
+    setDeleteRegModal(null);
+    setBinPage(1);
+    setBinSelected([]);
+  };
+
+  // Provinces arrive from the location picker in several shapes - "Cebu",
+  // "Province of Cebu", "Cebu Province", "CEBU" - and a pill has room for one
+  // word, so it is trimmed down to the name itself. Metro Manila keeps its
+  // "Metro" because "Manila" alone is a different place.
+  const provinceLabel = (evt) => {
+    let raw = String(evt?.loc_province || '').trim();
+    // Nothing stored, but the city itself sometimes names its province -
+    // "Cebu City" sits in Cebu, "Iloilo City" in Iloilo. Only accepted when
+    // what is left after dropping "City" is a real province, so "Davao City"
+    // is never guessed at (its province is Davao del Sur, not "Davao").
+    if (!raw) {
+      const fromCity = String(evt?.loc_city || '').trim().replace(/\s+city$/i, '').trim();
+      const hit = PH_PROVINCES.find((prov) => prov.toLowerCase() === fromCity.toLowerCase());
+      if (hit) raw = hit;
+    }
+    if (!raw) return '';
+    const bare = raw
+      .replace(/^province\s+of\s+/i, '')
+      .replace(/\s+province$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!bare) return '';
+    // Left alone if it is already an acronym or deliberately capitalised (NCR).
+    if (bare.length > 1 && bare === bare.toUpperCase() && !/\s/.test(bare)) return bare;
+    return bare.split(' ').map((w) => (w
+      ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+      : w)).join(' ');
   };
 
   // Churches are typed by hand, so "joyful sound church" and "Joyful Sound
@@ -3995,6 +4465,22 @@ export default function DashboardPage() {
   // so the reference number can be checked against the screenshot side by side.
   const [proofModal, setProofModal] = useState(null); // a registration row
 
+  // ---- Deleting an attendee, and the Recycle Bin they land in ----
+  // Removing somebody can take money off the books with them, so the confirm
+  // step is not a one-line "are you sure" - it lays out who they are and every
+  // payment recorded against them before the button can be pressed.
+  const [deleteRegModal, setDeleteRegModal] = useState(null); // { reg, payments, loading }
+  const [deleteRegReason, setDeleteRegReason] = useState('');
+  const [deleteRegSaving, setDeleteRegSaving] = useState(false);
+  const [deletedRegs, setDeletedRegs] = useState([]);
+  const [deletedRegsLoading, setDeletedRegsLoading] = useState(false);
+  const [binPage, setBinPage] = useState(1);
+  const [binPageSize, setBinPageSize] = useState(10);
+  // Ids ticked in the Recycle Bin. Emptying the bin one row at a time is the
+  // slow way to clear up after a test run, so rows can be picked in bulk.
+  const [binSelected, setBinSelected] = useState([]);
+  const [binBulkSaving, setBinBulkSaving] = useState(false);
+
   // The walk-in form is a two-step flow: who is coming, then how they are paying.
   const [adminAddStep, setAdminAddStep] = useState(0);
   const [adminDupName, setAdminDupName] = useState(null); // the matching registration, if this person already has one
@@ -4006,6 +4492,9 @@ export default function DashboardPage() {
   const [adminBulkDraft, setAdminBulkDraft] = useState({ firstName: '', lastName: '', addonIds: [] });
   const [adminBulkEditing, setAdminBulkEditing] = useState(null);
   const [adminBulkError, setAdminBulkError] = useState('');
+  // Set once the representative's saved church/contact has been copied in, so
+  // the panel can say so instead of offering it a second time.
+  const [adminRepUsedSaved, setAdminRepUsedSaved] = useState(false);
 
   // ---- Flexible installment plans for the event being managed ----
   const [installments, setInstallments] = useState([]);
@@ -4058,8 +4547,8 @@ export default function DashboardPage() {
       if (!data.success) { showToast(data.message, 'danger'); return; }
       showToast(data.message, 'success');
       setPayModal(null);
-      await loadInstallments(eventRegsModal?.id);
-      if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+      // Both views read from the same registration, so both are refreshed.
+      await Promise.all([loadInstallments(eventRegsModal?.id), refreshEventRegs()]);
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
     finally { setPaySaving(false); }
   };
@@ -4072,7 +4561,9 @@ export default function DashboardPage() {
         const data = await res.json();
         if (!data.success) { showToast(data.message, 'danger'); return; }
         showToast('Payment removed', 'success');
-        await loadInstallments(eventRegsModal?.id);
+        // The balance going back up also changes what the Registrations table
+        // says this person has paid, and the status alongside it.
+        await Promise.all([loadInstallments(eventRegsModal?.id), refreshEventRegs()]);
       } catch (e) { showToast('Error: ' + e.message, 'danger'); }
     },
     { title: 'Remove Payment?', confirmLabel: 'Remove Payment', icon: 'fa-trash' },
@@ -4088,6 +4579,15 @@ export default function DashboardPage() {
   const [regMoneyFilter, setRegMoneyFilter] = useState('all'); // all | cash | online | pending
   // Which row's Manage menu is open. One at a time, closed by a click anywhere else.
   const [openRowMenu, setOpenRowMenu] = useState(null);
+
+  // The same view controls over the installment plans. A plan list is read for
+  // different reasons than a registration list - "who still owes money" rather
+  // than "who is coming" - so it sorts by balance as well as by date.
+  const [instSearch, setInstSearch] = useState('');
+  const [instSort, setInstSort] = useState('newest');       // newest | oldest | balance | paid | name
+  const [instChurchFilter, setInstChurchFilter] = useState('all');
+  const [instTypeFilter, setInstTypeFilter] = useState('all');   // all | individual | bulk
+  const [instStatusFilter, setInstStatusFilter] = useState('all'); // all | progress | settled | nothing
 
   // Paging, per table.
   const [regPage, setRegPage] = useState(1);
@@ -4150,6 +4650,17 @@ export default function DashboardPage() {
     return { cash, online, total: cash + online, pending, planDue, expected };
   })();
   const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
+
+  // What a status is called on screen. 'payment_verified' is the end of the
+  // road for money - there is nothing left to check - so it reads as "paid"
+  // rather than describing the checking that got it there.
+  const STATUS_LABELS = {
+    payment_verified: 'paid',
+    payment_submitted: 'for verification',
+    pending_payment: 'awaiting payment',
+    installment: 'installment',
+  };
+  const statusLabel = (status) => STATUS_LABELS[status] || String(status || '').replace(/_/g, ' ');
 
   useEffect(() => {
     if (!openRowMenu) return undefined;
@@ -4232,6 +4743,64 @@ export default function DashboardPage() {
   const regPageSafe = Math.min(regPage, regPages);
   const pagedRegs = visibleRegs.slice((regPageSafe - 1) * regPageSize, regPageSafe * regPageSize);
 
+  // ---- The same view controls, over the installment plans ----
+  // Counted off the plans rather than off every registration, so the numbers in
+  // this dropdown match the rows this table can actually show.
+  const instChurchOptions = (() => {
+    const counts = new Map();
+    installments.forEach((r) => {
+      const name = formatChurchName(r.church_name) || 'No church given';
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  })();
+
+  // A plan is searched for the same reasons a registration is, plus the
+  // reference on any single payment recorded against it.
+  const instMatchesSearch = (r, q) => [
+    r.attendee_name, r.added_by, r.representative, r.church_name, r.church_pastor,
+    r.attendee_mobile, r.attendee_email, r.payment_reference,
+  ].some((v) => String(v || '').toLowerCase().includes(q))
+    || (r.payments || []).some((p) => [p.reference, p.method, p.note]
+      .some((v) => String(v || '').toLowerCase().includes(q)));
+
+  useEffect(() => { setInstPage(1); }, [instSearch, instTypeFilter, instChurchFilter, instStatusFilter, instSort, eventRegsModal?.id]);
+
+  const visibleInstallments = (() => {
+    const q = instSearch.trim().toLowerCase();
+    let rows = instTypeFilter === 'all' ? installments : installments.filter((r) => regTypeOf(r) === instTypeFilter);
+    if (instChurchFilter !== 'all') {
+      rows = rows.filter((r) => (formatChurchName(r.church_name) || 'No church given') === instChurchFilter);
+    }
+    if (instStatusFilter !== 'all') {
+      rows = rows.filter((r) => {
+        const paid = Number(r.paid) || 0;
+        const settled = (Number(r.balance) || 0) <= 0;
+        if (instStatusFilter === 'settled') return settled;
+        // "Not started" is the set worth chasing first, so it is its own choice
+        // rather than being buried inside "in progress".
+        if (instStatusFilter === 'nothing') return !settled && paid <= 0;
+        return !settled && paid > 0;
+      });
+    }
+    if (q) rows = rows.filter((r) => instMatchesSearch(r, q));
+    return [...rows].sort((a, b) => {
+      if (instSort === 'balance') return (Number(b.balance) || 0) - (Number(a.balance) || 0);
+      if (instSort === 'paid') return (Number(b.paid) || 0) - (Number(a.paid) || 0);
+      if (instSort === 'name') {
+        return String(a.attendee_name || '').localeCompare(String(b.attendee_name || ''));
+      }
+      const da = new Date(a.created_at).getTime();
+      const db = new Date(b.created_at).getTime();
+      return instSort === 'oldest' ? da - db : db - da;
+    });
+  })();
+  const instPages = Math.max(1, Math.ceil(visibleInstallments.length / instPageSize));
+  const instPageSafe = Math.min(instPage, instPages);
+  const pagedInstallments = visibleInstallments.slice((instPageSafe - 1) * instPageSize, instPageSafe * instPageSize);
+
   const verifyRegistration = async (regId, status) => {
     try {
       const res = await fetch('/api/events/registrations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: regId, actorId: userData?.id, status }) });
@@ -4244,6 +4813,170 @@ export default function DashboardPage() {
       }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  // Everything in the bin for the event being managed. Each row comes back with
+  // the installments recorded against it, so the bin can say what restoring
+  // would bring back - and what emptying would destroy.
+  const loadDeletedRegs = async (eventId) => {
+    if (!eventId || !userData?.id) return;
+    setDeletedRegsLoading(true);
+    try {
+      const res = await fetch(`/api/events/registrations?eventId=${eventId}&deleted=1&actorId=${userData.id}`);
+      const data = await res.json();
+      const rows = data.success ? data.data || [] : [];
+      setDeletedRegs(rows);
+      // Anything that has left the bin since it was ticked is dropped from the
+      // selection, so a stale id can never be acted on.
+      setBinSelected((sel) => sel.filter((id) => rows.some((r) => r.id === id)));
+      if (!data.success) showToast(data.message || 'Could not load the Recycle Bin.', 'danger');
+    } catch { setDeletedRegs([]); }
+    finally { setDeletedRegsLoading(false); }
+  };
+
+  // The payments behind one registration: the installments if it is on a plan,
+  // otherwise the single payment the registration itself carries. Both are money
+  // that disappears with the row, so both belong on the confirm screen.
+  const paymentsForReg = (reg) => {
+    const plan = installments.find((p) => p.id === reg.id);
+    if (plan) return plan.payments || [];
+    if (Array.isArray(reg.payments)) return reg.payments;
+    return [];
+  };
+
+  const openDeleteReg = (reg) => {
+    setDeleteRegReason('');
+    setDeleteRegModal({ reg, payments: paymentsForReg(reg) });
+  };
+
+  const confirmDeleteReg = async () => {
+    if (!deleteRegModal) return;
+    setDeleteRegSaving(true);
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: deleteRegModal.reg.id, actorId: userData?.id,
+          action: 'soft_delete', reason: deleteRegReason,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      showToast('Moved to Recycle Bin', 'success');
+      setDeleteRegModal(null);
+      setDeleteRegReason('');
+      if (eventRegsModal) {
+        openEventRegistrations(eventRegsModal, manageTab);
+        loadDeletedRegs(eventRegsModal.id);
+      }
+      loadPendingRegAlerts();
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setDeleteRegSaving(false); }
+  };
+
+  const restoreReg = (reg) => askConfirm(
+    `Put ${formatPersonName(reg.attendee_name)} back on the registration list? Their payments and attendance come back exactly as they were.`,
+    async () => {
+      try {
+        const res = await fetch('/api/events/registrations', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: reg.id, actorId: userData?.id, action: 'restore' }),
+        });
+        const data = await res.json();
+        if (!data.success) { showToast(data.message, 'danger'); return; }
+        showToast('Registration restored', 'success');
+        if (eventRegsModal) {
+          openEventRegistrations(eventRegsModal, manageTab);
+          loadDeletedRegs(eventRegsModal.id);
+        }
+        loadPendingRegAlerts();
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    },
+    { title: 'Restore Registration?', subtitle: eventRegsModal?.title || '', confirmLabel: 'Restore', icon: 'fa-rotate-left' },
+  );
+
+  const binToggleOne = (id) => setBinSelected((sel) => (sel.includes(id)
+    ? sel.filter((v) => v !== id)
+    : [...sel, id]));
+
+  // The header tick works on the rows currently on screen, not on all 13 - a
+  // tick that silently reached onto other pages would be a trap.
+  const binTogglePage = (pageIds) => setBinSelected((sel) => {
+    const allOn = pageIds.length > 0 && pageIds.every((id) => sel.includes(id));
+    return allOn ? sel.filter((id) => !pageIds.includes(id)) : [...new Set([...sel, ...pageIds])];
+  });
+
+  // Restore or destroy everything ticked, in one request rather than one per
+  // row - a partial result from a half-finished loop is the worst outcome here.
+  const binBulk = (mode) => {
+    const ids = [...binSelected];
+    if (ids.length === 0) return;
+    const chosen = deletedRegs.filter((r) => ids.includes(r.id));
+    const money = chosen.reduce((sum, r) => {
+      const paid = (r.payments || []).reduce((n, p) => n + (Number(p.amount) || 0), 0);
+      return sum + (paid || Number(r.amount_paid) || 0);
+    }, 0);
+    const many = `${ids.length} ${ids.length === 1 ? 'registration' : 'registrations'}`;
+
+    const run = async () => {
+      setBinBulkSaving(true);
+      try {
+        const res = mode === 'restore'
+          ? await fetch('/api/events/registrations', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids, actorId: userData?.id, action: 'restore' }),
+            })
+          : await fetch(`/api/events/registrations?ids=${ids.join(',')}&actorId=${userData?.id}&purge=1`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) { showToast(data.message, 'danger'); return; }
+        showToast(data.message, 'success');
+        setBinSelected([]);
+        if (eventRegsModal) {
+          loadDeletedRegs(eventRegsModal.id);
+          // A restore puts people back on the lists and the totals.
+          if (mode === 'restore') { refreshEventRegs(); loadInstallments(eventRegsModal.id); }
+        }
+        loadPendingRegAlerts();
+      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+      finally { setBinBulkSaving(false); }
+    };
+
+    if (mode === 'restore') {
+      askConfirm(
+        `Put ${many} back on the registration list? Their payments and attendance come back exactly as they were.`,
+        run,
+        { title: 'Restore Selected?', subtitle: eventRegsModal?.title || '', confirmLabel: `Restore ${ids.length}`, icon: 'fa-rotate-left' },
+      );
+      return;
+    }
+    askConfirm(
+      `Permanently delete ${many}?${money > 0 ? ` The ₱${money} recorded against them is deleted with them.` : ''} This cannot be undone.`,
+      run,
+      { title: 'Delete Forever?', subtitle: eventRegsModal?.title || '', confirmLabel: `Delete ${ids.length} Forever`, icon: 'fa-trash', requireText: 'DELETE' },
+    );
+  };
+
+  // The one step that cannot be undone, so the amount at stake is spelled out in
+  // the question rather than left for the admin to remember.
+  const purgeReg = (reg) => {
+    const paid = paymentsForReg(reg).reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+      || Number(reg.amount_paid) || 0;
+    askConfirm(
+      `Permanently delete ${formatPersonName(reg.attendee_name)}?${paid > 0 ? ` The ₱${paid} recorded against them is deleted with the registration.` : ''} This cannot be undone.`,
+      async () => {
+        try {
+          const res = await fetch(`/api/events/registrations?id=${reg.id}&actorId=${userData?.id}&purge=1`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!data.success) { showToast(data.message, 'danger'); return; }
+          showToast('Registration permanently deleted', 'success');
+          if (eventRegsModal) loadDeletedRegs(eventRegsModal.id);
+        } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+      },
+      { title: 'Delete Forever?', subtitle: eventRegsModal?.title || '', confirmLabel: 'Delete Forever', icon: 'fa-trash', requireText: 'DELETE' },
+    );
   };
 
   // -- Admin/Super Admin: manually add a registration (walk-in / offline sign-up) --
@@ -4266,6 +4999,7 @@ export default function DashboardPage() {
     setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id) });
     setAdminBulkEditing(null);
     setAdminBulkError('');
+    setAdminRepUsedSaved(false);
     setAdminAddRegAddons((eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
     setAdminChurchOptions([]);
     setAdminChurchOpen(false);
@@ -4299,6 +5033,77 @@ export default function DashboardPage() {
   const adminPersonExtras = (a) => adminPersonAddons(a).reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
   const adminPersonTotal = (a) => adminBaseAmount(eventRegsModal) + adminPersonExtras(a);
 
+  // ---- The representative: are they already on this event, or not? ----
+  // A group's representative is usually attending too, so they are one of the
+  // people being registered and their fee belongs in the total. Unless they
+  // already hold a slot from an earlier registration - then adding them again
+  // would double-book the seat and charge for it twice. In that case they stay
+  // off the roster and only the extras they have NOT availed are charged.
+  //
+  // This is the same rule the public form follows; the difference here is that
+  // staff can see the existing registration's status and reuse its details.
+  const adminNameKey = (first, last) => `${(first || '').trim()} ${(last || '').trim()}`.trim().toLowerCase().replace(/\s+/g, ' ');
+  const adminRepKey = adminNameKey(adminAddRegForm.attendeeFirstName, adminAddRegForm.attendeeLastName);
+  const adminRepMatch = adminIsBulk ? adminDupName : null;
+  const adminRepLocked = !!adminRepMatch;
+
+  // The add-ons on a registration are a snapshot taken when it was made, so an
+  // id can be stale (renamed, re-created). Matched on the question text as well,
+  // or the padlock never appears against what they already availed.
+  const adminRepLockedAddonIds = (() => {
+    const held = adminRepMatch?.addons || [];
+    if (held.length === 0) return [];
+    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    return (eventRegsModal?.event_addons || [])
+      .filter((x) => held.some((h) => h.id === x.id || same(h.question, x.question)))
+      .map((x) => x.id);
+  })();
+
+  // Extras being added on top of a slot they already hold.
+  const adminRepNewAddonIds = adminAddRegAddons.filter((id) => !adminRepLockedAddonIds.includes(id));
+  const adminRepTopUpAddons = () => (eventRegsModal?.event_addons || []).filter((x) => adminRepNewAddonIds.includes(x.id));
+  const adminRepTopUpTotal = () => adminRepTopUpAddons().reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+
+  // The representative as a roster entry - present only when they need a slot.
+  const adminRepAsAttendee = () => ((adminIsBulk && !adminRepLocked
+    && adminAddRegForm.attendeeFirstName?.trim() && adminAddRegForm.attendeeLastName?.trim())
+    ? {
+        firstName: adminAddRegForm.attendeeFirstName.trim(),
+        lastName: adminAddRegForm.attendeeLastName.trim(),
+        addonIds: adminAddRegAddons,
+        isRep: true,
+      }
+    : null);
+
+  // Everyone this submission registers: the representative first when they are
+  // coming, then the people they brought.
+  const adminFullRoster = () => {
+    const rep = adminRepAsAttendee();
+    return rep ? [rep, ...adminBulkList] : adminBulkList;
+  };
+
+  // A group needs somebody in it - or, for a representative who already has a
+  // slot, at least one extra to add to it.
+  const adminRosterReady = () => adminFullRoster().length > 0
+    || (adminRepLocked && adminRepTopUpAddons().length > 0);
+
+  // Copy across what the earlier registration already recorded, so a returning
+  // representative does not have their church, pastor and number retyped.
+  const adminUseSavedRepDetails = () => {
+    if (!adminRepMatch) return;
+    setAdminAddRegForm((f) => ({
+      ...f,
+      churchName: adminRepMatch.churchName || f.churchName,
+      churchPastor: String(adminRepMatch.churchPastor || f.churchPastor || '').replace(/^ptr\.?\s*/i, ''),
+      attendeeMobile: adminRepMatch.mobile || f.attendeeMobile,
+    }));
+    // Everything they already availed comes across ticked and locked, so the
+    // extras they are adding now are the only ones in question.
+    setAdminAddRegAddons((ids) => [...new Set([...ids, ...adminRepLockedAddonIds])]);
+    setAdminAddErrors({});
+    setAdminRepUsedSaved(true);
+  };
+
   const adminToggleDraftAddon = (addon) => {
     if (addon.is_required) return;
     setAdminBulkDraft((d) => ({
@@ -4316,6 +5121,14 @@ export default function DashboardPage() {
     const clash = adminBulkList.findIndex((a, i) => i !== adminBulkEditing
       && `${a.firstName} ${a.lastName}`.toLowerCase().replace(/\s+/g, ' ') === key);
     if (clash > -1) { setAdminBulkError('That person is already on the list below.'); return; }
+    // The representative is handled by step 1 either way: they are already the
+    // first row of the roster, or they already hold a slot for this event.
+    if (adminRepKey && key === adminRepKey) {
+      setAdminBulkError(adminRepLocked
+        ? 'The representative already has a registration for this event - their extras are set in step 1.'
+        : 'The representative is already counted as the first person on this list.');
+      return;
+    }
     const person = { firstName: first, lastName: last, addonIds: adminBulkDraft.addonIds };
     setAdminBulkList((list) => (adminBulkEditing == null
       ? [...list, person]
@@ -4358,7 +5171,12 @@ export default function DashboardPage() {
     }
     // The roster step: a group has to have somebody in it.
     if (adminIsBulk && adminAddStep === 1) {
-      if (adminBulkList.length === 0) { setAdminBulkError('Add at least one attendee.'); return; }
+      if (!adminRosterReady()) {
+        setAdminBulkError(adminRepLocked
+          ? 'Add at least one attendee, or tick an extra for the representative.'
+          : 'Add at least one attendee.');
+        return;
+      }
       setAdminAddStep(2);
     }
   };
@@ -4382,7 +5200,9 @@ export default function DashboardPage() {
   const isValidPhMobile = (v) => /^09\d{9}$/.test(v || '');
 
   const toggleAdminAddon = (addon) => {
-    if (addon.is_required) return;
+    // Required extras, and anything the representative already availed and paid
+    // for, cannot be turned off here.
+    if (addon.is_required || adminRepLockedAddonIds.includes(addon.id)) return;
     setAdminAddRegAddons((ids) => (ids.includes(addon.id) ? ids.filter((v) => v !== addon.id) : [...ids, addon.id]));
   };
 
@@ -4393,12 +5213,16 @@ export default function DashboardPage() {
   };
 
   const adminTotalAmount = (evt) => {
-    // A group is billed person by person, extras and all.
+    // A group is billed person by person, extras and all - the representative
+    // included, when they are one of the people needing a slot. A
+    // representative who already has one is billed only for the extras being
+    // added to it.
     if (adminRegType === 'bulk') {
       const base = adminBaseAmount(evt);
-      return adminBulkList.reduce((sum, a) => sum + base
+      const people = adminFullRoster().reduce((sum, a) => sum + base
         + (evt?.event_addons || []).filter((x) => a.addonIds.includes(x.id))
             .reduce((s, x) => s + (Number(x.fee) || 0), 0), 0);
+      return people + (adminRepLocked ? adminRepTopUpTotal() : 0);
     }
     return adminBaseAmount(evt)
       + (evt?.event_addons || [])
@@ -4415,7 +5239,7 @@ export default function DashboardPage() {
       showToast('Please complete the highlighted fields', 'danger');
       return;
     }
-    if (adminIsBulk && adminBulkList.length === 0) {
+    if (adminIsBulk && !adminRosterReady()) {
       setAdminAddStep(1);
       showToast('Add at least one attendee', 'danger');
       return;
@@ -4425,6 +5249,12 @@ export default function DashboardPage() {
     if (owed > 0 && adminAddRegForm.paymentPlan === 'full' && !adminAddRegForm.paymentMethod) { showToast('Choose how the payment was made', 'danger'); return; }
     const firstPay = Number(adminAddRegForm.initialPayment) || 0;
     if (adminAddRegForm.paymentPlan === 'flexible' && firstPay > owed) { showToast(`The first payment cannot be more than the ₱${owed} total`, 'danger'); return; }
+    // This registration is recorded against whoever is signed in. Without an
+    // account to attribute it to there is nothing to save.
+    if (!userData?.id) {
+      showToast('Could not tell which account is signed in. Please sign out and sign in again.', 'danger');
+      return;
+    }
     setAdminAddRegSubmitting(true);
     try {
       const res = await fetch('/api/events/registrations', {
@@ -4445,12 +5275,23 @@ export default function DashboardPage() {
           paymentPlan: adminAddRegForm.paymentPlan || 'full',
           initialPayment: adminAddRegForm.paymentPlan === 'flexible' ? firstPay : 0,
           addedByAdmin: true,
-          addedByRole: userRole === 'Super Admin' ? 'Super Admin' : 'Admin',
-          addedByName: [userData?.firstname, userData?.lastname].filter(Boolean).join(' ').trim() || userRole || 'Admin',
+          // Who is doing this. The server reads the name and the role off this
+          // account and labels the row with them, so the attribution cannot be
+          // whatever the browser felt like claiming.
+          actorId: userData.id,
+          // Staff recording a walk-in have the money in hand, so the row is
+          // saved as paid unless this was unticked.
+          markVerified: adminAddRegForm.markVerified !== false,
           // A group: the person in step 1 is the representative, the roster is who is coming.
           ...(adminIsBulk ? {
-            attendees: adminBulkList.map((a) => ({ firstName: a.firstName, lastName: a.lastName, addonIds: a.addonIds })),
+            // The representative is on this list when they need a slot, and off
+            // it when they already have one.
+            attendees: adminFullRoster().map((a) => ({ firstName: a.firstName, lastName: a.lastName, addonIds: a.addonIds })),
             representative: `${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`.trim(),
+            // ...and when they already have one, the extras being added to it.
+            ...(adminRepLocked && adminRepNewAddonIds.length > 0
+              ? { repAddonTopUp: adminRepNewAddonIds }
+              : {}),
           } : {}),
         }),
       });
@@ -4459,16 +5300,6 @@ export default function DashboardPage() {
       // The row saved, but without the columns that record who added it and how
       // they are paying - say so rather than leaving a silently wrong table.
       if (data.warning) showToast(data.warning, 'danger');
-
-      // Staff adding this on the attendee's behalf usually means payment/attendance
-      // was already handled in person — confirm it immediately unless unchecked.
-      if (!adminIsBulk && adminAddRegForm.paymentPlan !== 'flexible' && adminAddRegForm.markVerified && data.data?.status && data.data.status !== 'registered') {
-        await fetch('/api/events/registrations', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: data.data.id, actorId: userData?.id, status: 'payment_verified' }),
-        });
-      }
 
       showToast('Registration added', 'success');
       setShowAdminAddReg(false);
@@ -4505,7 +5336,7 @@ export default function DashboardPage() {
     const reg = eventRegs.find((r) => r.id === regId);
     if (!reg) { setQrScanResult({ status: 'error', message: 'This QR code does not belong to this event.' }); return; }
     if (reg.status !== 'registered' && reg.status !== 'payment_verified') {
-      setQrScanResult({ status: 'error', message: `${reg.attendee_name}: registration is not confirmed (${reg.status.replace(/_/g, ' ')}).` });
+      setQrScanResult({ status: 'error', message: `${reg.attendee_name}: registration is not confirmed (${statusLabel(reg.status)}).` });
       return;
     }
     if (reg.attended) { setQrScanResult({ status: 'already', message: `${reg.attendee_name} was already checked in.` }); return; }
@@ -7190,15 +8021,36 @@ Examples:
 
   const getScheduleForDate = (dateStr) => scheduleData.find((s) => s.scheduleDate === dateStr);
   const formatDate = (dateStr) => { if (!dateStr) return ''; return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); };
+  // Event datetimes are WALL-CLOCK, not instants: the stepper posts what the
+  // admin typed ("2026-09-08T10:00") and Postgres stamps it +00:00, so Supabase
+  // returns "2026-09-08T10:00:00+00:00" meaning "10:00 on the day". Feeding that
+  // to `new Date()` shifts it by the viewer's offset - in Manila a 10 AM - 6 PM
+  // event read as 6 PM - 2 AM and looked like it spanned two days. Rebuilding it
+  // from the string's own components keeps the time as entered. Rows written by
+  // the server (created_at, audit logs, ...) are real instants and still go
+  // through formatDateTime / new Date().
+  const evtDate = (str) => {
+    if (!str) return null;
+    if (str instanceof Date) return Number.isNaN(str.getTime()) ? null : str;
+    const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) { const f = new Date(str); return Number.isNaN(f.getTime()) ? null : f; }
+    const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const evtMs = (str) => { const d = evtDate(str); return d ? d.getTime() : null; };
+  const formatEventDateTime = (str) => {
+    const d = evtDate(str);
+    return d ? d.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  };
   // "Oct 2, 2026, 10:00 AM" for one day; "Oct 2 – 3, 2026 · 10:00 AM" when the
   // event runs across days, so the list shows the whole span at a glance.
   const formatEventSpan = (startStr, endStr) => {
     if (!startStr) return '—';
-    const s = new Date(startStr);
-    if (Number.isNaN(s.getTime())) return '—';
-    const e = endStr ? new Date(endStr) : null;
+    const s = evtDate(startStr);
+    if (!s) return '—';
+    const e = evtDate(endStr);
     const time = s.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    if (!e || Number.isNaN(e.getTime()) || s.toDateString() === e.toDateString()) {
+    if (!e || s.toDateString() === e.toDateString()) {
       return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, ${time}`;
     }
     const sameMonth = s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear();
@@ -7213,6 +8065,16 @@ Examples:
   const extractYouTubeId = (url) => { if (!url) return null; const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m ? m[1] : null; };
   const getChatUserName = (u) => `${u?.firstname || ''} ${u?.lastname || ''}`.trim() || 'Unknown User';
   const getNameInitials = (name) => (name || '').split(' ').filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U';
+  // Circle-logo fallback for a payment channel: initials of the bank name
+  // ("BDO" -> "BDO", "Bank of the Phil. Islands" -> "BP").
+  const getPaymentInitials = (name) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return '$';
+    if (trimmed.length <= 3 && !trimmed.includes(' ')) return trimmed.toUpperCase();
+    const words = trimmed.split(/\s+/).filter((w) => !['of', 'the', 'and'].includes(w.toLowerCase()));
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return words.slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  };
 
   const getTodaysBirthdays = () => {
     const today = new Date(); const m = today.getMonth() + 1; const d = today.getDate();
@@ -8314,6 +9176,15 @@ Examples:
                         <i className="fas fa-calendar-day"></i> Flexible Installment {installments.length > 0 && <span className="evt-tab-count">{installments.length}</span>}
                       </button>
                     )}
+                    {/* Only worth a tab once something is actually in it. */}
+                    {deletedRegs.length > 0 && (
+                      <button
+                        className={`evt-tab ${manageTab === 'bin' ? 'active' : ''}`}
+                        onClick={() => { setManageTab('bin'); setBinPage(1); loadDeletedRegs(eventRegsModal.id); }}
+                      >
+                        <i className="fas fa-trash-can"></i> Recycle Bin <span className="evt-tab-count">{deletedRegs.length}</span>
+                      </button>
+                    )}
                   </div>
 
                   {manageTab === 'registrations' && (
@@ -8518,12 +9389,12 @@ Examples:
                                       ? <span className="evt-status evt-status-payment_verified">paid</span>
                                       : (
                                         <>
-                                          <span className="evt-status evt-status-payment_submitted">installment</span>
+                                          <span className="evt-status evt-status-installment">installment</span>
                                           <div className="evt-cell-sub">₱{paid} of ₱{owed}</div>
                                         </>
                                       );
                                   }
-                                  return <span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span>;
+                                  return <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>;
                                 })()}
                               </td>
                               {/* One button per row instead of three or four - the
@@ -8601,6 +9472,15 @@ Examples:
                                               <i className="fas fa-ban"></i> Cancel
                                             </button>
                                           )}
+
+                                          {/* Cancelling keeps somebody on the list
+                                              because they really did pull out.
+                                              Deleting is for the rows that should
+                                              never have been there - it takes them
+                                              off the list entirely, into the bin. */}
+                                          <button role="menuitem" className="danger" onClick={() => { setOpenRowMenu(null); openDeleteReg(r); }}>
+                                            <i className="fas fa-trash"></i> Delete Attendee
+                                          </button>
                                         </div>
                                       )}
                                     </div>
@@ -8640,7 +9520,7 @@ Examples:
                               <tr key={r.id}>
                                 <td className="evt-cell-name evt-td-primary" data-label="Attendee">{formatPersonName(r.attendee_name)}</td>
                                 <td className="evt-cell-sub" data-label="Contact">{r.attendee_email}{r.attendee_mobile ? ` · ${r.attendee_mobile}` : ''}</td>
-                                <td className="evt-nowrap" data-label="Status"><span className={`evt-status evt-status-${r.status}`}>{r.status.replace(/_/g, ' ')}</span></td>
+                                <td className="evt-nowrap" data-label="Status"><span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span></td>
                                 <td className="evt-nowrap evt-td-actions" data-label="Attendance">
                                   {r.attended ? (
                                     <>
@@ -8991,6 +9871,36 @@ Examples:
                         <div className="evt-loc-side">
                           <div className="form-group"><label>Venue Name / Notes</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="e.g. Family Park Cebu, Main Hall" /></div>
 
+                          {/* Dropping a pin fills these in, but the map cannot
+                              always answer for a province: a highly-urbanised
+                              city like Cebu City has none recorded against it.
+                              The province is what the events list is scanned by,
+                              so it is typed rather than left blank. */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div className="form-group">
+                              <label>City / Municipality</label>
+                              <input
+                                className="form-control" style={{ padding: '10px 15px' }}
+                                value={eventForm.loc_city}
+                                onChange={(e) => setEventForm({ ...eventForm, loc_city: e.target.value })}
+                                placeholder="e.g. Cebu City"
+                              />
+                            </div>
+                            <div className="form-group">
+                              <label>Province</label>
+                              <input
+                                className="form-control" style={{ padding: '10px 15px' }}
+                                value={eventForm.loc_province}
+                                onChange={(e) => setEventForm({ ...eventForm, loc_province: e.target.value })}
+                                placeholder="e.g. Cebu, Leyte"
+                                list="evt-province-list"
+                              />
+                              <datalist id="evt-province-list">
+                                {PH_PROVINCES.map((prov) => <option key={prov} value={prov} />)}
+                              </datalist>
+                            </div>
+                          </div>
+
                           <div className="evt-loc-pinned">
                             <span className="evt-loc-pinned-label">
                               <i className="fas fa-map-pin"></i> Pinned location
@@ -9067,6 +9977,44 @@ Examples:
                           </div>
                         </div>
                       )}
+
+                      {/* Somebody to call once they have registered. The
+                          confirmation screen turns this into a tappable number,
+                          so a registrant whose details change has somewhere to
+                          go instead of a dead end. Kept per event, because a
+                          conference in Cebu and one in Leyte are usually run by
+                          different people. */}
+                      <div className="evt-config-title" style={{ marginTop: 20 }}>
+                        <i className="fas fa-phone"></i> Who To Contact
+                      </div>
+                      <p className="evt-field-hint" style={{ margin: '-6px 0 12px' }}>
+                        Shown to registrants after they sign up, as a number they can tap to call.
+                        Leave blank to show nothing.
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 15 }}>
+                        <div className="form-group">
+                          <label>Contact Number</label>
+                          <input
+                            className="form-control" style={{ padding: '10px 15px' }}
+                            inputMode="tel" maxLength={11}
+                            value={eventForm.contactNumber}
+                            onChange={(e) => setEventForm({ ...eventForm, contactNumber: onlyDigits(e.target.value) })}
+                            placeholder="09XXXXXXXXX"
+                          />
+                          {eventForm.contactNumber && !isValidPhMobile(eventForm.contactNumber) && (
+                            <div className="evt-field-hint">11 digits starting with 09.</div>
+                          )}
+                        </div>
+                        <div className="form-group">
+                          <label>Contact Person <em style={{ fontStyle: 'normal', fontWeight: 500, color: 'var(--text-muted, #999)' }}>(optional)</em></label>
+                          <input
+                            className="form-control" style={{ padding: '10px 15px' }}
+                            value={eventForm.contactName}
+                            onChange={(e) => setEventForm({ ...eventForm, contactName: e.target.value })}
+                            placeholder="e.g. Sis. Maria, Registration Desk"
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -9127,10 +10075,72 @@ Examples:
                           <div className="form-group"><label>Payment Instructions</label><textarea className="form-control" style={{ padding: '10px 15px' }} rows={2} value={eventForm.paymentInstructions} onChange={(e) => setEventForm({ ...eventForm, paymentInstructions: e.target.value })} placeholder="e.g. Send payment then upload your receipt." /></div>
                           <div className="form-group"><label>Refund Policy (optional)</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.refundPolicy} onChange={(e) => setEventForm({ ...eventForm, refundPolicy: e.target.value })} /></div>
 
-                          <div className="form-group">
-                            <label>Payment Methods</label>
+                          {/* Channels come from the shared Mode of Payment page - tick the
+                              ones this event accepts and the account details follow along. */}
+                          <div className="evt-pick-block">
+                            <div className="evt-pick-label">
+                              <i className="fas fa-wallet"></i>
+                              <span>Where can attendees pay?</span>
+                              {(eventForm.paymentMethodIds || []).length > 0 && (
+                                <span className="evt-pick-count">{(eventForm.paymentMethodIds || []).length} selected</span>
+                              )}
+                            </div>
+                            <p className="evt-pick-hint">
+                              Tick the saved channels this event accepts. Their name, account number, account name
+                              and QR code are shown to attendees automatically &mdash; nothing to retype here.
+                            </p>
+
+                            {activePaymentMethods.length === 0 ? (
+                              <div className="evt-pick-empty">
+                                <i className="fas fa-money-check-dollar"></i>
+                                <span>No visible payment channels yet. Add them in <strong>More &rsaquo; Mode of Payment</strong> and switch on &ldquo;Visible to payers&rdquo;.</span>
+                              </div>
+                            ) : (
+                              <div className="evt-pick-grid">
+                                {activePaymentMethods.map((m) => {
+                                  const on = (eventForm.paymentMethodIds || []).includes(m.id);
+                                  return (
+                                    <label key={m.id} className={`evt-pick-card ${on ? 'on' : ''}`}>
+                                      <input type="checkbox" checked={on} onChange={() => toggleEventPaymentChannel(m)} />
+                                      <span className="pm-logo pm-logo-sm" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
+                                        {m.logo_url ? <img src={m.logo_url} alt={m.name} /> : <span>{getPaymentInitials(m.name)}</span>}
+                                      </span>
+                                      <span className="evt-pick-info">
+                                        <strong>{m.name}</strong>
+                                        <span className={`evt-pick-type ${m.category}`}>
+                                          <i className={m.category === 'bank' ? 'fas fa-building-columns' : 'fas fa-mobile-screen-button'}></i>
+                                          {m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}
+                                        </span>
+                                        {m.account_number && (
+                                          <span className="evt-pick-line"><span className="k">Account</span><span className="v num">{m.account_number}</span></span>
+                                        )}
+                                        {m.account_name && (
+                                          <span className="evt-pick-line"><span className="k">Name</span><span className="v">{m.account_name}</span></span>
+                                        )}
+                                        {m.qr_url && (
+                                          <span className="evt-pick-qr"><i className="fas fa-qrcode"></i> QR code included</span>
+                                        )}
+                                      </span>
+                                      <i className={`evt-pick-tick fas ${on ? 'fa-circle-check' : 'fa-circle'}`}></i>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Ways to pay that aren't a saved account. */}
+                          <div className="evt-pick-block">
+                            <div className="evt-pick-label">
+                              <i className="fas fa-hand-holding-dollar"></i>
+                              <span>Other ways to pay</span>
+                            </div>
+                            <p className="evt-pick-hint">
+                              Ways to settle that aren&apos;t a saved account &mdash; they simply appear as options
+                              on the attendee&apos;s payment form.
+                            </p>
                             <div className="evt-methods">
-                              {['GCash', 'Bank Transfer', 'Cash', 'Pay at Church', 'Credit/Debit Card', 'Other'].map(m => (
+                              {['Cash', 'Pay at Church', 'Credit/Debit Card', 'Other'].map(m => (
                                 <label key={m} className={`evt-method-chip ${eventForm.paymentMethods.includes(m) ? 'on' : ''}`}>
                                   <input type="checkbox" checked={eventForm.paymentMethods.includes(m)} onChange={() => togglePaymentMethod(m)} />
                                   {m}
@@ -9139,34 +10149,6 @@ Examples:
                             </div>
                           </div>
 
-                          {eventForm.paymentMethods.includes('GCash') && (
-                            <div className="evt-pay-box">
-                              <strong><i className="fas fa-mobile-alt"></i> GCash Details</strong>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginTop: 8 }}>
-                                <div className="form-group"><label>Account Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.gcashName} onChange={(e) => setEventForm({ ...eventForm, gcashName: e.target.value })} /></div>
-                                <div className="form-group"><label>Mobile Number</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.gcashNumber} onChange={(e) => setEventForm({ ...eventForm, gcashNumber: e.target.value })} /></div>
-                              </div>
-                              <div className="form-group">
-                                <label>GCash QR Code</label>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                  {(eventGcashQrFile || eventForm.gcashQrUrl) && <img src={eventGcashQrFile ? URL.createObjectURL(eventGcashQrFile) : eventForm.gcashQrUrl} alt="QR" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 8 }} />}
-                                  <input id="evt-gcash-qr" type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) setEventGcashQrFile(f); }} />
-                                  <label htmlFor="evt-gcash-qr" className="btn-secondary" style={{ cursor: 'pointer' }}><i className="fas fa-upload"></i> Upload QR</label>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {eventForm.paymentMethods.includes('Bank Transfer') && (
-                            <div className="evt-pay-box">
-                              <strong><i className="fas fa-university"></i> Bank Details</strong>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 8 }}>
-                                <div className="form-group"><label>Bank Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankName} onChange={(e) => setEventForm({ ...eventForm, bankName: e.target.value })} /></div>
-                                <div className="form-group"><label>Account Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankAccountName} onChange={(e) => setEventForm({ ...eventForm, bankAccountName: e.target.value })} /></div>
-                                <div className="form-group"><label>Account Number</label><input className="form-control" style={{ padding: '10px 15px' }} value={eventForm.bankAccountNumber} onChange={(e) => setEventForm({ ...eventForm, bankAccountNumber: e.target.value })} /></div>
-                              </div>
-                            </div>
-                          )}
                         </>
                       )}
 
@@ -9349,7 +10331,7 @@ Examples:
               });
               const eventStatus = (evt) => {
                 const now = Date.now();
-                const start = evt.event_date ? new Date(evt.event_date).getTime() : null;
+                const start = evtMs(evt.event_date);
                 const end = evt.end_date ? new Date(evt.end_date).getTime() : start;
                 if (evt.is_published === false) return { label: 'Draft', cls: 'draft' };
                 if (start && now < start) return { label: 'Upcoming', cls: 'upcoming' };
@@ -9357,6 +10339,90 @@ Examples:
                 if (end && now > end) return { label: 'Completed', cls: 'completed' };
                 return { label: 'Published', cls: 'published' };
               };
+
+              // Every province with an event, and how many - built from the rows
+              // this user can see, so the counts always match the list.
+              const provinceOptions = (() => {
+                const counts = new Map();
+                visible.forEach((evt) => {
+                  const name = provinceLabel(evt);
+                  if (!name) return;
+                  counts.set(name, (counts.get(name) || 0) + 1);
+                });
+                return [...counts.entries()]
+                  .map(([name, count]) => ({ name, count }))
+                  .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+              })();
+
+              // What an event is looked up by: its name, its blurb, or where it
+              // is being held.
+              const eventMatchesSearch = (evt, q) => [
+                evt.title, evt.description, evt.location,
+                evt.loc_city, evt.loc_province, evt.loc_barangay, provinceLabel(evt),
+              ].some((v) => String(v || '').toLowerCase().includes(q));
+
+              const shown = (() => {
+                const q = eventSearch.trim().toLowerCase();
+                let rows = visible;
+                if (eventStatusFilter !== 'all') {
+                  rows = rows.filter((evt) => {
+                    const cls = eventStatus(evt).cls;
+                    // "Past" is the one label that does not match its class name.
+                    if (eventStatusFilter === 'past') return cls === 'completed';
+                    return cls === eventStatusFilter;
+                  });
+                }
+                if (eventProvinceFilter !== 'all') {
+                  rows = rows.filter((evt) => provinceLabel(evt) === eventProvinceFilter);
+                }
+                if (q) rows = rows.filter((evt) => eventMatchesSearch(evt, q));
+                return rows;
+              })();
+              const eventsFiltered = eventStatusFilter !== 'all' || eventProvinceFilter !== 'all' || eventSearch.trim() !== '';
+
+              // The bar above both admin views. One component, so List and Grid
+              // are narrowed the same way.
+              const eventFilterBar = (
+                <div className="evt-filters">
+                  <div className="evt-search">
+                    <i className="fas fa-magnifying-glass"></i>
+                    <input
+                      type="search"
+                      value={eventSearch}
+                      onChange={(e) => setEventSearch(e.target.value)}
+                      placeholder="Search events, venue or location"
+                      aria-label="Search events"
+                    />
+                    {eventSearch && (
+                      <button type="button" onClick={() => setEventSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
+                    )}
+                  </div>
+                  <select className="evt-filter-select" value={eventStatusFilter} onChange={(e) => setEventStatusFilter(e.target.value)} aria-label="Filter events by status">
+                    <option value="all">All statuses ({visible.length})</option>
+                    <option value="upcoming">Upcoming</option>
+                    <option value="ongoing">Ongoing</option>
+                    <option value="past">Past events</option>
+                    <option value="draft">Drafts</option>
+                  </select>
+                  <select className="evt-filter-select" value={eventProvinceFilter} onChange={(e) => setEventProvinceFilter(e.target.value)} aria-label="Filter events by province">
+                    <option value="all">All provinces ({provinceOptions.length})</option>
+                    {provinceOptions.map((prov) => (
+                      <option key={prov.name} value={prov.name}>{prov.name} ({prov.count})</option>
+                    ))}
+                  </select>
+                  {eventsFiltered && (
+                    <span className="evt-filter-count">
+                      {shown.length} of {visible.length}
+                      <button
+                        type="button"
+                        onClick={() => { setEventStatusFilter('all'); setEventProvinceFilter('all'); setEventSearch(''); }}
+                        title="Clear filters"
+                      ><i className="fas fa-xmark"></i></button>
+                    </span>
+                  )}
+                </div>
+              );
+
               if (visible.length === 0) return <p className="events-empty-msg">No events found.</p>;
 
               // Members see exciting poster cards; admins get the management table
@@ -9379,7 +10445,7 @@ Examples:
                       </div>
                       <div className="evt-poster-body">
                         <h4 className="evt-poster-title">{evt.title}</h4>
-                        <div className="evt-poster-meta"><i className="fas fa-calendar-check"></i> {formatDateTime(evt.event_date)}</div>
+                        <div className="evt-poster-meta"><i className="fas fa-calendar-check"></i> {formatEventDateTime(evt.event_date)}</div>
                         {(evt.location || evt.loc_city) && <div className="evt-poster-meta"><i className="fas fa-location-dot"></i> {[evt.location, evt.loc_city].filter(Boolean).join(', ')}</div>}
                         <div className="evt-poster-actions" onClick={(e) => e.stopPropagation()}>
                           {isPast ? (
@@ -9426,14 +10492,22 @@ Examples:
               if (eventsView === 'grid') {
                 return (
                   <>
-                    <div className="evt-viewbar">
+                    <div className="evt-viewbar evt-viewbar-stack">
                       <div className="evt-view-toggle">
                         <button className={eventsView === 'list' ? 'on' : ''} onClick={() => setEventsView('list')}><i className="fas fa-list"></i> List</button>
                         <button className={eventsView === 'grid' ? 'on' : ''} onClick={() => setEventsView('grid')}><i className="fas fa-table-cells-large"></i> Grid</button>
                       </div>
+                      {eventFilterBar}
                     </div>
+                    {shown.length === 0 ? (
+                      <p className="events-empty-msg">
+                        {eventSearch.trim()
+                          ? `No event matches “${eventSearch.trim()}”.`
+                          : 'No events match these filters.'}
+                      </p>
+                    ) : (
                     <div className="evt-admin-grid">
-                      {visible.map((evt) => {
+                      {shown.map((evt) => {
                         const st = eventStatus(evt);
                         return (
                           <div key={evt.id} className="evt-admin-card">
@@ -9443,7 +10517,7 @@ Examples:
                               {(evt.loc_city || evt.location) && <span className="evt-admin-loc"><i className="fas fa-location-dot"></i> {evt.loc_city || evt.location}</span>}
                               <div className="evt-admin-card-body">
                                 <h4>{evt.title}</h4>
-                                <div className="evt-admin-card-meta">{formatDateTime(evt.event_date)} · {evt.has_fee ? `₱${evt.registration_fee}` : 'Free'} · {st.label}</div>
+                                <div className="evt-admin-card-meta">{formatEventDateTime(evt.event_date)} · {evt.has_fee ? `₱${evt.registration_fee}` : 'Free'} · {st.label}</div>
                                 <button className="evt-admin-manage" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.top - 6 - 190, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>Manage</button>
                               </div>
                             </div>
@@ -9451,29 +10525,36 @@ Examples:
                         );
                       })}
                     </div>
-                    <div className="evt-table-foot"><span>Results 1–{visible.length} of {visible.length}</span></div>
+                    )}
+                    <div className="evt-table-foot"><span>Results {shown.length === 0 ? 0 : 1}–{shown.length} of {visible.length}</span></div>
                   </>
                 );
               }
 
               return (
                 <>
-                <div className="evt-viewbar">
+                <div className="evt-viewbar evt-viewbar-stack">
                   <div className="evt-view-toggle">
                     <button className={eventsView === 'list' ? 'on' : ''} onClick={() => setEventsView('list')}><i className="fas fa-list"></i> List</button>
                     <button className={eventsView === 'grid' ? 'on' : ''} onClick={() => setEventsView('grid')}><i className="fas fa-table-cells-large"></i> Grid</button>
                   </div>
+                  {eventFilterBar}
                 </div>
                 <div className="evt-table-wrapper evt-table-fixed">
                   <div className="evt-table-scroll">
                   <table className="evt-table">
                     <thead>
                       <tr>
-                        <th>Event</th><th>Date</th><th>Venue</th><th>Fee</th><th>Audience</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th>
+                        <th>Event</th><th>Date</th><th>Venue</th><th>Province</th><th>Fee</th><th>Audience</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {visible.map((evt) => {
+                      {shown.length === 0 && (
+                        <tr><td colSpan={8}>{eventSearch.trim()
+                          ? `No event matches “${eventSearch.trim()}”.`
+                          : 'No events match these filters.'}</td></tr>
+                      )}
+                      {shown.map((evt) => {
                         const st = eventStatus(evt);
                         const canJoin = evt.registration_required !== false && evt.is_published !== false && (!evt.allowed_roles || evt.allowed_roles.length === 0 || evt.allowed_roles.includes(userRole));
                         return (
@@ -9497,7 +10578,14 @@ Examples:
                             </td>
                             <td data-label="Venue">
                               {evt.location || '—'}
-                              {evt.loc_city && <div className="evt-cell-sub">{[evt.loc_city, evt.loc_province].filter(Boolean).join(', ')}</div>}
+                              {evt.loc_city && <div className="evt-cell-sub">{evt.loc_city}</div>}
+                            </td>
+                            {/* Where in the country, at a glance - the one field
+                                worth scanning a list of events by. */}
+                            <td className="evt-nowrap" data-label="Province">
+                              {provinceLabel(evt)
+                                ? <span className="evt-prov-pill"><i className="fas fa-location-dot"></i> {provinceLabel(evt)}</span>
+                                : <span className="evt-cell-sub">—</span>}
                             </td>
                             <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? `₱${evt.registration_fee}` : 'Free'}</td>
                             <td className="evt-nowrap" data-label="Audience">{evt.allowed_roles && evt.allowed_roles.length ? evt.allowed_roles.join(', ') : 'All'}</td>
@@ -9527,8 +10615,8 @@ Examples:
                   </table>
                   </div>
                   <div className="evt-table-foot">
-                    <span>Results {visible.length === 0 ? 0 : 1}–{visible.length} of {visible.length}</span>
-                    <span className="evt-rows-per-page">Rows Per Page <b>{String(visible.length).padStart(2, '0')}</b></span>
+                    <span>Results {shown.length === 0 ? 0 : 1}–{shown.length} of {visible.length}</span>
+                    <span className="evt-rows-per-page">Rows Per Page <b>{String(shown.length).padStart(2, '0')}</b></span>
                   </div>
                 </div>
                 </>
@@ -9549,11 +10637,12 @@ Examples:
                       payment_verified: { label: 'Confirmed', cls: 'ok' },
                       payment_submitted: { label: 'Payment Under Review', cls: 'pending' },
                       pending_payment: { label: 'Awaiting Payment', cls: 'warn' },
+                      installment: { label: 'Paying In Installments', cls: 'pending' },
                     };
-                    let st = statusMap[r.status] || { label: r.status, cls: 'pending' };
+                    let st = statusMap[r.status] || { label: statusLabel(r.status), cls: 'pending' };
                     if (needsPayment) st = { label: 'Payment Required', cls: 'warn' };
                     const confirmed = (r.status === 'registered' || r.status === 'payment_verified') && !needsPayment;
-                    const evEnd = ev.end_date ? new Date(ev.end_date).getTime() : (ev.event_date ? new Date(ev.event_date).getTime() : null);
+                    const evEnd = evtMs(ev.end_date) ?? evtMs(ev.event_date);
                     const isDone = !!evEnd && evEnd < Date.now();
                     return (
                       <div key={r.id} className={`myreg-poster ${isDone ? 'done' : ''}`}>
@@ -9565,7 +10654,7 @@ Examples:
                         </div>
                         <div className="myreg-body">
                           <h4>{ev.title}</h4>
-                          <div className="myreg-meta"><i className="fas fa-calendar-check"></i> {ev.event_date ? formatDateTime(ev.event_date) : 'TBA'}</div>
+                          <div className="myreg-meta"><i className="fas fa-calendar-check"></i> {ev.event_date ? formatEventDateTime(ev.event_date) : 'TBA'}</div>
                           {(ev.location || ev.loc_city) && <div className="myreg-meta"><i className="fas fa-location-dot"></i> {[ev.location, ev.loc_city].filter(Boolean).join(', ')}</div>}
                           {ev.has_fee && <div className="myreg-meta"><i className="fas fa-tag"></i> ₱{ev.registration_fee} · {r.payment_method || '—'}</div>}
 
@@ -9786,7 +10875,7 @@ Examples:
                             <dt>Status</dt>
                             <dd>
                               <span className={`evt-status evt-status-${proofModal.status}`}>
-                                {String(proofModal.status || '').replace(/_/g, ' ')}
+                                {statusLabel(proofModal.status)}
                               </span>
                             </dd>
                           </div>
@@ -9816,13 +10905,96 @@ Examples:
             )}
 
             {/* ---- Flexible installment plans: who owes what, and when they paid ---- */}
-            {eventRegsModal && manageTab === 'installments' && (
+            {eventRegsModal && manageTab === 'installments' && (() => {
+              // The three figures are read off the rows on screen, so filtering
+              // to one church answers "how much does THAT church still owe"
+              // instead of leaving a total that no longer matches the table.
+              const shownPlans = visibleInstallments;
+              const instCollected = shownPlans.reduce((sum, r) => sum + (Number(r.paid) || 0), 0);
+              const instOutstanding = shownPlans.reduce((sum, r) => sum + (Number(r.balance) || 0), 0);
+              const instFiltered = instTypeFilter !== 'all' || instChurchFilter !== 'all'
+                || instStatusFilter !== 'all' || instSearch.trim() !== '';
+              const instSettled = shownPlans.filter((r) => (Number(r.balance) || 0) <= 0).length;
+              return (
               <>
+                {/* Headline figures, at the size of the cards in the event hero -
+                    this is the tab an admin opens to answer "how much is still
+                    out there", so the answer should be readable across a desk. */}
+                <div className="evt-inst-stats">
+                  <div className="evt-inst-stat">
+                    <span>On A Plan</span>
+                    <b>{shownPlans.length}</b>
+                    <em>{instSettled} fully paid{shownPlans.length - instSettled > 0 && <> · {shownPlans.length - instSettled} still paying</>}</em>
+                  </div>
+                  <div className="evt-inst-stat paid">
+                    <span>Collected</span>
+                    <b>₱{instCollected}</b>
+                    <em>received so far</em>
+                  </div>
+                  <div className="evt-inst-stat due">
+                    <span>Outstanding</span>
+                    <b>₱{instOutstanding}</b>
+                    <em>still to collect</em>
+                  </div>
+                  <div className="evt-inst-stat total">
+                    <span>Plan Value</span>
+                    <b>₱{instCollected + instOutstanding}</b>
+                    <em>{instFiltered ? 'across the filtered plans' : 'across every plan'}</em>
+                  </div>
+                </div>
+
                 <div className="evt-viewbar">
-                  <div className="evt-inst-totals">
-                    <span><b>{installments.length}</b> on a plan</span>
-                    <span>Collected <b>₱{installments.reduce((sum, r) => sum + (Number(r.paid) || 0), 0)}</b></span>
-                    <span className="due">Outstanding <b>₱{installments.reduce((sum, r) => sum + (Number(r.balance) || 0), 0)}</b></span>
+                  <div className="evt-filters">
+                    {/* Same order as the registrations tab, so the two tabs are
+                        driven the same way. */}
+                    <div className="evt-search">
+                      <i className="fas fa-magnifying-glass"></i>
+                      <input
+                        type="search"
+                        value={instSearch}
+                        onChange={(e) => setInstSearch(e.target.value)}
+                        placeholder="Search attendees, church, contact or reference"
+                        aria-label="Search installment plans"
+                      />
+                      {instSearch && (
+                        <button type="button" onClick={() => setInstSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
+                      )}
+                    </div>
+                    <select className="evt-filter-select" value={instSort} onChange={(e) => setInstSort(e.target.value)} aria-label="Sort installment plans">
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                      {/* The order for actually working through the list. */}
+                      <option value="balance">Biggest balance first</option>
+                      <option value="paid">Most paid first</option>
+                      <option value="name">Name (A–Z)</option>
+                    </select>
+                    <select className="evt-filter-select" value={instChurchFilter} onChange={(e) => setInstChurchFilter(e.target.value)} aria-label="Filter plans by church">
+                      <option value="all">All churches ({installments.length})</option>
+                      {instChurchOptions.map((c) => (
+                        <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+                      ))}
+                    </select>
+                    <select className="evt-filter-select" value={instTypeFilter} onChange={(e) => setInstTypeFilter(e.target.value)} aria-label="Filter plans by registration type">
+                      <option value="all">All types</option>
+                      <option value="individual">Individual</option>
+                      <option value="bulk">Bulk</option>
+                    </select>
+                    <select className="evt-filter-select" value={instStatusFilter} onChange={(e) => setInstStatusFilter(e.target.value)} aria-label="Filter plans by status">
+                      <option value="all">All statuses</option>
+                      <option value="progress">In progress</option>
+                      <option value="settled">Fully paid</option>
+                      <option value="nothing">Nothing paid yet</option>
+                    </select>
+                    {instFiltered && (
+                      <span className="evt-filter-count">
+                        {visibleInstallments.length} of {installments.length}
+                        <button
+                          type="button"
+                          onClick={() => { setInstTypeFilter('all'); setInstChurchFilter('all'); setInstStatusFilter('all'); setInstSearch(''); }}
+                          title="Clear filters"
+                        ><i className="fas fa-xmark"></i></button>
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="evt-table-wrapper">
@@ -9843,12 +11015,16 @@ Examples:
                             <div className="evt-cell-sub">Run <b>supabase/migrations/event_flexible_payment.sql</b> to enable installment plans.</div>
                           )}
                         </td></tr>
-                      ) : installments.length === 0 ? (
-                        <tr><td colSpan={7}>
-                          Nobody is on a flexible plan for this event yet. Put someone on one with
-                          <b> Add Attendee &rarr; Payment &rarr; Flexible Payment Plan</b>.
-                        </td></tr>
-                      ) : installments.slice((instPage - 1) * instPageSize, instPage * instPageSize).map((r) => {
+                      ) : pagedInstallments.length === 0 ? (
+                        <tr><td colSpan={7}>{installments.length === 0 ? (
+                          <>
+                            Nobody is on a flexible plan for this event yet. Put someone on one with
+                            <b> Add Attendee &rarr; Payment &rarr; Flexible Payment Plan</b>.
+                          </>
+                        ) : (instSearch.trim()
+                          ? `No plan matches “${instSearch.trim()}”.`
+                          : 'No plans match these filters.')}</td></tr>
+                      ) : pagedInstallments.map((r) => {
                         const settled = r.balance <= 0;
                         return (
                           <tr key={r.id}>
@@ -9881,7 +11057,7 @@ Examples:
                               )}
                             </td>
                             <td className="evt-nowrap" data-label="Status">
-                              <span className={`evt-status evt-status-${settled ? 'payment_verified' : 'payment_submitted'}`}>
+                              <span className={`evt-status evt-status-${settled ? 'payment_verified' : 'installment'}`}>
                                 {settled ? 'fully paid' : 'in progress'}
                               </span>
                             </td>
@@ -9896,15 +11072,329 @@ Examples:
                     </tbody>
                   </table>
                 </div>
-                {installments.length > 0 && (
+                {visibleInstallments.length > 0 && (
                   <TablePager
-                    page={Math.min(instPage, Math.max(1, Math.ceil(installments.length / instPageSize)))}
-                    pageSize={instPageSize} total={installments.length}
+                    page={instPageSafe} pageSize={instPageSize} total={visibleInstallments.length}
                     onPage={setInstPage} onSize={setInstPageSize} label="plans"
                   />
                 )}
               </>
-            )}
+              );
+            })()}
+
+            {/* ---- Recycle Bin: the attendees that were removed, and the way back ---- */}
+            {eventRegsModal && manageTab === 'bin' && (() => {
+              const binTotal = deletedRegs.length;
+              const binPageSafe = Math.min(binPage, Math.max(1, Math.ceil(binTotal / binPageSize)));
+              const shown = deletedRegs.slice((binPageSafe - 1) * binPageSize, binPageSafe * binPageSize);
+              const pageIds = shown.map((r) => r.id);
+              const pageAllOn = pageIds.length > 0 && pageIds.every((id) => binSelected.includes(id));
+              const pageSomeOn = pageIds.some((id) => binSelected.includes(id));
+              // What is sitting in the bin, in money - the reason nobody should
+              // empty it without looking.
+              const heldMoney = deletedRegs.reduce((sum, r) => {
+                const paid = (r.payments || []).reduce((n, p) => n + (Number(p.amount) || 0), 0);
+                return sum + (paid || Number(r.amount_paid) || 0);
+              }, 0);
+              return (
+                <>
+                  <div className="evt-viewbar">
+                    <div className="evt-bin-note">
+                      <i className="fas fa-trash-can"></i>
+                      <div>
+                        <b>{binTotal} removed {binTotal === 1 ? 'attendee' : 'attendees'}</b>
+                        <span>
+                          They are off the registration list and out of every total.
+                          Restore puts one back exactly as it was.
+                          {heldMoney > 0 && <> There is <b>₱{heldMoney}</b> recorded against what is in here.</>}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Only present while something is ticked, so the destructive
+                      button is not sitting there the rest of the time. */}
+                  {binSelected.length > 0 && (
+                    <div className="evt-bulkbar">
+                      <span className="evt-bulkbar-count">
+                        <i className="fas fa-square-check"></i>
+                        <b>{binSelected.length}</b> selected
+                      </span>
+                      <button className="evt-mini-btn ok" disabled={binBulkSaving} onClick={() => binBulk('restore')}>
+                        <i className="fas fa-rotate-left"></i> Restore Selected
+                      </button>
+                      <button className="evt-mini-btn danger" disabled={binBulkSaving} onClick={() => binBulk('purge')}>
+                        <i className="fas fa-trash"></i> {binBulkSaving ? 'Working…' : `Delete ${binSelected.length} Forever`}
+                      </button>
+                      <button className="evt-bulkbar-clear" onClick={() => setBinSelected([])}>
+                        Clear selection
+                      </button>
+                    </div>
+                  )}
+                  <div className="evt-table-wrapper">
+                    <table className="evt-table">
+                      <thead>
+                        <tr>
+                          <th className="evt-th-check">
+                            <input
+                              type="checkbox"
+                              checked={pageAllOn}
+                              // Some but not all: shown as a dash, because it is
+                              // neither "all of this page" nor "none of it".
+                              ref={(el) => { if (el) el.indeterminate = !pageAllOn && pageSomeOn; }}
+                              onChange={() => binTogglePage(pageIds)}
+                              aria-label="Select every removed attendee on this page"
+                              title="Select this page"
+                            />
+                          </th>
+                          <th>Attendee</th><th>Church</th><th>Payment</th>
+                          <th>Status When Removed</th><th>Removed</th>
+                          <th style={{ textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deletedRegsLoading ? (
+                          <tr><td colSpan={7}>Loading…</td></tr>
+                        ) : binTotal === 0 ? (
+                          <tr><td colSpan={7}>The Recycle Bin is empty.</td></tr>
+                        ) : shown.map((r) => {
+                          const paid = (r.payments || []).reduce((n, p) => n + (Number(p.amount) || 0), 0)
+                            || Number(r.amount_paid) || 0;
+                          const picked = binSelected.includes(r.id);
+                          return (
+                            <tr key={r.id} className={picked ? 'evt-row-picked' : ''}>
+                              <td className="evt-td-check" data-label="">
+                                <input
+                                  type="checkbox"
+                                  checked={picked}
+                                  onChange={() => binToggleOne(r.id)}
+                                  aria-label={`Select ${formatPersonName(r.attendee_name)}`}
+                                />
+                              </td>
+                              <td className="evt-cell-name evt-td-primary" data-label="Attendee">
+                                {formatPersonName(r.attendee_name)}
+                                <div className="evt-cell-sub">
+                                  Registered {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  {r.attendee_mobile && <> · {r.attendee_mobile}</>}
+                                </div>
+                              </td>
+                              <td data-label="Church">
+                                {formatChurchName(r.church_name) || '—'}
+                                {r.church_pastor && (
+                                  <div className="evt-cell-sub">
+                                    {`Ptr. ${formatPersonName(String(r.church_pastor).replace(/^ptr\.?\s*/i, ''))}`}
+                                  </div>
+                                )}
+                              </td>
+                              <td data-label="Payment" className="evt-cell-payment">
+                                {Number(r.amount) > 0 ? (
+                                  <>
+                                    <strong>₱{Number(r.amount)}</strong>
+                                    <div className="evt-cell-sub">
+                                      {r.payment_method || '—'}
+                                      {paid > 0 && <> · ₱{paid} received</>}
+                                    </div>
+                                    {r.payment_reference && <div className="evt-cell-sub">Ref: {r.payment_reference}</div>}
+                                  </>
+                                ) : 'Free'}
+                              </td>
+                              <td className="evt-nowrap" data-label="Status When Removed">
+                                <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>
+                                {r.attended && <div className="evt-cell-sub">Had checked in</div>}
+                              </td>
+                              {/* who took them off the list, when, and why */}
+                              <td data-label="Removed">
+                                {r.deleted_at
+                                  ? new Date(r.deleted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                  : '—'}
+                                <div className="evt-cell-sub">
+                                  {formatPersonName(r.deleted_by_name) || 'Admin'}
+                                </div>
+                                {r.deleted_reason && <div className="evt-bin-reason">&ldquo;{r.deleted_reason}&rdquo;</div>}
+                              </td>
+                              <td className="evt-td-actions" data-label="Actions">
+                                <div className="evt-bin-actions">
+                                  <button className="evt-mini-btn ok" onClick={() => restoreReg(r)}>
+                                    <i className="fas fa-rotate-left"></i> Restore
+                                  </button>
+                                  <button className="evt-mini-btn danger" onClick={() => purgeReg(r)}>
+                                    <i className="fas fa-trash"></i> Delete Forever
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {binTotal > 0 && (
+                    <TablePager
+                      page={binPageSafe} pageSize={binPageSize} total={binTotal}
+                      onPage={setBinPage} onSize={setBinPageSize} label="removed attendees"
+                    />
+                  )}
+                </>
+              );
+            })()}
+
+            {/* ---- Deleting an attendee: everything that goes with them, first ---- */}
+            {deleteRegModal && (() => {
+              const r = deleteRegModal.reg;
+              const pays = deleteRegModal.payments || [];
+              const recorded = pays.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+                || Number(r.amount_paid) || 0;
+              const owed = Number(r.amount) || 0;
+              const addons = Array.isArray(r.addons) ? r.addons : [];
+              return (
+                <div className="evt-modal-overlay" onClick={() => setDeleteRegModal(null)}>
+                  <div className="evt-modal evt-del-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="evt-modal-head">
+                      <div>
+                        <h3>Delete Attendee</h3>
+                        <p>{formatPersonName(r.attendee_name)} &middot; {eventRegsModal?.title || 'Event Registrations'}</p>
+                      </div>
+                      <button className="evt-modal-close" onClick={() => setDeleteRegModal(null)}><i className="fas fa-times"></i></button>
+                    </div>
+                    <div className="evt-modal-body">
+                      {/* Said before anything else: this is reversible, and where
+                          the row goes. It changes how hard the decision feels. */}
+                      <div className="evt-del-banner">
+                        <i className="fas fa-trash-can"></i>
+                        <div>
+                          <b>This moves the registration to the Recycle Bin.</b>
+                          <span>
+                            They come off the attendee list, the attendance sheet and every total for
+                            this event. Nothing is destroyed &mdash; you can restore them from the
+                            Recycle Bin tab.
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="evt-del-grid">
+                        <div className="evt-proof-section">
+                          <h4>Attendee</h4>
+                          <dl className="evt-proof-list">
+                            <div><dt>Full Name</dt><dd>{formatPersonName(r.attendee_name) || '—'}</dd></div>
+                            <div><dt>Church</dt><dd>{formatChurchName(r.church_name) || '—'}</dd></div>
+                            {r.church_pastor && (
+                              <div><dt>Church Pastor</dt><dd>{`Ptr. ${formatPersonName(String(r.church_pastor).replace(/^ptr\.?\s*/i, ''))}`}</dd></div>
+                            )}
+                            <div><dt>Contact</dt><dd>{r.attendee_mobile || r.attendee_email || '—'}</dd></div>
+                            <div>
+                              <dt>Registered</dt>
+                              <dd>{new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</dd>
+                            </div>
+                            <div><dt>Added By</dt><dd>{formatPersonName(r.added_by || r.representative) || '—'}</dd></div>
+                            <div>
+                              <dt>Status</dt>
+                              <dd><span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span></dd>
+                            </div>
+                            {r.attended && (
+                              <div><dt>Attendance</dt><dd>Already checked in</dd></div>
+                            )}
+                            {r.group_size > 1 && (
+                              <div><dt>Group</dt><dd>Group of {r.group_size}</dd></div>
+                            )}
+                          </dl>
+                        </div>
+
+                        <div className="evt-proof-section">
+                          <h4>What They Owe</h4>
+                          {owed > 0 ? (
+                            <div className="evt-proof-receipt">
+                              <div className="evt-proof-line">
+                                <span>Registration Fee</span>
+                                <b>&#8369;{Number(r.base_amount ?? r.amount) || 0}</b>
+                              </div>
+                              {addons.map((a, i) => (
+                                <div className="evt-proof-line" key={i}>
+                                  <span>{a.question}</span>
+                                  <b>&#8369;{Number(a.fee) || 0}</b>
+                                </div>
+                              ))}
+                              <div className="evt-proof-line total">
+                                <span>Total</span><b>&#8369;{owed}</b>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="evt-cell-sub">This is a free registration &mdash; there is no money against it.</p>
+                          )}
+                          <dl className="evt-proof-list" style={{ marginTop: 12 }}>
+                            <div><dt>Mode of Payment</dt><dd>{r.payment_method || '—'}</dd></div>
+                            <div><dt>Reference Number</dt><dd className="evt-proof-ref">{r.payment_reference || '—'}</dd></div>
+                            <div><dt>Payment Plan</dt><dd>{r.payment_plan === 'flexible' ? 'Flexible installment' : 'Paid in full'}</dd></div>
+                          </dl>
+                        </div>
+                      </div>
+
+                      {/* The payments themselves. Money already in the drawer is
+                          the thing most likely to make an admin stop, so it gets
+                          its own section rather than a line in a summary. */}
+                      <div className="evt-proof-section">
+                        <h4>Payments Recorded</h4>
+                        {recorded <= 0 ? (
+                          <p className="evt-cell-sub">No money has been received against this registration.</p>
+                        ) : (
+                          <>
+                            <div className={`evt-del-money ${recorded >= owed && owed > 0 ? 'full' : ''}`}>
+                              <i className="fas fa-peso-sign"></i>
+                              <div>
+                                <b>₱{recorded} received{owed > 0 && <> of ₱{owed}</>}</b>
+                                <span>
+                                  This stays with the registration in the Recycle Bin and comes back on
+                                  a restore. It is only lost if the registration is deleted forever.
+                                </span>
+                              </div>
+                            </div>
+                            {pays.length > 0 && (
+                              <table className="evt-del-paytable">
+                                <thead>
+                                  <tr><th>Date</th><th>Amount</th><th>Method</th><th>Reference</th><th>Recorded By</th></tr>
+                                </thead>
+                                <tbody>
+                                  {pays.map((pmt) => (
+                                    <tr key={pmt.id}>
+                                      <td>{new Date(pmt.paid_on).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                                      <td><b>₱{Number(pmt.amount) || 0}</b></td>
+                                      <td>{pmt.method || '—'}</td>
+                                      <td>{pmt.reference || '—'}</td>
+                                      <td>{formatPersonName(pmt.recorded_by_name) || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Optional, but it is what makes the bin readable a month
+                          later - "duplicate" beats guessing. */}
+                      <div className="form-group">
+                        <label>Reason (optional)</label>
+                        <input
+                          type="text"
+                          value={deleteRegReason}
+                          onChange={(e) => setDeleteRegReason(e.target.value)}
+                          placeholder="e.g. duplicate entry, wrong name, test registration"
+                          maxLength={160}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="evt-modal-foot">
+                      <button className="evt-foot-btn ghost" onClick={() => setDeleteRegModal(null)} disabled={deleteRegSaving}>
+                        <i className="fas fa-xmark"></i> Keep Attendee
+                      </button>
+                      <button className="evt-foot-btn del" onClick={confirmDeleteReg} disabled={deleteRegSaving}>
+                        <i className="fas fa-trash"></i> {deleteRegSaving ? 'Removing…' : 'Move to Recycle Bin'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ---- Record one installment ---- */}
             {payModal && (
@@ -10005,6 +11495,19 @@ Examples:
                           <i className="fas fa-circle-info"></i> Use this to record a walk-in or offline sign-up on the attendee&apos;s behalf.
                         </p>
 
+                        {/* Whose name goes on the row, shown before it is typed.
+                            The row is attributed to the signed-in account, so
+                            that account is worth seeing at the moment of adding
+                            rather than discovering afterwards in the table. */}
+                        <div className="evt-actas">
+                          <span className={`evt-added-admin ${userRole === 'Super Admin' ? 'super' : ''}`}>
+                            <i className="fas fa-shield-halved"></i> {userRole}
+                          </span>
+                          <span>
+                            Recorded as added by <b>{formatPersonName([userData?.firstname, userData?.lastname].filter(Boolean).join(' ')) || userRole}</b>
+                          </span>
+                        </div>
+
                         {/* One person, or a group on one payment - the same choice
                             the public form offers. */}
                         <div className="evt-plan-pick" style={{ marginTop: 0 }}>
@@ -10056,17 +11559,53 @@ Examples:
                           </div>
                         </div>
 
-                        {/* Already on this event: adding them again would double-book
-                            the slot and the payment. */}
-                        {adminDupName && (
+                        {/* Already on this event. For one attendee that is a dead
+                            end - the slot exists. For a group it is useful: the
+                            representative keeps the slot they have, their details
+                            can be reused, and only the group is charged for. */}
+                        {adminDupName && !adminIsBulk && (
                           <div className="evt-dup-warn">
                             <i className="fas fa-triangle-exclamation"></i>
                             <span>
                               <b>{`${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`}</b>
                               {' '}is already registered for this event
-                              {adminDupName.status ? ` (${String(adminDupName.status).replace(/_/g, ' ')})` : ''}.
+                              {adminDupName.status ? ` (${statusLabel(adminDupName.status)})` : ''}.
                               Use a different name, or edit the existing registration instead.
                             </span>
+                          </div>
+                        )}
+
+                        {adminRepLocked && (
+                          <div className="evt-rep-known">
+                            <div className="evt-rep-known-head">
+                              <i className="fas fa-user-check"></i>
+                              <b>{formatPersonName(`${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`)}</b>
+                              <span className={`evt-status evt-status-${adminRepMatch.status}`}>{statusLabel(adminRepMatch.status)}</span>
+                            </div>
+                            <p>
+                              They already have a registration for this event, so they keep that slot
+                              and are <b>not added to the group again</b> &mdash; only the people you
+                              add below are charged for.
+                            </p>
+                            {/* What the earlier registration already holds, so the
+                                admin can see there is something worth reusing. */}
+                            <dl className="evt-rep-known-list">
+                              {adminRepMatch.churchName && <div><dt>Church</dt><dd>{formatChurchName(adminRepMatch.churchName)}</dd></div>}
+                              {adminRepMatch.churchPastor && (
+                                <div><dt>Pastor</dt><dd>{`Ptr. ${formatPersonName(String(adminRepMatch.churchPastor).replace(/^ptr\.?\s*/i, ''))}`}</dd></div>
+                              )}
+                              {adminRepMatch.mobile && <div><dt>Contact</dt><dd>{adminRepMatch.mobile}</dd></div>}
+                              {(adminRepMatch.addons || []).length > 0 && (
+                                <div><dt>Already Availed</dt><dd>{adminRepMatch.addons.map((a) => a.question).join(', ')}</dd></div>
+                              )}
+                            </dl>
+                            {adminRepUsedSaved ? (
+                              <span className="evt-rep-known-done"><i className="fas fa-circle-check"></i> Their saved details are filled in below.</span>
+                            ) : (
+                              <button type="button" className="evt-mini-btn ok" onClick={adminUseSavedRepDetails}>
+                                <i className="fas fa-wand-magic-sparkles"></i> Use their saved details
+                              </button>
+                            )}
                           </div>
                         )}
 
@@ -10123,6 +11662,41 @@ Examples:
                           </div>
                         </div>
 
+                        {/* The representative's extras. Asked here rather than on
+                            the payment step because they belong to a person, not
+                            to the payment - and for someone who already holds a
+                            slot these are the only thing being bought. */}
+                        {adminIsBulk && (eventRegsModal.event_addons || []).length > 0 && (
+                          <div className="evt-addon-pick" style={{ marginTop: 4 }}>
+                            <div className="evt-addon-pick-head">
+                              <i className="fas fa-circle-plus"></i>
+                              {adminRepLocked ? ' Add Extras To Their Registration' : ' Optional Extras For The Representative'}
+                            </div>
+                            {eventRegsModal.event_addons.map((a) => {
+                              const settled = adminRepLockedAddonIds.includes(a.id);
+                              return (
+                                <label
+                                  key={a.id}
+                                  className={`evt-addon-option ${adminAddRegAddons.includes(a.id) || settled ? 'on' : ''} ${a.is_required || settled ? 'locked' : ''} ${settled ? 'settled' : ''}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={settled || adminAddRegAddons.includes(a.id)}
+                                    disabled={a.is_required || settled}
+                                    onChange={() => toggleAdminAddon(a)}
+                                  />
+                                  <span className="evt-addon-option-text">
+                                    <strong>{a.question}</strong>
+                                    {settled && <small>Already availed on their registration &mdash; not charged again.</small>}
+                                    {!settled && a.is_required && <small>Required &mdash; included for everyone.</small>}
+                                  </span>
+                                  <span className="evt-addon-option-fee">{settled ? 'Paid' : `+₱${Number(a.fee) || 0}`}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+
                         <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={adminAddNext}>
                           {adminIsBulk ? 'Add the People' : 'Continue to Payment'} <i className="fas fa-arrow-right"></i>
                         </button>
@@ -10172,37 +11746,120 @@ Examples:
                           </button>
                         </div>
 
-                        <div className="evt-bulk-listhead">
-                          <span><i className="fas fa-user-group"></i> People You Are Registering</span>
-                          <em>{adminBulkList.length} {adminBulkList.length === 1 ? 'person' : 'people'}</em>
-                        </div>
-                        {adminBulkList.length === 0 ? (
-                          <p className="evt-bulk-empty"><i className="fas fa-inbox"></i> No one added yet.</p>
-                        ) : (
-                          <div className="evt-table-wrapper" style={{ marginBottom: 12 }}>
-                            <table className="evt-table">
-                              <thead><tr><th>Attendee</th><th>Registration Fee</th><th>Extras</th><th></th></tr></thead>
-                              <tbody>
-                                {adminBulkList.map((a, i) => (
-                                  <tr key={i} className={adminBulkEditing === i ? 'evt-row-editing' : ''}>
-                                    <td data-label="Attendee"><b>{i + 1}.</b> {formatPersonName(`${a.firstName} ${a.lastName}`)}</td>
-                                    <td data-label="Registration Fee">₱{adminBaseAmount(eventRegsModal)}</td>
-                                    <td data-label="Extras">
-                                      {adminPersonAddons(a).length === 0 ? '—' : (
-                                        <>₱{adminPersonExtras(a)}<div className="evt-cell-sub">{adminPersonAddons(a).map((x) => x.question).join(', ')}</div></>
+                        {(() => {
+                          // The representative is the first row when they need a
+                          // slot, so what is charged for is what is listed. Their
+                          // row is not editable here - step 1 owns it.
+                          const roster = adminFullRoster();
+                          const repRows = roster.filter((a) => a.isRep).length;
+                          const topUps = adminRepLocked ? adminRepTopUpAddons() : [];
+                          return (
+                            <>
+                              <div className="evt-bulk-listhead">
+                                <span><i className="fas fa-user-group"></i> People You Are Registering</span>
+                                <em>
+                                  {roster.length} {roster.length === 1 ? 'person' : 'people'}
+                                  {adminRepLocked && ' + representative'}
+                                </em>
+                              </div>
+                              {roster.length === 0 && !adminRepLocked ? (
+                                <p className="evt-bulk-empty"><i className="fas fa-inbox"></i> No one added yet.</p>
+                              ) : (
+                                <div className="evt-table-wrapper" style={{ marginBottom: 12 }}>
+                                  <table className="evt-table">
+                                    <thead><tr><th>Attendee</th><th>Registration Fee</th><th>Extras</th><th></th></tr></thead>
+                                    <tbody>
+                                      {roster.map((a, i) => {
+                                        // Index back into the editable list, which
+                                        // does not include the representative.
+                                        const listIndex = a.isRep ? null : i - repRows;
+                                        return (
+                                          <tr key={a.isRep ? 'rep' : `p${listIndex}`} className={listIndex != null && adminBulkEditing === listIndex ? 'evt-row-editing' : ''}>
+                                            <td data-label="Attendee">
+                                              <b>{i + 1}.</b> {formatPersonName(`${a.firstName} ${a.lastName}`)}
+                                              {a.isRep && <div className="evt-cell-sub">Representative</div>}
+                                            </td>
+                                            <td data-label="Registration Fee">₱{adminBaseAmount(eventRegsModal)}</td>
+                                            <td data-label="Extras">
+                                              {adminPersonAddons(a).length === 0 ? '—' : (
+                                                <>₱{adminPersonExtras(a)}<div className="evt-cell-sub">{adminPersonAddons(a).map((x) => x.question).join(', ')}</div></>
+                                              )}
+                                            </td>
+                                            <td data-label="" className="evt-td-actions">
+                                              {a.isRep ? (
+                                                <button className="evt-mini-btn" onClick={() => setAdminAddStep(0)} title="Edit in step 1">
+                                                  <i className="fas fa-pen"></i>
+                                                </button>
+                                              ) : (
+                                                <>
+                                                  <button className="evt-mini-btn" onClick={() => adminEditPerson(listIndex)}><i className="fas fa-pen"></i></button>
+                                                  <button className="evt-mini-btn danger" onClick={() => adminRemovePerson(listIndex)}><i className="fas fa-trash"></i></button>
+                                                </>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                      {/* The representative who already holds a
+                                          slot. Listed - leaving them out makes the
+                                          group look like it is missing someone -
+                                          but their fee is struck through, because
+                                          it was paid on the earlier registration
+                                          and is not part of this total. Only the
+                                          extras being added now are charged. */}
+                                      {adminRepLocked && (
+                                        <tr className="evt-row-paid">
+                                          <td data-label="Attendee">
+                                            {formatPersonName(`${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`)}
+                                            <div className="evt-cell-sub">
+                                              Representative &middot; already registered
+                                              <span className={`evt-status evt-status-${adminRepMatch.status}`}>{statusLabel(adminRepMatch.status)}</span>
+                                            </div>
+                                          </td>
+                                          <td data-label="Registration Fee">
+                                            <s>₱{adminBaseAmount(eventRegsModal)}</s>
+                                            <div className="evt-cell-sub">not charged again</div>
+                                          </td>
+                                          <td data-label="Extras">
+                                            {topUps.length > 0 ? (
+                                              <>
+                                                ₱{adminRepTopUpTotal()}
+                                                <div className="evt-cell-sub">{topUps.map((x) => x.question).join(', ')}</div>
+                                              </>
+                                            ) : <span className="evt-cell-sub">&mdash;</span>}
+                                            {adminRepLockedAddonIds.length > 0 && (
+                                              <div className="evt-cell-sub">
+                                                Already availed: {(eventRegsModal.event_addons || [])
+                                                  .filter((x) => adminRepLockedAddonIds.includes(x.id))
+                                                  .map((x) => x.question).join(', ')}
+                                              </div>
+                                            )}
+                                          </td>
+                                          <td data-label="" className="evt-td-actions">
+                                            <button className="evt-mini-btn" onClick={() => setAdminAddStep(0)} title="Edit in step 1">
+                                              <i className="fas fa-pen"></i>
+                                            </button>
+                                          </td>
+                                        </tr>
                                       )}
-                                    </td>
-                                    <td data-label="" className="evt-td-actions">
-                                      <button className="evt-mini-btn" onClick={() => adminEditPerson(i)}><i className="fas fa-pen"></i></button>
-                                      <button className="evt-mini-btn danger" onClick={() => adminRemovePerson(i)}><i className="fas fa-trash"></i></button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                              <tfoot><tr><td>Total</td><td colSpan={3} style={{ textAlign: 'right' }}>₱{adminTotalAmount(eventRegsModal)}</td></tr></tfoot>
-                            </table>
-                          </div>
-                        )}
+                                    </tbody>
+                                    <tfoot><tr><td>Total</td><td colSpan={3} style={{ textAlign: 'right' }}>₱{adminTotalAmount(eventRegsModal)}</td></tr></tfoot>
+                                  </table>
+                                </div>
+                              )}
+                              {adminRepLocked && (
+                                <p className="evt-muted" style={{ margin: '-2px 0 12px', fontSize: '0.8rem' }}>
+                                  <i className="fas fa-circle-info"></i>{' '}
+                                  <b>{formatPersonName(`${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`)}</b>{' '}
+                                  already has a registration, so their ₱{adminBaseAmount(eventRegsModal)} fee is not in this total
+                                  {topUps.length > 0
+                                    ? <> &mdash; only the ₱{adminRepTopUpTotal()} of extras being added to it.</>
+                                    : '.'}
+                                </p>
+                              )}
+                            </>
+                          );
+                        })()}
 
                         <div className="evt-modal-foot" style={{ padding: '4px 0 0', border: 'none', background: 'transparent' }}>
                           <button className="btn-secondary" onClick={() => setAdminAddStep(0)}><i className="fas fa-arrow-left"></i> Back</button>
@@ -10236,12 +11893,42 @@ Examples:
                           <div className="evt-pay-box">
                             {/* itemised, like the receipt the attendee sees */}
                             <div className="evt-receipt">
-                              {adminIsBulk ? adminBulkList.map((a, i) => (
-                                <div className="evt-receipt-line" key={i}>
-                                  <span>{formatPersonName(`${a.firstName} ${a.lastName}`)}{adminPersonExtras(a) > 0 ? ` (+ ${adminPersonAddons(a).map((x) => x.question).join(', ')})` : ''}</span>
-                                  <b>₱{adminPersonTotal(a)}</b>
-                                </div>
-                              )) : (
+                              {adminIsBulk ? (
+                                <>
+                                  {/* The representative is on this list when they
+                                      need a slot, so the receipt matches the
+                                      roster line for line. */}
+                                  {adminFullRoster().map((a, i) => (
+                                    <div className="evt-receipt-line" key={a.isRep ? 'rep' : `p${i}`}>
+                                      <span>
+                                        {formatPersonName(`${a.firstName} ${a.lastName}`)}
+                                        {adminPersonExtras(a) > 0 ? ` (+ ${adminPersonAddons(a).map((x) => x.question).join(', ')})` : ''}
+                                        {a.isRep && ' — representative'}
+                                      </span>
+                                      <b>₱{adminPersonTotal(a)}</b>
+                                    </div>
+                                  ))}
+                                  {/* A representative who already holds a slot is
+                                      charged for the extras only. Their fee is
+                                      shown struck through so the receipt still
+                                      accounts for them. */}
+                                  {adminRepLocked && (
+                                    <div className="evt-receipt-line muted">
+                                      <span>
+                                        {formatPersonName(`${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`)}
+                                        {' — representative, already registered'}
+                                      </span>
+                                      <b><s>₱{adminBaseAmount(eventRegsModal)}</s></b>
+                                    </div>
+                                  )}
+                                  {adminRepLocked && adminRepTopUpAddons().map((x) => (
+                                    <div className="evt-receipt-line" key={`top-${x.id}`}>
+                                      <span>Extras for the representative ({x.question})</span>
+                                      <b>₱{Number(x.fee) || 0}</b>
+                                    </div>
+                                  ))}
+                                </>
+                              ) : (
                                 <>
                                   <div className="evt-receipt-line"><span>Registration Fee</span><b>₱{adminBaseAmount(eventRegsModal)}</b></div>
                                   {(eventRegsModal.event_addons || []).filter((a) => adminAddRegAddons.includes(a.id)).map((a) => (
@@ -10350,7 +12037,7 @@ Examples:
             {/* ---- Event Details modal ---- */}
             {eventDetail && (() => {
               const registered = myRegIds.has(eventDetail.id);
-              const detailEnd = eventDetail.end_date ? new Date(eventDetail.end_date).getTime() : (eventDetail.event_date ? new Date(eventDetail.event_date).getTime() : null);
+              const detailEnd = evtMs(eventDetail.end_date) ?? evtMs(eventDetail.event_date);
               const isPastDetail = !!detailEnd && Date.now() > detailEnd;
               const canJoin = !isPastDetail && eventDetail.registration_required !== false && eventDetail.is_published !== false && (!eventDetail.allowed_roles || eventDetail.allowed_roles.length === 0 || eventDetail.allowed_roles.includes(userRole));
               return (
@@ -10368,7 +12055,7 @@ Examples:
                       <h2 className="evt-detail-title">{eventDetail.title}</h2>
                       {eventDetail.description && <p className="evt-detail-desc">{eventDetail.description}</p>}
                       <div className="evt-detail-info">
-                        <div className="evt-detail-row"><i className="fas fa-calendar-check"></i><div><span className="evt-detail-label">When</span><span>{formatDateTime(eventDetail.event_date)}{eventDetail.end_date ? ` – ${formatDateTime(eventDetail.end_date)}` : ''}</span></div></div>
+                        <div className="evt-detail-row"><i className="fas fa-calendar-check"></i><div><span className="evt-detail-label">When</span><span>{formatEventDateTime(eventDetail.event_date)}{eventDetail.end_date ? ` – ${formatEventDateTime(eventDetail.end_date)}` : ''}</span></div></div>
                         {eventSessionsToShow(eventDetail).length > 0 && (
                           <div className="evt-detail-row"><i className="fas fa-layer-group"></i><div>
                             <span className="evt-detail-label">Sessions</span>
@@ -10387,7 +12074,10 @@ Examples:
                         {eventDetail.max_participants && (() => {
                           const left = eventDetail.slots_left != null ? eventDetail.slots_left : Math.max(0, eventDetail.max_participants - (eventDetail.registered_count || 0));
                           return (
-                            <div className="evt-detail-row"><i className="fas fa-users"></i><div><span className="evt-detail-label">Capacity</span><span>{left <= 0 ? <strong style={{ color: '#dc2626' }}>Fully booked</strong> : <><strong style={{ color: 'var(--primary)' }}>{left}</strong> of {eventDetail.max_participants} slots left</>}</span></div></div>
+                            <div className="evt-detail-row"><i className="fas fa-users"></i><div>
+                              <span className="evt-detail-label">Capacity</span>
+                              <span>{left <= 0 ? <strong style={{ color: '#dc2626' }}>Fully booked</strong> : <><strong style={{ color: 'var(--primary)' }}>{left}</strong> of {eventDetail.max_participants} slots left</>}</span>
+                            </div></div>
                           );
                         })()}
                         {eventDetail.registration_deadline && <div className="evt-detail-row"><i className="fas fa-hourglass-half"></i><div><span className="evt-detail-label">Register By</span><span>{new Date(eventDetail.registration_deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span></div></div>}
@@ -10474,7 +12164,7 @@ Examples:
                       <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event — you&apos;ll be registered instantly.</p>
                     ) : (
                       <div className="evt-pay-box">
-                        <div className="evt-pay-amount">Amount to pay: <strong>₱{registerTotalAmount(registerModal)}</strong></div>
+                        <div className="evt-pay-amount"><span>Amount to pay</span><strong>₱{registerTotalAmount(registerModal)}</strong></div>
                         {registerTotalAmount(registerModal) !== registerBaseAmount(registerModal) && (
                           <div className="evt-muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
                             ₱{registerBaseAmount(registerModal)} registration
@@ -10484,26 +12174,84 @@ Examples:
                           </div>
                         )}
                         {registerModal.payment_instructions && <p className="evt-muted" style={{ whiteSpace: 'pre-wrap' }}>{registerModal.payment_instructions}</p>}
-                        {(registerModal.gcash_number || registerModal.gcash_qr_url) && (
+                        {/* Channels the organiser picked from Mode of Payment. */}
+                        {eventPaymentChannels(registerModal).length > 0 && (
+                          <div className="evt-pay-channels">
+                            <div className="evt-pay-channels-head"><i className="fas fa-wallet"></i> Send your payment to</div>
+                            {eventPaymentChannels(registerModal).map((m) => (
+                              <div key={m.id} className="evt-pay-channel">
+                                <span className="pm-logo pm-logo-sm" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
+                                  {m.logo_url ? <img src={m.logo_url} alt={m.name} /> : <span>{getPaymentInitials(m.name)}</span>}
+                                </span>
+                                <div className="evt-pay-channel-info">
+                                  <div className="evt-pay-channel-name">
+                                    {m.name}
+                                    <span className={`pm-badge ${m.category}`}>{m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                  </div>
+                                  {m.account_number && (
+                                    <div className="evt-pay-channel-row">
+                                      <span>Account No.</span>
+                                      <strong>{m.account_number}</strong>
+                                      <button type="button" className="pm-icon-btn" title="Copy account number" onClick={() => copyPaymentDetail('Account number', m.account_number)}>
+                                        <i className="fas fa-copy"></i>
+                                      </button>
+                                    </div>
+                                  )}
+                                  {m.account_name && (
+                                    <div className="evt-pay-channel-row">
+                                      <span>Account Name</span>
+                                      <strong>{m.account_name}</strong>
+                                      <button type="button" className="pm-icon-btn" title="Copy account name" onClick={() => copyPaymentDetail('Account name', m.account_name)}>
+                                        <i className="fas fa-copy"></i>
+                                      </button>
+                                    </div>
+                                  )}
+                                  {m.qr_url && (
+                                    <button type="button" className="evt-pay-qr" onClick={() => setQrLightbox({ url: m.qr_url, name: m.name })}>
+                                      <img src={m.qr_url} alt={`${m.name} QR code`} />
+                                      <span><strong>Scan this QR to pay</strong><small>Tap to enlarge</small></span>
+                                    </button>
+                                  )}
+                                  {m.notes && <p className="evt-pay-channel-note"><i className="fas fa-circle-info"></i> {m.notes}</p>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {eventPaymentChannels(registerModal).length === 0 && (registerModal.gcash_number || registerModal.gcash_qr_url) && (
                           <div className="evt-pay-detail"><strong>GCash:</strong> {registerModal.gcash_name} {registerModal.gcash_number}
                             {registerModal.gcash_qr_url && <div><img src={registerModal.gcash_qr_url} alt="GCash QR" style={{ width: 120, height: 120, objectFit: 'contain', marginTop: 6, borderRadius: 8, background: '#fff', padding: 4 }} /></div>}
                           </div>
                         )}
-                        {registerModal.bank_account_number && (
+                        {eventPaymentChannels(registerModal).length === 0 && registerModal.bank_account_number && (
                           <div className="evt-pay-detail"><strong>Bank:</strong> {registerModal.bank_name} · {registerModal.bank_account_name} · {registerModal.bank_account_number}</div>
                         )}
-                        <div className="form-group"><label>Payment Method</label>
-                          <select className="form-control" value={registerForm.paymentMethod} onChange={(e) => setRegisterForm({ ...registerForm, paymentMethod: e.target.value })}>
-                            <option value="">Select…</option>
-                            {(registerModal.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
-                          </select>
+                        <div className="evt-pay-form">
+                          <div className="evt-pay-form-head"><i className="fas fa-receipt"></i> Confirm your payment</div>
+                          <div className="form-group"><label>Payment Method</label>
+                            <select className="form-control" value={registerForm.paymentMethod} onChange={(e) => setRegisterForm({ ...registerForm, paymentMethod: e.target.value })}>
+                              <option value="">Select…</option>
+                              {(registerModal.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" placeholder="e.g. 0123456789" value={registerForm.paymentReference} onChange={(e) => setRegisterForm({ ...registerForm, paymentReference: e.target.value })} /></div>
+                          <div className="form-group"><label>Payment Receipt</label>
+                            <label className="evt-proof-drop">
+                              <input type="file" accept="image/*" onChange={(e) => setRegisterProofFile(e.target.files?.[0] || null)} />
+                              {registerProofFile
+                                ? <img src={URL.createObjectURL(registerProofFile)} alt="Payment receipt" />
+                                : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
+                              <span className="evt-proof-text">
+                                <strong>{registerProofFile ? registerProofFile.name : 'Upload a screenshot of your receipt'}</strong>
+                                <small>{registerProofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
+                              </span>
+                            </label>
+                          </div>
                         </div>
-                        <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={registerForm.paymentReference} onChange={(e) => setRegisterForm({ ...registerForm, paymentReference: e.target.value })} /></div>
-                        <div className="form-group"><label>Upload Payment Receipt</label>
-                          <input type="file" accept="image/*" onChange={(e) => setRegisterProofFile(e.target.files?.[0] || null)} />
-                          {registerProofFile && <div style={{ marginTop: 6 }}><img src={URL.createObjectURL(registerProofFile)} alt="proof" style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }} /></div>}
-                        </div>
-                        <p className="evt-muted" style={{ fontSize: '0.8rem' }}>Your registration is confirmed once an admin verifies your payment.</p>
+                        <p className="evt-pay-note">
+                          <i className="fas fa-shield-halved"></i>
+                          <span>Your registration is confirmed once an admin verifies your payment.</span>
+                        </p>
                       </div>
                     )}
                     <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitRegistration} disabled={registerSubmitting}>
@@ -10529,28 +12277,86 @@ Examples:
                         <i className="fas fa-circle-info"></i> This event now requires payment to keep your registration. Choose how you&apos;d like to pay below.
                       </p>
                       <div className="evt-pay-box">
-                        <div className="evt-pay-amount">Amount to pay: <strong>₱{evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline) ? evt.early_bird_price : evt.registration_fee}</strong></div>
+                        <div className="evt-pay-amount"><span>Amount to pay</span><strong>₱{evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline) ? evt.early_bird_price : evt.registration_fee}</strong></div>
                         {evt.payment_instructions && <p className="evt-muted" style={{ whiteSpace: 'pre-wrap' }}>{evt.payment_instructions}</p>}
-                        {(evt.gcash_number || evt.gcash_qr_url) && (
+                        {/* Channels the organiser picked from Mode of Payment. */}
+                        {eventPaymentChannels(evt).length > 0 && (
+                          <div className="evt-pay-channels">
+                            <div className="evt-pay-channels-head"><i className="fas fa-wallet"></i> Send your payment to</div>
+                            {eventPaymentChannels(evt).map((m) => (
+                              <div key={m.id} className="evt-pay-channel">
+                                <span className="pm-logo pm-logo-sm" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
+                                  {m.logo_url ? <img src={m.logo_url} alt={m.name} /> : <span>{getPaymentInitials(m.name)}</span>}
+                                </span>
+                                <div className="evt-pay-channel-info">
+                                  <div className="evt-pay-channel-name">
+                                    {m.name}
+                                    <span className={`pm-badge ${m.category}`}>{m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                  </div>
+                                  {m.account_number && (
+                                    <div className="evt-pay-channel-row">
+                                      <span>Account No.</span>
+                                      <strong>{m.account_number}</strong>
+                                      <button type="button" className="pm-icon-btn" title="Copy account number" onClick={() => copyPaymentDetail('Account number', m.account_number)}>
+                                        <i className="fas fa-copy"></i>
+                                      </button>
+                                    </div>
+                                  )}
+                                  {m.account_name && (
+                                    <div className="evt-pay-channel-row">
+                                      <span>Account Name</span>
+                                      <strong>{m.account_name}</strong>
+                                      <button type="button" className="pm-icon-btn" title="Copy account name" onClick={() => copyPaymentDetail('Account name', m.account_name)}>
+                                        <i className="fas fa-copy"></i>
+                                      </button>
+                                    </div>
+                                  )}
+                                  {m.qr_url && (
+                                    <button type="button" className="evt-pay-qr" onClick={() => setQrLightbox({ url: m.qr_url, name: m.name })}>
+                                      <img src={m.qr_url} alt={`${m.name} QR code`} />
+                                      <span><strong>Scan this QR to pay</strong><small>Tap to enlarge</small></span>
+                                    </button>
+                                  )}
+                                  {m.notes && <p className="evt-pay-channel-note"><i className="fas fa-circle-info"></i> {m.notes}</p>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {eventPaymentChannels(evt).length === 0 && (evt.gcash_number || evt.gcash_qr_url) && (
                           <div className="evt-pay-detail"><strong>GCash:</strong> {evt.gcash_name} {evt.gcash_number}
                             {evt.gcash_qr_url && <div><img src={evt.gcash_qr_url} alt="GCash QR" style={{ width: 120, height: 120, objectFit: 'contain', marginTop: 6, borderRadius: 8, background: '#fff', padding: 4 }} /></div>}
                           </div>
                         )}
-                        {evt.bank_account_number && (
+                        {eventPaymentChannels(evt).length === 0 && evt.bank_account_number && (
                           <div className="evt-pay-detail"><strong>Bank:</strong> {evt.bank_name} · {evt.bank_account_name} · {evt.bank_account_number}</div>
                         )}
-                        <div className="form-group"><label>Payment Method</label>
-                          <select className="form-control" value={payNowForm.paymentMethod} onChange={(e) => setPayNowForm({ ...payNowForm, paymentMethod: e.target.value })}>
-                            <option value="">Select…</option>
-                            {(evt.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
-                          </select>
+                        <div className="evt-pay-form">
+                          <div className="evt-pay-form-head"><i className="fas fa-receipt"></i> Confirm your payment</div>
+                          <div className="form-group"><label>Payment Method</label>
+                            <select className="form-control" value={payNowForm.paymentMethod} onChange={(e) => setPayNowForm({ ...payNowForm, paymentMethod: e.target.value })}>
+                              <option value="">Select…</option>
+                              {(evt.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" placeholder="e.g. 0123456789" value={payNowForm.paymentReference} onChange={(e) => setPayNowForm({ ...payNowForm, paymentReference: e.target.value })} /></div>
+                          <div className="form-group"><label>Payment Receipt</label>
+                            <label className="evt-proof-drop">
+                              <input type="file" accept="image/*" onChange={(e) => setPayNowProofFile(e.target.files?.[0] || null)} />
+                              {payNowProofFile
+                                ? <img src={URL.createObjectURL(payNowProofFile)} alt="Payment receipt" />
+                                : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
+                              <span className="evt-proof-text">
+                                <strong>{payNowProofFile ? payNowProofFile.name : 'Upload a screenshot of your receipt'}</strong>
+                                <small>{payNowProofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
+                              </span>
+                            </label>
+                          </div>
                         </div>
-                        <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={payNowForm.paymentReference} onChange={(e) => setPayNowForm({ ...payNowForm, paymentReference: e.target.value })} /></div>
-                        <div className="form-group"><label>Upload Payment Receipt</label>
-                          <input type="file" accept="image/*" onChange={(e) => setPayNowProofFile(e.target.files?.[0] || null)} />
-                          {payNowProofFile && <div style={{ marginTop: 6 }}><img src={URL.createObjectURL(payNowProofFile)} alt="proof" style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }} /></div>}
-                        </div>
-                        <p className="evt-muted" style={{ fontSize: '0.8rem' }}>Your registration is confirmed once an admin verifies your payment.</p>
+                        <p className="evt-pay-note">
+                          <i className="fas fa-shield-halved"></i>
+                          <span>Your registration is confirmed once an admin verifies your payment.</span>
+                        </p>
                       </div>
                       <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitPayNow} disabled={payNowSubmitting}>
                         <i className={`fas ${payNowSubmitting ? 'fa-spinner fa-spin' : 'fa-wallet'}`}></i> {payNowSubmitting ? 'Submitting…' : 'Submit Payment'}
@@ -13996,6 +15802,435 @@ Examples:
             </div>
           </section>
 
+          {/* ========== MODE OF PAYMENT ========== */}
+          <section className={`content-section ${activeSection === 'payment-methods' ? 'active' : ''}`}>
+            <div className="pm-head">
+              <h2 className="section-title">Mode of Payment</h2>
+              <button className="pm-add-btn" onClick={() => openPaymentMethodForm(null)}>
+                <i className="fas fa-plus"></i> Add Payment Method
+              </button>
+            </div>
+            <p className="pm-subtitle">
+              Set up the online payment channels and bank transfer accounts members use when settling
+              event fees, tithes and offerings. Each entry shows a circle logo with the bank name,
+              account number and account name.
+            </p>
+
+            <div className="evt-tabs pm-tabs">
+              {[
+                { key: 'all', label: 'All', icon: 'fas fa-list' },
+                { key: 'bank', label: 'Bank Transfers', icon: 'fas fa-building-columns' },
+                { key: 'online', label: 'Online Payments', icon: 'fas fa-mobile-screen-button' },
+              ].map((t) => (
+                <button
+                  key={t.key}
+                  className={`evt-tab ${paymentMethodFilter === t.key ? 'active' : ''}`}
+                  onClick={() => setPaymentMethodFilter(t.key)}
+                >
+                  <i className={t.icon}></i> {t.label}
+                  <span className="pm-tab-count">
+                    {t.key === 'all' ? paymentMethods.length : paymentMethods.filter((m) => m.category === t.key).length}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {paymentMethodShowForm && (
+              <div className="pm-modal-overlay" onClick={closePaymentMethodForm}>
+                <div className="pm-form pm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                <div className="pm-form-head">
+                  <h3>
+                    <i className={paymentMethodEditingId ? 'fas fa-pen' : 'fas fa-plus-circle'}></i>{' '}
+                    {paymentMethodEditingId ? 'Edit Payment Method' : 'New Payment Method'}
+                  </h3>
+                  <button className="pm-icon-btn" onClick={closePaymentMethodForm} title="Close">
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+
+                <div className="pm-form-body">
+                  {/* Left rail: the circle exactly as payers will see it. */}
+                  <aside className="pm-form-aside">
+                    <div
+                      className="pm-logo pm-logo-lg"
+                      style={{ background: paymentMethodForm.logoUrl ? 'transparent' : (paymentMethodForm.logoColor || '#1e3a8a') }}
+                    >
+                      {paymentMethodForm.logoUrl
+                        ? <img src={paymentMethodForm.logoUrl} alt={paymentMethodForm.name || 'Logo'} />
+                        : <span>{getPaymentInitials(paymentMethodForm.name)}</span>}
+                    </div>
+                    <span className="pm-form-preview-label">Circle logo preview</span>
+
+                    <div className="pm-upload-stack">
+                      <label className={`pm-upload-btn ${paymentLogoUploading ? 'busy' : ''}`}>
+                        <input type="file" accept="image/*" disabled={paymentLogoUploading} onChange={handlePaymentLogoSelect} />
+                        {paymentLogoUploading
+                          ? <><i className="fas fa-spinner fa-spin"></i> Working...</>
+                          : <><i className="fas fa-cloud-arrow-up"></i> {paymentMethodForm.logoUrl ? 'Replace' : 'Upload Logo'}</>}
+                      </label>
+                      {paymentMethodForm.logoUrl && !paymentLogoUploading && (
+                        <div className="pm-upload-row">
+                          <button type="button" className="pm-upload-edit" onClick={editPaymentLogo}>
+                            <i className="fas fa-crop-alt"></i> Crop
+                          </button>
+                          <button type="button" className="pm-upload-clear" onClick={clearPaymentLogo}>
+                            <i className="fas fa-trash"></i> Remove
+                          </button>
+                        </div>
+                      )}
+                      <small className="pm-upload-hint">
+                        Drag &amp; zoom to frame it in the circle. Saved as <strong>.webp</strong>.
+                        No logo? The initials are used instead.
+                      </small>
+                    </div>
+                  </aside>
+
+                  {/* Right: the fields, grouped so the eye reads top to bottom. */}
+                  <div className="pm-form-main">
+                    <fieldset className="pm-fieldset">
+                      <legend>Channel</legend>
+                      <div className="pm-row pm-row-2">
+                        <label className="pm-field">
+                          <span>Type</span>
+                          <select
+                            value={paymentMethodForm.category}
+                            onChange={(e) => setPaymentMethodForm((f) => ({ ...f, category: e.target.value }))}
+                          >
+                            <option value="bank">Bank Transfer</option>
+                            <option value="online">Online Payment</option>
+                          </select>
+                        </label>
+                        <label className="pm-field">
+                          <span>{paymentMethodForm.category === 'bank' ? 'Bank Name *' : 'Channel Name *'}</span>
+                          <input
+                            type="text"
+                            value={paymentMethodForm.name}
+                            placeholder={paymentMethodForm.category === 'bank' ? 'e.g. BDO, BPI, Maribank' : 'e.g. GCash, Maya, PayPal'}
+                            onChange={(e) => setPaymentMethodForm((f) => ({ ...f, name: e.target.value }))}
+                          />
+                        </label>
+                      </div>
+                    </fieldset>
+
+                    <fieldset className="pm-fieldset">
+                      <legend>Account Details</legend>
+                      <div className="pm-row pm-row-2">
+                        <label className="pm-field">
+                          <span>Account Number</span>
+                          <input
+                            type="text"
+                            value={paymentMethodForm.accountNumber}
+                            placeholder="e.g. 0012 3456 7890"
+                            onChange={(e) => setPaymentMethodForm((f) => ({ ...f, accountNumber: e.target.value }))}
+                          />
+                        </label>
+                        <label className="pm-field">
+                          <span>Account Name</span>
+                          <input
+                            type="text"
+                            value={paymentMethodForm.accountName}
+                            placeholder="e.g. Jesus Saves Christian International Inc."
+                            onChange={(e) => setPaymentMethodForm((f) => ({ ...f, accountName: e.target.value }))}
+                          />
+                        </label>
+                      </div>
+                      <div className="pm-row pm-row-qr">
+                        <div className="pm-field">
+                          <span>QR Code (optional)</span>
+                          <div className="pm-qr-picker">
+                            <div className="pm-qr-thumb">
+                              {paymentMethodForm.qrUrl
+                                ? <img src={paymentMethodForm.qrUrl} alt="Payment QR code" onClick={() => setQrLightbox({ url: paymentMethodForm.qrUrl, name: paymentMethodForm.name })} />
+                                : <span className="pm-qr-empty"><i className="fas fa-qrcode"></i></span>}
+                            </div>
+                            <div className="pm-qr-controls">
+                              <label className={`pm-upload-btn ${paymentQrUploading ? 'busy' : ''}`}>
+                                <input type="file" accept="image/*" disabled={paymentQrUploading} onChange={handlePaymentQrSelect} />
+                                {paymentQrUploading
+                                  ? <><i className="fas fa-spinner fa-spin"></i> Working...</>
+                                  : <><i className="fas fa-qrcode"></i> {paymentMethodForm.qrUrl ? 'Replace QR' : 'Upload QR'}</>}
+                              </label>
+                              {paymentMethodForm.qrUrl && !paymentQrUploading && (
+                                <button type="button" className="pm-upload-clear" onClick={clearPaymentQr}>
+                                  <i className="fas fa-trash"></i> Remove
+                                </button>
+                              )}
+                              <small className="pm-upload-hint">
+                                Screenshot of your GCash / Maya / InstaPay QR. Kept square on a white
+                                plate and saved as <strong>.webp</strong> so it still scans.
+                              </small>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <label className="pm-field">
+                        <span>Notes / Instructions (optional)</span>
+                        <textarea
+                          rows={2}
+                          value={paymentMethodForm.notes}
+                          placeholder="e.g. Please send the deposit slip to the church office."
+                          onChange={(e) => setPaymentMethodForm((f) => ({ ...f, notes: e.target.value }))}
+                        />
+                      </label>
+                    </fieldset>
+
+                    <fieldset className="pm-fieldset">
+                      <legend>Appearance &amp; Visibility</legend>
+                      <div className="pm-row pm-row-2">
+                        <label className="pm-field">
+                          <span>Circle Color <small>(used when there is no logo)</small></span>
+                          <div className="pm-color-row">
+                            <input
+                              type="color"
+                              value={paymentMethodForm.logoColor || '#1e3a8a'}
+                              onChange={(e) => setPaymentMethodForm((f) => ({ ...f, logoColor: e.target.value }))}
+                            />
+                            <input
+                              type="text"
+                              value={paymentMethodForm.logoColor || ''}
+                              placeholder="#1e3a8a"
+                              onChange={(e) => setPaymentMethodForm((f) => ({ ...f, logoColor: e.target.value }))}
+                            />
+                          </div>
+                        </label>
+                        <label className="pm-field">
+                          <span>Display Order <small>(lower shows first)</small></span>
+                          <input
+                            type="number"
+                            value={paymentMethodForm.sortOrder}
+                            onChange={(e) => setPaymentMethodForm((f) => ({ ...f, sortOrder: e.target.value }))}
+                          />
+                        </label>
+                      </div>
+
+                      <button
+                        type="button"
+                        className={`pm-switch ${paymentMethodForm.isActive ? 'on' : ''}`}
+                        onClick={() => setPaymentMethodForm((f) => ({ ...f, isActive: !f.isActive }))}
+                        aria-pressed={paymentMethodForm.isActive}
+                      >
+                        <span className="pm-switch-track"><span className="pm-switch-knob"></span></span>
+                        <span className="pm-switch-text">
+                          <strong>{paymentMethodForm.isActive ? 'Visible to payers' : 'Hidden from payers'}</strong>
+                          <small>
+                            {paymentMethodForm.isActive
+                              ? 'Can be picked in the event Payment step and shown to attendees.'
+                              : 'Kept here for reference but never offered to payers.'}
+                          </small>
+                        </span>
+                      </button>
+                    </fieldset>
+                  </div>
+                </div>
+
+                <div className="pm-form-actions">
+                  <button className="btn-secondary" onClick={closePaymentMethodForm}>Cancel</button>
+                  <button className="btn-primary" onClick={savePaymentMethod} disabled={paymentMethodSaving}>
+                    {paymentMethodSaving
+                      ? <><i className="fas fa-spinner fa-spin"></i> Saving...</>
+                      : <><i className="fas fa-save"></i> {paymentMethodEditingId ? 'Save Changes' : 'Add Payment Method'}</>}
+                  </button>
+                </div>
+                </div>
+              </div>
+            )}
+
+            {paymentMethodsLoading ? (
+              <div className="terms-editor-loading"><i className="fas fa-spinner fa-spin"></i> Loading payment methods...</div>
+            ) : (() => {
+              const visible = paymentMethodFilter === 'all'
+                ? paymentMethods
+                : paymentMethods.filter((m) => m.category === paymentMethodFilter);
+
+              if (visible.length === 0) {
+                return (
+                  <div className="pm-empty">
+                    <i className="fas fa-money-check-dollar"></i>
+                    <p>No payment methods yet.</p>
+                    <button className="pm-add-btn" onClick={() => openPaymentMethodForm(null)}>
+                      <i className="fas fa-plus"></i> Add your first one
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="pm-grid">
+                  {visible.map((m) => (
+                    <div key={m.id} className={`pm-card ${m.is_active === false ? 'inactive' : ''}`}>
+                      <span className={`pm-status ${m.is_active === false ? 'off' : 'on'}`}>
+                        <i className={m.is_active === false ? 'fas fa-eye-slash' : 'fas fa-eye'}></i>
+                        {m.is_active === false ? 'Hidden' : 'Visible'}
+                      </span>
+
+                      <div className="pm-card-top">
+                        <div className="pm-logo" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
+                          {m.logo_url
+                            ? <img src={m.logo_url} alt={m.name} />
+                            : <span>{getPaymentInitials(m.name)}</span>}
+                        </div>
+                        <div className="pm-card-title">
+                          <h3>{m.name}</h3>
+                          <span className={`pm-badge ${m.category}`}>
+                            <i className={m.category === 'bank' ? 'fas fa-building-columns' : 'fas fa-mobile-screen-button'}></i>
+                            {m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <dl className="pm-card-details">
+                        <div className="pm-detail">
+                          <dt>Account Number</dt>
+                          <dd>
+                            <span className="pm-detail-text">{m.account_number || '—'}</span>
+                            {m.account_number && (
+                              <button className="pm-icon-btn" title="Copy account number" onClick={() => copyPaymentDetail('Account number', m.account_number)}>
+                                <i className="fas fa-copy"></i>
+                              </button>
+                            )}
+                          </dd>
+                        </div>
+                        <div className="pm-detail">
+                          <dt>Account Name</dt>
+                          <dd>
+                            <span className="pm-detail-text">{m.account_name || '—'}</span>
+                            {m.account_name && (
+                              <button className="pm-icon-btn" title="Copy account name" onClick={() => copyPaymentDetail('Account name', m.account_name)}>
+                                <i className="fas fa-copy"></i>
+                              </button>
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
+
+                      {m.qr_url && (
+                        <button type="button" className="pm-qr-card" onClick={() => setQrLightbox({ url: m.qr_url, name: m.name })}>
+                          <img src={m.qr_url} alt={`${m.name} QR code`} />
+                          <span><strong>Scan to pay</strong><small>Tap to enlarge</small></span>
+                        </button>
+                      )}
+
+                      {m.notes && <p className="pm-notes"><i className="fas fa-circle-info"></i> <span>{m.notes}</span></p>}
+
+                      {/* Where this channel is in use. A used channel can be hidden
+                          but never deleted, so the count doubles as the reason. */}
+                      {(() => {
+                        const used = m.used_by_events || [];
+                        const open = paymentUsageOpen === m.id;
+                        if (used.length === 0) {
+                          return <p className="pm-usage none"><i className="fas fa-circle-check"></i> Not used by any event yet</p>;
+                        }
+                        return (
+                          <div className={`pm-usage-box ${open ? 'open' : ''}`}>
+                            <button type="button" className="pm-usage-toggle" onClick={() => setPaymentUsageOpen(open ? null : m.id)}>
+                              <i className="fas fa-link"></i>
+                              <span>Used by {used.length} event{used.length === 1 ? '' : 's'}</span>
+                              <i className={`fas ${open ? 'fa-chevron-up' : 'fa-chevron-down'} pm-usage-chev`}></i>
+                            </button>
+                            {open && (
+                              <ul className="pm-usage-list">
+                                {used.map((ev) => (
+                                  <li key={ev.id}>
+                                    <button type="button" onClick={() => openEventFromPaymentUsage(ev)}>
+                                      <i className="fas fa-calendar-day"></i>
+                                      <span className="pm-usage-title">{ev.title || 'Untitled event'}</span>
+                                      <span className="pm-usage-date">{ev.event_date ? formatEventDateTime(ev.event_date) : 'No date'}</span>
+                                      <i className="fas fa-arrow-up-right-from-square pm-usage-go"></i>
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      <div className="pm-card-actions">
+                        <button className="pm-act" onClick={() => openPaymentMethodForm(m)}><i className="fas fa-pen"></i> Edit</button>
+                        <button className="pm-act" onClick={() => togglePaymentMethodActive(m)}>
+                          <i className={m.is_active === false ? 'fas fa-eye' : 'fas fa-eye-slash'}></i>
+                          {m.is_active === false ? ' Show' : ' Hide'}
+                        </button>
+                        <button
+                          className={`pm-act danger ${(m.used_by_events || []).length > 0 ? 'locked' : ''}`}
+                          onClick={() => deletePaymentMethod(m)}
+                          title={(m.used_by_events || []).length > 0 ? 'In use by an event — hide it instead' : 'Delete this payment method'}
+                        >
+                          <i className={`fas ${(m.used_by_events || []).length > 0 ? 'fa-lock' : 'fa-trash'}`}></i>
+                          {(m.used_by_events || []).length > 0 ? ' In use' : ' Delete'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </section>
+
+          {/* Fullscreen QR so it can actually be scanned off the screen */}
+          {qrLightbox && (
+            <div className="pm-qr-lightbox" onClick={() => setQrLightbox(null)}>
+              <div className="pm-qr-lightbox-inner" onClick={(e) => e.stopPropagation()}>
+                <div className="pm-qr-lightbox-head">
+                  <strong><i className="fas fa-qrcode"></i> {qrLightbox.name || 'Payment'} QR</strong>
+                  <button className="pm-icon-btn" onClick={() => setQrLightbox(null)} title="Close"><i className="fas fa-times"></i></button>
+                </div>
+                <img src={qrLightbox.url} alt="Payment QR code" />
+                <p>Open your payment app, scan this code, then keep the receipt.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Payment logo circle-crop editor */}
+          {pmCropOpen && pmCropImage && (
+            <div className="profile-crop-modal-overlay" onClick={closePaymentLogoCropper}>
+              <div className="profile-crop-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="profile-crop-modal-header">
+                  <h3><i className="fas fa-crop-alt"></i> Crop Logo to a Circle</h3>
+                  <button className="btn-close-modal" onClick={closePaymentLogoCropper}><i className="fas fa-times"></i></button>
+                </div>
+                <div className="profile-crop-container">
+                  <Cropper
+                    image={pmCropImage}
+                    crop={pmCrop}
+                    zoom={pmZoom}
+                    aspect={1}
+                    cropShape="round"
+                    showGrid={false}
+                    restrictPosition={false}
+                    minZoom={0.5}
+                    maxZoom={4}
+                    onCropChange={setPmCrop}
+                    onZoomChange={setPmZoom}
+                    onCropComplete={(_, croppedPixels) => setPmCroppedAreaPixels(croppedPixels)}
+                  />
+                </div>
+                <div className="profile-crop-controls">
+                  <div className="profile-crop-zoom">
+                    <i className="fas fa-search-minus"></i>
+                    <input
+                      type="range" min={0.5} max={4} step={0.05}
+                      value={pmZoom}
+                      onChange={(e) => setPmZoom(Number(e.target.value))}
+                      className="profile-crop-slider"
+                    />
+                    <i className="fas fa-search-plus"></i>
+                  </div>
+                  <p className="pm-crop-hint">Drag to reposition, pinch or use the slider to zoom.</p>
+                  <div className="profile-crop-actions">
+                    <button className="btn-secondary" onClick={closePaymentLogoCropper}>Cancel</button>
+                    <button className="btn-primary" onClick={confirmPaymentLogoCrop} disabled={paymentLogoUploading || !pmCroppedAreaPixels}>
+                      {paymentLogoUploading
+                        ? <><i className="fas fa-spinner fa-spin"></i> Saving...</>
+                        : <><i className="fas fa-check"></i> Use This Crop</>}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ========== MY PROFILE ========== */}
           <section className={`content-section ${activeSection === 'my-profile' ? 'active' : ''}`}>
             <h2 className="section-title">My Profile</h2>
@@ -14472,7 +16707,7 @@ Examples:
                     </div>
                   </div>
                   {evt.description && <p style={{ color: '#6c757d', marginBottom: 8, marginTop: 8 }}>{evt.description}</p>}
-                  <p style={{ margin: '4px 0' }}><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
+                  <p style={{ margin: '4px 0' }}><i className="fas fa-clock"></i> {formatEventDateTime(evt.event_date)}</p>
                   {evt.end_date && <p style={{ margin: '4px 0' }}><i className="fas fa-hourglass-end"></i> Until: {formatDateTime(evt.end_date)}</p>}
                   {evt.location && <p style={{ margin: '4px 0' }}><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
 
@@ -14615,7 +16850,7 @@ Examples:
                     </div>
                   </div>
                   {evt.description && <p style={{ color: '#6c757d', marginBottom: 8 }}>{evt.description}</p>}
-                  <p><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
+                  <p><i className="fas fa-clock"></i> {formatEventDateTime(evt.event_date)}</p>
                   {evt.end_date && <p><i className="fas fa-hourglass-end"></i> Until: {formatDateTime(evt.end_date)}</p>}
                   {evt.location && <p><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -14656,7 +16891,7 @@ Examples:
                       </div>
                     </div>
                     {evt.description && <p style={{ color: '#6c757d', marginBottom: 8, marginTop: 8 }}>{evt.description}</p>}
-                    <p style={{ margin: '4px 0' }}><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
+                    <p style={{ margin: '4px 0' }}><i className="fas fa-clock"></i> {formatEventDateTime(evt.event_date)}</p>
                     {evt.end_date && <p style={{ margin: '4px 0' }}><i className="fas fa-hourglass-end"></i> Until: {formatDateTime(evt.end_date)}</p>}
                     {evt.location && <p style={{ margin: '4px 0' }}><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
 
@@ -14780,7 +17015,7 @@ Examples:
                     </div>
                   </div>
                   {evt.description && <p style={{ color: '#6c757d', marginBottom: 8 }}>{evt.description}</p>}
-                  <p><i className="fas fa-clock"></i> {formatDateTime(evt.event_date)}</p>
+                  <p><i className="fas fa-clock"></i> {formatEventDateTime(evt.event_date)}</p>
                   {evt.location && <p><i className="fas fa-map-marker-alt"></i> {evt.location}</p>}
                   <div style={{ padding: '8px 12px', background: 'rgba(0,123,255,0.05)', borderRadius: 8, border: '1px solid rgba(0,123,255,0.15)', marginTop: 8, fontSize: '0.85rem' }}>
                     <i className="fas fa-user" style={{ marginRight: 6, color: '#007bff' }}></i>
