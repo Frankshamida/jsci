@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import './home.css';
 import { withTitleCase } from '@/lib/eventTitle';
@@ -236,6 +237,32 @@ export default function HomePage() {
   const [eventsVersion, setEventsVersion] = useState(0); // bumped after a registration so the slot counts refresh
   const [detailEvent, setDetailEvent] = useState(null);
 
+  // While the event details modal is open the page behind it must not scroll -
+  // the modal is the only thing on screen, and a scrolling backdrop makes the
+  // wheel feel like it is fighting the dialog. The scrollbar's width is paid back
+  // as padding so the layout does not jump when it disappears.
+  useEffect(() => {
+    if (!detailEvent) return undefined;
+    const { body, documentElement: html } = document;
+    // globals.css sets `overflow-x: hidden` on html AND body, which makes BOTH of
+    // them scroll containers - locking only body still leaves html scrollable, so
+    // both are pinned here.
+    const prev = {
+      body: body.style.overflow,
+      html: html.style.overflow,
+      pad: body.style.paddingRight,
+    };
+    const gap = window.innerWidth - html.clientWidth;
+    body.style.overflow = 'hidden';
+    html.style.overflow = 'hidden';
+    if (gap > 0) body.style.paddingRight = `${gap}px`;
+    return () => {
+      body.style.overflow = prev.body;
+      html.style.overflow = prev.html;
+      body.style.paddingRight = prev.pad;
+    };
+  }, [detailEvent]);
+
   // ---- ISOM Inquire modal ----
   const ISOM_CHURCH_ROLES = [
     'Pastor', 'Associate Pastor', 'Elder', 'Deacon', 'Ministry Leader',
@@ -296,6 +323,11 @@ export default function HomePage() {
   const [guestRegProof, setGuestRegProof] = useState(null);      // already converted to .webp
   const [guestRegProofPreview, setGuestRegProofPreview] = useState('');
   const [guestRegStep, setGuestRegStep] = useState(0);           // 0 = who's coming, 1 = payment
+  // The channel the payer chose, and whether the picker list is open. Only the
+  // chosen account's details are shown - the QRs and numbers are long, and only
+  // one of them is being paid into.
+  const [guestPayChannel, setGuestPayChannel] = useState(null);
+  const [guestPayPickerOpen, setGuestPayPickerOpen] = useState(false);
   const [copiedField, setCopiedField] = useState('');            // which account number was just copied
   const [addonDetail, setAddonDetail] = useState(null);          // add-on shown in the "why is this here?" popup
   const [fraudTip, setFraudTip] = useState(false);               // the scam warning, shown a moment into the payment step
@@ -369,6 +401,8 @@ export default function HomePage() {
     setGuestRegProof(null);
     setGuestRegProofPreview('');
     setGuestRegStep(0);
+    setGuestPayChannel(null);
+    setGuestPayPickerOpen(false);
     setGuestRegResult(null);
   };
 
@@ -535,8 +569,10 @@ export default function HomePage() {
     if (!e) return 'none';
     // A saved channel is shown, so the reference / receipt rows belong to the
     // last of those cards rather than to a separate box.
-    const shown = eventChannels(e).filter((c) => guestShowsMethod(c.name));
-    if (shown.length) return `channel:${shown[shown.length - 1].id}`;
+    // Only the picked channel is on screen, so the rows belong to it.
+    const picked = eventChannels(e).find((c) => c.id === guestPayChannel);
+    if (picked) return `channel:${picked.id}`;
+    if (eventChannels(e).length > 0) return 'none';
     if ((e.gcash_number || e.gcash_qr_url) && guestShowsMethod('GCash')) return 'gcash';
     if (e.bank_account_number && guestShowsMethod('Bank Transfer')) return 'bank';
     return 'none';
@@ -558,20 +594,31 @@ export default function HomePage() {
       {guestFieldErrors.paymentReference && (
         <p className="hp-pay-line-error"><i className="fas fa-circle-exclamation"></i> {guestFieldErrors.paymentReference}</p>
       )}
-      <div className="hp-pay-line">
-        <span className="hp-pay-line-label">Proof of Payment *</span>
+      {/* The receipt is the one thing people miss, so it is a drop zone with the
+          screenshot shown back to them rather than a word next to a label. */}
+      <div className="hp-proof-block">
+        <span className="hp-proof-label">Proof of Payment *</span>
         {guestRegProof ? (
-          <>
-            {/* the saved filename, and a click to check it */}
-            <button type="button" className="hp-pay-file" onClick={() => window.open(guestRegProofPreview, '_blank', 'noopener')}>
-              <i className="fas fa-file-image"></i> {proofFileName()}
-              <em>{(guestRegProof.size / 1024).toFixed(0)} KB</em>
+          <div className="hp-proof-done">
+            <button type="button" className="hp-proof-thumb" onClick={() => window.open(guestRegProofPreview, '_blank', 'noopener')} title="Open the full screenshot">
+              <img src={guestRegProofPreview} alt="Your payment receipt" />
             </button>
-            <label className="hp-pay-reupload" htmlFor="hp-reg-proof"><i className="fas fa-rotate"></i> Change</label>
-          </>
+            <div className="hp-proof-info">
+              <strong><i className="fas fa-circle-check"></i> Receipt attached</strong>
+              <span className="hp-proof-file">{proofFileName()} &middot; {(guestRegProof.size / 1024).toFixed(0)} KB</span>
+              <div className="hp-proof-actions">
+                <label htmlFor="hp-reg-proof"><i className="fas fa-rotate"></i> Change</label>
+                <button type="button" onClick={() => handleGuestProofPick(null)}><i className="fas fa-trash"></i> Remove</button>
+              </div>
+            </div>
+          </div>
         ) : (
-          <label className={`hp-pay-upload-btn ${guestFieldErrors.proof ? 'invalid' : ''}`} htmlFor="hp-reg-proof">
-            <i className="fas fa-cloud-arrow-up"></i> Upload
+          <label className={`hp-proof-drop ${guestFieldErrors.proof ? 'invalid' : ''}`} htmlFor="hp-reg-proof">
+            <span className="hp-proof-drop-icon"><i className="fas fa-cloud-arrow-up"></i></span>
+            <span className="hp-proof-drop-text">
+              <strong>Upload a screenshot of your receipt</strong>
+              <small>PNG or JPG from your payment app &middot; tap to choose</small>
+            </span>
           </label>
         )}
         <input id="hp-reg-proof" type="file" accept="image/*" hidden onChange={(e) => handleGuestProofPick(e.target.files?.[0] || null)} />
@@ -819,7 +866,9 @@ export default function HomePage() {
   const guestPaymentErrors = () => {
     const errs = {};
     if (guestTotalAmount(guestRegEvent) <= 0) return errs;
-    if ((guestRegEvent?.payment_methods || []).length > 1 && !guestRegForm.paymentMethod) errs.paymentMethod = 'Please choose how you paid.';
+    // The picker sets paymentMethod, so nothing picked means nothing to check against.
+    if (eventChannels(guestRegEvent).length > 0 && !guestPayChannel) errs.paymentMethod = 'Please choose where you sent the payment.';
+    else if ((guestRegEvent?.payment_methods || []).length > 1 && !guestRegForm.paymentMethod) errs.paymentMethod = 'Please choose how you paid.';
     if (!guestRegForm.paymentReference.trim()) errs.paymentReference = 'Reference number is required.';
     if (!guestRegProof) errs.proof = 'Proof of payment is required.';
     return errs;
@@ -1381,6 +1430,83 @@ If you don't know something specific, professionally encourage the user to conta
           <span>Events</span>
           <i className="fas fa-chevron-down"></i>
         </button>
+      </section>
+
+      {/* ---- UPCOMING EVENTS ---- */}
+      <section id="news" className="hp-section">
+        <div className="hp-section-header hp-animate">
+          <div className="hp-divider"></div>
+          <h2>Church Upcoming Events</h2>
+          <p>Stay updated with the upcoming events in our church community</p>
+        </div>
+
+        <div className="hp-invite-grid">
+          {newsEvents.length > 0 ? (
+            newsEvents.map((evt, i) => (
+              <button
+                type="button"
+                className="hp-invite-card hp-animate"
+                key={evt.id || i}
+                style={{ transitionDelay: `${i * 0.08}s` }}
+                onClick={() => setDetailEvent(evt)}
+                aria-label={`View details for ${evt.title}`}
+              >
+                <div className="hp-invite-hero">
+                  {evt.image_url
+                    ? <img src={evt.image_url} alt={evt.title} className="hp-invite-hero-img" loading="lazy" decoding="async" />
+                    : <span className="hp-invite-hero-ph"><i className="fas fa-calendar-day"></i></span>}
+
+                  <span className="hp-invite-pill">
+                    <i className="fas fa-star"></i>
+                    <span>Upcoming{evtPlaceWord(evt) ? <> <b>{evtPlaceWord(evt)}</b></> : null} Event</span>
+                  </span>
+
+                </div>
+
+                {/* At rest only the title shows over the artwork; the rest slides up
+                    on hover, so the poster is never covered until someone is actually
+                    looking at this card. Anchored to the card so it rides the card's
+                    bottom edge rather than the poster box's. */}
+                <span className="hp-invite-scrim"></span>
+                <span className="hp-invite-info">
+                  <span className="hp-invite-name">{evt.title}</span>
+                  {/* The one line that stays in frame at rest: when, and where in
+                      the broadest sense - the two things somebody scanning the grid
+                      is deciding on. The full venue waits for the hover. */}
+                  <span className="hp-invite-key">
+                    {evt.event_date && (
+                      <span className="hp-invite-line">
+                        <i className="fas fa-calendar-check"></i>
+                        {evtDate(evt.event_date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    )}
+                    {evtPlaceWord(evt) && (
+                      <span className="hp-invite-line">
+                        <i className="fas fa-location-dot"></i>
+                        {evtPlaceWord(evt)}
+                      </span>
+                    )}
+                  </span>
+                  {(evt.location || evt.loc_city) && (
+                    <span className="hp-invite-line hp-invite-venue">
+                      <i className="fas fa-map-pin"></i>
+                      {[evt.location, evt.loc_city].filter(Boolean).join(', ')}
+                    </span>
+                  )}
+                  <span className="hp-invite-cta">
+                    <i className="fas fa-circle-info"></i> View Details
+                  </span>
+                </span>
+              </button>
+            ))
+          ) : (
+            <div className="hp-empty-state hp-animate">
+              <div className="hp-empty-state-icon"><i className="fas fa-calendar-xmark"></i></div>
+              <h3>No Upcoming Events</h3>
+              <p>There are no events scheduled right now. Check back soon — we&apos;re always planning something new!</p>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* ---- WELCOME / ABOUT ---- */}
@@ -2334,15 +2460,6 @@ If you don't know something specific, professionally encourage the user to conta
                         <strong>&#8369;{guestTotalAmount(guestRegEvent)}</strong>
                       </div>
 
-                      {(guestRegEvent.payment_methods || []).length > 1 && (
-                        <div className="hp-form-group">
-                          <label>Payment Method *</label>
-                          <select className="hp-form-control" value={guestRegForm.paymentMethod} onChange={(e) => setGuestRegForm({ ...guestRegForm, paymentMethod: e.target.value })}>
-                            <option value="">Select&hellip;</option>
-                            {guestRegEvent.payment_methods.map((m) => <option key={m} value={m}>{m}</option>)}
-                          </select>
-                        </div>
-                      )}
 
                       {/* Nobody can hand over cash for this one, so say it plainly
                           before they arrive expecting to pay at the door. */}
@@ -2356,10 +2473,81 @@ If you don't know something specific, professionally encourage the user to conta
 
                       {guestRegEvent.payment_instructions && <p className="hp-reg-instructions">{guestRegEvent.payment_instructions}</p>}
 
-                      {/* The channels the office saved in Mode of Payment: QR first,
-                          then the account details, exactly as set there. */}
+                      {/* Choose where you are paying, and only that account opens
+                          up - QR first, then its details, exactly as set in Mode
+                          of Payment. */}
+                      {eventChannels(guestRegEvent).length > 0 && (() => {
+                        const channels = eventChannels(guestRegEvent);
+                        const picked = channels.find((c) => c.id === guestPayChannel) || null;
+                        return (
+                          <div className="hp-pay-picker-wrap">
+                            <span className="hp-pay-picker-label">Send your payment to *</span>
+                            <div className={`hp-pay-picker ${guestPayPickerOpen ? 'open' : ''}`}>
+                              <button
+                                type="button"
+                                className={`hp-pay-picker-trigger ${guestFieldErrors.paymentMethod ? 'invalid' : ''}`}
+                                aria-expanded={guestPayPickerOpen}
+                                onClick={() => setGuestPayPickerOpen((v) => !v)}
+                              >
+                                {picked ? (
+                                  <>
+                                    <span className="hp-pay-logo" style={{ background: picked.logo_url ? 'transparent' : (picked.logo_color || '#1e3a8a') }}>
+                                      {picked.logo_url ? <img src={picked.logo_url} alt={picked.name} /> : <span>{channelInitials(picked.name)}</span>}
+                                    </span>
+                                    <span className="hp-pay-picker-name">
+                                      {picked.name}
+                                      <span className={`hp-pay-card-type ${picked.category}`}>{picked.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="hp-pay-picker-ph"><i className="fas fa-hand-pointer"></i></span>
+                                    <span className="hp-pay-picker-name empty">Choose where you are paying</span>
+                                  </>
+                                )}
+                                <i className="fas fa-chevron-down hp-pay-picker-caret"></i>
+                              </button>
+                              {guestPayPickerOpen && (
+                                <ul className="hp-pay-picker-menu">
+                                  {channels.map((c) => (
+                                    <li key={c.id}>
+                                      <button
+                                        type="button"
+                                        className={`hp-pay-picker-option ${guestPayChannel === c.id ? 'on' : ''}`}
+                                        onClick={() => {
+                                          setGuestPayChannel(c.id);
+                                          setGuestPayPickerOpen(false);
+                                          // The picker IS the answer to "how did you pay".
+                                          const listed = (guestRegEvent.payment_methods || []).find((x) => String(x).toLowerCase() === String(c.name).toLowerCase());
+                                          setGuestRegForm((f) => ({ ...f, paymentMethod: listed || c.name }));
+                                          clearGuestFieldError('paymentMethod');
+                                        }}
+                                      >
+                                        <span className="hp-pay-logo" style={{ background: c.logo_url ? 'transparent' : (c.logo_color || '#1e3a8a') }}>
+                                          {c.logo_url ? <img src={c.logo_url} alt={c.name} /> : <span>{channelInitials(c.name)}</span>}
+                                        </span>
+                                        <span className="hp-pay-picker-name">
+                                          {c.name}
+                                          <span className={`hp-pay-card-type ${c.category}`}>{c.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                        </span>
+                                        {guestPayChannel === c.id && <i className="fas fa-check hp-pay-picker-tick"></i>}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                            {!picked && (
+                              <p className={`hp-pay-picker-hint ${guestFieldErrors.paymentMethod ? 'bad' : ''}`}>
+                                <i className="fas fa-circle-info"></i> {guestFieldErrors.paymentMethod || 'Pick a channel to see its QR, account number, and where to enter your reference.'}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {eventChannels(guestRegEvent)
-                        .filter((c) => guestShowsMethod(c.name))
+                        .filter((c) => c.id === guestPayChannel)
                         .map((c) => (
                           <div className="hp-pay-card" key={c.id}>
                             <div className="hp-pay-card-head">
@@ -2622,49 +2810,13 @@ If you don't know something specific, professionally encourage the user to conta
         </div>
       )}
 
-      {/* ---- UPCOMING EVENTS ---- */}
-      <section id="news" className="hp-section">
-        <div className="hp-section-header hp-animate">
-          <div className="hp-divider"></div>
-          <h2>Church Upcoming Events</h2>
-          <p>Stay updated with the upcoming events in our church community</p>
-        </div>
-
-        <div className="hp-invite-grid">
-          {newsEvents.length > 0 ? (
-            newsEvents.map((evt, i) => (
-              <button
-                type="button"
-                className="hp-invite-card hp-animate"
-                key={evt.id || i}
-                style={{ transitionDelay: `${i * 0.08}s` }}
-                onClick={() => setDetailEvent(evt)}
-                aria-label={`View details for ${evt.title}`}
-              >
-                <div className="hp-invite-hero">
-                  {evt.image_url
-                    ? <img src={evt.image_url} alt={evt.title} className="hp-invite-hero-img" loading="lazy" decoding="async" />
-                    : <span className="hp-invite-hero-ph"><i className="fas fa-calendar-day"></i></span>}
-
-                  <span className="hp-invite-pill">
-                    <i className="fas fa-star"></i>
-                    <span>Upcoming{evtPlaceWord(evt) ? <> <b>{evtPlaceWord(evt)}</b></> : null} Event</span>
-                  </span>
-                </div>
-              </button>
-            ))
-          ) : (
-            <div className="hp-empty-state hp-animate">
-              <div className="hp-empty-state-icon"><i className="fas fa-calendar-xmark"></i></div>
-              <h3>No Upcoming Events</h3>
-              <p>There are no events scheduled right now. Check back soon — we&apos;re always planning something new!</p>
-            </div>
-          )}
-        </div>
-      </section>
-
       {/* ---- EVENT DETAILS MODAL ---- */}
-      {detailEvent && (
+      {/* Portalled to <body>: as a child of the page it inherits any ancestor that
+          creates a containing block (a transform on the scroll-reveal wrappers is
+          enough), and `position: fixed` then anchors to that ancestor instead of
+          the viewport - which is what let the dialog drift off-centre and travel
+          with the page. */}
+      {detailEvent && typeof document !== 'undefined' && createPortal(
         <div className="hp-evt-overlay" onClick={() => setDetailEvent(null)}>
           <div className="hp-evt-modal" onClick={(e) => e.stopPropagation()}>
             <button className="hp-evt-close" onClick={() => setDetailEvent(null)} aria-label="Close"><i className="fas fa-times"></i></button>
@@ -2809,7 +2961,8 @@ If you don't know something specific, professionally encourage the user to conta
               })()}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ---- PASTORS ---- */}

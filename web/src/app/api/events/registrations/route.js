@@ -175,13 +175,38 @@ export async function GET(request) {
       const data = await cached(PENDING_ALERTS_KEY, PENDING_ALERTS_TTL_MS, async () => {
         const { data: rows, error } = await supabase
           .from('event_registrations')
-          .select('id, attendee_name, status, created_at, event:events(id, title)')
+          .select('id, attendee_name, status, created_at, cancel_status, cancel_requested_at, refund_due_at, event:events(id, title, is_active)')
           .in('status', ['payment_submitted', 'pending_payment', 'registered'])
           .is('deleted_at', null)
           .order('created_at', { ascending: false })
           .limit(100);
         if (error) throw error;
-        return rows || [];
+
+        // Somebody asking to get their money back is the most urgent thing an
+        // admin can be told about, so cancellation requests ring the same bell -
+        // whatever status the registration itself is in.
+        let cancels = [];
+        try {
+          const { data: crows } = await supabase
+            .from('event_registrations')
+            .select('id, attendee_name, status, created_at, cancel_status, cancel_requested_at, refund_due_at, event:events(id, title, is_active)')
+            .eq('cancel_status', 'requested')
+            .is('deleted_at', null)
+            .order('cancel_requested_at', { ascending: false })
+            .limit(100);
+          cancels = crows || [];
+        } catch { /* the column may predate the migration; the rest still works */ }
+
+        const seen = new Set();
+        // A deleted event (is_active false) or one whose row is gone leaves its
+        // registrations behind. They must not keep ringing the bell for an event
+        // the admin can no longer open.
+        return [...cancels, ...(rows || [])].filter((r) => {
+          if (!r.event || r.event.is_active === false) return false;
+          if (seen.has(r.id)) return false;
+          seen.add(r.id);
+          return true;
+        });
       });
       return NextResponse.json({ success: true, count: data.length, data });
     }

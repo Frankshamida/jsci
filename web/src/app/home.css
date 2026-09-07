@@ -2378,40 +2378,62 @@ body.dark-mode .hp-event-btn.outline { color: var(--accent); border-color: var(-
   .hp-hero-jump { bottom: 50px; padding: 8px 16px 6px; font-size: 0.72rem; }
 }
 
-.hp-evt-overlay { position: fixed; inset: 0; z-index: 13000; background: rgba(0,0,0,0.6); display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 20px; animation: hpEvtFade 0.2s ease; }
+/* The dialog is always fully inside the viewport, so the overlay itself never
+   scrolls - anything that does not fit scrolls inside the details column. */
+.hp-evt-overlay { position: fixed; inset: 0; z-index: 13000; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 20px; animation: hpEvtFade 0.2s ease; }
 @keyframes hpEvtFade { from { opacity: 0; } to { opacity: 1; } }
-.hp-evt-modal { width: 100%; max-width: 560px; margin: auto; background: #fff; border-radius: 20px; position: relative; box-shadow: 0 24px 70px rgba(0,0,0,0.4); }
+.hp-evt-modal { width: 100%; max-width: 560px; max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; overflow: hidden; background: #fff; border-radius: 20px; position: relative; box-shadow: 0 24px 70px rgba(0,0,0,0.4); }
 body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
 .hp-evt-close { position: absolute; top: 14px; right: 14px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; border: none; background: rgba(0,0,0,0.45); color: #fff; cursor: pointer; font-size: 1rem; }
-.hp-evt-banner { width: 100%; aspect-ratio: 1080 / 1380; object-fit: cover; border-radius: 20px 20px 0 0; display: block; }
+.hp-evt-banner { flex: 0 0 auto; width: 100%; aspect-ratio: 1080 / 1380; object-fit: contain; border-radius: 20px 20px 0 0; display: block; }
 .hp-evt-banner.placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.5rem; }
-.hp-evt-content { padding: 24px 22px 26px; display: flex; flex-direction: column; }
+.hp-evt-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 24px 22px 26px; display: flex; flex-direction: column; }
 
-/* Desktop: poster left, details right. Below 900px it stays stacked. */
+/* Phones: the poster is dropped entirely. Stacked above the details it pushed the
+   whole dialog past the viewport and forced a long scroll to reach the dates, and
+   the artwork is already shown full-size on the card that opens this. */
+@media (max-width: 899px) {
+  .hp-evt-banner { display: none; }
+  /* the close button sits over the details now, so the badges clear it */
+  .hp-evt-content { padding-top: 60px; }
+}
+
+/* Desktop: poster left, details right. Below 900px it shows details only. */
 @media (min-width: 900px) {
   .hp-evt-modal {
-    max-width: 960px;
-    display: grid;
-    grid-template-columns: 400px minmax(0, 1fr);
-    /* stretch: the poster column fills the full modal height so there is no
-       dead white strip under it. object-fit keeps the artwork undistorted. */
+    max-width: 880px;
+    /* Flex, not grid: the poster sizes itself from the row height (see below)
+       rather than being forced into a fixed column. */
+    flex-direction: row;
     align-items: stretch;
   }
-  /* No max-height and no overflow here on purpose - the modal grows to fit its
-     content so nothing is ever hidden behind an inner scrollbar. */
-  .hp-evt-banner {
+  /* The poster IS the invitation - dates, venue and verse are printed inside the
+     artwork - so it fills its side of the modal completely, with no bands above
+     or below it. As a stretched flex item with auto width it takes the modal's
+     full height and derives its width from the 1080:1380 ratio, so taller details
+     make the poster wider rather than trimming it. The box therefore matches the
+     image's own proportions and `cover` has nothing left to crop; it only acts as
+     a guard for the extreme case where max-width binds. */
+  .hp-evt-banner:not(.placeholder) {
+    align-self: stretch;
+    flex: 0 0 auto;
+    width: auto;
+    height: auto;
+    /* The poster's width comes from the row height, and the row height comes from
+       the details column - so an uncapped poster and a narrow text column feed each
+       other. These bounds keep the modal compact and the text readable. */
+    min-width: 300px;
+    max-width: 44%;
+    aspect-ratio: 1080 / 1380;
+    object-fit: cover;
     border-radius: 20px 0 0 20px;
-    height: 100%;
-    /* the grid row already sets the height, so the 4:5 ratio must not fight it */
-    aspect-ratio: auto;
-    /* poster artwork puts titles high and credits low, so bias the crop to the
-       top: any trim comes off the bottom margin rather than the headline. */
-    object-position: top center;
-    min-height: 511px; /* 400px column at 1080:1380 */
   }
+  .hp-evt-banner.placeholder { border-radius: 20px 0 0 20px; align-self: stretch; flex: 0 0 380px; min-height: 486px; }
   /* The poster is taller than the text on most events, so the details column
      centres against it instead of hugging the top and leaving a dead strip. */
-  .hp-evt-content { padding: 32px 34px; justify-content: center; }
+  /* `safe center` so that when the details do overflow they scroll from the top
+     instead of having their first lines clipped above the scroll area. */
+  .hp-evt-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto; padding: 26px 28px; justify-content: center; justify-content: safe center; }
   /* close button now sits over the white details column, not the poster */
   .hp-evt-close { background: rgba(0,0,0,0.32); }
   .hp-evt-close:hover { background: rgba(0,0,0,0.55); }
@@ -2469,13 +2491,25 @@ body.dark-mode .hp-evt-info { border-color: rgba(255,255,255,0.1); }
 /* ============================================ */
 /* Elegant "You're Invited" event cards          */
 /* ============================================ */
-.hp-invite-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 32px; justify-items: center; }
+/* `start` so a card is never stretched taller than its own poster - a stretched
+   card is what left a blank strip under the artwork. */
+.hp-invite-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 32px; justify-items: center; align-items: start; }
 .hp-invite-card {
-  width: 100%; max-width: 440px; background: #fff; border-radius: 26px; overflow: hidden;
-  box-shadow: 0 18px 50px rgba(20,35,58,0.14), 0 2px 8px rgba(20,35,58,0.06);
+  /* The poster IS the card, so the ground behind it is dark: any pixel the
+     artwork does not cover reads as part of the design instead of a white gap. */
+  width: 100%; max-width: 440px; background: #14100a; border-radius: 26px; overflow: hidden;
+  position: relative;
+  /* The dark poster already gives the card an edge against the white section, so
+     it is carried by shadow alone - a drawn border on top of it read as a hard
+     outline around the artwork. */
+  box-shadow:
+    0 4px 10px rgba(20,35,58,0.12),
+    0 16px 34px rgba(20,35,58,0.16),
+    0 30px 60px rgba(20,35,58,0.10);
+  border: none;
   transition: transform 0.35s ease, box-shadow 0.35s ease;
   /* the whole poster is the click target now, so this is a <button> */
-  display: block; padding: 0; border: none; font: inherit; color: inherit;
+  display: block; padding: 0; font: inherit; color: inherit;
   cursor: pointer; text-align: left; -webkit-appearance: none; appearance: none;
 }
 .hp-invite-card:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
@@ -2484,8 +2518,19 @@ body.dark-mode .hp-evt-info { border-color: rgba(255,255,255,0.1); }
   background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.4rem;
 }
 
-.hp-invite-card:hover { transform: translateY(-6px); box-shadow: 0 28px 70px rgba(146,108,21,0.22); }
-body.dark-mode .hp-invite-card { background: #191919; }
+.hp-invite-card:hover {
+  transform: translateY(-6px);
+  box-shadow:
+    0 8px 18px rgba(146,108,21,0.18),
+    0 34px 74px rgba(146,108,21,0.26);
+}
+body.dark-mode .hp-invite-card {
+  background: #14100a;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5), 0 24px 60px rgba(0,0,0,0.4);
+}
+body.dark-mode .hp-invite-card:hover {
+  box-shadow: 0 8px 20px rgba(0,0,0,0.55), 0 34px 74px rgba(0,0,0,0.5);
+}
 
 /* Empty state: no events currently scheduled */
 .hp-empty-state {
@@ -2529,7 +2574,7 @@ body.dark-mode .hp-empty-state h3 { color: var(--accent); }
 body.dark-mode .hp-empty-state p { color: #aaa; }
 
 /* Hero */
-.hp-invite-hero { position: relative; aspect-ratio: 1080 / 1380; overflow: hidden; background: linear-gradient(135deg, #eaf3fb 0%, #fbeecb 100%); }
+.hp-invite-hero { position: relative; aspect-ratio: 1080 / 1380; overflow: hidden; background: linear-gradient(150deg, #221a0d, #0d0a05); }
 .hp-invite-hero-img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
   /* Shine sweep. The mask drops a diagonal band of the poster to 20% alpha;
@@ -2594,8 +2639,6 @@ body.dark-mode .hp-empty-state p { color: #aaa; }
 .hp-invite-tagline { margin: 0; font-size: 0.82rem; line-height: 1.45; color: #2b3a4d; font-weight: 500; }
 
 /* Info card (overlaps hero) */
-.hp-invite-info { position: relative; margin-top: -26px; background: #fff; border-radius: 26px 26px 0 0; padding: 24px 26px 22px; }
-body.dark-mode .hp-invite-info { background: #191919; }
 .hp-invite-title { font-family: var(--font-body); font-weight: 800; font-size: 1.5rem; color: #14233a; margin: 0 0 4px; }
 body.dark-mode .hp-invite-title { color: #fff; }
 .hp-invite-desc { margin: 0 0 12px; color: #7a8794; font-size: 0.9rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -3505,4 +3548,169 @@ body.dark-mode .hp-reg-top { background: #1e1e1e; }
   margin: 10px 0 0; padding: 9px 11px; border-radius: 9px;
   background: rgba(212,164,55,0.10); border-left: 3px solid rgba(212,164,55,0.7);
   font-size: 0.82rem; line-height: 1.45; color: #555;
+}
+
+/* ---- Payment step: pick the channel, then see its details ----
+   Every saved account with its QR at once made the step a long scroll, and only
+   one of them is ever paid into. Mirrors the signed-in registration form. */
+.hp-pay-picker-wrap { margin-bottom: 16px; }
+.hp-pay-picker-label {
+  display: block; margin-bottom: 7px;
+  font-size: 0.74rem; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+.hp-pay-picker { position: relative; }
+.hp-pay-picker-trigger {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 11px 14px; cursor: pointer; font: inherit; text-align: left; color: inherit;
+  border: 1.5px solid rgba(20,35,58,0.16); border-radius: 14px; background: #fff;
+}
+.hp-pay-picker-trigger:hover { border-color: rgba(146,108,21,0.6); }
+.hp-pay-picker-trigger.invalid { border-color: #dc2626; }
+.hp-pay-picker.open .hp-pay-picker-trigger { border-color: var(--primary, #926c15); box-shadow: 0 0 0 3px rgba(146,108,21,0.16); }
+.hp-pay-picker-name {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  font-weight: 800; font-size: 0.98rem;
+}
+.hp-pay-picker-name.empty { font-weight: 600; color: #7a8794; }
+.hp-pay-picker-ph {
+  width: 46px; height: 46px; flex: 0 0 46px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(146,108,21,0.12); color: var(--primary, #926c15);
+}
+.hp-pay-picker-caret { flex: 0 0 auto; color: #7a8794; transition: transform 0.18s ease; }
+.hp-pay-picker.open .hp-pay-picker-caret { transform: rotate(180deg); }
+.hp-pay-picker-menu {
+  position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0;
+  margin: 0; padding: 6px; list-style: none; max-height: 300px; overflow-y: auto;
+  background: #fff; border: 1.5px solid rgba(20,35,58,0.14); border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(0,0,0,0.18);
+}
+.hp-pay-picker-option {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 10px 11px; border: none; border-radius: 11px; cursor: pointer;
+  background: none; font: inherit; text-align: left; color: inherit;
+}
+.hp-pay-picker-option:hover { background: rgba(146,108,21,0.1); }
+.hp-pay-picker-option.on { background: rgba(146,108,21,0.15); }
+.hp-pay-picker-tick { color: #16a34a; }
+.hp-pay-picker-hint { margin: 8px 0 0; font-size: 0.82rem; color: #7a8794; }
+.hp-pay-picker-hint.bad { color: #dc2626; font-weight: 600; }
+body.dark-mode .hp-pay-picker-trigger,
+body.dark-mode .hp-pay-picker-menu { background: #1f1f1f; border-color: rgba(255,255,255,0.16); }
+
+/* ---- Proof of payment: a drop zone, not a word next to a label ----
+   This is the step people forget, so it takes real space and shows the receipt
+   back to them once it is attached. */
+.hp-proof-block { margin-top: 14px; }
+.hp-proof-label {
+  display: block; margin-bottom: 8px;
+  font-size: 0.74rem; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+.hp-proof-drop {
+  display: flex; align-items: center; gap: 14px; cursor: pointer;
+  padding: 18px; border-radius: 14px;
+  border: 2px dashed rgba(146,108,21,0.45); background: rgba(146,108,21,0.05);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.hp-proof-drop:hover { border-color: var(--primary, #926c15); background: rgba(146,108,21,0.09); }
+.hp-proof-drop.invalid { border-color: #dc2626; background: rgba(220,38,38,0.06); }
+.hp-proof-drop-icon {
+  width: 46px; height: 46px; flex: 0 0 46px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 1.15rem;
+  background: rgba(146,108,21,0.15); color: var(--primary, #926c15);
+}
+.hp-proof-drop-text { display: flex; flex-direction: column; gap: 3px; }
+.hp-proof-drop-text strong { font-size: 0.92rem; font-weight: 800; }
+.hp-proof-drop-text small { font-size: 0.78rem; color: #7a8794; }
+
+.hp-proof-done {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px; border-radius: 14px;
+  border: 1.5px solid rgba(22,163,74,0.4); background: rgba(22,163,74,0.07);
+}
+.hp-proof-thumb {
+  width: 72px; height: 72px; flex: 0 0 72px; padding: 0; cursor: pointer;
+  border-radius: 11px; overflow: hidden; border: 1px solid rgba(0,0,0,0.12); background: #fff;
+}
+.hp-proof-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hp-proof-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.hp-proof-info strong { display: flex; align-items: center; gap: 7px; font-size: 0.9rem; color: #16a34a; }
+.hp-proof-file { font-size: 0.78rem; color: #7a8794; word-break: break-all; }
+.hp-proof-actions { display: flex; gap: 8px; margin-top: 6px; }
+.hp-proof-actions label, .hp-proof-actions button {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 6px 12px; border-radius: 18px; font: inherit; font-size: 0.76rem; font-weight: 700;
+  border: 1px solid rgba(20,35,58,0.2); background: #fff; color: inherit;
+}
+.hp-proof-actions button { color: #dc2626; border-color: rgba(220,38,38,0.35); }
+body.dark-mode .hp-proof-actions label,
+body.dark-mode .hp-proof-actions button { background: #262626; border-color: rgba(255,255,255,0.18); }
+
+/* ---- Upcoming Events cards: details on hover ----
+   The card is the poster; at rest only the title rides over it, and the date,
+   place and prompt slide up when the pointer is on the card. Matches the
+   signed-in All Events grid. */
+/* Two layers: a permanent foot of shade the resting title sits on, and the full
+   scrim that fades in with the rest of the details. */
+.hp-invite-card::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 46%;
+  pointer-events: none; z-index: 1;
+  /* Enough to carry white text, not enough to black out the bottom third of the
+     artwork - the poster is the point of the card. */
+  background: linear-gradient(to top, rgba(12,9,2,0.72) 0%, rgba(12,9,2,0.45) 40%, transparent 100%);
+}
+.hp-invite-scrim {
+  position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  background: linear-gradient(to top, rgba(12,9,2,0.86) 0%, rgba(12,9,2,0.62) 36%, rgba(12,9,2,0.10) 66%, transparent 82%);
+  opacity: 0; transition: opacity 0.3s ease;
+}
+.hp-invite-card:hover .hp-invite-scrim,
+.hp-invite-card:focus-visible .hp-invite-scrim { opacity: 1; }
+
+.hp-invite-info {
+  /* No background of its own: the scrim behind it is what makes the text
+     readable, so the artwork stays visible through the panel. */
+  background: none;
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 24px 26px 26px; color: #fff; text-align: left;
+  /* the title AND the date/place line stay in frame until the card is hovered */
+  transform: translateY(calc(100% - 112px));
+  transition: transform 0.34s cubic-bezier(0.22,1,0.36,1);
+}
+.hp-invite-card:hover .hp-invite-info,
+.hp-invite-card:focus-visible .hp-invite-info { transform: translateY(0); }
+
+.hp-invite-name {
+  font-family: var(--font-body); font-weight: 800; font-size: 1.34rem; line-height: 1.25;
+  /* At rest the scrim is transparent, so the title carries its own shadow - it
+     sits straight on the artwork and still has to be readable. */
+  text-shadow: 0 2px 12px rgba(0,0,0,0.9), 0 1px 3px rgba(0,0,0,0.8);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* Date and region sit side by side on the resting line; the venue's full address
+   is kept for the hover. */
+.hp-invite-key { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; }
+.hp-invite-line {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 1rem; font-weight: 600; color: #fff;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.85);
+}
+.hp-invite-line i { font-size: 0.95rem; }
+.hp-invite-key .hp-invite-line { white-space: nowrap; }
+.hp-invite-venue { font-weight: 500; font-size: 0.94rem; color: rgba(255,255,255,0.9); }
+.hp-invite-line i { color: var(--accent, #ffc300); width: 15px; text-align: center; flex-shrink: 0; }
+.hp-invite-cta {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  margin-top: 8px; padding: 13px 16px; border-radius: 26px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  font-weight: 800; font-size: 0.96rem;
+}
+
+/* Touch devices have no hover, so the details stay open. */
+@media (hover: none) {
+  .hp-invite-info { transform: translateY(0); }
+  .hp-invite-scrim { opacity: 1; }
 }

@@ -126,7 +126,6 @@ const PH_PROVINCES = [
   'Surigao del Sur', 'Tarlac', 'Tawi-Tawi', 'Zambales', 'Zamboanga del Norte', 'Zamboanga del Sur',
   'Zamboanga Sibugay',
 ];
-const PhoneInput = dynamic(() => import('@/components/PhoneInput'), { ssr: false });
 
 // ============================================
 // CONSTANTS
@@ -677,7 +676,18 @@ export default function DashboardPage() {
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [qrScanResult, setQrScanResult] = useState(null); // { status: 'success'|'already'|'error', message }
   const [registerModal, setRegisterModal] = useState(null); // event object
-  const [registerForm, setRegisterForm] = useState({ attendeeFirstName: '', attendeeLastName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '' });
+  const [registerForm, setRegisterForm] = useState({ attendeeFirstName: '', attendeeLastName: '', attendeeEmail: '', attendeeMobile: '', churchName: '', churchPastor: '', paymentMethod: '', paymentReference: '' });
+  // The member form walks the same three steps as the public one: who is coming,
+  // a read-only check of it, then the money.
+  const [registerStep, setRegisterStep] = useState(0);
+  const [registerErrors, setRegisterErrors] = useState({});
+  const [memberChurchOptions, setMemberChurchOptions] = useState([]);
+  const [memberChurchOpen, setMemberChurchOpen] = useState(false);
+  // The channel the member picked to pay through, and whether the picker list is
+  // open. Only the chosen one's details are shown - the account numbers and QRs
+  // are long, and only one of them is going to be paid.
+  const [regPayChannel, setRegPayChannel] = useState(null);
+  const [regPayPickerOpen, setRegPayPickerOpen] = useState(false);
   // ids of the paid add-on questions the attendee ticked
   const [registerAddonIds, setRegisterAddonIds] = useState([]);
   const [registerProofFile, setRegisterProofFile] = useState(null);
@@ -690,6 +700,24 @@ export default function DashboardPage() {
   // My registrations (poster view + QR) & register-once tracking
   const [eventsTab, setEventsTab] = useState('all'); // 'all' | 'mine'
   const [eventDetail, setEventDetail] = useState(null); // event shown in details modal
+
+  // Same as the public site: while the details dialog is open the page behind it
+  // does not scroll. globals.css puts `overflow-x: hidden` on html AND body, which
+  // makes both of them scroll containers, so both are pinned.
+  useEffect(() => {
+    if (!eventDetail) return undefined;
+    const { body, documentElement: html } = document;
+    const prev = { body: body.style.overflow, html: html.style.overflow, pad: body.style.paddingRight };
+    const gap = window.innerWidth - html.clientWidth;
+    body.style.overflow = 'hidden';
+    html.style.overflow = 'hidden';
+    if (gap > 0) body.style.paddingRight = `${gap}px`;
+    return () => {
+      body.style.overflow = prev.body;
+      html.style.overflow = prev.html;
+      body.style.paddingRight = prev.pad;
+    };
+  }, [eventDetail]);
   const [eventActionMenu, setEventActionMenu] = useState(null); // event id whose Manage menu is open
   const [eventMenuAnchor, setEventMenuAnchor] = useState(null); // {top,left} for the portal menu
   const [eventsView, setEventsView] = useState('list'); // 'list' | 'grid'
@@ -1811,8 +1839,10 @@ export default function DashboardPage() {
     { enabled: !!userData?.id && (userRole === 'Admin' || userRole === 'Super Admin') }
   );
 
-  // 'registered' (free) alerts are informational-only — dismissed once the admin has
-  // viewed that event's registrations list. Persisted so a page refresh doesn't re-alert.
+  // Every alert is dismissed once the admin has actually viewed that event's
+  // registrations list — seen is seen, whatever the status. The work itself stays
+  // visible on the event card; the bell only reports what has not been looked at.
+  // Persisted so a page refresh doesn't re-alert.
   const [seenRegIds, setSeenRegIds] = useState(() => {
     if (typeof window === 'undefined') return new Set();
     try { return new Set(JSON.parse(localStorage.getItem('evt_seen_reg_ids') || '[]')); } catch { return new Set(); }
@@ -1828,9 +1858,21 @@ export default function DashboardPage() {
   }, []);
 
   const unseenRegAlerts = useMemo(
-    () => pendingRegAlerts.filter((r) => r.status !== 'registered' || !seenRegIds.has(r.id)),
+    () => pendingRegAlerts.filter((r) => !seenRegIds.has(r.id)),
     [pendingRegAlerts, seenRegIds]
   );
+
+  // Registrations disappear (deleted event, verified, cancelled), so their ids
+  // would otherwise pile up in localStorage forever. Trim the store back to what
+  // the feed still knows about once the feed has loaded.
+  useEffect(() => {
+    if (!pendingRegAlerts.length || !seenRegIds.size) return;
+    const live = new Set(pendingRegAlerts.map((r) => r.id));
+    if ([...seenRegIds].every((id) => live.has(id))) return;
+    const kept = [...seenRegIds].filter((id) => live.has(id));
+    setSeenRegIds(new Set(kept));
+    try { localStorage.setItem('evt_seen_reg_ids', JSON.stringify(kept)); } catch { /* ignore */ }
+  }, [pendingRegAlerts, seenRegIds]);
   const pendingRegByEvent = useMemo(() => {
     const m = {};
     unseenRegAlerts.forEach((r) => { const id = r.event?.id; if (id) m[id] = (m[id] || 0) + 1; });
@@ -4810,6 +4852,9 @@ export default function DashboardPage() {
         setProofModal(null);
         if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
         loadPendingRegAlerts();
+        // Verifying is the moment a payment starts holding a seat, so the
+        // remaining-slots figure moves with it.
+        loadEvents();
       }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
@@ -5349,15 +5394,55 @@ export default function DashboardPage() {
   const openRegisterModal = (evt) => {
     if (myRegIds.has(evt.id)) { showToast('You are already registered for this event.', 'warning'); return; }
     setRegisterModal(evt);
+    // Signed in, so nothing here should have to be typed twice: the name and email
+    // come off the account, and the church, pastor and number off the most recent
+    // registration this member made - they are the same every time.
+    const prior = [...myRegistrations]
+      .filter((r) => r.church_name || r.attendee_mobile)
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0] || {};
     setRegisterForm({
       attendeeFirstName: userData?.firstname || '', attendeeLastName: userData?.lastname || '',
-      attendeeEmail: userData?.email || '', attendeeMobile: '',
+      attendeeEmail: userData?.email || '', attendeeMobile: prior.attendee_mobile || '',
+      churchName: prior.church_name || '',
+      churchPastor: String(prior.church_pastor || '').replace(/^ptr\.?\s*/i, ''),
       paymentMethod: (evt.payment_methods && evt.payment_methods[0]) || '', paymentReference: '',
     });
+    setRegisterStep(0);
+    setRegisterErrors({});
+    setMemberChurchOpen(false);
+    setRegPayChannel(null);
+    setRegPayPickerOpen(false);
     // Required add-ons are charged either way, so they start ticked and locked.
     setRegisterAddonIds((evt.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
     setRegisterProofFile(null);
   };
+
+  // Churches people already registered under, so the same one is always spelled the
+  // same way. Mirrors the public and walk-in forms.
+  useEffect(() => {
+    if (!registerModal) { setMemberChurchOptions([]); return undefined; }
+    const q = (registerForm.churchName || '').trim();
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?churches=1&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setMemberChurchOptions(data.success ? (data.data || []).slice(0, 6) : []);
+      } catch { setMemberChurchOptions([]); }
+    }, 220);
+    return () => clearTimeout(t);
+  }, [registerModal, registerForm.churchName]);
+
+  // Step 1 of the member form: who is coming. Same rules as the public form.
+  const registerStepOneErrors = () => {
+    const errs = {};
+    if (!registerForm.attendeeFirstName.trim()) errs.firstName = 'First name is required.';
+    if (!registerForm.attendeeLastName.trim()) errs.lastName = 'Last name is required.';
+    if (!registerForm.churchName.trim()) errs.churchName = 'Church name is required.';
+    if (!registerForm.churchPastor.trim()) errs.churchPastor = 'Church pastor is required.';
+    if (!isValidPhMobile(registerForm.attendeeMobile)) errs.mobile = 'Contact number must be 11 digits starting with 09.';
+    return errs;
+  };
+
 
   const toggleRegisterAddon = (addon) => {
     if (addon.is_required) return;
@@ -5378,9 +5463,50 @@ export default function DashboardPage() {
         .filter((a) => registerAddonIds.includes(a.id))
         .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
 
+  // The payment step, only asked when there is something to pay. Same rules as the
+  // public form: an admin has to be able to trace the money to this registration.
+  const registerPaymentErrors = () => {
+    const errs = {};
+    if (!registerModal || registerTotalAmount(registerModal) <= 0) return errs;
+    // The channel picker sets paymentMethod, so an empty one means nothing was picked.
+    if (eventPaymentChannels(registerModal).length > 0 && !regPayChannel) errs.paymentMethod = 'Please choose where you sent the payment.';
+    else if (!registerForm.paymentMethod && (registerModal.payment_methods || []).length > 1) errs.paymentMethod = 'Please choose how you paid.';
+    if (!registerForm.paymentReference.trim()) errs.paymentReference = 'Reference number is required.';
+    if (!registerProofFile) errs.proof = 'Proof of payment is required.';
+    return errs;
+  };
+
+  // Labels depend on whether there is anything to pay - a free event has no third
+  // step, so the review is where it is submitted from.
+  const registerStepLabels = registerModal && registerTotalAmount(registerModal) > 0
+    ? ['Details', 'View Details', 'Payment']
+    : ['Details', 'View Details'];
+  const registerPayStep = registerStepLabels.length - 1;
+
+  const goToRegisterStep = (i) => {
+    if (i <= registerStep) { setRegisterStep(i); return; }
+    const errs = registerStepOneErrors();
+    setRegisterErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+    setRegisterStep(Math.min(i, registerStepLabels.length - 1));
+  };
+
   const submitRegistration = async () => {
     if (!registerModal) return;
-    if (!registerForm.attendeeFirstName.trim() || !registerForm.attendeeLastName.trim()) { showToast('Your first and last name are required', 'danger'); return; }
+    const stepErrs = registerStepOneErrors();
+    if (Object.keys(stepErrs).length > 0) {
+      setRegisterErrors(stepErrs);
+      setRegisterStep(0);
+      showToast('Please complete your details first.', 'danger');
+      return;
+    }
+    const payErrs = registerPaymentErrors();
+    if (Object.keys(payErrs).length > 0) {
+      setRegisterErrors(payErrs);
+      setRegisterStep(registerPayStep);
+      showToast('Please add your reference number and payment receipt.', 'danger');
+      return;
+    }
     setRegisterSubmitting(true);
     try {
       const fd = new FormData();
@@ -5390,6 +5516,8 @@ export default function DashboardPage() {
       fd.append('attendeeLastName', registerForm.attendeeLastName.trim());
       fd.append('attendeeEmail', registerForm.attendeeEmail || '');
       fd.append('attendeeMobile', registerForm.attendeeMobile || '');
+      fd.append('churchName', registerForm.churchName || '');
+      fd.append('churchPastor', registerForm.churchPastor.trim() ? `Ptr. ${registerForm.churchPastor.trim()}` : '');
       fd.append('addonIds', JSON.stringify(registerAddonIds));
       // A free event still needs payment details once a paid add-on is ticked.
       if (registerTotalAmount(registerModal) > 0) {
@@ -5399,7 +5527,15 @@ export default function DashboardPage() {
       }
       const res = await fetch('/api/events/registrations', { method: 'POST', body: fd });
       const data = await res.json();
-      if (data.success) { showToast(data.message, 'success'); setRegisterModal(null); loadMyRegistrations(); try { localStorage.removeItem('pendingEventRegistration'); } catch { /* ignore */ } }
+      if (data.success) {
+        showToast(data.message, 'success');
+        setRegisterModal(null);
+        loadMyRegistrations();
+        // A held seat is one fewer slot: re-read the events so Capacity is right
+        // straight away instead of at the next page load.
+        loadEvents();
+        try { localStorage.removeItem('pendingEventRegistration'); } catch { /* ignore */ }
+      }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
     finally { setRegisterSubmitting(false); }
@@ -5429,15 +5565,85 @@ export default function DashboardPage() {
     finally { setPayNowSubmitting(false); }
   };
 
-  const handleCancelRegistration = (reg) => {
-    askConfirm('Cancel your registration for this event? This frees up your slot and removes it from My Registrations.', async () => {
+  // A member cannot delete their own registration any more: money has usually
+  // changed hands by this point. They raise a request, an admin refunds it, and
+  // only then is the row cancelled. See api/events/registrations/cancel.
+  const [cancelRequestReg, setCancelRequestReg] = useState(null);
+  const [cancelRequestReason, setCancelRequestReason] = useState('');
+  const [cancelRequestSubmitting, setCancelRequestSubmitting] = useState(false);
+
+  // Admin side of the same flow: settle the request, refund or decline.
+  const [refundModal, setRefundModal] = useState(null); // the registration row
+  const [refundForm, setRefundForm] = useState({ amount: '', reference: '', note: '' });
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
+
+  const openRefundModal = (reg) => {
+    setRefundModal(reg);
+    // Default to what actually arrived - a flexible plan has only paid part of it.
+    const paid = Number(reg.amount_paid || 0) || Number(reg.amount || 0);
+    setRefundForm({ amount: paid ? String(paid) : '0', reference: '', note: '' });
+  };
+
+  const settleCancelRequest = async (action) => {
+    if (!refundModal) return;
+    setRefundSubmitting(true);
+    try {
+      const res = await fetch('/api/events/registrations/cancel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          registrationId: refundModal.id,
+          actorId: userData?.id || '',
+          action,
+          refundAmount: refundForm.amount,
+          refundReference: refundForm.reference,
+          note: refundForm.note,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message, 'success');
+        setRefundModal(null);
+        if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+        loadEvents();
+      } else showToast(data.message || 'Failed to settle the request', 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setRefundSubmitting(false); }
+  };
+
+  const openCancelRequest = (reg) => {
+    setCancelRequestReg(reg);
+    setCancelRequestReason('');
+  };
+
+  const submitCancelRequest = async () => {
+    if (!cancelRequestReg) return;
+    setCancelRequestSubmitting(true);
+    try {
+      const res = await fetch('/api/events/registrations/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationId: cancelRequestReg.id, userId: userData?.id || '', reason: cancelRequestReason }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || 'Cancellation requested', 'success');
+        setCancelRequestReg(null);
+        loadMyRegistrations();
+      } else showToast(data.message || 'Failed to request cancellation', 'danger');
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setCancelRequestSubmitting(false); }
+  };
+
+  const withdrawCancelRequest = (reg) => {
+    askConfirm('Withdraw your cancellation request? Your registration stays as it is.', async () => {
       try {
-        const res = await fetch(`/api/events/registrations?id=${reg.id}&userId=${userData?.id || ''}`, { method: 'DELETE' });
+        const res = await fetch(`/api/events/registrations/cancel?id=${reg.id}&userId=${userData?.id || ''}`, { method: 'DELETE' });
         const data = await res.json();
-        if (data.success) { showToast('Registration cancelled', 'success'); loadMyRegistrations(); loadEvents(); }
-        else showToast(data.message || 'Failed to cancel', 'danger');
+        if (data.success) { showToast(data.message, 'success'); loadMyRegistrations(); }
+        else showToast(data.message || 'Failed to withdraw', 'danger');
       } catch (e) { showToast('Error: ' + e.message, 'danger'); }
-    }, { title: 'Cancel Registration', subtitle: reg.event?.title || '' });
+    }, { title: 'Withdraw Request?', subtitle: reg.event?.title || '', confirmLabel: 'Withdraw', icon: 'fa-rotate-left' });
   };
 
   // Load the current user's registrations (for the "My Registrations" poster view + register-once)
@@ -8029,15 +8235,17 @@ Examples:
   // from the string's own components keeps the time as entered. Rows written by
   // the server (created_at, audit logs, ...) are real instants and still go
   // through formatDateTime / new Date().
-  const evtDate = (str) => {
+  function evtDate(str) {
     if (!str) return null;
     if (str instanceof Date) return Number.isNaN(str.getTime()) ? null : str;
     const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
     if (!m) { const f = new Date(str); return Number.isNaN(f.getTime()) ? null : f; }
     const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
     return Number.isNaN(d.getTime()) ? null : d;
-  };
-  const evtMs = (str) => { const d = evtDate(str); return d ? d.getTime() : null; };
+  }
+  // Declared (not assigned to a const) because memos far earlier in this component
+  // call it while rendering - a const here is still in its temporal dead zone then.
+  function evtMs(str) { const d = evtDate(str); return d ? d.getTime() : null; }
   const formatEventDateTime = (str) => {
     const d = evtDate(str);
     return d ? d.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
@@ -9396,6 +9604,18 @@ Examples:
                                   }
                                   return <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>;
                                 })()}
+                                {/* Somebody is waiting on a refund - that has to be
+                                    visible in the table, not only in the row menu. */}
+                                {r.cancel_status === 'requested' && (
+                                  <button
+                                    type="button"
+                                    className="evt-cancel-chip"
+                                    onClick={() => openRefundModal(r)}
+                                    title={r.refund_due_at ? `Refund due by ${formatEventDateTime(r.refund_due_at)}` : 'Cancellation requested'}
+                                  >
+                                    <i className="fas fa-hourglass-half"></i> Cancellation requested
+                                  </button>
+                                )}
                               </td>
                               {/* One button per row instead of three or four - the
                                   actions live behind it, so the table can breathe. */}
@@ -9420,6 +9640,14 @@ Examples:
                                           {r.payment_proof_url && (
                                             <button role="menuitem" onClick={() => { setOpenRowMenu(null); setProofModal(r); }}>
                                               <i className="fas fa-receipt"></i> Proof
+                                            </button>
+                                          )}
+
+                                          {/* An open cancellation request outranks everything
+                                              else on the row: somebody is waiting on money. */}
+                                          {r.cancel_status === 'requested' && (
+                                            <button role="menuitem" className="warn" onClick={() => { setOpenRowMenu(null); openRefundModal(r); }}>
+                                              <i className="fas fa-rotate-left"></i> Process Refund <em>cancellation requested</em>
                                             </button>
                                           )}
 
@@ -10699,9 +10927,36 @@ Examples:
                               </div>
                             )}
                           </div>
-                          <button className="myreg-cancel-btn" onClick={() => handleCancelRegistration(r)}>
-                            <i className="fas fa-xmark"></i> Cancel Registration
-                          </button>
+                          {/* Requested, and now waiting on an admin to refund it. */}
+                          {r.cancel_status === 'requested' ? (
+                            <div className="myreg-cancel-pending">
+                              <div className="myreg-cancel-pending-head">
+                                <i className="fas fa-hourglass-half"></i> Cancellation requested
+                              </div>
+                              <p>
+                                An admin is processing your refund
+                                {r.refund_due_at ? <> by <strong>{formatEventDateTime(r.refund_due_at)}</strong></> : ' within 2 working days'}.
+                                Your slot is released once that is settled.
+                              </p>
+                              <button className="myreg-cancel-undo" onClick={() => withdrawCancelRequest(r)}>
+                                <i className="fas fa-rotate-left"></i> Withdraw request
+                              </button>
+                            </div>
+                          ) : r.cancel_status === 'declined' ? (
+                            <div className="myreg-cancel-pending declined">
+                              <div className="myreg-cancel-pending-head">
+                                <i className="fas fa-circle-xmark"></i> Cancellation declined
+                              </div>
+                              <p>{r.refund_note || 'An admin reviewed your request and kept this registration. Please talk to the church office.'}</p>
+                              <button className="myreg-cancel-undo" onClick={() => openCancelRequest(r)}>
+                                <i className="fas fa-rotate-right"></i> Ask again
+                              </button>
+                            </div>
+                          ) : !isDone && (
+                            <button className="myreg-cancel-btn" onClick={() => openCancelRequest(r)}>
+                              <i className="fas fa-xmark"></i> Request Cancellation
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -12072,7 +12327,10 @@ Examples:
                         )}
                         {(eventDetail.location || eventDetail.loc_city) && <div className="evt-detail-row"><i className="fas fa-location-dot"></i><div><span className="evt-detail-label">Where</span><span>{[eventDetail.location, eventDetail.loc_barangay, eventDetail.loc_city, eventDetail.loc_province].filter(Boolean).join(', ')}</span>{eventDetail.latitude && eventDetail.longitude && <a className="hp-evt-directions" style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none', marginTop: 4, display: 'inline-flex', gap: 6 }} href={`https://www.google.com/maps/dir/?api=1&destination=${eventDetail.latitude},${eventDetail.longitude}`} target="_blank" rel="noreferrer"><i className="fas fa-directions"></i> Get Directions</a>}</div></div>}
                         {eventDetail.max_participants && (() => {
-                          const left = eventDetail.slots_left != null ? eventDetail.slots_left : Math.max(0, eventDetail.max_participants - (eventDetail.registered_count || 0));
+                          // `eventDetail` is the event as it was when the dialog opened.
+                          // The counts move underneath it, so the live row wins.
+                          const live = events.find((e) => e.id === eventDetail.id) || eventDetail;
+                          const left = live.slots_left != null ? live.slots_left : Math.max(0, eventDetail.max_participants - (live.registered_count || 0));
                           return (
                             <div className="evt-detail-row"><i className="fas fa-users"></i><div>
                               <span className="evt-detail-label">Capacity</span>
@@ -12114,13 +12372,101 @@ Examples:
                     <button className="evt-modal-close" onClick={() => setRegisterModal(null)}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div className="form-group"><label>First Name *</label><input className="form-control" value={registerForm.attendeeFirstName} onChange={(e) => setRegisterForm({ ...registerForm, attendeeFirstName: e.target.value })} /></div>
-                      <div className="form-group"><label>Last Name *</label><input className="form-control" value={registerForm.attendeeLastName} onChange={(e) => setRegisterForm({ ...registerForm, attendeeLastName: e.target.value })} /></div>
+                    {/* Same three steps as the public form: who is coming, a
+                        read-only check of it, then the money. */}
+                    <div className="evt-steps evt-steps-center">
+                      {registerStepLabels.map((label, i) => (
+                        <span className="evt-step-wrap" key={label}>
+                          {i > 0 && <span className="evt-step-line"></span>}
+                          <button
+                            type="button"
+                            className={`evt-step ${registerStep === i ? 'on' : ''} ${registerStep > i ? 'done' : ''}`}
+                            onClick={() => goToRegisterStep(i)}
+                            disabled={registerSubmitting}
+                          >
+                            <b>{registerStep > i ? <i className="fas fa-check"></i> : i + 1}</b> {label}
+                          </button>
+                        </span>
+                      ))}
                     </div>
+
+                    {registerStep === 0 && (
+                    <>
+                    {/* Signed in, so the account's own details are already in - they
+                        stay editable because what is on the account is not always
+                        what should go on the attendance sheet. */}
+                    <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
+                      <i className="fas fa-wand-magic-sparkles"></i> Filled in from your account and your last registration. Change anything that is out of date.
+                    </p>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div className="form-group"><label>Email</label><input className="form-control" value={registerForm.attendeeEmail} onChange={(e) => setRegisterForm({ ...registerForm, attendeeEmail: e.target.value })} /></div>
-                      <div className="form-group"><label>Mobile</label><PhoneInput value={registerForm.attendeeMobile} onChange={(v) => setRegisterForm({ ...registerForm, attendeeMobile: v })} /></div>
+                      <div className="form-group">
+                        <label>First Name *</label>
+                        <input className={`form-control ${registerErrors.firstName ? 'evt-field-error' : ''}`} value={registerForm.attendeeFirstName} onChange={(e) => { setRegisterForm({ ...registerForm, attendeeFirstName: e.target.value }); setRegisterErrors({}); }} />
+                        {registerErrors.firstName && <div className="evt-field-error-msg">{registerErrors.firstName}</div>}
+                      </div>
+                      <div className="form-group">
+                        <label>Last Name *</label>
+                        <input className={`form-control ${registerErrors.lastName ? 'evt-field-error' : ''}`} value={registerForm.attendeeLastName} onChange={(e) => { setRegisterForm({ ...registerForm, attendeeLastName: e.target.value }); setRegisterErrors({}); }} />
+                        {registerErrors.lastName && <div className="evt-field-error-msg">{registerErrors.lastName}</div>}
+                      </div>
+                    </div>
+
+                    {/* Full church name, offered from past registrations with a count */}
+                    <div className="form-group evt-church-field">
+                      <label>Church Name * <em style={{ fontStyle: 'normal', fontWeight: 500, color: 'var(--text-muted, #999)' }}>(complete name)</em></label>
+                      <input
+                        className={`form-control ${registerErrors.churchName ? 'evt-field-error' : ''}`}
+                        value={registerForm.churchName}
+                        onChange={(e) => { setRegisterForm({ ...registerForm, churchName: e.target.value }); setMemberChurchOpen(true); setRegisterErrors({}); }}
+                        onFocus={() => setMemberChurchOpen(true)}
+                        onBlur={() => setTimeout(() => setMemberChurchOpen(false), 160)}
+                        placeholder="e.g. Joyful Sound Church - International"
+                        autoComplete="off"
+                      />
+                      {memberChurchOpen && memberChurchOptions.length > 0 && (
+                        <ul className="evt-church-list">
+                          {memberChurchOptions.map((c) => (
+                            <li key={c.name}>
+                              <button type="button" onMouseDown={() => { setRegisterForm((f) => ({ ...f, churchName: c.name })); setMemberChurchOpen(false); }}>
+                                <span>{c.name}</span><em>{c.count} registered</em>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {registerErrors.churchName && <div className="evt-field-error-msg">{registerErrors.churchName}</div>}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group">
+                        <label>Church Pastor *</label>
+                        <div className={`evt-prefix-input ${registerErrors.churchPastor ? 'evt-field-error' : ''}`}>
+                          <span>Ptr.</span>
+                          <input
+                            value={registerForm.churchPastor}
+                            onChange={(e) => { setRegisterForm({ ...registerForm, churchPastor: e.target.value }); setRegisterErrors({}); }}
+                            placeholder="Juan Cruz"
+                          />
+                        </div>
+                        {registerErrors.churchPastor && <div className="evt-field-error-msg">{registerErrors.churchPastor}</div>}
+                      </div>
+                      <div className="form-group">
+                        <label>Contact Number *</label>
+                        <input
+                          className={`form-control ${registerErrors.mobile ? 'evt-field-error' : ''}`}
+                          inputMode="numeric"
+                          maxLength={11}
+                          value={registerForm.attendeeMobile}
+                          onChange={(e) => { setRegisterForm({ ...registerForm, attendeeMobile: onlyDigits(e.target.value) }); setRegisterErrors({}); }}
+                          placeholder="09XXXXXXXXX"
+                        />
+                        {registerErrors.mobile && <div className="evt-field-error-msg">{registerErrors.mobile}</div>}
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Email</label>
+                      <input className="form-control" value={registerForm.attendeeEmail} onChange={(e) => setRegisterForm({ ...registerForm, attendeeEmail: e.target.value })} />
                     </div>
 
                     {eventSessionsToShow(registerModal).length > 0 && (
@@ -12160,9 +12506,73 @@ Examples:
                       </div>
                     )}
 
+                    <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={() => goToRegisterStep(1)}>
+                      Continue <i className="fas fa-arrow-right"></i>
+                    </button>
+                    </>
+                    )}
+
+                    {/* ---- Step 2: everything read back, before any money moves ---- */}
+                    {registerStep === 1 && (
+                    <>
+                    <div className="evt-review">
+                      <div className="evt-review-row"><span>Full Name</span><b>{`${registerForm.attendeeFirstName} ${registerForm.attendeeLastName}`.trim() || '—'}</b></div>
+                      <div className="evt-review-row"><span>Church Name</span><b>{registerForm.churchName.trim() || '—'}</b></div>
+                      <div className="evt-review-row"><span>Church Pastor</span><b>{registerForm.churchPastor.trim() ? `Ptr. ${registerForm.churchPastor.trim()}` : '—'}</b></div>
+                      <div className="evt-review-row"><span>Contact Number</span><b>{registerForm.attendeeMobile || '—'}</b></div>
+                      <div className="evt-review-row"><span>Email</span><b>{registerForm.attendeeEmail || '—'}</b></div>
+                    </div>
+
+                    {eventSessionsToShow(registerModal).length > 0 && (
+                      <div className="evt-addon-pick" style={{ marginTop: 12 }}>
+                        <div className="evt-addon-pick-head"><i className="fas fa-calendar-week"></i> Schedule</div>
+                        <ul className="evt-session-list">
+                          {eventSessionsToShow(registerModal).map((d, i) => (
+                            <li key={d.id || i}>
+                              <em className="evt-session-day">Day {i + 1}</em>
+                              <span>{formatSessionRange(d.starts_at, d.ends_at)}</span>
+                              {d.label && <strong>{d.label}</strong>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Itemised like a receipt, so the total is never a mystery. */}
+                    <div className="evt-review-receipt">
+                      <div className="evt-review-receipt-line">
+                        <span>Registration</span>
+                        <b>₱{registerBaseAmount(registerModal)}</b>
+                      </div>
+                      {(registerModal.event_addons || []).filter((a) => registerAddonIds.includes(a.id)).map((a) => (
+                        <div className="evt-review-receipt-line" key={a.id}>
+                          <span>{a.question}</span>
+                          <b>+₱{Number(a.fee) || 0}</b>
+                        </div>
+                      ))}
+                      <div className="evt-review-receipt-total">
+                        <span>Total</span>
+                        <b>₱{registerTotalAmount(registerModal)}</b>
+                      </div>
+                    </div>
+
                     {registerTotalAmount(registerModal) <= 0 ? (
-                      <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event — you&apos;ll be registered instantly.</p>
+                      <>
+                        <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event — you&apos;ll be registered instantly.</p>
+                        <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitRegistration} disabled={registerSubmitting}>
+                          <i className={`fas ${registerSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {registerSubmitting ? 'Submitting…' : 'Register'}
+                        </button>
+                      </>
                     ) : (
+                      <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={() => setRegisterStep(registerPayStep)}>
+                        Continue to Payment <i className="fas fa-arrow-right"></i>
+                      </button>
+                    )}
+                    </>
+                    )}
+
+                    {/* ---- Step 3: pay, and prove it ---- */}
+                    {registerStep === registerPayStep && registerTotalAmount(registerModal) > 0 && (
                       <div className="evt-pay-box">
                         <div className="evt-pay-amount"><span>Amount to pay</span><strong>₱{registerTotalAmount(registerModal)}</strong></div>
                         {registerTotalAmount(registerModal) !== registerBaseAmount(registerModal) && (
@@ -12175,49 +12585,141 @@ Examples:
                         )}
                         {registerModal.payment_instructions && <p className="evt-muted" style={{ whiteSpace: 'pre-wrap' }}>{registerModal.payment_instructions}</p>}
                         {/* Channels the organiser picked from Mode of Payment. */}
-                        {eventPaymentChannels(registerModal).length > 0 && (
-                          <div className="evt-pay-channels">
-                            <div className="evt-pay-channels-head"><i className="fas fa-wallet"></i> Send your payment to</div>
-                            {eventPaymentChannels(registerModal).map((m) => (
-                              <div key={m.id} className="evt-pay-channel">
-                                <span className="pm-logo pm-logo-sm" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
-                                  {m.logo_url ? <img src={m.logo_url} alt={m.name} /> : <span>{getPaymentInitials(m.name)}</span>}
-                                </span>
-                                <div className="evt-pay-channel-info">
-                                  <div className="evt-pay-channel-name">
-                                    {m.name}
-                                    <span className={`pm-badge ${m.category}`}>{m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
-                                  </div>
-                                  {m.account_number && (
-                                    <div className="evt-pay-channel-row">
-                                      <span>Account No.</span>
-                                      <strong>{m.account_number}</strong>
-                                      <button type="button" className="pm-icon-btn" title="Copy account number" onClick={() => copyPaymentDetail('Account number', m.account_number)}>
-                                        <i className="fas fa-copy"></i>
-                                      </button>
-                                    </div>
+                        {eventPaymentChannels(registerModal).length > 0 && (() => {
+                          // One picker instead of a wall of channels: choose where you
+                          // are paying, and only that channel's numbers and QR open up.
+                          const channels = eventPaymentChannels(registerModal);
+                          const picked = channels.find((c) => c.id === regPayChannel) || null;
+                          const pickChannel = (m) => {
+                            setRegPayChannel(m.id);
+                            setRegPayPickerOpen(false);
+                            // Keep the "Payment Method" answer in step with the picker
+                            // when the event lists this channel by the same name.
+                            // The picker is the answer to "how did you pay" - there is no
+                            // second dropdown asking the same thing.
+                            const listed = (registerModal.payment_methods || []).find((x) => String(x).toLowerCase() === String(m.name).toLowerCase());
+                            setRegisterForm((f) => ({ ...f, paymentMethod: listed || m.name }));
+                          };
+                          return (
+                            <div className="evt-pay-channels">
+                              <div className="evt-pay-channels-head"><i className="fas fa-wallet"></i> Send your payment to</div>
+
+                              <div className={`evt-pay-picker ${regPayPickerOpen ? 'open' : ''}`}>
+                                <button
+                                  type="button"
+                                  className={`evt-pay-picker-trigger ${registerErrors.paymentMethod ? 'evt-field-error' : ''}`}
+                                  aria-expanded={regPayPickerOpen}
+                                  onClick={() => setRegPayPickerOpen((v) => !v)}
+                                >
+                                  {picked ? (
+                                    <>
+                                      <span className="pm-logo pm-logo-sm" style={{ background: picked.logo_url ? 'transparent' : (picked.logo_color || '#1e3a8a') }}>
+                                        {picked.logo_url ? <img src={picked.logo_url} alt={picked.name} /> : <span>{getPaymentInitials(picked.name)}</span>}
+                                      </span>
+                                      <span className="evt-pay-picker-name">
+                                        {picked.name}
+                                        <span className={`pm-badge ${picked.category}`}>{picked.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="evt-pay-picker-ph"><i className="fas fa-hand-pointer"></i></span>
+                                      <span className="evt-pay-picker-name evt-pay-picker-empty">Choose where you are paying</span>
+                                    </>
                                   )}
-                                  {m.account_name && (
-                                    <div className="evt-pay-channel-row">
-                                      <span>Account Name</span>
-                                      <strong>{m.account_name}</strong>
-                                      <button type="button" className="pm-icon-btn" title="Copy account name" onClick={() => copyPaymentDetail('Account name', m.account_name)}>
-                                        <i className="fas fa-copy"></i>
-                                      </button>
-                                    </div>
-                                  )}
-                                  {m.qr_url && (
-                                    <button type="button" className="evt-pay-qr" onClick={() => setQrLightbox({ url: m.qr_url, name: m.name })}>
-                                      <img src={m.qr_url} alt={`${m.name} QR code`} />
-                                      <span><strong>Scan this QR to pay</strong><small>Tap to enlarge</small></span>
-                                    </button>
-                                  )}
-                                  {m.notes && <p className="evt-pay-channel-note"><i className="fas fa-circle-info"></i> {m.notes}</p>}
-                                </div>
+                                  <i className="fas fa-chevron-down evt-pay-picker-caret"></i>
+                                </button>
+
+                                {regPayPickerOpen && (
+                                  <ul className="evt-pay-picker-menu">
+                                    {channels.map((m) => (
+                                      <li key={m.id}>
+                                        <button
+                                          type="button"
+                                          className={`evt-pay-picker-option ${regPayChannel === m.id ? 'on' : ''}`}
+                                          onClick={() => pickChannel(m)}
+                                        >
+                                          <span className="pm-logo pm-logo-sm" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
+                                            {m.logo_url ? <img src={m.logo_url} alt={m.name} /> : <span>{getPaymentInitials(m.name)}</span>}
+                                          </span>
+                                          <span className="evt-pay-picker-name">
+                                            {m.name}
+                                            <span className={`pm-badge ${m.category}`}>{m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                          </span>
+                                          {regPayChannel === m.id && <i className="fas fa-check evt-pay-picker-tick"></i>}
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        )}
+
+                              {picked ? (
+                                <div className="evt-pay-channel evt-pay-picked">
+                                  <div className="evt-pay-channel-info">
+                                    {picked.account_number && (
+                                      <div className="evt-pay-channel-row">
+                                        <span>Account No.</span>
+                                        <strong>{picked.account_number}</strong>
+                                        <button type="button" className="pm-icon-btn" title="Copy account number" onClick={() => copyPaymentDetail('Account number', picked.account_number)}>
+                                          <i className="fas fa-copy"></i>
+                                        </button>
+                                      </div>
+                                    )}
+                                    {picked.account_name && (
+                                      <div className="evt-pay-channel-row">
+                                        <span>Account Name</span>
+                                        <strong>{picked.account_name}</strong>
+                                        <button type="button" className="pm-icon-btn" title="Copy account name" onClick={() => copyPaymentDetail('Account name', picked.account_name)}>
+                                          <i className="fas fa-copy"></i>
+                                        </button>
+                                      </div>
+                                    )}
+                                    {picked.qr_url && (
+                                      <button type="button" className="evt-pay-qr" onClick={() => setQrLightbox({ url: picked.qr_url, name: picked.name })}>
+                                        <img src={picked.qr_url} alt={`${picked.name} QR code`} />
+                                        <span><strong>Scan this QR to pay</strong><small>Tap to enlarge</small></span>
+                                      </button>
+                                    )}
+                                    {picked.notes && <p className="evt-pay-channel-note"><i className="fas fa-circle-info"></i> {picked.notes}</p>}
+                                    {/* Proof of THIS payment, asked in the same box as the
+                                        account it was sent to. */}
+                                    <div className="evt-pay-confirm">
+                                      <div className="evt-pay-confirm-head"><i className="fas fa-receipt"></i> Confirm your payment</div>
+                                      <div className="form-group">
+                                        <label>Reference / Txn Number *</label>
+                                        <input
+                                          className={`form-control ${registerErrors.paymentReference ? 'evt-field-error' : ''}`}
+                                          placeholder="e.g. 0123456789"
+                                          value={registerForm.paymentReference}
+                                          onChange={(e) => { setRegisterForm({ ...registerForm, paymentReference: e.target.value }); setRegisterErrors({}); }}
+                                        />
+                                        {registerErrors.paymentReference && <div className="evt-field-error-msg">{registerErrors.paymentReference}</div>}
+                                      </div>
+                                      <div className="form-group"><label>Payment Receipt *</label>
+                                        <label className={`evt-proof-drop ${registerErrors.proof ? 'evt-field-error' : ''}`}>
+                                          <input type="file" accept="image/*" onChange={(e) => { setRegisterProofFile(e.target.files?.[0] || null); setRegisterErrors({}); }} />
+                                          {registerProofFile
+                                            ? <img src={URL.createObjectURL(registerProofFile)} alt="Payment receipt" />
+                                            : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
+                                          <span className="evt-proof-text">
+                                            <strong>{registerProofFile ? registerProofFile.name : 'Upload a screenshot of your receipt'}</strong>
+                                            <small>{registerProofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
+                                          </span>
+                                        </label>
+                                        {registerErrors.proof && <div className="evt-field-error-msg">{registerErrors.proof}</div>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className={`evt-pay-picker-hint ${registerErrors.paymentMethod ? 'bad' : ''}`}>
+                                  <i className="fas fa-circle-info"></i> {registerErrors.paymentMethod || 'Pick a channel above to see its account number, QR, and where to enter your reference.'}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {eventPaymentChannels(registerModal).length === 0 && (registerModal.gcash_number || registerModal.gcash_qr_url) && (
                           <div className="evt-pay-detail"><strong>GCash:</strong> {registerModal.gcash_name} {registerModal.gcash_number}
                             {registerModal.gcash_qr_url && <div><img src={registerModal.gcash_qr_url} alt="GCash QR" style={{ width: 120, height: 120, objectFit: 'contain', marginTop: 6, borderRadius: 8, background: '#fff', padding: 4 }} /></div>}
@@ -12226,37 +12728,150 @@ Examples:
                         {eventPaymentChannels(registerModal).length === 0 && registerModal.bank_account_number && (
                           <div className="evt-pay-detail"><strong>Bank:</strong> {registerModal.bank_name} · {registerModal.bank_account_name} · {registerModal.bank_account_number}</div>
                         )}
-                        <div className="evt-pay-form">
-                          <div className="evt-pay-form-head"><i className="fas fa-receipt"></i> Confirm your payment</div>
-                          <div className="form-group"><label>Payment Method</label>
-                            <select className="form-control" value={registerForm.paymentMethod} onChange={(e) => setRegisterForm({ ...registerForm, paymentMethod: e.target.value })}>
-                              <option value="">Select…</option>
-                              {(registerModal.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
-                            </select>
+
+                        {/* Older events have no Mode-of-Payment channels, so there is no
+                            picker to hang the proof off - it gets its own box, and the
+                            method has to be asked outright. */}
+                        {eventPaymentChannels(registerModal).length === 0 && (
+                          <div className="evt-pay-form">
+                            <div className="evt-pay-form-head"><i className="fas fa-receipt"></i> Confirm your payment</div>
+                            {(registerModal.payment_methods || []).length > 0 && (
+                              <div className="form-group"><label>Payment Method</label>
+                                <select className={`form-control ${registerErrors.paymentMethod ? 'evt-field-error' : ''}`} value={registerForm.paymentMethod} onChange={(e) => { setRegisterForm({ ...registerForm, paymentMethod: e.target.value }); setRegisterErrors({}); }}>
+                                  <option value="">Select…</option>
+                                  {(registerModal.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                                {registerErrors.paymentMethod && <div className="evt-field-error-msg">{registerErrors.paymentMethod}</div>}
+                              </div>
+                            )}
+                            <div className="form-group">
+                              <label>Reference / Txn Number *</label>
+                              <input
+                                className={`form-control ${registerErrors.paymentReference ? 'evt-field-error' : ''}`}
+                                placeholder="e.g. 0123456789"
+                                value={registerForm.paymentReference}
+                                onChange={(e) => { setRegisterForm({ ...registerForm, paymentReference: e.target.value }); setRegisterErrors({}); }}
+                              />
+                              {registerErrors.paymentReference && <div className="evt-field-error-msg">{registerErrors.paymentReference}</div>}
+                            </div>
+                            <div className="form-group"><label>Payment Receipt *</label>
+                              <label className={`evt-proof-drop ${registerErrors.proof ? 'evt-field-error' : ''}`}>
+                                <input type="file" accept="image/*" onChange={(e) => { setRegisterProofFile(e.target.files?.[0] || null); setRegisterErrors({}); }} />
+                                {registerProofFile
+                                  ? <img src={URL.createObjectURL(registerProofFile)} alt="Payment receipt" />
+                                  : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
+                                <span className="evt-proof-text">
+                                  <strong>{registerProofFile ? registerProofFile.name : 'Upload a screenshot of your receipt'}</strong>
+                                  <small>{registerProofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
+                                </span>
+                              </label>
+                              {registerErrors.proof && <div className="evt-field-error-msg">{registerErrors.proof}</div>}
+                            </div>
                           </div>
-                          <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" placeholder="e.g. 0123456789" value={registerForm.paymentReference} onChange={(e) => setRegisterForm({ ...registerForm, paymentReference: e.target.value })} /></div>
-                          <div className="form-group"><label>Payment Receipt</label>
-                            <label className="evt-proof-drop">
-                              <input type="file" accept="image/*" onChange={(e) => setRegisterProofFile(e.target.files?.[0] || null)} />
-                              {registerProofFile
-                                ? <img src={URL.createObjectURL(registerProofFile)} alt="Payment receipt" />
-                                : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
-                              <span className="evt-proof-text">
-                                <strong>{registerProofFile ? registerProofFile.name : 'Upload a screenshot of your receipt'}</strong>
-                                <small>{registerProofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
-                              </span>
-                            </label>
-                          </div>
-                        </div>
+                        )}
                         <p className="evt-pay-note">
                           <i className="fas fa-shield-halved"></i>
                           <span>Your registration is confirmed once an admin verifies your payment.</span>
                         </p>
+                        <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitRegistration} disabled={registerSubmitting}>
+                          <i className={`fas ${registerSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {registerSubmitting ? 'Submitting…' : 'Submit Registration'}
+                        </button>
                       </div>
                     )}
-                    <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitRegistration} disabled={registerSubmitting}>
-                      <i className={`fas ${registerSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {registerSubmitting ? 'Submitting…' : (registerTotalAmount(registerModal) > 0 ? 'Submit Registration' : 'Register')}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- Member: ask an admin to cancel a registration ---- */}
+            {cancelRequestReg && (
+              <div className="evt-modal-overlay" onClick={() => setCancelRequestReg(null)}>
+                <div className="evt-modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Request Cancellation</h3><p>{cancelRequestReg.event?.title || ''}</p></div>
+                    <button className="evt-modal-close" onClick={() => setCancelRequestReg(null)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    <p className="evt-muted" style={{ marginBottom: 14, fontSize: '0.86rem' }}>
+                      <i className="fas fa-circle-info"></i> Registrations are not deleted straight away. An admin reviews your
+                      request and processes any refund <strong>within 2 working days</strong>; your slot is released once that is settled.
+                    </p>
+                    {Number(cancelRequestReg.amount_paid || cancelRequestReg.amount || 0) > 0 && (
+                      <div className="evt-review-receipt" style={{ marginTop: 0, marginBottom: 14 }}>
+                        <div className="evt-review-receipt-line">
+                          <span>Paid so far</span>
+                          <b>₱{Number(cancelRequestReg.amount_paid || cancelRequestReg.amount || 0)}</b>
+                        </div>
+                        <div className="evt-review-receipt-total">
+                          <span>To be refunded</span>
+                          <b>₱{Number(cancelRequestReg.amount_paid || cancelRequestReg.amount || 0)}</b>
+                        </div>
+                      </div>
+                    )}
+                    <div className="form-group">
+                      <label>Reason <span style={{ fontWeight: 500, opacity: 0.7 }}>(optional, but it helps)</span></label>
+                      <textarea
+                        className="form-control"
+                        rows={3}
+                        value={cancelRequestReason}
+                        onChange={(e) => setCancelRequestReason(e.target.value)}
+                        placeholder="e.g. A schedule conflict came up."
+                      />
+                    </div>
+                    <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitCancelRequest} disabled={cancelRequestSubmitting}>
+                      <i className={`fas ${cancelRequestSubmitting ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i> {cancelRequestSubmitting ? 'Sending…' : 'Send Request'}
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- Admin: settle a cancellation request ---- */}
+            {refundModal && (
+              <div className="evt-modal-overlay" onClick={() => setRefundModal(null)}>
+                <div className="evt-modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Process Refund</h3><p>{refundModal.attendee_name}</p></div>
+                    <button className="evt-modal-close" onClick={() => setRefundModal(null)}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    <div className="evt-cancel-req">
+                      <div className="evt-cancel-req-head"><i className="fas fa-hourglass-half"></i> Requested {refundModal.cancel_requested_at ? formatEventDateTime(refundModal.cancel_requested_at) : ''}</div>
+                      {refundModal.cancel_reason
+                        ? <p>&ldquo;{refundModal.cancel_reason}&rdquo;</p>
+                        : <p className="evt-muted">No reason was given.</p>}
+                      {refundModal.refund_due_at && (
+                        <p className="evt-cancel-req-due">
+                          <i className="fas fa-clock"></i> Refund due by <strong>{formatEventDateTime(refundModal.refund_due_at)}</strong> (2 working days)
+                        </p>
+                      )}
+                    </div>
+                    <p className="evt-muted" style={{ fontSize: '0.82rem', margin: '12px 0' }}>
+                      <i className="fas fa-circle-info"></i> Recording the refund cancels the registration and moves it to the
+                      Recycle Bin, releasing the slot. Send the money first, then record it here.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group">
+                        <label>Refund Amount</label>
+                        <input className="form-control" inputMode="decimal" value={refundForm.amount} onChange={(e) => setRefundForm({ ...refundForm, amount: e.target.value })} />
+                      </div>
+                      <div className="form-group">
+                        <label>Refund Reference</label>
+                        <input className="form-control" placeholder="e.g. GCash txn no." value={refundForm.reference} onChange={(e) => setRefundForm({ ...refundForm, reference: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>Note <span style={{ fontWeight: 500, opacity: 0.7 }}>(optional)</span></label>
+                      <input className="form-control" value={refundForm.note} onChange={(e) => setRefundForm({ ...refundForm, note: e.target.value })} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                      <button className="evt-mini-btn danger" style={{ flex: 1, justifyContent: 'center', padding: '11px 12px' }} onClick={() => settleCancelRequest('decline')} disabled={refundSubmitting}>
+                        <i className="fas fa-ban"></i> Decline
+                      </button>
+                      <button className="btn-primary" style={{ flex: 2 }} onClick={() => settleCancelRequest('refund')} disabled={refundSubmitting}>
+                        <i className={`fas ${refundSubmitting ? 'fa-spinner fa-spin' : 'fa-peso-sign'}`}></i> {refundSubmitting ? 'Saving…' : 'Record Refund & Cancel'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -16183,8 +16798,8 @@ Examples:
           )}
 
           {/* Payment logo circle-crop editor */}
-          {pmCropOpen && pmCropImage && (
-            <div className="profile-crop-modal-overlay" onClick={closePaymentLogoCropper}>
+          {pmCropOpen && pmCropImage && typeof document !== 'undefined' && createPortal(
+            <div className="profile-crop-modal-overlay pm-crop-overlay" onClick={closePaymentLogoCropper}>
               <div className="profile-crop-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="profile-crop-modal-header">
                   <h3><i className="fas fa-crop-alt"></i> Crop Logo to a Circle</h3>
@@ -16228,7 +16843,8 @@ Examples:
                   </div>
                 </div>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
 
           {/* ========== MY PROFILE ========== */}

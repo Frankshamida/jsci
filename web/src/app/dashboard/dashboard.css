@@ -27089,3 +27089,272 @@ body.dark-mode .evt-pay-box { background: rgba(255,255,255,0.03); border-color: 
   .pm-modal-overlay { padding: 12px; align-items: flex-start; }
   .pm-modal { max-height: none; }
 }
+
+/* The logo cropper is opened from inside the "Mode of Payment" modal
+   (.pm-modal-overlay, z-index 15500), so it has to stack above it. */
+.pm-crop-overlay { z-index: 15600; }
+
+/* ---- Member registration: the "View Details" step ----
+   A read-back of what was typed, then the price built up line by line. Nothing
+   here is editable: the point of the step is to be checked, not filled in. */
+.evt-review {
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+  border-radius: 12px; overflow: hidden;
+}
+.evt-review-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.07));
+}
+.evt-review-row:last-child { border-bottom: none; }
+.evt-review-row > span {
+  flex: 0 0 auto; font-size: 0.72rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-secondary, #6b7280);
+}
+.evt-review-row > b { text-align: right; font-size: 0.92rem; word-break: break-word; }
+
+.evt-review-receipt {
+  margin-top: 12px; padding: 12px 14px;
+  border: 1px dashed rgba(184,134,11,0.45); border-radius: 12px;
+  background: rgba(212,164,55,0.06);
+}
+.evt-review-receipt-line {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 0.86rem; padding: 3px 0;
+  color: var(--text-secondary, #6b7280);
+}
+.evt-review-receipt-line b { color: var(--text-primary, #14233a); font-weight: 700; }
+.evt-review-receipt-total {
+  display: flex; justify-content: space-between; gap: 12px;
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(184,134,11,0.35);
+  font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-secondary, #6b7280);
+}
+.evt-review-receipt-total b { font-size: 1.15rem; letter-spacing: 0; color: #b8860b; }
+
+.dark-mode .evt-review { border-color: rgba(255,255,255,0.12); }
+.dark-mode .evt-review-row { border-bottom-color: rgba(255,255,255,0.08); }
+.dark-mode .evt-review-receipt { background: rgba(212,164,55,0.10); }
+
+/* ---- Member registration: centred stepper ----
+   `.evt-step-line` is redefined further up the file as an absolutely positioned
+   connector for a different stepper, so it is put back to a plain flex rule here. */
+.evt-steps-center { justify-content: center; }
+.evt-steps-center .evt-step-line {
+  position: static; top: auto; left: auto;
+  flex: 0 0 34px; width: 34px; height: 2px; border-radius: 2px;
+  background: rgba(0,0,0,0.10);
+}
+body.dark-mode .evt-steps-center .evt-step-line { background: rgba(255,255,255,0.12); }
+@media (max-width: 560px) {
+  .evt-steps-center { flex-wrap: wrap; row-gap: 8px; }
+  .evt-steps-center .evt-step-line { flex-basis: 18px; width: 18px; }
+}
+
+/* ---- Member registration: pick the channel, then see its details ----
+   Every channel's account number, name and QR at once made the payment step a
+   long scroll, and only one of them ever gets paid. */
+.evt-pay-picker { position: relative; margin-bottom: 12px; }
+.evt-pay-picker-trigger {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 10px 13px; cursor: pointer; font: inherit; text-align: left;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.14)); border-radius: 12px;
+  background: var(--bg-card, #fff); color: inherit;
+}
+.evt-pay-picker-trigger:hover { border-color: rgba(184,134,11,0.55); }
+.evt-pay-picker.open .evt-pay-picker-trigger { border-color: #d4a437; box-shadow: 0 0 0 3px rgba(212,164,55,0.18); }
+.evt-pay-picker-name {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-weight: 700; font-size: 0.92rem;
+}
+.evt-pay-picker-empty { font-weight: 600; color: var(--text-secondary, #6b7280); }
+.evt-pay-picker-ph {
+  width: 42px; height: 42px; flex: 0 0 42px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(212,164,55,0.14); color: #b8860b;
+}
+.evt-pay-picker-caret { flex: 0 0 auto; font-size: 0.8rem; color: var(--text-secondary, #6b7280); transition: transform 0.18s ease; }
+.evt-pay-picker.open .evt-pay-picker-caret { transform: rotate(180deg); }
+
+.evt-pay-picker-menu {
+  position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0;
+  margin: 0; padding: 6px; list-style: none; max-height: 268px; overflow-y: auto;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.14)); border-radius: 12px;
+  background: var(--bg-card, #fff); box-shadow: 0 16px 40px rgba(0,0,0,0.18);
+}
+.evt-pay-picker-option {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 9px 10px; border: none; border-radius: 9px; cursor: pointer;
+  background: none; font: inherit; text-align: left; color: inherit;
+}
+.evt-pay-picker-option:hover { background: rgba(212,164,55,0.12); }
+.evt-pay-picker-option.on { background: rgba(212,164,55,0.16); }
+.evt-pay-picker-tick { flex: 0 0 auto; color: #16a34a; }
+.evt-pay-picker-hint { margin: 0; font-size: 0.8rem; color: var(--text-secondary, #6b7280); }
+.evt-pay-picked { display: block; padding: 0; }
+.evt-pay-picked .evt-pay-channel-info { padding: 12px 13px; }
+
+body.dark-mode .evt-pay-picker-trigger,
+body.dark-mode .evt-pay-picker-menu { background: #23232f; border-color: rgba(255,255,255,0.14); }
+
+/* ============================================================
+   ALL EVENTS: poster-first cards
+   The artwork is the event's own invitation, so the card is the poster at its
+   real 1080:1380 proportions and the text rides over it, sliding up on hover.
+   Overrides the earlier 16:10 crop + text-below-image layout.
+   ============================================================ */
+.evt-poster-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 26px; }
+.evt-poster { position: relative; border-radius: 20px; }
+.evt-poster-img { aspect-ratio: 1080 / 1380; }
+/* The scrim only exists to make the overlaid text legible, so it fades in with it. */
+.evt-poster-img::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to top, rgba(12,9,2,0.94) 0%, rgba(12,9,2,0.78) 34%, rgba(12,9,2,0.12) 62%, transparent 78%);
+  opacity: 0; transition: opacity 0.28s ease;
+}
+.evt-poster:hover .evt-poster-img::after,
+.evt-poster:focus-within .evt-poster-img::after { opacity: 1; }
+
+.evt-poster-body {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  padding: 16px 18px 18px;
+  transform: translateY(calc(100% - 62px));
+  transition: transform 0.32s cubic-bezier(0.22,1,0.36,1);
+  color: #fff;
+}
+.evt-poster:hover .evt-poster-body,
+.evt-poster:focus-within .evt-poster-body { transform: translateY(0); }
+/* At rest only the title shows; the rest is what the hover reveals. */
+.evt-poster-title { color: #fff; margin-bottom: 10px; text-shadow: 0 2px 10px rgba(0,0,0,0.65); }
+.evt-poster-meta { color: rgba(255,255,255,0.88); }
+.evt-poster-meta i { color: var(--accent, #ffc300); }
+.evt-poster-registered { background: rgba(22,163,74,0.24); color: #7ef0a6; }
+.evt-poster-locked { background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.82); }
+.evt-poster-map { border-color: rgba(255,255,255,0.6); color: #fff; }
+.evt-poster-map:hover { background: #fff; color: var(--primary, #926c15); }
+/* the old bottom hint is redundant now that the details themselves slide up */
+.evt-poster-view { display: none; }
+body.dark-mode .evt-poster-title { color: #fff; }
+
+/* Touch devices have no hover, so the details stay open. */
+@media (hover: none) {
+  .evt-poster-body { transform: translateY(0); }
+  .evt-poster-img::after { opacity: 1; }
+}
+@media (max-width: 520px) {
+  .evt-poster-grid { grid-template-columns: 1fr 1fr; gap: 14px; }
+  .evt-poster-body { padding: 12px 12px 14px; }
+}
+
+/* ============================================================
+   EVENT DETAILS (signed in) — same dialog as the public site
+   Poster on the left at its own 1080:1380 proportions, details on the right,
+   the whole thing kept inside the viewport so only the details ever scroll.
+   ============================================================ */
+.evt-detail-modal {
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.evt-detail-banner { flex: 0 0 auto; }
+.evt-detail-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* Phones: the poster is dropped so the details are reachable without a long
+   scroll past it - the card that opened this already showed the artwork. */
+@media (max-width: 899px) {
+  .evt-detail-banner { display: none; }
+  .evt-detail-body { padding-top: 56px; }
+}
+
+@media (min-width: 900px) {
+  .evt-detail-modal { max-width: 880px; flex-direction: row; align-items: stretch; }
+  /* Stretched flex item with auto width: it takes the dialog's full height and
+     derives its width from the poster ratio, so it fills its side with no bands. */
+  .evt-detail-banner:not(.ph) {
+    align-self: stretch; flex: 0 0 auto;
+    width: auto; height: auto;
+    min-width: 300px; max-width: 44%;
+    aspect-ratio: 1080 / 1380; object-fit: cover;
+    border-radius: 20px 0 0 20px;
+  }
+  .evt-detail-banner.ph { align-self: stretch; flex: 0 0 380px; min-height: 486px; border-radius: 20px 0 0 20px; }
+  .evt-detail-body {
+    flex: 1 1 auto; min-width: 0; padding: 26px 28px;
+    display: flex; flex-direction: column;
+    justify-content: center; justify-content: safe center;
+  }
+  /* over the details column now, not the artwork */
+  .evt-detail-close { background: rgba(0,0,0,0.32); }
+  .evt-detail-close:hover { background: rgba(0,0,0,0.55); }
+}
+
+/* The reference number and receipt live in the same box as the account they were
+   sent to, so the proof sits with what it is proof of. */
+.evt-pay-confirm {
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px dashed var(--border-color, rgba(0,0,0,0.16));
+}
+.evt-pay-confirm-head {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 10px;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+.evt-pay-confirm-head i { color: #b8860b; }
+.evt-pay-picker-hint.bad { color: #dc2626; font-weight: 600; }
+.evt-pay-picker-trigger.evt-field-error { border-color: #dc2626; }
+
+/* ---- Cancellation requests ----
+   A member cannot delete a paid registration outright: they ask, an admin
+   refunds it, and only then is the row cancelled. */
+.myreg-cancel-pending {
+  margin-top: 12px; padding: 12px 14px; border-radius: 12px;
+  background: rgba(217,119,6,0.09); border: 1px solid rgba(217,119,6,0.32);
+}
+.myreg-cancel-pending.declined { background: rgba(220,38,38,0.08); border-color: rgba(220,38,38,0.32); }
+.myreg-cancel-pending-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  font-weight: 800; font-size: 0.86rem; color: #b45309;
+}
+.myreg-cancel-pending.declined .myreg-cancel-pending-head { color: #dc2626; }
+.myreg-cancel-pending p { margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--text-secondary, #6b7280); }
+.myreg-cancel-undo {
+  margin-top: 10px; display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px; border-radius: 20px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.18)); background: transparent;
+  font: inherit; font-size: 0.78rem; font-weight: 700; color: inherit;
+}
+.myreg-cancel-undo:hover { background: rgba(0,0,0,0.05); }
+
+/* The admin's view of the same request. */
+.evt-cancel-chip {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+  padding: 4px 10px; border-radius: 20px; cursor: pointer; font: inherit;
+  font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+  background: rgba(217,119,6,0.14); border: 1px solid rgba(217,119,6,0.4); color: #b45309;
+}
+.evt-cancel-chip:hover { background: rgba(217,119,6,0.24); }
+.evt-cancel-req {
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.3);
+}
+.evt-cancel-req-head { font-weight: 800; font-size: 0.82rem; color: #b45309; margin-bottom: 6px; }
+.evt-cancel-req p { margin: 0; font-size: 0.86rem; line-height: 1.5; }
+.evt-cancel-req-due { margin-top: 8px !important; font-size: 0.8rem !important; color: var(--text-secondary, #6b7280); }
+
+/* The receipt is the step people forget, so it takes real space and reads as a
+   drop zone, matching the public form. */
+.evt-proof-drop {
+  padding: 18px; border-radius: 14px;
+  border: 2px dashed rgba(184,134,11,0.45); background: rgba(212,164,55,0.05);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.evt-proof-drop:hover { border-color: #b8860b; background: rgba(212,164,55,0.1); }
+.evt-proof-drop.evt-field-error { border-color: #dc2626; background: rgba(220,38,38,0.05); }
+.evt-proof-drop img {
+  width: 72px; height: 72px; flex: 0 0 72px; border-radius: 11px;
+  border: 1px solid rgba(0,0,0,0.12); background: #fff;
+}
+.evt-proof-icon { width: 46px; height: 46px; flex: 0 0 46px; font-size: 1.15rem; }
+.evt-proof-text strong { font-size: 0.92rem; font-weight: 800; }

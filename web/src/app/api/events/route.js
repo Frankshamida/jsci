@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { SLOT_HOLDING_STATUSES } from '@/lib/eventSlots';
+import { cacheInvalidate } from '@/lib/serverCache';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 
 // Only these roles may create/edit/delete events.
@@ -421,6 +422,10 @@ export async function DELETE(request) {
 
     const { error } = await supabase.from('events').update({ is_active: false }).eq('id', id);
     if (error) throw error;
+
+    // The admin bell feeds off a cached pending-registration list; a deleted
+    // event's rows must drop out of it now, not up to a minute from now.
+    cacheInvalidate('events:pending-registrations');
 
     await logEventAudit(actor, 'delete_event', id, 'Deleted event');
     return NextResponse.json({ success: true, message: 'Event deleted successfully' });
