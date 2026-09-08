@@ -160,40 +160,66 @@ function buildMerchItems(fields, merchImageUrls) {
 // ---- Per-day schedules (event_days) --------------------------------------
 // The client sends `days` as a JSON array of
 //   { dayNumber, startsAt, endsAt, label }
-// with ISO datetimes. Returns { eventDate, endDate } derived from the rows so
-// events.event_date / end_date stay the authoritative overall span - every
-// existing listing, sort and "upcoming" filter reads those two columns.
+// with wall-clock datetimes ("2026-10-02T09:00"). Returns { eventDate, endDate }
+// derived from the rows so events.event_date / end_date stay the authoritative
+// overall span - every existing listing, sort and "upcoming" filter reads those
+// two columns.
+
+// A session datetime as the admin typed it: "2026-10-02T09:00" -> the literal
+// string "2026-10-02T09:00:00". NEVER via `new Date(...).toISOString()` - that
+// reads the string as an instant in the writer's zone and re-emits it in UTC,
+// so a 9:00 AM session posted from Manila landed in the column as 01:00 and the
+// public page (which reads these as wall-clock, like events.event_date) showed
+// "1:00 AM". Every reader in this app treats these columns as wall-clock, so the
+// writer must store wall-clock too.
+function wallClock(value) {
+  if (!value) return null;
+  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6] || '00'}`;
+}
+// Sortable stamp for a wall-clock string. The strings are fixed-width and
+// zero-padded, so a plain string compare already orders them correctly - but a
+// number keeps Math.min/Math.max readable at the call sites.
+function wallMs(value) {
+  const w = wallClock(value);
+  if (!w) return NaN;
+  return Number(w.replace(/\D/g, ''));
+}
+
 function parseEventDays(raw) {
   if (raw === undefined || raw === null || raw === '') return null;
   let parsed;
   try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
   if (!Array.isArray(parsed)) return null;
   const rows = [];
-  parsed.forEach((d, i) => {
-    const startsAt = d && d.startsAt ? new Date(d.startsAt) : null;
-    if (!startsAt || Number.isNaN(startsAt.getTime())) return;   // skip incomplete days
-    let endsAt = d.endsAt ? new Date(d.endsAt) : null;
-    if (endsAt && Number.isNaN(endsAt.getTime())) endsAt = null;
+  parsed.forEach((d) => {
+    const startsAt = d ? wallClock(d.startsAt) : null;
+    if (!startsAt) return;   // skip incomplete days
+    let endsAt = d.endsAt ? wallClock(d.endsAt) : null;
     // guard the CHECK constraint rather than letting the insert 500
-    if (endsAt && endsAt.getTime() < startsAt.getTime()) endsAt = null;
+    if (endsAt && endsAt < startsAt) endsAt = null;
     rows.push({
       day_number: Number(d.dayNumber) || rows.length + 1,
-      starts_at: startsAt.toISOString(),
-      ends_at: endsAt ? endsAt.toISOString() : null,
+      starts_at: startsAt,
+      ends_at: endsAt,
       label: d.label ? String(d.label).slice(0, 200) : null,
     });
   });
   return rows;
 }
 
-// Overall span across the day rows. Falls back to nulls for an empty set.
+// Overall span across the day rows, in the same wall-clock form. Falls back to
+// nulls for an empty set.
 function spanFromDays(rows) {
   if (!rows || rows.length === 0) return { eventDate: null, endDate: null };
-  const starts = rows.map((r) => new Date(r.starts_at).getTime());
-  const ends = rows.map((r) => new Date(r.ends_at || r.starts_at).getTime());
+  const starts = rows.map((r) => r.starts_at).filter(Boolean);
+  const ends = rows.map((r) => r.ends_at || r.starts_at).filter(Boolean);
+  if (starts.length === 0) return { eventDate: null, endDate: null };
+  const pick = (list, cmp) => list.reduce((best, v) => (cmp(wallMs(v), wallMs(best)) ? v : best));
   return {
-    eventDate: new Date(Math.min(...starts)).toISOString(),
-    endDate: new Date(Math.max(...ends)).toISOString(),
+    eventDate: pick(starts, (a, b) => a < b),
+    endDate: pick(ends, (a, b) => a > b),
   };
 }
 

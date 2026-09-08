@@ -2401,7 +2401,10 @@ body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
 /* Desktop: poster left, details right. Below 900px it shows details only. */
 @media (min-width: 900px) {
   .hp-evt-modal {
-    max-width: 880px;
+    /* 880 left the session strip's last column only 66px wide, which chopped
+       "Thursday" down to "ursday" - the four columns need ~426px and had 403.
+       960 gives that column 111px, enough for any weekday plus headroom. */
+    max-width: 960px;
     /* Flex, not grid: the poster sizes itself from the row height (see below)
        rather than being forced into a fixed column. */
     flex-direction: row;
@@ -2736,9 +2739,14 @@ body.dark-mode .hp-invite-btn.outline { background: transparent; color: var(--ac
   padding: 10px 15px; font-size: 0.92rem; color: #555; white-space: nowrap;
   display: flex; align-items: center;
 }
+/* A block, not a flex row, so `text-overflow: ellipsis` applies: as a flex
+   container the text sat in an anonymous item that overflowed past
+   `justify-content: flex-end` and was chopped off the LEFT with no ellipsis.
+   Identical when the label fits - this only governs how it degrades if one is
+   ever too long for the column. */
 .hp-evt-session-name {
   padding: 10px 15px; font-size: 0.88rem; font-style: italic; color: var(--primary);
-  display: flex; align-items: center; justify-content: flex-end; text-align: right;
+  display: block; align-self: center; text-align: right;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Narrow phones: the strip wraps to two lines rather than squeezing the time. */

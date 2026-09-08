@@ -82,16 +82,30 @@ const nextEventSession = (sessions) => {
     endTime: prev.endTime,
   };
 };
+// event_days.starts_at / ends_at are WALL-CLOCK, like events.event_date: the
+// column holds "the time the admin typed", and Postgres stamps it +00:00 on the
+// way in. Reading one with `new Date()` would shift it by the viewer's offset,
+// so the components are read off the string and rebuilt as a local Date. Same
+// rule as the component's own evtDate() - this copy exists because module-scope
+// helpers cannot reach it.
+const sessionWallDate = (str) => {
+  if (!str) return null;
+  const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) { const f = new Date(str); return Number.isNaN(f.getTime()) ? null : f; }
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
 // "Sep 2, 10:00 AM - 12:00 PM" (same day) or "Sep 2, 10:00 AM - Sep 3, 12:00 PM".
 // Used wherever a session's own schedule is shown to members.
 const formatSessionRange = (startsAt, endsAt) => {
-  const s = startsAt ? new Date(startsAt) : null;
-  if (!s || Number.isNaN(s.getTime())) return '';
-  const e = endsAt ? new Date(endsAt) : null;
+  const s = sessionWallDate(startsAt);
+  if (!s) return '';
+  const e = sessionWallDate(endsAt);
   const day = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const time = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   // an end equal to the start is the same as having none
-  if (!e || Number.isNaN(e.getTime()) || e.getTime() <= s.getTime()) return `${day(s)}, ${time(s)}`;
+  if (!e || e.getTime() <= s.getTime()) return `${day(s)}, ${time(s)}`;
   const sameDay = s.toDateString() === e.toDateString();
   return sameDay
     ? `${day(s)}, ${time(s)} – ${time(e)}`
@@ -4147,11 +4161,11 @@ export default function DashboardPage() {
       // single-session one) falls back to its own start/end span.
       sessions: Array.isArray(evt.event_days) && evt.event_days.length > 0
         ? evt.event_days.slice().sort((a, b) => (a.day_number || 0) - (b.day_number || 0)).map((d) => {
-            const s = new Date(d.starts_at);
-            const e = d.ends_at ? new Date(d.ends_at) : null;
+            const s = sessionWallDate(d.starts_at);
+            const e = sessionWallDate(d.ends_at);
             return {
               title: d.label || '',
-              startDate: dateOnly(s), startTime: timeOnly(s),
+              startDate: s ? dateOnly(s) : '', startTime: s ? timeOnly(s) : '',
               endDate: e ? dateOnly(e) : '', endTime: e ? timeOnly(e) : '',
             };
           })
@@ -4304,9 +4318,13 @@ export default function DashboardPage() {
               .map((s, i) => {
                 const end = sessionEndStr(s);
                 return {
+                  // Wall-clock, exactly as typed. `new Date(...).toISOString()`
+                  // used to convert here, so a 9:00 AM session posted from
+                  // Manila was stored as 01:00 and every wall-clock reader
+                  // (the public details modal, the When line) showed "1:00 AM".
                   dayNumber: i + 1,
-                  startsAt: new Date(sessionStartStr(s)).toISOString(),
-                  endsAt: end ? new Date(end).toISOString() : null,
+                  startsAt: sessionStartStr(s),
+                  endsAt: end || null,
                   label: (s.title || '').trim() || `Session ${i + 1}`,
                 };
               })
