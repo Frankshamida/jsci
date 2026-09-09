@@ -1,0 +1,697 @@
+/* ============================================
+   EVENT COMMITTEE PORTAL - Login & Signup
+   Same church branding as the main portal, with a teal committee accent so
+   nobody has to check the URL to know which door they came in by.
+   ============================================ */
+
+/* The accent tokens belong to BOTH roots of this portal. The welcome splash is
+   a sibling of .ec-auth rather than a child of it, so declaring them on
+   .ec-auth alone left the splash resolving var(--ec-bright) to nothing - which
+   is why its check mark and loader bar came out unpainted. */
+.ec-auth,
+.ec-splash {
+  --ec: #0f766e;
+  --ec-bright: #14b8a6;
+  --ec-glow: rgba(20, 184, 166, 0.28);
+}
+
+.ec-auth {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  background: linear-gradient(135deg, #08161a 0%, #0f2027 50%, #10243a 100%);
+  font-family: var(--font-body);
+  -webkit-overflow-scrolling: touch;
+  transition: background 0.4s ease;
+}
+
+.ec-back-link {
+  position: fixed;
+  top: 24px;
+  left: 30px;
+  color: rgba(255, 255, 255, 0.6);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: color 0.3s ease;
+  z-index: 10;
+}
+
+.ec-back-link:hover { color: var(--ec-bright); }
+
+@media (max-width: 768px) {
+  .ec-auth ~ .dark-mode-toggle,
+  .dark-mode-toggle:has(~ .ec-auth) { top: 14px; right: 14px; }
+}
+
+.ec-card {
+  display: flex;
+  width: 100%;
+  max-width: 980px;
+  min-height: 600px;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 80px var(--ec-glow);
+  animation: ecSlideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes ecSlideIn {
+  from { opacity: 0; transform: translateY(30px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---- LEFT PANEL ---- */
+.ec-panel-left {
+  flex: 0 0 42%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 36px 30px;
+  overflow: hidden;
+  background: #0f2027;
+}
+
+.ec-panel-left::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url('/assets/Leadership Conference.jpg') center/cover no-repeat;
+  z-index: 0;
+}
+
+.ec-panel-left::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(6, 22, 26, 0.62) 0%, rgba(6, 22, 26, 0.38) 40%, rgba(6, 22, 26, 0.82) 100%);
+  z-index: 1;
+}
+
+.ec-brand {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ec-brand img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+}
+
+.ec-brand-text {
+  --brand-unit: 1rem;
+  font-weight: 600;
+  font-size: var(--brand-unit);
+  line-height: 1.26;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: linear-gradient(135deg, var(--secondary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+}
+
+.ec-brand-text span {
+  display: block;
+  font-weight: 400;
+  font-size: calc(var(--brand-unit) / 2);
+  line-height: 1.27;
+  letter-spacing: 1.29em;
+  margin-right: -1.29em;
+  color: var(--accent);
+  -webkit-text-fill-color: var(--accent);
+  text-transform: uppercase;
+}
+
+.ec-panel-message { position: relative; z-index: 2; }
+
+.ec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(20, 184, 166, 0.18);
+  border: 1px solid rgba(20, 184, 166, 0.45);
+  color: #7ff0e0;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.ec-panel-message h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.3;
+  margin: 0 0 4px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.ec-panel-message h2 em { font-style: normal; color: var(--ec-bright); }
+
+.ec-panel-message-sub {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.ec-panel-message-sub::before {
+  content: '';
+  display: block;
+  width: 3px;
+  min-height: 40px;
+  background: var(--ec-bright);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.ec-panel-message-sub p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.5;
+}
+
+.ec-panel-points {
+  position: relative;
+  z-index: 2;
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.ec-panel-points li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.ec-panel-points i { color: var(--ec-bright); width: 16px; }
+
+.ec-panel-footer {
+  position: relative;
+  z-index: 2;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+/* ---- RIGHT PANEL (form) ---- */
+.ec-panel-right {
+  flex: 1;
+  background: #fff;
+  padding: 44px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  transition: background 0.4s ease;
+}
+
+.ec-panel-right h1 {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: #0f2027;
+  text-align: center;
+  margin: 0 0 6px;
+  transition: color 0.4s ease;
+}
+
+.ec-panel-right .ec-sub {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin: 0 0 26px;
+  line-height: 1.5;
+  transition: color 0.4s ease;
+}
+
+.ec-field { margin-bottom: 18px; }
+
+.ec-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.ec-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: #555;
+  margin-bottom: 8px;
+  transition: color 0.4s ease;
+}
+
+.ec-input-wrap { position: relative; }
+
+.ec-input {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 0.95rem;
+  font-family: var(--font-body);
+  border: 1.5px solid #e0e0e0;
+  border-radius: 12px;
+  background: #fff;
+  color: #333;
+  outline: none;
+  transition: background 0.4s ease, border-color 0.25s ease, color 0.4s ease, box-shadow 0.25s ease;
+  box-sizing: border-box;
+}
+
+.ec-input-wrap .ec-input { padding-right: 48px; }
+.ec-input::placeholder { color: #b0b0b0; }
+
+.ec-input:focus {
+  border-color: var(--ec);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.ec-toggle {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #aaa;
+  font-size: 1.05rem;
+  padding: 4px;
+  transition: color 0.2s;
+}
+
+.ec-toggle:hover { color: var(--ec); }
+
+.ec-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ec-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.ec-remember input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+  accent-color: var(--ec);
+}
+
+.ec-remember span {
+  font-size: 0.88rem;
+  color: #555;
+  font-weight: 500;
+  transition: color 0.4s ease;
+}
+
+.ec-forgot {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ec);
+  text-decoration: none;
+}
+
+.ec-forgot:hover { color: var(--ec-bright); }
+
+.ec-terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0 20px;
+}
+
+.ec-terms input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  cursor: pointer;
+  accent-color: var(--ec);
+  flex-shrink: 0;
+}
+
+.ec-terms label {
+  font-size: 0.83rem;
+  color: #555;
+  line-height: 1.5;
+  transition: color 0.4s ease;
+}
+
+.ec-terms a { color: var(--ec); font-weight: 600; text-decoration: none; }
+.ec-terms a:hover { text-decoration: underline; }
+
+.ec-submit {
+  width: 100%;
+  padding: 15px;
+  background: linear-gradient(135deg, var(--ec), var(--ec-bright));
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-family: var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  cursor: pointer;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease;
+  min-height: 52px;
+  box-shadow: 0 4px 15px rgba(15, 118, 110, 0.32);
+}
+
+.ec-submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(15, 118, 110, 0.45);
+}
+
+.ec-submit:active:not(:disabled) { transform: translateY(0); }
+
+.ec-submit:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+
+/* Alerts */
+.ec-alert {
+  padding: 13px 16px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin-bottom: 18px;
+  border: 1px solid transparent;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ec-alert i { margin-top: 2px; flex-shrink: 0; }
+
+.ec-alert-danger { background: #fdeaea; border-color: #f5c2c7; color: #a32530; }
+.ec-alert-success { background: #e6f7ef; border-color: #b7e4c7; color: #14663f; }
+.ec-alert-info { background: #e6f4f4; border-color: #a7dcd6; color: #0b5d55; }
+
+.ec-alert a { color: inherit; font-weight: 700; }
+
+/* Password strength */
+.ec-strength {
+  margin-top: 8px;
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: opacity 0.25s ease, max-height 0.25s ease;
+}
+
+.ec-strength.visible { opacity: 1; max-height: 44px; }
+
+.ec-strength-bar {
+  height: 4px;
+  background: #eceff1;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ec-strength-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+.ec-strength-fill.strength-weak { width: 33%; background: #dc3545; }
+.ec-strength-fill.strength-medium { width: 66%; background: var(--secondary); }
+.ec-strength-fill.strength-strong { width: 100%; background: #28a745; }
+
+.ec-strength-text { font-size: 0.72rem; font-weight: 600; margin-top: 5px; }
+
+.ec-error-text {
+  font-size: 0.72rem;
+  color: #dc3545;
+  margin-top: 5px;
+  min-height: 1em;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.ec-error-text.visible { opacity: 1; }
+
+.ec-footer {
+  text-align: center;
+  margin-top: 22px;
+  font-size: 0.86rem;
+  color: #666;
+  transition: color 0.4s ease;
+}
+
+.ec-footer p { margin: 0 0 6px; }
+.ec-footer a { color: var(--ec); font-weight: 700; text-decoration: none; }
+.ec-footer a:hover { text-decoration: underline; }
+
+.ec-divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0;
+  gap: 14px;
+}
+
+.ec-divider::before,
+.ec-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e0e0e0;
+  transition: background 0.4s ease;
+}
+
+.ec-divider span {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  color: #aaa;
+}
+
+/* The "you already have an account" note the committee pages lean on */
+.ec-note {
+  background: #f4f7f7;
+  border: 1px dashed #cbd5d5;
+  border-radius: 12px;
+  padding: 13px 15px;
+  font-size: 0.8rem;
+  color: #4b5563;
+  line-height: 1.55;
+  margin-bottom: 20px;
+  transition: background 0.4s ease, border-color 0.4s ease, color 0.4s ease;
+}
+
+.ec-note strong { color: var(--ec); }
+
+/* ---- Success splash ---- */
+.ec-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: linear-gradient(135deg, #08161a 0%, #0f2027 60%, #10243a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: ecFade 0.4s ease;
+}
+
+@keyframes ecFade { from { opacity: 0; } to { opacity: 1; } }
+
+.ec-splash-content {
+  text-align: center;
+  max-width: 460px;
+  animation: ecPop 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes ecPop {
+  from { opacity: 0; transform: translateY(20px) scale(0.95); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The logo and the check mark each own their line. As inline siblings they
+   shared one, so the browser centred the PAIR - which left the logo sitting
+   half the check's width to the left of the heading beneath it. */
+.ec-splash-logo {
+  display: block;
+  width: 82px;
+  height: 82px;
+  object-fit: contain;
+  margin: 0 auto 14px;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+}
+
+/* Smaller than the logo: it is the tick that confirms the sign-in, not a
+   second badge competing with the church mark. */
+.ec-splash-check-svg {
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+}
+
+.ec-splash-check-circle {
+  stroke: var(--ec-bright);
+  stroke-width: 2;
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  animation: ecStroke 0.7s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.ec-splash-check-path {
+  stroke: var(--ec-bright);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: ecStroke 0.4s cubic-bezier(0.65, 0, 0.45, 1) 0.6s forwards;
+}
+
+@keyframes ecStroke { to { stroke-dashoffset: 0; } }
+
+.ec-splash h2 {
+  color: #fff;
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.ec-splash h2 span { color: var(--ec-bright); }
+
+.ec-splash p {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.92rem;
+  margin: 0 0 22px;
+  line-height: 1.55;
+}
+
+.ec-splash-loader {
+  height: 4px;
+  width: 220px;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ec-splash-loader-bar {
+  height: 100%;
+  width: 40%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--ec), var(--ec-bright));
+  animation: ecLoad 1.4s ease-in-out infinite;
+}
+
+@keyframes ecLoad {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+
+/* ---- DARK MODE ---- */
+body.dark-mode .ec-auth {
+  background: linear-gradient(135deg, #04090b 0%, #071316 50%, #08161f 100%);
+}
+
+body.dark-mode .ec-panel-right { background: #101b1e; }
+body.dark-mode .ec-panel-right h1 { color: #f1f5f4; }
+body.dark-mode .ec-panel-right .ec-sub { color: #93a3a1; }
+body.dark-mode .ec-label { color: #a9b8b6; }
+
+body.dark-mode .ec-input {
+  background: #16262a;
+  border-color: #27403f;
+  color: #e8f0ef;
+}
+
+body.dark-mode .ec-input::placeholder { color: #6b807e; }
+
+body.dark-mode .ec-input:focus {
+  border-color: var(--ec-bright);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.16);
+}
+
+body.dark-mode .ec-toggle { color: #7c918f; }
+body.dark-mode .ec-toggle:hover { color: var(--ec-bright); }
+body.dark-mode .ec-remember span,
+body.dark-mode .ec-terms label { color: #a9b8b6; }
+body.dark-mode .ec-forgot,
+body.dark-mode .ec-terms a,
+body.dark-mode .ec-footer a { color: var(--ec-bright); }
+body.dark-mode .ec-footer { color: #8fa09e; }
+body.dark-mode .ec-divider::before,
+body.dark-mode .ec-divider::after { background: #27403f; }
+body.dark-mode .ec-strength-bar { background: #22343a; }
+
+body.dark-mode .ec-note {
+  background: #16262a;
+  border-color: #2c4746;
+  color: #a9b8b6;
+}
+
+body.dark-mode .ec-note strong { color: var(--ec-bright); }
+body.dark-mode .ec-alert-danger { background: #3a1b1f; border-color: #6d2b33; color: #ffb3ba; }
+body.dark-mode .ec-alert-success { background: #12312a; border-color: #1f5d4c; color: #8ce0be; }
+body.dark-mode .ec-alert-info { background: #102e2c; border-color: #1c5450; color: #8fdcd4; }
+
+/* ---- RESPONSIVE ---- */
+@media (max-width: 900px) {
+  .ec-auth { padding: 0; }
+
+  .ec-card {
+    flex-direction: column;
+    max-width: 560px;
+    min-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .ec-panel-left {
+    flex: 0 0 auto;
+    min-height: 260px;
+    padding: 70px 26px 26px;
+  }
+
+  .ec-panel-points { display: none; }
+  .ec-panel-right { padding: 32px 24px 44px; }
+  .ec-back-link { top: 18px; left: 20px; }
+}
+
+@media (max-width: 520px) {
+  .ec-field-row { grid-template-columns: 1fr; gap: 0; }
+  .ec-field-row .ec-field { margin-bottom: 18px; }
+  .ec-panel-message h2 { font-size: 1.6rem; }
+  .ec-panel-right h1 { font-size: 1.45rem; }
+}

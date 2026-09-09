@@ -3,6 +3,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 import { cached, cacheInvalidate } from '@/lib/serverCache';
 import { SLOT_HOLDING_STATUSES } from '@/lib/eventSlots';
+import { findEventActor, canWorkEvent, actorRoleLabel, staffDeniedMessage } from '@/lib/eventCommittee';
 
 // Churches are typed by hand, so the same church arrives as "joyful sound church"
 // and "Joyful Sound Church". Stored in Title Case so the list stays one entry.
@@ -526,7 +527,9 @@ export async function POST(request) {
     const addedByAdmin = !!fields.addedByAdmin;
     let adminActor = null;
     if (addedByAdmin) {
-      const who = await findActor(fields.actorId);
+      // findEventActor rather than findActor: this needs the committee flags
+      // alongside the role to answer "may you add someone to THIS event".
+      const who = await findEventActor(fields.actorId);
       if (!who) {
         return NextResponse.json({
           success: false,
@@ -535,17 +538,14 @@ export async function POST(request) {
             : 'Could not tell who is signed in. Please sign out and sign in again, then add the attendee.',
         }, { status: 401 });
       }
-      if (!EVENT_MANAGER_ROLES.includes(who.role)) {
-        return NextResponse.json({
-          success: false,
-          message: `Only an Admin or Super Admin can add an attendee. Your account is signed in as "${who.role || 'no role'}".`,
-        }, { status: 403 });
+      if (!canWorkEvent(who, eventId)) {
+        return NextResponse.json({ success: false, message: staffDeniedMessage(who) }, { status: 403 });
       }
       adminActor = who;
     }
 
     const addedByRole = adminActor
-      ? adminActor.role                              // 'Admin' | 'Super Admin', from the account
+      ? actorRoleLabel(adminActor)                   // 'Admin' | 'Super Admin' | 'Event Committee'
       : (isBulk ? 'Representative' : 'Attendee');
     const addedByName = (() => {
       // The staff member's own name, so the row reads "Super Admin / Frank
@@ -781,8 +781,10 @@ export async function POST(request) {
   }
 }
 
-// PUT /api/events/registrations  { id, actorId, status }            -> admin verifies/updates a registration
-//                                { id, actorId, attended: true|false } -> admin marks/clears attendance (QR check-in)
+// PUT /api/events/registrations  { id, actorId, status }            -> staff verifies/updates a registration
+//                                { id, actorId, attended: true|false } -> staff marks/clears attendance (QR check-in)
+//   "staff" = an Admin/Super Admin, or an Event Committee member assigned to
+//   that registration's event. The two bin actions below stay Admin-only.
 //                                { id, actorId, action: 'soft_delete', reason } -> admin moves it to the Recycle Bin
 //                                { id, actorId, action: 'restore' }   -> admin brings it back out of the bin
 // DELETE /api/events/registrations?id=..&userId=..  -> a member cancels their OWN registration
@@ -872,8 +874,33 @@ export async function PUT(request) {
     }
     if (!status && attended === undefined && !action) return NextResponse.json({ success: false, message: 'status, attended or action required' }, { status: 400 });
 
-    const actor = await verifyEventManager(actorId);
-    if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
+    // Two different gates, because these are two different kinds of change.
+    // Binning a registration destroys work and is an Admin's call; checking
+    // someone in at the door and confirming the money they handed over is the
+    // committee's whole job. So the bin keeps the Admin-only check, and
+    // everything else asks whether this person may work THIS event.
+    const binning = action === 'soft_delete' || action === 'restore';
+    let actor;
+    if (binning) {
+      actor = await verifyEventManager(actorId);
+      if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
+    } else {
+      // Only the bin actions work on a batch; a status or attendance change is
+      // always one registration. Said out loud rather than left to fail later
+      // on an `id` that was never sent - and it is what makes the scope check
+      // below meaningful, since there is exactly one event to check against.
+      if (!id) {
+        return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
+      }
+      // Which event this registration belongs to decides whether a committee
+      // member scoped to particular events is allowed near it.
+      const { data: owner } = await supabase.from('event_registrations').select('event_id').eq('id', id).single();
+      const who = await findEventActor(actorId);
+      if (!canWorkEvent(who, owner?.event_id)) {
+        return NextResponse.json({ success: false, message: staffDeniedMessage(who) }, { status: 403 });
+      }
+      actor = who;
+    }
 
     // Moving a registration to the Recycle Bin, or bringing it back out. Nothing
     // about the registration itself changes - not its status, not the payments
@@ -891,19 +918,19 @@ export async function PUT(request) {
         .in('id', wanted);
       if (!regs || regs.length === 0) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
 
-      const binning = action === 'soft_delete';
+      const removing = action === 'soft_delete';
       // Rows already in the state being asked for are skipped rather than
       // failing the whole batch - selecting one twice is not an error.
-      const todo = regs.filter((r) => (binning ? !r.deleted_at : !!r.deleted_at));
+      const todo = regs.filter((r) => (removing ? !r.deleted_at : !!r.deleted_at));
       if (todo.length === 0) {
         return NextResponse.json({
           success: true,
           count: 0,
-          message: binning ? 'Already in the Recycle Bin' : 'Nothing there to restore',
+          message: removing ? 'Already in the Recycle Bin' : 'Nothing there to restore',
         });
       }
 
-      const patch = binning
+      const patch = removing
         ? {
             deleted_at: new Date().toISOString(),
             deleted_by: actor.id,
@@ -922,9 +949,9 @@ export async function PUT(request) {
       for (const r of todo) {
         await logAudit(
           actor,
-          binning ? 'event_registration_soft_delete' : 'event_registration_restore',
+          removing ? 'event_registration_soft_delete' : 'event_registration_restore',
           r.id,
-          binning
+          removing
             ? `Moved ${r.attendee_name} to the Recycle Bin (₱${Number(r.amount_paid) || 0} of ₱${Number(r.amount) || 0} recorded)${(reason || '').trim() ? ` — ${reason.trim()}` : ''}`
             : `Restored ${r.attendee_name} from the Recycle Bin`,
         );
@@ -935,7 +962,7 @@ export async function PUT(request) {
         success: true,
         data: n === 1 ? (saved || [])[0] : saved,
         count: n,
-        message: binning
+        message: removing
           ? (n === 1 ? 'Moved to Recycle Bin' : `${n} registrations moved to the Recycle Bin`)
           : (n === 1 ? 'Registration restored' : `${n} registrations restored`),
       });

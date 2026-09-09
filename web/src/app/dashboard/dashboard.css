@@ -118,6 +118,25 @@ body.dark-mode .dashboard-loading-text {
   --sidebar-active-text: #fff;
 }
 
+/* ============================================
+   WHAT SITS ON TOP OF WHAT
+   ============================================
+   One scale for the whole app. Anything new goes on it rather than beside it.
+
+       999    .overlay              the scrim behind the mobile sidebar
+      1000    .sidebar              1200 on mobile, where it slides over content
+      1100    .mobile-topbar
+      3000    toasts, logout / notification popovers
+     9000+    dialogs and viewers   every *-modal-overlay, lightbox, viewer
+    15000     .evt-modal-overlay    the events / committee dialogs
+    16000     things opened FROM a dialog (QR lightbox, picture lightbox)
+    999999    .account-deleted-overlay  the one thing nothing may cover
+
+   The sidebar sits below every dialog on purpose: a dialog covers the whole
+   window, chrome included. If a dialog ever appears UNDER the sidebar again,
+   the z-index is almost certainly not the problem - look for a stacking
+   context on one of the dialog's ancestors instead. See the note on
+   .main-content below for the one that caused exactly that. */
 .sidebar {
   width: var(--sidebar-expanded);
   background: var(--sidebar-bg);
@@ -1076,18 +1095,37 @@ body.dark-mode .sidebar-lock-tooltip {
 /* ============================================
    MAIN CONTENT
    ============================================ */
+/* ============================================
+   MAIN CONTENT - and why it carries no animation
+   ============================================
+   Every modal in this app is rendered INSIDE .main-content, and every one of
+   them is `position: fixed` with a z-index far above the sidebar's 1000. That
+   only works while .main-content is not a stacking context of its own.
+
+   It used to be one. `animation: mainContentFadeIn ... both` looks harmless -
+   it fades from opacity 0 to opacity 1 and then it is over - but `both` means
+   the animation keeps FILLING after it finishes, so as far as the browser is
+   concerned there is still a live opacity animation on the element. An element
+   with a live opacity animation is a stacking context, permanently. And
+   .main-content is `position: static`, so that stacking context paints in the
+   normal-flow layer - underneath its own sibling, the fixed sidebar at
+   z-index 1000.
+
+   The effect: every modal on every screen was sealed inside .main-content and
+   the sidebar sat on top of all of them, whatever z-index the modal asked for.
+   The fade is not worth that. .content-section below already fades its content
+   in, so nothing is lost by taking this one out.
+
+   Rule of thumb for anyone adding to this file: do not put `transform`,
+   `filter`, `opacity < 1`, `will-change`, `contain: paint` or a filling
+   animation of any of them on .dashboard-container, .main-content or
+   .content-section. Those three are the ancestors of every dialog we own. */
 .main-content {
   flex: 1;
   margin-left: var(--sidebar-expanded);
   padding: 0;
   min-height: 100vh;
   transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  animation: mainContentFadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.15s both;
-}
-
-@keyframes mainContentFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .sidebar.collapsed ~ .main-content {
@@ -1136,9 +1174,33 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 /* Content sections */
+/* The slide-in uses `top`, not `transform`. A running transform animation
+   makes the element the containing block for `position: fixed` descendants,
+   which for the 0.45s after every section switch would have pinned any modal
+   opened in that window to the section instead of to the window. `top` moves
+   it just as well and changes nothing about how its children are positioned -
+   the element is already `position: relative`. */
+/* The page gutter is fluid rather than stepped.
+
+   It used to be three fixed values swapped at two breakpoints - 96px, then
+   48px under 1100px, then 16px under 768px - and the steps did not line up
+   with where the sidebar changes width. At 1100px the content had 914px to
+   work in; one pixel wider, where the sidebar expands to 280px but the gutter
+   was still 96px a side, it had 711px. The layout got NARROWER as the screen
+   got wider, which is the sort of thing that makes a design feel like it does
+   not fit the device.
+
+   clamp() removes the steps: the gutter grows with the viewport between a
+   16px floor (small phones) and a 96px ceiling (large desktops), so there is
+   no width at which the content suddenly loses room.
+
+   max-width caps it at the other end. Without one, a 27" monitor stretched
+   every table and paragraph across 2000px+ of glass. */
 .content-section {
   display: none;
-  padding: 40px 96px;
+  padding: clamp(18px, 2.5vw, 40px) clamp(16px, 4vw, 88px);
+  max-width: 1720px;
+  margin-inline: auto;
   position: relative;
   min-height: 100vh;
   animation: contentFadeSlideIn 0.45s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1149,8 +1211,8 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 @keyframes contentFadeSlideIn {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; top: 16px; }
+  to { opacity: 1; top: 0; }
 }
 
 /* Keep the old fadeIn for backward compatibility */
@@ -1551,7 +1613,7 @@ body.dark-mode .sidebar-lock-tooltip {
 /* Stats */
 .stats-container {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 15px;
   margin-top: 20px;
 }
@@ -1807,7 +1869,7 @@ body.dark-mode .sidebar-lock-tooltip {
 
 .family-gathering-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   gap: 20px;
 }
 
@@ -1948,7 +2010,7 @@ body.dark-mode .sidebar-lock-tooltip {
 /* Schedule Cards */
 .schedule-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   gap: 15px;
 }
 
@@ -2190,7 +2252,7 @@ body.dark-mode .sidebar-lock-tooltip {
 
 .birthday-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -4222,7 +4284,7 @@ body.dark-mode .bible-controls .form-select optgroup {
   }
   .community-sidebar {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
     gap: 16px;
   }
 }
@@ -5383,7 +5445,7 @@ body.dark-mode .community-verse-cancel-btn:hover {
 /* Schedule Cards Grid */
 .paw-schedules-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   gap: 18px;
 }
 
@@ -11530,7 +11592,7 @@ body.dark-mode .paw-excuse-status.accepted { background: rgba(76,175,80,0.12); c
 /* Excuse Card Grid */
 .paw-excuse-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
   gap: 14px;
 }
 .paw-excuse-card {
@@ -11939,7 +12001,7 @@ body.dark-mode .paw-past-tag { background: rgba(255,255,255,0.06); color: #666; 
    ============================================ */
 .events-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   gap: 16px;
   margin-top: 20px;
 }
@@ -13378,7 +13440,14 @@ body.dark-mode .calendar-table th { color: #999; }
 /* ============================================
    RESPONSIVE
    ============================================ */
-@media (max-width: 1100px) {
+/* 1200, not 1100. The sidebar expands to 280px above this width, and at
+   1101px that left the content 711px - less than it had at 1100px with the
+   sidebar collapsed. Holding the expansion back to 1200px means the sidebar
+   only takes its full width on a screen that can spare it: a 1280px laptop
+   keeps ~870px of content instead of ~800px, and there is no width at which
+   the page gets tighter as the window gets wider. Small laptops, tablets in
+   landscape and split-screen windows all land in the collapsed band now. */
+@media (max-width: 1200px) {
   /* Auto-collapse sidebar on medium screens */
   .sidebar:not(.active) {
     width: var(--sidebar-collapsed);
@@ -13418,11 +13487,10 @@ body.dark-mode .calendar-table th { color: #999; }
     margin-left: var(--sidebar-collapsed);
   }
 
-  .content-section {
-    padding: 35px 48px;
-  }
+  /* .content-section padding is fluid now - see the clamp() on the base rule.
+     The banner still needs to line up with it. */
   .verification-banner {
-    margin: 20px 48px;
+    margin: 20px clamp(16px, 4vw, 88px);
   }
 }
 
@@ -13510,10 +13578,6 @@ body.dark-mode .calendar-table th { color: #999; }
 
   .content-header {
     padding: 16px 16px 14px;
-  }
-
-  .content-section {
-    padding: 18px 16px;
   }
 
   .section-title {
@@ -18957,7 +19021,7 @@ body:not(.dark-mode) .paw-quick-history-reason {
 /* Lyrics Library Grid */
 .lyrics-lib-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -22923,9 +22987,35 @@ body.dark-mode .cbday-24h-badge {
    =========================================== */
 .messages-chat-shell {
   display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(min(320px, 100%), 420px) minmax(0, 1fr);
   gap: 16px;
   height: calc(100vh - 180px); min-height: 500px;
+}
+
+/* Below this the two panes cannot both be useful side by side - a 320px list
+   beside a 320px thread on a 680px tablet leaves neither enough room, and on a
+   phone the thread was squeezed to nothing. So they stack: the conversation
+   list on top at a height that shows a few people without burying the thread,
+   and the thread underneath with the rest.
+
+   `height: auto` on the shell matters as much as the single column. The shell
+   is pinned to `calc(100vh - 180px)`, which is right for two full-height
+   columns and far too short for two stacked ones - the message input would
+   have been pushed out of the bottom of it. */
+@media (max-width: 900px) {
+  .messages-chat-shell {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+    gap: 12px;
+  }
+  .messages-chat-list { max-height: 46vh; }
+  .messages-chat-thread { min-height: min(60vh, 460px); }
+}
+
+@media (max-width: 600px) {
+  .messages-chat-list { max-height: 38vh; }
+  .messages-chat-toolbar { padding: 10px; }
 }
 
 .messages-chat-list,
@@ -23724,11 +23814,19 @@ body.dark-mode .mtg-manage-btn:hover { background: rgba(255, 255, 255, 0.1); }
   padding: 30px;
 }
 
+/* Two fields share a row only while a field can still be read at half width.
+   auto-fit does that without a breakpoint: below ~2x220px the row becomes one
+   column on its own, which is what a phone needs and what a 25px gap between
+   two 60px-wide inputs was not. */
 .form-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 25px;
   margin-bottom: 25px;
+}
+
+@media (max-width: 600px) {
+  .form-row { gap: 16px; margin-bottom: 16px; }
 }
 
 .form-group {
@@ -23810,7 +23908,7 @@ body.dark-mode .mtg-manage-btn:hover { background: rgba(255, 255, 255, 0.1); }
 
 .ministry-options {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
   gap: 12px;
   max-height: 300px;
   overflow-y: auto;
@@ -24271,7 +24369,7 @@ body.dark-mode .um-page-btn {
    keyboard and mobile behaviour come for free. */
 .evt-when-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
   gap: 15px;
 }
 .evt-dt {
@@ -24414,7 +24512,18 @@ body.dark-mode .evt-multiday-note.on { color: var(--accent); }
 .evt-modal-head h3 { margin: 0; font-size: 1.1rem; }
 .evt-modal-head p { margin: 2px 0 0; font-size: 0.82rem; opacity: 0.9; }
 .evt-modal-close { background: rgba(255,255,255,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; }
-.evt-modal-body { padding: 18px 20px; overflow-y: auto; }
+.evt-modal-body { padding: 18px 20px; overflow-y: auto; min-height: 0; }
+/* A modal whose contents are wrapped in a <form> puts that form between the
+   flex container and the head/body/foot that are supposed to lay out inside
+   it. Without this the form is a single tall flex item, the body never gets a
+   scrollbar, and the footer - the Save button - is clipped away by the
+   modal's own overflow:hidden. So the form becomes the column instead. */
+.evt-modal > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+}
 .evt-muted { color: var(--text-muted, #888); }
 .evt-reg-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.08)); flex-wrap: wrap; }
 .evt-reg-main { display: flex; flex-direction: column; gap: 3px; }
@@ -24434,11 +24543,22 @@ body.dark-mode .evt-multiday-note.on { color: var(--accent); }
 
 /* ---- What the event has taken in ---- */
 .evt-hero-stats {
-  /* one row, however many tiles there are - they share the width evenly */
-  display: flex; flex-wrap: nowrap; gap: 12px;
+  /* One row while the row has room, and as many rows as it takes when it does
+     not. This used to be `nowrap` with a 150px floor per tile, which for four
+     tiles is 636px that could not give - so on a tablet in portrait, or in a
+     split-screen window, the last figure was cut off the right-hand edge with
+     nothing to scroll to reach it. The wrap threshold was a media query at
+     780px, but the width that matters is the width of the HERO, not of the
+     window: the sidebar and the page gutter take their share first.
+
+     `wrap` with a flex-basis lets the tiles decide for themselves - four
+     across when they fit, two-and-two when they do not, one per row on a
+     narrow phone - at whatever width that happens to be, on any device and at
+     any number of tiles. */
+  display: flex; flex-wrap: wrap; gap: 12px;
   width: 100%; max-width: 780px; margin-left: auto;
 }
-.evt-stat { flex: 1 1 0; min-width: 150px; }
+.evt-stat { flex: 1 1 150px; min-width: min(150px, 100%); }
 /* Each figure is a button into the rows behind it. Three states, each one
    readable on its own: resting, hovered, and selected. */
 .evt-stat {
@@ -24478,10 +24598,10 @@ body.dark-mode .evt-multiday-note.on { color: var(--accent); }
 .evt-stat.due > b { color: #ffd166; }
 .evt-stat.wait > b { color: #ffb4a2; }
 @media (max-width: 1040px) { .evt-hero-stats { max-width: none; margin-left: 0; } }
-/* only when a phone genuinely cannot hold four across do they wrap */
+/* Wrapping is the base behaviour now - see .evt-hero-stats above - so this
+   only tightens the spacing once the tiles have started stacking. */
 @media (max-width: 780px) {
-  .evt-hero-stats { flex-wrap: wrap; }
-  .evt-stat { flex: 1 1 150px; }
+  .evt-hero-stats { gap: 8px; }
 }
 
 /* ---- Table pager ---- */
@@ -25006,6 +25126,460 @@ body.dark-mode .evt-mini-btn { color: #eee; border-color: rgba(255,255,255,0.2);
 .evt-attend-badge.yes i { font-size: 0.9rem; }
 .evt-attend-badge + .evt-mini-btn { margin-left: 10px; }
 
+/* ============================================================
+   The attendance toolbar, and the lock on the columns
+   ============================================================ */
+/* Search on the left, everything that opens a counter on the right. The
+   search is the thing used constantly at a door with a queue; the counters
+   are opened once and left open. */
+.evt-attbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.evt-attbar-search { flex: 1 1 240px; min-width: 0; max-width: 420px; }
+.evt-attbar-actions {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+
+/* ---- The lock ----
+   Last in the row and deliberately not a primary button: it does not open a
+   counter, it changes what every other column DOES. Amber while locked
+   (an action with a consequence), green while open (a state you are in). */
+.evt-lockbtn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  border: 2px solid var(--accent, #b8860b); border-radius: 10px;
+  background: transparent;
+  font-size: 0.84rem; font-weight: 700;
+  color: var(--accent, #b8860b);
+  cursor: pointer; white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.evt-lockbtn:hover { background: rgba(255, 195, 0, 0.12); }
+.evt-lockbtn.open {
+  border-color: #16a34a; background: #16a34a; color: #fff;
+}
+.evt-lockbtn.open:hover { background: #15803d; border-color: #15803d; }
+
+/* Said plainly while it lasts: an unlocked table looks exactly like a locked
+   one until something is clicked by accident. */
+.evt-unlock-note {
+  display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
+  margin: 0 0 14px;
+  padding: 11px 15px;
+  border: 1px solid rgba(22, 163, 74, 0.4); border-radius: 11px;
+  background: rgba(22, 163, 74, 0.07);
+  font-size: 0.82rem; line-height: 1.55; color: var(--text-secondary, #6c757d);
+}
+.evt-unlock-note > i { color: #16a34a; font-size: 1rem; }
+.evt-unlock-note > span { flex: 1; min-width: 200px; }
+.evt-unlock-note b { color: #16a34a; }
+.evt-unlock-note > button { margin-left: auto; }
+body.dark-mode .evt-unlock-note { background: rgba(22, 163, 74, 0.13); }
+
+.evt-unlock-modal { max-width: 520px; }
+
+/* ---- What "unlocked" looks like in the columns ----
+   A cell that can be clicked has to look different from one that cannot, or
+   the lock is invisible and people click anyway. A dashed outline on hover
+   and a pointer, on every live cell. */
+.evt-attend-day.live:not(:disabled):hover,
+.evt-meal-chip.live:hover:not(:disabled),
+.evt-claim-state.live:hover:not(:disabled) {
+  border-color: var(--secondary);
+  box-shadow: 0 0 0 3px rgba(201, 152, 11, 0.16);
+}
+button.evt-claim-state { font: inherit; cursor: pointer; }
+.evt-claim-state.live {
+  border: 1px dashed rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+}
+.evt-claim-state.yes.live { border-color: rgba(22, 163, 74, 0.5); }
+.evt-claim-state:disabled { opacity: 0.55; cursor: not-allowed; }
+.evt-meal-chip.live { cursor: pointer; }
+.evt-attend-day.live:not(:disabled) { cursor: pointer; }
+body.dark-mode .evt-claim-state.live { border-color: rgba(255, 255, 255, 0.28); }
+
+@media (max-width: 900px) {
+  .evt-attbar-actions { margin-left: 0; width: 100%; }
+  .evt-attbar-actions > button { flex: 1 1 auto; justify-content: center; }
+  .evt-attbar-search { max-width: none; }
+}
+
+/* ============================================================
+   Which day of the event this desk is on
+   ============================================================ */
+/* Chosen, never inferred from the clock. Getting it wrong records a whole
+   morning against the wrong session, and nobody notices until the reports are
+   run - so it is a deliberate, visible choice above the scan pad rather than
+   a guess made quietly. */
+.evt-daypick {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 13px;
+  background: rgba(0, 0, 0, 0.02);
+}
+.evt-daypick-label {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin-bottom: 9px;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-secondary, #6c757d);
+}
+.evt-daypick-row { display: flex; gap: 9px; flex-wrap: wrap; }
+.evt-daypick-btn {
+  position: relative;
+  flex: 1 1 130px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 10px 13px;
+  border: 2px solid var(--border-color, #e0e0e0); border-radius: 11px;
+  background: var(--bg-card, #fff);
+  text-align: left; cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.evt-daypick-btn b { font-size: 0.86rem; font-weight: 800; color: var(--text-primary, #333); }
+.evt-daypick-btn em {
+  font-style: normal; font-size: 0.72rem; color: var(--text-secondary, #6c757d);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.evt-daypick-btn:hover { border-color: var(--secondary); }
+.evt-daypick-btn.on {
+  border-color: var(--secondary);
+  background: rgba(201, 152, 11, 0.09);
+}
+.evt-daypick-btn.on b { color: var(--primary); }
+/* A day that has not started is still offered - somebody may be checking in
+   early - but it says so, so it is never picked by accident. */
+.evt-daypick-btn.ahead { opacity: 0.72; }
+.evt-daypick-ahead {
+  margin-top: 3px;
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--accent, #b8860b);
+}
+body.dark-mode .evt-daypick { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .evt-daypick-btn { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.14); }
+body.dark-mode .evt-daypick-btn b { color: #f1f1f1; }
+
+/* ---- Not arrived, so nothing to collect ----
+   Its own colour, because it is neither "already had one" nor a broken card:
+   the person is on the list and simply has not come through the door. */
+.evt-claim-who.blocked {
+  border-style: solid; border-color: rgba(220, 53, 69, 0.35);
+  background: rgba(220, 53, 69, 0.05);
+}
+.evt-claim-blocked {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 2px 0;
+  font-size: 0.84rem; font-weight: 800;
+  color: var(--danger, #dc3545);
+}
+
+/* ============================================================
+   Attendance: when they came, and what they have collected
+   ============================================================ */
+
+/* ---- Came, per day ----
+   One line per day of the event, because an event over two or three days
+   cannot answer "did they come" with one word. Each line is a button so any
+   day can be corrected by hand. */
+.evt-attend-days {
+  display: inline-flex; flex-direction: column; gap: 4px;
+  align-items: stretch;
+}
+.evt-attend-day {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12)); border-radius: 8px;
+  background: transparent;
+  font-size: 0.73rem; white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.evt-attend-day b { font-weight: 800; color: var(--text-primary, #333); }
+.evt-attend-day-sep { color: var(--border-color, #d0d0d0); }
+.evt-attend-day em { font-style: normal; font-weight: 600; }
+.evt-attend-day time {
+  font-family: var(--font-mono); font-size: 0.66rem;
+  color: var(--text-secondary, #6c757d);
+}
+.evt-attend-day:hover:not(:disabled) { border-color: var(--secondary); }
+
+/* Here. */
+.evt-attend-day.in {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.09);
+}
+.evt-attend-day.in > i, .evt-attend-day.in em { color: #16a34a; }
+
+/* The day has run and they did not come. Plain, not alarming - a no-show is
+   information, and half a conference is normal. */
+.evt-attend-day.out em { color: var(--text-secondary, #6c757d); }
+.evt-attend-day.out > i { color: #cbd5e1; }
+
+/* Hasn't happened yet. Greyed and unclickable: nobody attended tomorrow, and
+   an enabled button there invites a false record. */
+.evt-attend-day.ahead {
+  opacity: 0.45; cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.02);
+}
+.evt-attend-day:disabled { cursor: not-allowed; }
+
+body.dark-mode .evt-attend-day { border-color: rgba(255, 255, 255, 0.14); }
+body.dark-mode .evt-attend-day b { color: #f1f1f1; }
+body.dark-mode .evt-attend-day.in { background: rgba(22, 163, 74, 0.18); }
+body.dark-mode .evt-attend-day.in > i, body.dark-mode .evt-attend-day.in em { color: #4ade80; }
+body.dark-mode .evt-attend-day.ahead { background: rgba(255, 255, 255, 0.03); }
+
+/* ---- Attended, and when ----
+   Stacked, not run together on one line. On a two-day event the question is
+   not "did they come" but "which day, and how late", and a stamp tucked after
+   a middot wraps mid-date in a narrow cell. */
+/* `.evt-table thead th` sets text-align: left and outspecifies a bare class,
+   so the centred columns have to name the same path to win. */
+.evt-th-center, .evt-td-center { text-align: center; }
+.evt-table thead th.evt-th-center { text-align: center; }
+/* The cell's own text is centred by the rule above; the blocks inside it are
+   flex columns and need telling separately, or they stay left-packed inside a
+   centred cell and look like the alignment did not take. */
+.evt-td-center .evt-claim-done,
+.evt-td-center .evt-meals { align-items: center; }
+/* Centred, and centred as a block: the badge and the stamp under it are one
+   thing and should share an axis rather than both hug the left edge. */
+.evt-attend-cell {
+  display: inline-flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.evt-attend-when {
+  font-family: var(--font-mono);
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--text-secondary, #6c757d);
+  white-space: nowrap;
+}
+/* The stacked layout supplies its own spacing. */
+.evt-attend-cell .evt-attend-badge + .evt-mini-btn,
+.evt-attend-cell .evt-mini-btn { margin-left: 0; }
+body.dark-mode .evt-attend-when { color: #9ca3af; }
+
+/* ---- The kit, as the table reports it ----
+   Read, not changed: a bag is checked against a list with the person's card
+   in hand, which is the Kit Counter. A row in a long table is one line off
+   from being the wrong person. */
+.evt-claim-done { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.evt-claim-state {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 0.74rem; font-weight: 700;
+  color: var(--text-secondary, #6c757d);
+  white-space: nowrap;
+}
+.evt-claim-state.yes { background: rgba(22, 163, 74, 0.13); color: #16a34a; }
+/* Two of three items handed over is normal - a size running out - and the
+   person who comes back for the rest needs it on the record. */
+.evt-claim-partial {
+  font-size: 0.7rem; font-weight: 600;
+  color: var(--accent, #b8860b);
+}
+body.dark-mode .evt-claim-state { background: rgba(255, 255, 255, 0.06); color: #aaa; }
+body.dark-mode .evt-claim-state.yes { background: rgba(22, 163, 74, 0.2); color: #4ade80; }
+
+/* ---- Meals, one row per day ----
+   DAY 1  [x] Lunch  [x] Dinner
+   DAY 2  [ ] Lunch  [ ] Dinner
+
+   One cell for the lot, so the number of days is a property of the event
+   rather than of the table - a three-day event needs no new column. */
+.evt-meals { display: flex; flex-direction: column; gap: 5px; }
+.evt-meal-day {
+  display: flex; align-items: center; gap: 6px;
+}
+.evt-meal-daylabel {
+  min-width: 42px;
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6c757d);
+  flex-shrink: 0;
+}
+.evt-meal-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.14)); border-radius: 7px;
+  background: transparent;
+  font-size: 0.72rem; font-weight: 600;
+  color: var(--text-secondary, #6c757d);
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.evt-meal-chip > i { font-size: 0.8rem; }
+/* Only the counter's chips are buttons; the table's are a read-out. */
+button.evt-meal-chip { cursor: pointer; }
+button.evt-meal-chip:hover:not(:disabled) { border-color: var(--secondary); color: var(--primary); }
+/* Bigger where they are actually pressed - a serving line is one hand and a
+   tray, and a 4px chip is not a target. */
+.evt-meal-chip.big { padding: 9px 15px; font-size: 0.82rem; }
+/* Taken. Green and filled, so a row that is done reads as done from across
+   the table without anybody having to look at the words. */
+.evt-meal-chip.yes {
+  background: rgba(22, 163, 74, 0.12);
+  border-color: rgba(22, 163, 74, 0.38);
+  color: #16a34a;
+}
+.evt-meal-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+body.dark-mode .evt-meal-daylabel { color: #9ca3af; }
+body.dark-mode .evt-meal-chip { border-color: rgba(255, 255, 255, 0.18); color: #aaa; }
+body.dark-mode .evt-meal-chip.yes { background: rgba(22, 163, 74, 0.2); color: #4ade80; }
+
+/* ============================================================
+   The kit counter and the meal counter
+   ============================================================ */
+.evt-claim-modal { max-width: 620px; }
+
+/* ---- Who is standing here ----
+   The whole dialog turns on this one panel: before a card is read it says so,
+   after one it is a name. Colour carries it - grey waiting, green a verified
+   attendee, red anything else - so the state is legible from arm's length in
+   a queue. */
+.evt-claim-who {
+  display: flex; align-items: center; gap: 13px;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--border-color, #d9d9d9); border-radius: 13px;
+  background: rgba(0, 0, 0, 0.02);
+}
+.evt-claim-who > i { font-size: 1.5rem; color: var(--text-secondary, #6c757d); flex-shrink: 0; }
+/* The text block only. `> div` on its own also matches the avatar - which is
+   a div - and gave it flex: 1, stretching the circle into an ellipse and
+   overriding its own centring. */
+.evt-claim-who > div:not(.rfid-avatar) {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+}
+.evt-claim-who b { font-size: 1.02rem; font-weight: 800; color: var(--text-primary, #333); }
+.evt-claim-who em {
+  font-style: normal; font-size: 0.79rem; line-height: 1.5;
+  color: var(--text-secondary, #6c757d);
+}
+.evt-claim-who.ok {
+  border-style: solid; border-color: rgba(22, 163, 74, 0.4);
+  background: rgba(22, 163, 74, 0.06);
+}
+.evt-claim-who.ok b { color: #16a34a; }
+/* Already had this one. Amber, not red: nothing is broken and nobody did
+   anything wrong - it is the door's "already checked in", which is
+   information rather than a refusal. Distinct from the green first claim,
+   because those two must never be mistaken for each other in a queue. */
+.evt-claim-who.already {
+  border-style: solid; border-color: rgba(184, 134, 11, 0.45);
+  background: rgba(255, 195, 0, 0.09);
+}
+.evt-claim-who.already b { color: var(--primary); }
+.evt-claim-already {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 2px 0;
+  font-size: 0.84rem; font-weight: 800;
+  color: #b8860b;
+}
+body.dark-mode .evt-claim-who.already b,
+body.dark-mode .evt-claim-already { color: var(--accent, #e0b64a); }
+
+.evt-claim-who.bad {
+  border-style: solid; border-color: rgba(220, 53, 69, 0.4);
+  background: rgba(220, 53, 69, 0.05);
+}
+.evt-claim-who.bad > i { color: var(--danger, #dc3545); }
+body.dark-mode .evt-claim-who { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.14); }
+body.dark-mode .evt-claim-who b { color: #f1f1f1; }
+body.dark-mode .evt-claim-who.ok b { color: #4ade80; }
+
+/* ---- The checklist ----
+   Locked until a card is read. Dimmed rather than hidden, so it is clear
+   there IS a list and what is on it - hiding it would read as "this event
+   has no kit". */
+.evt-claim-list {
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 13px;
+  overflow: hidden;
+}
+.evt-claim-list.locked { opacity: 0.55; }
+.evt-claim-list.locked .evt-claim-item { cursor: not-allowed; }
+.evt-claim-list-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--border-color, #eee);
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 0.84rem;
+}
+.evt-claim-list-head b { font-weight: 800; color: var(--text-primary, #333); }
+.evt-claim-list-head em {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-style: normal; font-size: 0.74rem; font-weight: 700;
+  color: var(--text-secondary, #6c757d);
+}
+.evt-claim-all {
+  border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px;
+  padding: 5px 11px; background: transparent;
+  font-size: 0.74rem; font-weight: 700; color: var(--primary);
+  cursor: pointer;
+}
+.evt-claim-all:hover { border-color: var(--secondary); }
+
+/* One row per merch item. A big target with the picture on it, because the
+   person ticking is holding the thing and matching it by sight. */
+.evt-claim-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border-color, #f0f0f0);
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+.evt-claim-item:last-child { border-bottom: none; }
+.evt-claim-item:hover { background: rgba(0, 0, 0, 0.02); }
+.evt-claim-item input { width: 19px; height: 19px; flex-shrink: 0; cursor: pointer; accent-color: #16a34a; }
+.evt-claim-item img {
+  width: 38px; height: 38px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
+  border: 1px solid var(--border-color, #eee);
+}
+.evt-claim-item span { font-size: 0.88rem; font-weight: 600; color: var(--text-primary, #333); }
+.evt-claim-item.on { background: rgba(22, 163, 74, 0.07); }
+.evt-claim-item.on span { color: #16a34a; font-weight: 700; }
+.evt-claim-note {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0; padding: 10px 15px;
+  border-top: 1px solid var(--border-color, #f0f0f0);
+  background: rgba(255, 195, 0, 0.08);
+  font-size: 0.77rem; line-height: 1.5; color: var(--text-secondary, #6c757d);
+}
+
+/* The meal grid inside the counter. Roomier than the table's read-out. */
+.evt-claim-mealrow {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--border-color, #f0f0f0);
+}
+.evt-claim-mealrow:last-child { border-bottom: none; }
+.evt-claim-mealrow .evt-meal-daylabel { min-width: 52px; font-size: 0.74rem; }
+
+body.dark-mode .evt-claim-list { border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .evt-claim-list-head {
+  background: rgba(255, 255, 255, 0.03); border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+body.dark-mode .evt-claim-list-head b { color: #f1f1f1; }
+body.dark-mode .evt-claim-item { border-bottom-color: rgba(255, 255, 255, 0.07); }
+body.dark-mode .evt-claim-item:hover { background: rgba(255, 255, 255, 0.04); }
+body.dark-mode .evt-claim-item span { color: #eee; }
+body.dark-mode .evt-claim-item.on span { color: #4ade80; }
+body.dark-mode .evt-claim-mealrow { border-bottom-color: rgba(255, 255, 255, 0.07); }
+
+@media (max-width: 560px) {
+  .evt-claim-who { flex-wrap: wrap; }
+  .evt-claim-mealrow .evt-meal-chip.big { flex: 1 1 auto; justify-content: center; }
+}
+
+/* On a phone the table stacks into cards, and the meal rows want the full
+   width rather than being squeezed beside a right-aligned label. */
+@media (max-width: 768px) {
+  .evt-meals { width: 100%; }
+  .evt-meal-day { flex-wrap: wrap; }
+  .evt-meal-chip { flex: 1 1 auto; justify-content: center; }
+}
+
 .evt-qr-reader { width: 100%; min-height: 280px; border-radius: 12px; overflow: hidden; background: #000; }
 .evt-qr-reader video { border-radius: 12px; }
 .evt-qr-result { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 0.85rem; font-weight: 600; }
@@ -25169,7 +25743,7 @@ body.dark-mode .evt-picture-upload-btn { background: rgba(35,35,50,0.92); color:
 
 .evt-basic-split {
   display: grid;
-  grid-template-columns: minmax(260px, 380px) 1fr;
+  grid-template-columns: minmax(min(260px, 100%), 380px) 1fr;
   gap: 26px;
   align-items: start;
 }
@@ -25291,7 +25865,7 @@ body.dark-mode .isom-inq-status-closed { color: #bbb; background: rgba(255,255,2
 .evt-empty-mine { text-align: center; padding: 60px 20px; color: var(--text-muted, #999); }
 .evt-empty-mine i { font-size: 2.5rem; opacity: 0.4; display: block; margin-bottom: 12px; }
 
-.myreg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 22px; }
+.myreg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 22px; }
 .myreg-poster {
   background: var(--bg-card, #fff); border-radius: 16px; overflow: hidden;
   box-shadow: 0 6px 24px rgba(0,0,0,0.1); border: 1px solid var(--border-color, rgba(0,0,0,0.06));
@@ -25378,7 +25952,7 @@ body.dark-mode .myreg-fee-alert { background: rgba(234,179,8,0.15); color: #fcd3
 .evt-poster.past { opacity: 0.65; filter: grayscale(0.7); }
 .evt-poster.past:hover { transform: none; }
 
-.evt-poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 24px; }
+.evt-poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); gap: 24px; }
 .evt-poster {
   background: var(--bg-card, #fff); border-radius: 16px; overflow: hidden; cursor: default;
   box-shadow: 0 6px 20px rgba(0,0,0,0.1); border: 1px solid var(--border-color, rgba(146,108,21,0.12));
@@ -25692,7 +26266,7 @@ body.dark-mode .evt-filter select { background: #2a2a3a; border-color: rgba(255,
 .evt-manage-menu { z-index: 15001; }
 
 /* Admin grid cards (reference grid view, gold) */
-.evt-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px; min-height: 400px; align-content: start; }
+.evt-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 22px; min-height: 400px; align-content: start; }
 .evt-admin-card { background: var(--bg-card, #fff); border-radius: 15px; overflow: hidden; box-shadow: 0 0 3px rgba(0,0,0,0.18), 0 6px 18px rgba(0,0,0,0.06); }
 .evt-admin-card-img { position: relative; aspect-ratio: 1080 / 1380; overflow: hidden; }
 .evt-admin-card-img img { width: 100%; height: 100%; object-fit: cover; }
@@ -26312,7 +26886,7 @@ body.dark-mode .evt-bulkbar-count b { color: #e0b64a; }
 .pm-form-preview .pm-logo { width: 78px; height: 78px; flex: 0 0 78px; font-size: 1.3rem; }
 .pm-form-preview-label { font-size: 0.72rem; color: var(--text-secondary, #6b7280); text-align: center; }
 
-.pm-form-grid { flex: 1 1 420px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.pm-form-grid { flex: 1 1 420px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 14px; }
 .pm-field { display: flex; flex-direction: column; gap: 6px; }
 .pm-field-wide { grid-column: 1 / -1; }
 .pm-field > span { font-size: 0.78rem; font-weight: 700; color: var(--text-secondary, #6b7280); text-transform: uppercase; letter-spacing: 0.3px; }
@@ -26328,7 +26902,7 @@ body.dark-mode .evt-bulkbar-count b { color: #e0b64a; }
 .pm-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
 /* ---- Cards ---- */
-.pm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.pm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 16px; }
 .pm-card {
   background: var(--card-bg, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.1));
   border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px;
@@ -26574,7 +27148,7 @@ body.dark-mode .evt-bulkbar-count b { color: #e0b64a; }
 }
 
 /* ---- Cards: one column of aligned rows, actions pinned to the bottom ---- */
-.pm-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: stretch; }
+.pm-grid { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); align-items: stretch; }
 .pm-card { position: relative; padding: 20px; gap: 0; }
 .pm-card.inactive { opacity: 1; background: rgba(0,0,0,0.02); border-style: dashed; }
 .pm-card.inactive .pm-logo, .pm-card.inactive .pm-card-details { filter: grayscale(0.7); opacity: 0.75; }
@@ -26639,7 +27213,7 @@ body.dark-mode .evt-bulkbar-count b { color: #e0b64a; }
    EVENT STEPPER — pick saved payment channels
    ============================================================ */
 .evt-pick-hint { margin: -2px 0 10px; font-size: 0.82rem; line-height: 1.45; }
-.evt-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.evt-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 10px; }
 .evt-pick-card {
   position: relative; display: flex; align-items: center; gap: 12px;
   padding: 12px 40px 12px 12px; border-radius: 12px; cursor: pointer;
@@ -26787,7 +27361,7 @@ body.dark-mode .evt-bulkbar-count b { color: #e0b64a; }
 }
 
 /* ---- Channel cards ---- */
-.evt-pick-grid { grid-template-columns: repeat(auto-fill, minmax(276px, 1fr)); gap: 12px; }
+.evt-pick-grid { grid-template-columns: repeat(auto-fill, minmax(min(276px, 100%), 1fr)); gap: 12px; }
 .evt-pick-card {
   align-items: flex-start; gap: 14px;
   padding: 16px 46px 16px 16px; border-radius: 14px;
@@ -27205,7 +27779,7 @@ body.dark-mode .evt-pay-picker-menu { background: #23232f; border-color: rgba(25
    real 1080:1380 proportions and the text rides over it, sliding up on hover.
    Overrides the earlier 16:10 crop + text-below-image layout.
    ============================================================ */
-.evt-poster-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 26px; }
+.evt-poster-grid { grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 26px; }
 .evt-poster { position: relative; border-radius: 20px; }
 .evt-poster-img { aspect-ratio: 1080 / 1380; }
 /* The scrim only exists to make the overlaid text legible, so it fades in with it. */
@@ -27358,3 +27932,1004 @@ body.dark-mode .evt-poster-title { color: #fff; }
 }
 .evt-proof-icon { width: 46px; height: 46px; flex: 0 0 46px; font-size: 1.15rem; }
 .evt-proof-text strong { font-size: 0.92rem; font-weight: 800; }
+
+
+/* ============================================
+   DIALOGS ON SMALL AND SHORT SCREENS
+   ============================================
+   Every scrim in this app is `display: flex; align-items: center`, which is
+   right up until the dialog is taller than the screen. A centred flex item
+   that does not fit overflows its container EQUALLY in both directions, and
+   the overflow above the top of the window cannot be scrolled to - so the
+   dialog's header, its title and its close button end up off-screen with no
+   way to reach them. That is the "cut off" you get on a landscape phone, on a
+   small laptop with the browser bar showing, or on any long form.
+
+   The fix is the same for all of them and needs no per-dialog measuring:
+
+     - the scrim scrolls (`overflow-y: auto`), so a tall dialog is reachable
+       end to end instead of being clipped;
+     - `align-items: flex-start` stops the centring that caused the unreachable
+       overflow, and `margin: auto` on the dialog itself puts the centring back
+       for every dialog that DOES fit - so short dialogs look exactly as they
+       did and only tall ones behave differently;
+     - `overscroll-behavior: contain` keeps a flick at the end of the dialog
+       from scrolling the page behind it;
+     - the gutter shrinks on a phone. 20px a side costs a 320px screen an
+       eighth of its width, which is the difference between a form field that
+       fits and one that does not.
+
+   Image viewers are deliberately left out: they size themselves to the window
+   and centring is what they want. So is .account-deleted-overlay, which is a
+   full-screen takeover with its own layout. */
+.notif-modal-overlay,
+.community-verse-modal-overlay,
+.community-profile-modal-overlay,
+.community-reaction-viewer-overlay,
+.paw-detail-modal-overlay,
+.paw-lyrics-modal-overlay,
+.profile-crop-modal-overlay,
+.lineup-detail-overlay,
+.edit-user-modal-overlay,
+.welcome-modal-overlay,
+.um-modal-overlay,
+.perm-ctrl-confirm-overlay,
+.live-share-modal-overlay,
+.bday-greet-modal-overlay,
+.evt-modal-overlay,
+.pm-modal-overlay,
+.schedule-modal,
+.logout-modal {
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(10px, 3vw, 20px);
+  /* No max-height here on purpose: `inset: 0` already sizes the scrim to the
+     window, and capping it in dvh would leave a strip of page showing under it
+     whenever a mobile address bar is on screen. The dialogs inside are the
+     things that need capping - see below. */
+}
+
+/* Centred while it fits, top-aligned and scrollable once it does not. */
+.notif-modal-overlay > *,
+.community-verse-modal-overlay > *,
+.community-profile-modal-overlay > *,
+.community-reaction-viewer-overlay > *,
+.paw-detail-modal-overlay > *,
+.paw-lyrics-modal-overlay > *,
+.profile-crop-modal-overlay > *,
+.lineup-detail-overlay > *,
+.edit-user-modal-overlay > *,
+.welcome-modal-overlay > *,
+.um-modal-overlay > *,
+.perm-ctrl-confirm-overlay > *,
+.live-share-modal-overlay > *,
+.bday-greet-modal-overlay > *,
+.evt-modal-overlay > *,
+.pm-modal-overlay > *,
+.schedule-modal > *,
+.logout-modal > * {
+  margin-block: auto;
+  flex-shrink: 0;
+}
+
+/* The vh caps inside the dialogs themselves have the same address-bar problem,
+   and 85-92vh on a 360px-tall landscape phone leaves almost nothing once the
+   header and footer are drawn. Same ceiling for all of them, measured against
+   the real window. */
+.bday-greet-modal,
+.community-reaction-viewer,
+.community-verse-modal,
+.evt-detail-modal,
+.evt-modal,
+.lu-view-modal,
+.lyrics-editor-modal,
+.lyrics-link-modal,
+.paw-detail-modal,
+.paw-lyrics-modal,
+.pm-modal,
+.cimg-modal {
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+}
+
+/* A dialog is only as wide as the screen it opens on, whatever its design
+   width says. This is the backstop for the ones that set a px max-width and
+   nothing else. */
+.bday-greet-modal, .community-profile-modal, .community-reaction-viewer,
+.community-verse-modal, .edit-user-modal, .evt-del-modal, .evt-detail-modal,
+.evt-modal, .evt-proof-modal, .lineup-detail-modal, .live-share-modal,
+.lu-view-modal, .lyrics-editor-modal, .lyrics-link-modal, .notif-modal,
+.paw-date-action-modal, .paw-detail-modal, .paw-lyrics-modal,
+.perm-ctrl-confirm-modal, .pm-modal, .profile-crop-modal, .um-confirm-modal,
+.um-reset-modal, .welcome-modal {
+  width: 100%;
+}
+
+
+/* ============================================
+   RFID CARD READER
+   ============================================
+   Built out of the same tokens as everything else here, and it borrows the
+   dashboard's tables and modals wholesale. The pieces below are the ones this
+   file had no component for: a target to tap a card against, and a list of
+   people to hand a card to. */
+
+/* ---- Which kind of reader ---- */
+.rfid-modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.rfid-mode {
+  display: flex; align-items: flex-start; gap: 13px; text-align: left;
+  padding: 15px 17px;
+  border: 2px solid var(--border-color, #e0e0e0);
+  border-radius: 14px;
+  background: var(--bg-card, #fff);
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.rfid-mode:hover { border-color: var(--secondary); transform: translateY(-2px); }
+/* Still choosable - picking it is how you find out WHY it cannot work, and
+   that reason is written in the bar underneath. Dimmed, not disabled. */
+.rfid-mode.unavailable > i,
+.rfid-mode.unavailable > span { opacity: 0.55; }
+.rfid-mode.on {
+  border-color: var(--primary);
+  box-shadow: 0 8px 22px rgba(146, 108, 21, 0.18);
+}
+.rfid-mode > i { font-size: 1.3rem; color: var(--primary); margin-top: 2px; flex-shrink: 0; }
+.rfid-mode.on > i { color: var(--secondary); }
+.rfid-mode > span {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+  font-weight: 700; font-size: 0.95rem; color: var(--text-primary, #333);
+}
+.rfid-mode em {
+  font-style: normal; font-weight: 500; font-size: 0.79rem;
+  color: var(--text-secondary, #6c757d); line-height: 1.45;
+}
+body.dark-mode .rfid-mode { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .rfid-mode > span { color: #f1f1f1; }
+body.dark-mode .rfid-mode em { color: #aaa; }
+body.dark-mode .rfid-mode.on > i { color: var(--accent); }
+
+/* ---- Connecting the Arduino ---- */
+.rfid-serial-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 13px 16px; margin-bottom: 16px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 12px;
+  background: var(--bg-card, #fff);
+}
+.rfid-serial-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 220px; min-width: 0; }
+.rfid-serial-text b { font-size: 0.9rem; color: var(--text-primary, #333); }
+.rfid-serial-text em {
+  font-style: normal; font-size: 0.77rem; color: var(--text-secondary, #6c757d); line-height: 1.45;
+}
+.rfid-baud {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-secondary, #6c757d);
+}
+.rfid-baud select { width: auto; min-width: 96px; padding: 8px 10px; }
+
+/* Green when the port is open, amber while it opens, red when it drops. */
+.rfid-dot {
+  width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0;
+  background: #adb5bd;
+}
+.rfid-dot.open { background: #16a34a; box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.18); }
+.rfid-dot.opening { background: var(--accent); animation: rfidPulse 1s ease-in-out infinite; }
+.rfid-dot.error { background: var(--danger, #dc3545); }
+/* Not scanning, not connected, nothing wrong: the resting state. Without it
+   an idle reader borrows whatever colour the last state left behind. */
+.rfid-dot.idle { background: #9ca3af; box-shadow: none; }
+@keyframes rfidPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+body.dark-mode .rfid-serial-bar { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.09); }
+body.dark-mode .rfid-serial-text b { color: #f1f1f1; }
+
+/* ---- The pad, and the log beside it ---- */
+.rfid-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(min(300px, 100%), 340px);
+  gap: 20px; align-items: start;
+  margin-bottom: 26px;
+}
+
+.rfid-pad { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* The thing you hold a card against. Deliberately large: at a door, with a
+   queue, it has to be readable from standing height and across a desk. */
+.rfid-target {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 34px 22px 26px;
+  border: 2px dashed var(--border-color, #d9d9d9);
+  border-radius: 18px;
+  background: var(--bg-card, #fff);
+  text-align: center;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.rfid-target > i { font-size: 2.6rem; color: var(--secondary); }
+.rfid-target h3 { margin: 0; font-size: 1.16rem; font-weight: 800; color: var(--text-primary, #333); }
+.rfid-target p {
+  margin: 0; max-width: 40ch;
+  font-size: 0.84rem; line-height: 1.55; color: var(--text-secondary, #6c757d);
+}
+.rfid-target.busy { border-color: var(--secondary); border-style: solid; }
+.rfid-target.matched { border-color: #16a34a; border-style: solid; background: rgba(22, 163, 74, 0.05); }
+.rfid-target.unknown { border-color: var(--accent); border-style: solid; background: rgba(255, 195, 0, 0.07); }
+.rfid-target.inactive { border-color: var(--danger, #dc3545); border-style: solid; background: rgba(220, 53, 69, 0.05); }
+
+/* The number off the last card, on the pad itself. Big and monospaced
+   because it gets read out loud and compared against a card by eye, and
+   because it is the answer to "did that tap do anything" - which arrives
+   before the answer to "whose card is it". */
+.rfid-live-uid {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin-top: 4px; padding: 7px 15px;
+  border: 1px solid rgba(22, 163, 74, 0.28); border-radius: 999px;
+  background: rgba(22, 163, 74, 0.08);
+}
+.rfid-live-uid span {
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.09em;
+  text-transform: uppercase; color: #16a34a;
+}
+.rfid-live-uid code {
+  font-family: var(--font-mono); font-size: 1.02rem; font-weight: 700;
+  letter-spacing: 0.1em; color: var(--text-primary, #333);
+}
+body.dark-mode .rfid-live-uid code { color: #f1f1f1; }
+
+/* Where a keyboard-wedge reader types. Visible on purpose - an invisible
+   capture field is impossible to tell apart from a broken one, and the first
+   thing anybody needs to know is whether the reader is reaching the page. */
+.rfid-catch {
+  width: min(320px, 100%);
+  margin-top: 6px; padding: 11px 14px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.02);
+  font-family: var(--font-mono); font-size: 0.95rem; letter-spacing: 0.08em;
+  text-align: center; color: var(--text-primary, #333);
+}
+.rfid-catch:focus {
+  outline: none;
+  border-color: var(--secondary);
+  box-shadow: 0 0 0 4px rgba(201, 152, 11, 0.16);
+}
+body.dark-mode .rfid-target { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.14); }
+body.dark-mode .rfid-target h3 { color: #f1f1f1; }
+body.dark-mode .rfid-catch { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.14); color: #eee; }
+
+/* ---- Mark present on tap ---- */
+.rfid-toggle {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 13px 16px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 12px;
+  background: var(--bg-card, #fff);
+  cursor: pointer;
+}
+.rfid-toggle input { margin-top: 3px; width: 17px; height: 17px; flex-shrink: 0; cursor: pointer; }
+.rfid-toggle span {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 0.88rem; font-weight: 700; color: var(--text-primary, #333);
+}
+.rfid-toggle em {
+  font-style: normal; font-weight: 500; font-size: 0.78rem;
+  color: var(--text-secondary, #6c757d);
+}
+body.dark-mode .rfid-toggle { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.09); }
+body.dark-mode .rfid-toggle span { color: #f1f1f1; }
+
+.rfid-manual { display: flex; gap: 10px; flex-wrap: wrap; }
+.rfid-manual input { flex: 1 1 200px; min-width: 0; }
+
+/* ---- Who just tapped ---- */
+.rfid-result {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  background: var(--bg-card, #fff);
+}
+.rfid-result.matched { border-color: rgba(22, 163, 74, 0.4); }
+.rfid-result.unknown { border-color: rgba(255, 195, 0, 0.5); }
+.rfid-result.inactive { border-color: rgba(220, 53, 69, 0.4); }
+
+.rfid-result-who { display: flex; align-items: center; gap: 13px; }
+.rfid-result-who b { display: block; font-size: 1.05rem; color: var(--text-primary, #333); }
+.rfid-result-who em {
+  font-style: normal; font-size: 0.8rem; color: var(--text-secondary, #6c757d);
+}
+.rfid-result-msg {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  font-size: 0.87rem; color: var(--text-secondary, #6c757d);
+}
+.rfid-result.matched .rfid-result-msg i { color: #16a34a; }
+.rfid-result.unknown .rfid-result-msg i { color: #b45309; }
+.rfid-result.inactive .rfid-result-msg i { color: var(--danger, #dc3545); }
+
+.rfid-avatar {
+  /* aspect-ratio and flex: none together, so no flex parent can stretch it
+     into an ellipse - which is exactly what happened once. */
+  width: 46px; height: 46px; aspect-ratio: 1; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%; overflow: hidden;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: #fff; font-weight: 800; font-size: 0.95rem;
+}
+.rfid-avatar.sm { width: 34px; height: 34px; font-size: 0.75rem; }
+
+.rfid-uid {
+  align-self: flex-start;
+  padding: 5px 11px; border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  font-family: var(--font-mono); font-size: 0.85rem; letter-spacing: 0.1em;
+  color: var(--text-primary, #333);
+}
+body.dark-mode .rfid-result { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.09); }
+body.dark-mode .rfid-result-who b { color: #f1f1f1; }
+body.dark-mode .rfid-uid { background: rgba(255, 255, 255, 0.07); color: #eee; }
+
+/* ---- Recent taps ---- */
+.rfid-log {
+  padding: 16px 18px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 14px;
+  background: var(--bg-card, #fff);
+}
+.rfid-log h3 {
+  display: flex; align-items: center; gap: 9px; margin: 0 0 12px;
+  font-size: 0.95rem; font-weight: 700; color: var(--text-primary, #333);
+}
+.rfid-log h3 i { color: var(--secondary); }
+.rfid-log ul { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.rfid-log li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px; align-items: baseline;
+  padding: 9px 0 9px 11px;
+  border-bottom: 1px solid var(--border-color, #eee);
+  /* A colour down the edge, so matched and unmatched taps can be told apart
+     at a glance while a queue is moving. */
+  border-left: 3px solid transparent;
+}
+.rfid-log li:last-child { border-bottom: none; }
+.rfid-log li.matched { border-left-color: #16a34a; }
+.rfid-log li.unknown { border-left-color: var(--accent); }
+.rfid-log li.inactive { border-left-color: var(--danger, #dc3545); }
+.rfid-log-who {
+  font-size: 0.85rem; font-weight: 700; color: var(--text-primary, #333);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rfid-log code {
+  grid-column: 1; font-family: var(--font-mono); font-size: 0.72rem;
+  color: var(--text-secondary, #6c757d); letter-spacing: 0.06em;
+}
+.rfid-log time { grid-row: 1 / span 2; font-size: 0.72rem; color: var(--text-secondary, #6c757d); white-space: nowrap; }
+.rfid-empty { margin: 0; font-size: 0.84rem; color: var(--text-secondary, #6c757d); text-align: center; padding: 16px 0; }
+body.dark-mode .rfid-log { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.09); }
+body.dark-mode .rfid-log h3, body.dark-mode .rfid-log-who { color: #f1f1f1; }
+body.dark-mode .rfid-log li { border-bottom-color: rgba(255, 255, 255, 0.07); }
+
+/* ---- Cards on file ---- */
+.rfid-cards-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.rfid-cards-head h3 {
+  display: flex; align-items: center; gap: 9px; margin: 0;
+  font-size: 1.05rem; font-weight: 700; color: var(--text-primary, #333);
+}
+.rfid-cards-head .evt-search { flex: 1 1 220px; }
+.rfid-count {
+  padding: 2px 10px; border-radius: 999px;
+  background: var(--accent); color: #3e2e08;
+  font-size: 0.74rem; font-weight: 800;
+}
+.rfid-sub { font-style: normal; font-size: 0.78rem; color: var(--text-secondary, #6c757d); }
+.rfid-row-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+body.dark-mode .rfid-cards-head h3 { color: #f1f1f1; }
+
+/* ---- Choosing who a card belongs to ---- */
+.rfid-people {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 320px; overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 12px;
+}
+.rfid-person {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 9px 11px;
+  border: 1px solid transparent; border-radius: 10px;
+  background: transparent; cursor: pointer; text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.rfid-person:hover { background: rgba(146, 108, 21, 0.07); }
+.rfid-person.on { border-color: var(--primary); background: rgba(146, 108, 21, 0.1); }
+.rfid-person-name {
+  display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0;
+  font-size: 0.88rem; font-weight: 700; color: var(--text-primary, #333);
+}
+.rfid-person-name em {
+  font-style: normal; font-weight: 500; font-size: 0.75rem;
+  color: var(--text-secondary, #6c757d);
+}
+.rfid-has-card {
+  flex-shrink: 0;
+  padding: 2px 9px; border-radius: 999px;
+  background: rgba(146, 108, 21, 0.14); color: var(--primary);
+  font-size: 0.68rem; font-weight: 700;
+}
+body.dark-mode .rfid-people { border-color: rgba(255, 255, 255, 0.12); }
+body.dark-mode .rfid-person:hover { background: rgba(255, 255, 255, 0.05); }
+body.dark-mode .rfid-person.on { background: rgba(255, 195, 0, 0.1); border-color: var(--secondary); }
+body.dark-mode .rfid-person-name { color: #f1f1f1; }
+body.dark-mode .rfid-has-card { background: rgba(255, 195, 0, 0.16); color: var(--accent); }
+
+/* ---- Narrow screens ---- */
+@media (max-width: 1000px) {
+  /* The log goes under the pad rather than beside it - at this width a 340px
+     column beside the target leaves the target too small to aim a card at. */
+  .rfid-layout { grid-template-columns: minmax(0, 1fr); }
+  .rfid-log ul { max-height: 260px; }
+}
+
+@media (max-width: 600px) {
+  .rfid-target { padding: 26px 16px 20px; }
+  .rfid-target > i { font-size: 2.1rem; }
+  .rfid-serial-bar { gap: 10px; }
+  .rfid-baud { width: 100%; }
+  .rfid-baud select { flex: 1; }
+  .rfid-cards-head h3 { width: 100%; }
+}
+
+/* ---- When the reader will not open ----
+   A muted grey line is the wrong weight for the one message on this page that
+   the person has to act on. */
+.rfid-alert {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px; margin-bottom: 16px;
+  border: 1px solid rgba(220, 53, 69, 0.35);
+  border-left: 4px solid var(--danger, #dc3545);
+  border-radius: 12px;
+  background: rgba(220, 53, 69, 0.06);
+}
+.rfid-alert > i { color: var(--danger, #dc3545); font-size: 1rem; margin-top: 2px; flex-shrink: 0; }
+.rfid-alert > div { flex: 1; min-width: 0; }
+.rfid-alert b { display: block; font-size: 0.89rem; font-weight: 700; color: var(--text-primary, #333); line-height: 1.5; }
+.rfid-alert ul { margin: 9px 0 0; padding-left: 18px; }
+.rfid-alert li {
+  font-size: 0.82rem; line-height: 1.6; color: var(--text-secondary, #6c757d);
+  margin-bottom: 3px;
+}
+.rfid-alert li b { display: inline; font-size: inherit; color: var(--text-primary, #333); }
+.rfid-alert-x {
+  flex-shrink: 0; width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border: none; border-radius: 7px;
+  background: transparent; color: var(--text-secondary, #6c757d);
+  cursor: pointer; font-size: 0.8rem;
+}
+.rfid-alert-x:hover { background: rgba(220, 53, 69, 0.14); color: var(--danger, #dc3545); }
+
+body.dark-mode .rfid-alert { background: rgba(220, 53, 69, 0.1); border-color: rgba(220, 53, 69, 0.4); }
+body.dark-mode .rfid-alert b { color: #f1f1f1; }
+body.dark-mode .rfid-alert li { color: #bbb; }
+body.dark-mode .rfid-alert li b { color: #f1f1f1; }
+
+/* ---- Reader diagnostics ----
+   "It will not read" has three completely different causes that look the same
+   from outside: the chip never answered, the chip is fine but nothing is
+   being presented, or the chip is fine and the card is the wrong frequency.
+   This panel is what tells them apart. */
+.rfid-diag {
+  padding: 12px 14px; margin-bottom: 16px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 12px;
+  background: var(--bg-card, #fff);
+}
+.rfid-diag-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.rfid-chip-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 0.78rem; font-weight: 700;
+}
+.rfid-chip-pill.ok   { background: rgba(22, 163, 74, 0.14); color: #16a34a; }
+.rfid-chip-pill.bad  { background: rgba(220, 53, 69, 0.13); color: #b91c1c; }
+.rfid-chip-pill.wait { background: rgba(0, 0, 0, 0.06); color: var(--text-secondary, #6c757d); }
+
+.rfid-heard, .rfid-type-pill {
+  font-size: 0.76rem; color: var(--text-secondary, #6c757d);
+}
+.rfid-type-pill {
+  padding: 4px 11px; border-radius: 999px;
+  background: rgba(146, 108, 21, 0.1); color: var(--primary); font-weight: 700;
+}
+
+/* The number off the card, in the diagnostics row. Green, monospaced and
+   next to the chip status, because "the reader is alive" and "the reader
+   just read THIS" are the two things being looked for at the same time. */
+.rfid-uid-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 11px; border-radius: 999px;
+  background: rgba(22, 163, 74, 0.12); color: #16a34a;
+  font-size: 0.76rem; font-weight: 700;
+}
+.rfid-uid-pill code {
+  font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.06em;
+}
+
+.rfid-diag-toggle {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color, #e0e0e0); border-radius: 9px;
+  background: transparent; color: var(--text-secondary, #6c757d);
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+}
+.rfid-diag-toggle:hover { border-color: var(--secondary); color: var(--primary); }
+
+/* Positioned, not flexed. `display: flex` on a paragraph makes every bare
+   run of text and every inline <b> inside it a separate FLEX ITEM, so the
+   sentence gets laid out in columns instead of wrapping - which is exactly
+   what happened here. Absolutely positioning the icon leaves the text as
+   ordinary flowing text, whatever inline markup is in it. */
+.rfid-diag-note {
+  position: relative;
+  margin: 11px 0 0; padding: 11px 13px 11px 34px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.035);
+  font-size: 0.82rem; line-height: 1.6; color: var(--text-secondary, #6c757d);
+}
+.rfid-diag-note i { position: absolute; left: 13px; top: 14px; color: var(--secondary); }
+.rfid-diag-note b { color: var(--text-primary, #333); }
+.rfid-diag-note.bad { background: rgba(220, 53, 69, 0.07); }
+.rfid-diag-note.bad i { color: var(--danger, #dc3545); }
+
+/* ---- The raw output ---- */
+.rfid-console {
+  margin-top: 11px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 10px;
+  background: #1a1a2e;
+  overflow: hidden;
+}
+.rfid-console ul {
+  list-style: none; margin: 0; padding: 9px 11px;
+  max-height: 220px; overflow-y: auto;
+}
+.rfid-console li {
+  display: flex; gap: 11px; align-items: baseline;
+  padding: 2px 0;
+  font-family: var(--font-mono); font-size: 0.76rem; line-height: 1.6;
+}
+.rfid-console time { color: #6b7280; flex-shrink: 0; font-size: 0.7rem; }
+.rfid-console code { color: #d1d5db; word-break: break-all; }
+/* A card line is the one you are looking for in a wall of them. */
+.rfid-console li.uid code { color: #4ade80; font-weight: 700; }
+.rfid-console li.err code { color: #fca5a5; }
+.rfid-console-empty {
+  margin: 0; padding: 18px 14px; text-align: center;
+  font-size: 0.8rem; line-height: 1.6; color: #9ca3af;
+}
+.rfid-console-foot {
+  display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+  padding: 8px 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* The sector dump, when it is asked for: present, readable, and clearly
+   not the line anybody came here to read. */
+.rfid-console li.dump code { color: #6b7280; }
+.rfid-console-filter {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-right: auto;
+  font-size: 0.74rem; color: #9ca3af; cursor: pointer;
+}
+.rfid-console-filter input { margin: 0; cursor: pointer; }
+
+body.dark-mode .rfid-diag { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.09); }
+body.dark-mode .rfid-diag-note { background: rgba(255, 255, 255, 0.04); }
+body.dark-mode .rfid-diag-note b { color: #f1f1f1; }
+body.dark-mode .rfid-chip-pill.wait { background: rgba(255, 255, 255, 0.07); color: #aaa; }
+body.dark-mode .rfid-type-pill { background: rgba(255, 195, 0, 0.13); color: var(--accent); }
+body.dark-mode .rfid-diag-toggle { border-color: rgba(255, 255, 255, 0.14); color: #bbb; }
+
+/* ---- A status pill you can open ----
+   "For Verification" names the one thing somebody has to go and look at, so
+   the word itself is the way to it - three clicks through a Manage menu to
+   reach a receipt was three too many. Inherits its colour from
+   .evt-status-<status>; all this adds is the affordance. */
+button.evt-status-link {
+  display: inline-flex; align-items: center;
+  /* A visible edge in the pill's own colour, so it reads as a control
+     standing on the table rather than a coloured word printed on it. */
+  border: 1px solid currentColor;
+  font: inherit; font-weight: inherit;
+  /* The affordance, now that there is no glyph: the label is underlined the
+     way a link is, dashed until it is hovered. */
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+  transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+button.evt-status-link:hover {
+  filter: brightness(0.95);
+  text-decoration-style: solid;
+  box-shadow: 0 2px 9px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+}
+button.evt-status-link:active { transform: translateY(0); }
+button.evt-status-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(201, 152, 11, 0.35);
+}
+
+/* ============================================================
+   Events RFID - the event cards, and the readers strip
+   ============================================================ */
+
+/* ---- One card per event ----
+   The landing view. Each card answers "how far through handing out cards is
+   this event", which is the only reason anybody opens this screen. */
+.rfid-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.rfid-event-card {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 17px 18px 14px;
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 15px;
+  background: var(--bg-card, #fff);
+  text-align: left; cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.rfid-event-card:hover {
+  border-color: var(--secondary);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.07);
+  transform: translateY(-2px);
+}
+.rfid-event-card-top { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rfid-event-card-top b {
+  font-size: 1.02rem; font-weight: 800; line-height: 1.3;
+  color: var(--text-primary, #333);
+}
+.rfid-event-card-top em {
+  display: flex; align-items: center; gap: 6px;
+  font-style: normal; font-size: 0.78rem; color: var(--text-secondary, #6c757d);
+}
+
+/* Three figures, evenly weighted - which one matters depends on whether the
+   desk is still handing cards out or already on the door. */
+.rfid-event-card-nums { display: flex; gap: 8px; }
+.rfid-event-card-nums > span {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.035);
+}
+.rfid-event-card-nums b { font-size: 1.12rem; font-weight: 800; color: var(--text-primary, #333); }
+.rfid-event-card-nums em {
+  font-style: normal; font-size: 0.66rem; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-secondary, #6c757d);
+}
+.rfid-event-card-nums > span.has { background: rgba(146, 108, 21, 0.1); }
+.rfid-event-card-nums > span.has b { color: var(--primary); }
+.rfid-event-card-nums > span.in { background: rgba(22, 163, 74, 0.11); }
+.rfid-event-card-nums > span.in b { color: #16a34a; }
+
+/* Carded against verified. A bar rather than a third figure, because the
+   question is "are we nearly done" and that is a shape, not a number. */
+.rfid-event-card-bar {
+  display: block; height: 5px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.07); overflow: hidden;
+}
+.rfid-event-card-bar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--secondary);
+  transition: width 0.3s ease;
+}
+.rfid-event-card-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 0.76rem; font-weight: 600; color: var(--text-secondary, #6c757d);
+}
+.rfid-event-card:hover .rfid-event-card-foot { color: var(--primary); }
+
+body.dark-mode .rfid-event-card { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .rfid-event-card-top b { color: #f1f1f1; }
+body.dark-mode .rfid-event-card-nums > span { background: rgba(255, 255, 255, 0.05); }
+body.dark-mode .rfid-event-card-nums b { color: #f1f1f1; }
+body.dark-mode .rfid-event-card-bar { background: rgba(255, 255, 255, 0.09); }
+
+/* ---- The way back to the grid ---- */
+.rfid-back {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 13px;
+  border: 1px solid var(--border-color, #e0e0e0); border-radius: 10px;
+  background: transparent; color: var(--text-secondary, #6c757d);
+  font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  flex-shrink: 0;
+}
+.rfid-back:hover { border-color: var(--secondary); color: var(--primary); }
+.rfid-event-bar-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.rfid-event-bar-name b {
+  font-size: 0.96rem; font-weight: 800; color: var(--text-primary, #333);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rfid-event-bar-name em {
+  font-style: normal; font-size: 0.75rem; color: var(--text-secondary, #6c757d);
+}
+body.dark-mode .rfid-back { border-color: rgba(255, 255, 255, 0.14); color: #bbb; }
+body.dark-mode .rfid-event-bar-name b { color: #f1f1f1; }
+
+/* ---- Every reader at once ----
+   Not a chooser. Each row is one reader reporting its own single failure
+   mode, and they are all listening whatever the rows say. */
+.rfid-readers {
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 14px;
+  background: var(--bg-card, #fff);
+  overflow: hidden;
+}
+.rfid-readers-title {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  margin: 0; padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color, #eee);
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 0.84rem; font-weight: 800;
+  color: var(--text-primary, #333);
+}
+.rfid-readers-title em {
+  font-style: normal; font-size: 0.76rem; font-weight: 500;
+  color: var(--text-secondary, #6c757d);
+}
+.rfid-reader-row {
+  display: flex; align-items: center; gap: 13px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color, #f0f0f0);
+}
+.rfid-reader-row:last-child { border-bottom: none; }
+.rfid-reader-row .rfid-serial-text { flex: 1; min-width: 0; }
+.rfid-reader-row .rfid-serial-text b {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+body.dark-mode .rfid-readers { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .rfid-readers-title {
+  background: rgba(255, 255, 255, 0.03); border-bottom-color: rgba(255, 255, 255, 0.08);
+  color: #f1f1f1;
+}
+body.dark-mode .rfid-reader-row { border-bottom-color: rgba(255, 255, 255, 0.07); }
+
+/* A card, on the door list. The icon carries "has one"; the number is there
+   to read out when a card has to be matched to a person by hand. */
+.rfid-has-card { display: inline-flex; align-items: center; gap: 7px; color: #16a34a; }
+.rfid-has-card code { color: var(--text-primary, #333); font-family: var(--font-mono); }
+body.dark-mode .rfid-has-card code { color: #eee; }
+
+/* ---- What a tap is for ---- */
+.rfid-purpose {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 10px; margin-bottom: 14px;
+}
+.rfid-purpose-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  padding: 13px 16px;
+  border: 2px solid var(--border-color, #e0e0e0); border-radius: 13px;
+  background: var(--bg-card, #fff);
+  font-size: 0.94rem; font-weight: 700; color: var(--text-primary, #333);
+  text-align: left; cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.rfid-purpose-btn i { color: var(--primary); margin-right: 6px; }
+.rfid-purpose-btn em {
+  font-style: normal; font-weight: 500; font-size: 0.78rem;
+  color: var(--text-secondary, #6c757d); line-height: 1.45;
+}
+.rfid-purpose-btn:hover { border-color: var(--secondary); }
+.rfid-purpose-btn.on {
+  border-color: var(--primary);
+  background: linear-gradient(135deg, rgba(146,108,21,0.08), rgba(201,152,11,0.05));
+}
+body.dark-mode .rfid-purpose-btn { background: #1e1e2e; border-color: rgba(255,255,255,0.1); color: #f1f1f1; }
+body.dark-mode .rfid-purpose-btn em { color: #aaa; }
+body.dark-mode .rfid-purpose-btn.on { border-color: var(--secondary); background: rgba(255,195,0,0.07); }
+
+/* ---- Which event the door belongs to ---- */
+.rfid-event-bar {
+  display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+  padding: 13px 16px; margin-bottom: 14px;
+  border: 1px solid var(--border-color, #e0e0e0); border-radius: 12px;
+  background: var(--bg-card, #fff);
+}
+.rfid-event-bar > label {
+  display: flex; flex-direction: column; gap: 5px; flex: 1 1 260px; min-width: 0;
+  font-size: 0.74rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--text-secondary, #6c757d);
+}
+.rfid-event-stats { display: flex; gap: 16px; flex-wrap: wrap; padding-bottom: 8px; }
+.rfid-event-stats span { font-size: 0.76rem; color: var(--text-secondary, #6c757d); }
+.rfid-event-stats b { display: block; font-size: 1.15rem; font-weight: 800; color: var(--primary); }
+.rfid-event-stats .in b { color: #16a34a; }
+body.dark-mode .rfid-event-bar { background: #1e1e2e; border-color: rgba(255,255,255,0.09); }
+body.dark-mode .rfid-event-stats b { color: var(--accent); }
+
+/* ---- Handing a card to a named attendee ----
+   The pad changes colour while it is waiting for THAT person's card, because
+   the next tap does something different from every other tap. */
+.rfid-target.handing {
+  border-style: solid; border-color: var(--secondary);
+  background: rgba(201, 152, 11, 0.07);
+}
+.rfid-cancel-hand {
+  margin-top: 4px; padding: 6px 16px;
+  border: 1px solid var(--border-color, #ddd); border-radius: 9px;
+  background: transparent; color: var(--text-secondary, #6c757d);
+  font-size: 0.79rem; font-weight: 600; cursor: pointer;
+}
+.rfid-cancel-hand:hover { border-color: var(--danger, #dc3545); color: var(--danger, #dc3545); }
+
+/* Someone already through the door, greyed back so the queue stands out. */
+.evt-table tbody tr.rfid-row-in { opacity: 0.62; }
+body.dark-mode .rfid-cancel-hand { border-color: rgba(255,255,255,0.14); color: #bbb; }
+
+@media (max-width: 600px) {
+  .rfid-event-stats { gap: 12px; }
+}
+
+/* ---- RFID from inside the event screen ---- */
+.evt-rfid-modal .evt-modal-body { display: flex; flex-direction: column; gap: 14px; }
+
+/* The pad, in a dialog. Same idea as the one on the RFID Reader page but
+   sized for a dialog rather than a whole section. */
+.evt-rfid-pad {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 26px 20px 22px;
+  border: 2px dashed var(--border-color, #d9d9d9); border-radius: 16px;
+  text-align: center;
+}
+.evt-rfid-pad > i { font-size: 2.2rem; color: var(--secondary); }
+.evt-rfid-pad h4 { margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--text-primary, #333); }
+.evt-rfid-pad p {
+  margin: 0; max-width: 44ch;
+  font-size: 0.83rem; line-height: 1.6; color: var(--text-secondary, #6c757d);
+}
+.evt-rfid-pad .rfid-catch { margin-top: 8px; }
+body.dark-mode .evt-rfid-pad { border-color: rgba(255,255,255,0.14); }
+body.dark-mode .evt-rfid-pad h4 { color: #f1f1f1; }
+
+/* Same reason as .rfid-diag-note above - see the note there. */
+.evt-rfid-hint {
+  position: relative; margin: 0;
+  padding: 10px 13px 10px 34px; border-radius: 10px;
+  background: rgba(0,0,0,0.035);
+  font-size: 0.79rem; line-height: 1.6; color: var(--text-secondary, #6c757d);
+}
+.evt-rfid-hint i { position: absolute; left: 13px; top: 13px; color: var(--secondary); }
+.evt-rfid-hint b { color: var(--text-primary, #333); }
+body.dark-mode .evt-rfid-hint { background: rgba(255,255,255,0.04); }
+body.dark-mode .evt-rfid-hint b { color: #f1f1f1; }
+
+/* ---- The name, after a tap ----
+   Deliberately loud. Whoever is on the door is holding a queue, not reading a
+   form: the name has to land from across a desk without being looked for. */
+.evt-rfid-shout {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 26px 20px;
+  border-radius: 16px; text-align: center;
+  border: 2px solid var(--border-color, #e0e0e0);
+}
+.evt-rfid-shout > i { font-size: 2.4rem; }
+.evt-rfid-shout strong {
+  font-size: 1.7rem; font-weight: 800; line-height: 1.2;
+  color: var(--text-primary, #333); word-break: break-word;
+}
+.evt-rfid-shout span { font-size: 0.9rem; color: var(--text-secondary, #6c757d); }
+.evt-rfid-shout em { font-style: normal; font-size: 0.82rem; color: var(--text-secondary, #6c757d); }
+.evt-rfid-shout code {
+  margin-top: 4px; padding: 4px 11px; border-radius: 7px;
+  background: rgba(0,0,0,0.05);
+  font-family: var(--font-mono); font-size: 0.76rem; letter-spacing: 0.1em;
+  color: var(--text-secondary, #6c757d);
+}
+
+.evt-rfid-shout.checked_in { border-color: #16a34a; background: rgba(22,163,74,0.07); }
+.evt-rfid-shout.checked_in > i { color: #16a34a; }
+.evt-rfid-shout.already_in { border-color: var(--accent); background: rgba(255,195,0,0.09); }
+.evt-rfid-shout.already_in > i { color: #b45309; }
+.evt-rfid-shout.unknown,
+.evt-rfid-shout.not_registered,
+.evt-rfid-shout.not_verified,
+.evt-rfid-shout.error { border-color: var(--danger, #dc3545); background: rgba(220,53,69,0.06); }
+.evt-rfid-shout.unknown > i,
+.evt-rfid-shout.not_registered > i,
+.evt-rfid-shout.not_verified > i,
+.evt-rfid-shout.error > i { color: var(--danger, #dc3545); }
+
+body.dark-mode .evt-rfid-shout strong { color: #f1f1f1; }
+body.dark-mode .evt-rfid-shout code { background: rgba(255,255,255,0.07); color: #ccc; }
+
+/* The number on the attendance row. */
+.evt-rfid-tag {
+  padding: 3px 9px; border-radius: 6px;
+  background: rgba(146,108,21,0.1); color: var(--primary);
+  font-family: var(--font-mono); font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em;
+}
+body.dark-mode .evt-rfid-tag { background: rgba(255,195,0,0.13); color: var(--accent); }
+
+@media (max-width: 600px) {
+  .evt-rfid-shout strong { font-size: 1.35rem; }
+  .evt-rfid-pad { padding: 20px 14px 18px; }
+}
+
+/* ---- Reader status, inside a dialog ----
+   Both readers, always, whether or not either is in use. Which one is going
+   to catch the next tap is not something anybody should have to deduce. */
+.rfid-status-strip {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 10px; border-radius: 11px;
+  background: rgba(0, 0, 0, 0.03);
+}
+.rfid-stat {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 12px; border-radius: 9px;
+  border: 1px solid var(--border-color, #e5e5e5);
+  background: var(--bg-card, #fff);
+  font-size: 0.74rem; font-weight: 700; letter-spacing: 0.03em;
+  text-transform: uppercase; color: var(--text-secondary, #6c757d);
+}
+.rfid-stat b {
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0;
+  text-transform: none; color: var(--text-primary, #333);
+}
+/* The dot is the border colour, so the state reads before the words do. */
+.rfid-stat.ok   { border-color: rgba(22, 163, 74, 0.45); }
+.rfid-stat.ok   > i, .rfid-stat.ok b   { color: #16a34a; }
+.rfid-stat.warn { border-color: rgba(255, 195, 0, 0.6); }
+.rfid-stat.warn > i, .rfid-stat.warn b { color: #b45309; }
+.rfid-stat.bad  { border-color: rgba(220, 53, 69, 0.45); }
+.rfid-stat.bad  > i, .rfid-stat.bad b  { color: var(--danger, #dc3545); }
+.rfid-stat.off  > i { color: #adb5bd; }
+
+.rfid-stat-btn {
+  margin-left: 3px; padding: 4px 11px;
+  border: none; border-radius: 7px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: #fff; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  text-transform: none; letter-spacing: 0;
+}
+.rfid-stat-btn:hover { filter: brightness(1.08); }
+.rfid-stat-btn.ghost {
+  background: transparent; color: var(--text-secondary, #6c757d);
+  border: 1px solid var(--border-color, #ddd);
+}
+
+.evt-rfid-hint.bad { background: rgba(220, 53, 69, 0.07); color: var(--danger, #dc3545); }
+.evt-rfid-hint.bad i { color: var(--danger, #dc3545); }
+
+body.dark-mode .rfid-status-strip { background: rgba(255, 255, 255, 0.04); }
+body.dark-mode .rfid-stat { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.12); color: #aaa; }
+body.dark-mode .rfid-stat b { color: #f1f1f1; }
+body.dark-mode .rfid-stat.ok b { color: #4ade80; }
+body.dark-mode .rfid-stat.warn b { color: #fbbf24; }
+body.dark-mode .rfid-stat.bad b { color: #fca5a5; }
+body.dark-mode .rfid-stat-btn.ghost { border-color: rgba(255, 255, 255, 0.16); color: #bbb; }
+
+@media (max-width: 520px) {
+  .rfid-stat { width: 100%; justify-content: flex-start; }
+}

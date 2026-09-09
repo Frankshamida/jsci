@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
+import { normalizeUid, isPlausibleUid, formatUid } from '@/lib/rfid';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { moderateMessage, detectInappropriateWords } from '@/lib/contentModeration';
 import SmartImage from '@/components/SmartImage';
@@ -687,8 +688,6 @@ export default function DashboardPage() {
   const [adminChurchOptions, setAdminChurchOptions] = useState([]);
   const [adminChurchOpen, setAdminChurchOpen] = useState(false);
   const [pendingRegAlerts, setPendingRegAlerts] = useState([]); // registrations awaiting verification, across all events (admin bell)
-  const [showQrScanner, setShowQrScanner] = useState(false);
-  const [qrScanResult, setQrScanResult] = useState(null); // { status: 'success'|'already'|'error', message }
   const [registerModal, setRegisterModal] = useState(null); // event object
   const [registerForm, setRegisterForm] = useState({ attendeeFirstName: '', attendeeLastName: '', attendeeEmail: '', attendeeMobile: '', churchName: '', churchPastor: '', paymentMethod: '', paymentReference: '' });
   // The member form walks the same three steps as the public one: who is coming,
@@ -898,6 +897,209 @@ export default function DashboardPage() {
   const [moderationResult, setModerationResult] = useState(null);
   const [pendingMessageToSend, setPendingMessageToSend] = useState(null);
   const [chatFoulWarning, setChatFoulWarning] = useState(null);
+
+  // ============================================
+  // RFID CARD READER
+  // ============================================
+  // Two ways in, because there are two kinds of reader in the world and the
+  // church may end up with either:
+  //
+  //   'keyboard'  A USB RFID reader is a KEYBOARD as far as the computer is
+  //               concerned. It types the card number and presses Enter.
+  //               Nothing to install, nothing to permit, works in every
+  //               browser - so it is the default.
+  //   'serial'    The Arduino + RC522 talks over the USB serial port. That
+  //               needs the Web Serial API: Chrome or Edge, on a desktop,
+  //               over https or localhost. Never available on a phone.
+  // There is deliberately no "which reader" setting any more. A desk can have
+  // a USB reader plugged in, an Arduino on the serial port and a phone in
+  // someone's hand, and which one a card is tapped on is not a decision worth
+  // making in advance - every one of them is listened to at once, and they all
+  // arrive at routeRfidTap as the same card number.
+  const [rfidSerialStatus, setRfidSerialStatus] = useState('idle'); // idle|opening|open|error
+  const [rfidBaud, setRfidBaud] = useState(9600);
+  const [rfidError, setRfidError] = useState('');
+  // The result of the last tap, straight from /api/rfid/scan.
+  const [rfidLast, setRfidLast] = useState(null);
+  const [rfidBusy, setRfidBusy] = useState(false);
+  // Marking people present is the usual reason for a reader at the door, but
+  // registering cards is done with it too - and marking the whole queue
+  // present while you register their cards would be wrong.
+  const [rfidAutoAttend, setRfidAutoAttend] = useState(false);
+  const [rfidCards, setRfidCards] = useState([]);
+  const [rfidScans, setRfidScans] = useState([]);
+  const [rfidLoading, setRfidLoading] = useState(false);
+  // The card waiting to be given to somebody: { uid }
+  const [rfidAssign, setRfidAssign] = useState(null);
+  const [rfidAssignUser, setRfidAssignUser] = useState('');
+  const [rfidAssignLabel, setRfidAssignLabel] = useState('');
+  const [rfidAssignSearch, setRfidAssignSearch] = useState('');
+  const [rfidCardSearch, setRfidCardSearch] = useState('');
+  const [rfidManual, setRfidManual] = useState('');
+  // Everything the reader has said, card lines and all the rest. This is the
+  // only way to tell "the reader is silent" apart from "the reader is talking
+  // and the dashboard is not listening properly" - and those two have
+  // completely different fixes.
+  const [rfidRaw, setRfidRaw] = useState([]);
+  const [rfidShowRaw, setRfidShowRaw] = useState(false);
+  const [rfidFocus, setRfidFocus] = useState(false);
+  // Last time ANY line arrived, heartbeat included. Proves the board is alive.
+  const [rfidLastHeard, setRfidLastHeard] = useState(null);
+  // What the sketch reported about itself at startup.
+  const [rfidChip, setRfidChip] = useState(null); // { version, ok }
+  const [rfidCardType, setRfidCardType] = useState('');
+  // The number off the card that was just held to the aerial, shown the
+  // moment it is read rather than after the lookup comes back. A tap that
+  // reads fine but belongs to nobody, and a tap that never read at all, look
+  // the same on screen otherwise - and only one of them is a reader problem.
+  const [rfidLiveUid, setRfidLiveUid] = useState('');
+  // The MFRC522 library's own example sketch dumps all sixty-four blocks of a
+  // MIFARE 1K after every read. It is worth having when the wiring is in
+  // doubt and pure noise the rest of the time, so it is kept and hidden.
+  const [rfidHideDump, setRfidHideDump] = useState(true);
+  // Has this browser ever been shown which board to use? Until it has, the
+  // chooser is unavoidable and the screen has to ask for one click. After it
+  // has, the board connects itself and the screen should never mention it
+  // again - so the two states cannot share one wording.
+  const [rfidPaired, setRfidPaired] = useState(false);
+
+  // ---- The phone as the reader ----
+  // Web NFC turns the phone's own NFC aerial into the reader: no Arduino, no
+  // USB reader, nothing to carry but the phone. Detected after mount rather
+  // than during render, because the server has no window and rendering one
+  // answer then replacing it is a hydration mismatch.
+  const [rfidNfcSupported, setRfidNfcSupported] = useState(false);
+  const [rfidSecureContext, setRfidSecureContext] = useState(true);
+  const [rfidNfcStatus, setRfidNfcStatus] = useState('idle'); // idle | starting | scanning | error
+  // What the phone said when it saw a card it could not read. A card that is
+  // the wrong kind and a phone with NFC switched off are the same silence
+  // otherwise, and they have nothing to do with each other.
+  const [rfidNfcNote, setRfidNfcNote] = useState('');
+
+  // ---- Event check-in ----
+  // 'members'  a tap is a member, and may mark them present for the day.
+  // 'event'    a tap is an attendee at one event, and checks them in.
+  // The screen is an event screen first. Member cards are still here, behind
+  // the second tab, but nobody arrives at this page wanting the hardware -
+  // they arrive wanting a named event.
+  const [rfidPurpose, setRfidPurpose] = useState('event');
+  // One row per event, with its own counts. What the cards on the landing
+  // view are drawn from.
+  const [rfidEventCards, setRfidEventCards] = useState([]);
+  const [rfidEventCardsLoading, setRfidEventCardsLoading] = useState(false);
+  const [rfidEventSearch, setRfidEventSearch] = useState('');
+  const [rfidEventId, setRfidEventId] = useState('');
+  const [rfidRegs, setRfidRegs] = useState([]);
+  const [rfidRegSummary, setRfidRegSummary] = useState(null);
+  const [rfidRegsLoading, setRfidRegsLoading] = useState(false);
+  const [rfidRegSearch, setRfidRegSearch] = useState('');
+  // The registration waiting to be handed a card - the desk picked a person,
+  // and the next tap is theirs.
+  const [rfidHandTo, setRfidHandTo] = useState(null);
+
+  // ---- Cards, from inside the event screen ----
+  // Assigning and scanning happen where the attendees already are - in the
+  // event's own Registrations and Attendance tabs - rather than only in the
+  // RFID Reader section. Same API underneath; this is a second door onto it.
+  const [evtRfidScanOpen, setEvtRfidScanOpen] = useState(false);
+  // What each attendee has collected: the kit, and lunch/dinner per day.
+  // Shaped { registrationId: { 'lunch-1': {...}, 'kit-0': {...} } } - the same
+  // key the API builds, so a tick is one lookup and not a search.
+  const [evtClaims, setEvtClaims] = useState({});
+  // The single box currently being written, as 'regId:kind-day'. One at a
+  // time is deliberate: a person at a counter ticks one box and waits, and a
+  // whole-table spinner would hide which one they just pressed.
+  const [evtClaimBusy, setEvtClaimBusy] = useState('');
+
+  // ---- The kit counter and the meal counter ----
+  // Both work the same way and neither is the attendee table: a card is
+  // tapped, a name appears, and only then does anything become tickable.
+  // Nothing is editable before a card is read, because the whole point is
+  // that what gets handed over is recorded against the person who took it -
+  // a checklist that can be filled in without a card is a checklist that
+  // gets filled in for the wrong person.
+  //   'kit'   which merch was handed over, then one Claimed button.
+  //   'meals' lunch and dinner per day, each written as it is ticked.
+  const [claimDesk, setClaimDesk] = useState(null); // null | 'kit' | 'meals'
+  // Who the last tap resolved to, and what they already hold.
+  //   { registration, claims: {key: claim}, message, result }
+  const [claimWho, setClaimWho] = useState(null);
+  const [claimLookupBusy, setClaimLookupBusy] = useState(false);
+  // The merch names ticked for the person on screen, before Claimed is pressed.
+  const [claimTicked, setClaimTicked] = useState([]);
+  const [claimManual, setClaimManual] = useState('');
+
+  // ---- Attendance, per day ----
+  // { registrationId: { '1': { attended_at }, '2': {...} } }. An event that
+  // runs three days has to answer "did they come on Day 2", which the single
+  // event_registrations.attended boolean cannot - see
+  // supabase/migrations/event_day_attendance.sql.
+  const [evtDayAttend, setEvtDayAttend] = useState({});
+  const [evtDayBusy, setEvtDayBusy] = useState('');
+  // Which day the desk is working. Every check-in on this screen is for this
+  // day, and it is chosen rather than inferred: a door open at 8am on Day 2
+  // is checking people in for Day 2 whatever a timezone says, and an event
+  // running past midnight would otherwise roll over mid-queue.
+  const [evtCheckinDay, setEvtCheckinDay] = useState(1);
+
+  // ---- Editing the table directly ----
+  // Normally the columns are a record: what was claimed and when, read but
+  // not touched. A kit or a meal is handed over at its counter, against a
+  // card, and a row in a long table is one line away from being the wrong
+  // person - so a stray click must not be able to give somebody a lunch or
+  // take one away.
+  //
+  // Corrections still have to be possible, though: a mis-tick, a card tapped
+  // twice, somebody marked present who went home. So the columns unlock, and
+  // unlocking takes the master card.
+  const [evtUnlocked, setEvtUnlocked] = useState(false);
+  const [evtUnlockOpen, setEvtUnlockOpen] = useState(false);
+  const [evtUnlockManual, setEvtUnlockManual] = useState('');
+  const [evtUnlockError, setEvtUnlockError] = useState('');
+  // Searching the attendance list. Its own box rather than the Registrations
+  // one, because they are different lists on different tabs.
+  const [attSearch, setAttSearch] = useState('');
+  const [evtRfidResult, setEvtRfidResult] = useState(null);
+  const [evtRfidInput, setEvtRfidInput] = useState('');
+  const [evtRfidBusy, setEvtRfidBusy] = useState(false);
+  const evtRfidBoxRef = useRef(null);
+  // A keyboard-wedge reader types into whatever has focus, so whether the
+  // capture box HAS focus is the whole of "is the USB reader going to work".
+  // It is the one status that cannot be inferred - it has to be watched.
+  const [evtRfidFocus, setEvtRfidFocus] = useState(false);
+  // While one of those dialogs is open it takes every tap, wherever the tap
+  // came from. Without this the reader would still be feeding the RFID Reader
+  // section, which is not the screen the person is looking at.
+  const rfidSinkRef = useRef(null);
+
+  // The serial port and its read loop live outside React state: they are not
+  // rendered, and putting a stream in state would tear it down on re-render.
+  const rfidPortRef = useRef(null);
+  const rfidReaderRef = useRef(null);
+  const rfidKeepReadingRef = useRef(false);
+  // The keyboard-wedge buffer, and when its last character arrived.
+  const rfidKeyRef = useRef({ buf: '', at: 0 });
+  const rfidBoxRef = useRef(null);
+  // The scan handler is called from a serial read loop and a key listener,
+  // both of which outlive the render that created them. A ref keeps them
+  // pointed at the current one instead of the one from first mount.
+  const rfidScanRef = useRef(null);
+  // The last card the serial reader handed over, and when. Our own sketch
+  // blocks repeats on the board; the library's example sketch does not, and
+  // re-reads a card thirty times a second for as long as it is held there.
+  // Without this that is thirty check-ins for one person.
+  const rfidLastSerialRef = useRef({ uid: '', at: 0 });
+  // Whether an open() is in flight, and whether the silent attempt has been
+  // made for this visit. Both are refs rather than state on purpose: they
+  // gate an effect that would otherwise re-fire on its own status changes and
+  // retry a failing port forever.
+  const rfidOpeningRef = useRef(false);
+  const rfidAutoTriedRef = useRef(false);
+  // The live NFC scan, so it can be called off when the screen is left. An
+  // NFC scan left running holds the aerial and keeps firing at whatever
+  // screen has replaced this one.
+  const rfidNfcAbortRef = useRef(null);
+
   const [unsendConfirmId, setUnsendConfirmId] = useState(null);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editMessageContent, setEditMessageContent] = useState('');
@@ -1124,6 +1326,10 @@ export default function DashboardPage() {
 
   // Logout
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  // The committee session for this account, or null when it may not open that
+  // dashboard. Fetched once on load, so the quick switch is either there and
+  // works, or is not there at all - never a button that leads to a refusal.
+  const [committeeSession, setCommitteeSession] = useState(null);
 
   // Generic confirm modal (used for deletes and other destructive actions)
   const [confirmModal, setConfirmModal] = useState({ open: false, title: '', subtitle: '', message: '', confirmLabel: 'Delete', icon: 'fa-trash', onConfirm: null, requireText: null });
@@ -1283,6 +1489,17 @@ export default function DashboardPage() {
           }
         })
         .catch(() => { /* silent - use cached data */ });
+    }
+
+    // May this account cross over to the Event Committee dashboard? Asked of
+    // the server rather than read off the cached session, because being put on
+    // the committee happens in another screen (or by another Admin) and the
+    // stored copy here would not know about it.
+    if (stored.id) {
+      fetch(`/api/event-committee/session?userId=${stored.id}`)
+        .then((r) => r.json())
+        .then((result) => setCommitteeSession(result.success ? result.data : null))
+        .catch(() => { /* no switch offered - the portal is still reachable by URL */ });
     }
 
     // Load permission overrides & subscribe to real-time changes
@@ -1630,6 +1847,7 @@ export default function DashboardPage() {
     if (sectionId === 'recordings') { loadRecordings(); loadPracticeRecordingsListing(); }
     if (sectionId === 'messages') loadMessages();
     if (sectionId === 'attendance-management') { loadAttendance(); loadAdminUsers(); }
+    if (sectionId === 'rfid-reader') { loadRfidEventCards(); loadRfidCards(); loadRfidScans(); loadAdminUsers(); loadEvents(); }
     if (sectionId === 'reports') loadReports();
     if (sectionId === 'user-management') loadAdminUsers();
     if (sectionId === 'ministry-management' || sectionId === 'ministry-oversight') loadMinistries();
@@ -4428,10 +4646,14 @@ export default function DashboardPage() {
   };
 
   const closeEventManage = () => {
+    // Locked again on the way out. An unlocked table left open is the thing
+    // the lock exists to prevent, and nobody remembers to re-lock.
+    setEvtUnlocked(false);
+    setEvtUnlockOpen(false);
+    setAttSearch('');
     setEventRegsModal(null);
     setEventRegs([]);
     setManageTab('registrations');
-    setShowQrScanner(false);
     setInstallments([]);
     setPayModal(null);
     setDeletedRegs([]);
@@ -4497,16 +4719,55 @@ export default function DashboardPage() {
 
   // People type their own names in a hurry. Displayed the way they should read
   // on a badge, matching titleCaseName() on the server so old rows look right too.
-  const NAME_PARTICLES = new Set(['de', 'del', 'dela', 'delos', 'delas', 'da', 'di', 'van', 'von', 'y', 'la', 'las', 'los', 'san', 'santa']);
+  // The card that unlocks editing the attendance table.
+  //
+  // Normalised the same way every other UID is - see src/lib/rfid.js - so it
+  // matches however the reader spells it: "14 AF 2D A7" from the Arduino,
+  // "14:af:2d:a7" from a phone.
+  //
+  // WHAT THIS IS: a guard against a stray click at a busy desk. The columns
+  // are a record of what was handed over, and a mis-click on the wrong row
+  // gives somebody else's lunch away silently.
+  //
+  // WHAT THIS IS NOT: a permission. This runs in the browser, so the value
+  // below is readable by anyone who opens the developer tools, and the APIs
+  // behind these columns accept the same writes with or without it. Anybody
+  // who can reach this screen is already an Admin or Super Admin and could
+  // always make these changes - the lock only stops them doing it by
+  // accident. Do not treat it as authorisation.
+  const EVT_UNLOCK_UID = normalizeUid('14 AF 2D A7');
+
+  // One spelling for a name however it was typed. People register in caps,
+  // in lower case, and with the caps lock half on, and a table of
+  // "JUAN DELA CRUZ" next to "juan dela cruz" is unreadable and looks like
+  // two different people.
+  //
+  //   juan dela cruz  ->  Juan Dela Cruz
+  //   JUAN DELA CRUZ  ->  Juan Dela Cruz
+  //
+  // Every word is capitalised, particles included. This used to leave "dela"
+  // and "de los" in lower case, which is the traditional Filipino spelling -
+  // but it made the table look inconsistent against names typed in caps, and
+  // a capital D is what was asked for. Hyphens and apostrophes still get
+  // their own capital, so Mary-Jane and O'Brien survive.
   const formatPersonName = (name) => {
     const raw = String(name || '').trim().replace(/\s+/g, ' ');
     if (!raw) return '';
     const capWord = (w) => w.charAt(0).toUpperCase() + w.slice(1);
-    return raw.split(' ').map((word, i, all) => {
-      const lower = word.toLowerCase();
-      if (i > 0 && i < all.length - 1 && NAME_PARTICLES.has(lower)) return lower;
-      return lower.split('-').map((part) => part.split("'").map(capWord).join("'")).join('-');
-    }).join(' ');
+    return raw.split(' ').map((word) => word.toLowerCase()
+      .split('-').map((part) => part.split("'").map(capWord).join("'")).join('-')).join(' ');
+  };
+
+  // The two letters on an avatar: the first of the first name and the first
+  // of the last. "Mari Mar" is MM, not MA - initials are how a person picks
+  // themselves out of a list, and the first two characters of one word are
+  // not initials at all.
+  const personInitials = (name) => {
+    const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '?';
+    const first = words[0].charAt(0);
+    const last = words.length > 1 ? words[words.length - 1].charAt(0) : '';
+    return (first + last).toUpperCase();
   };
 
   // Contact numbers get copied into GCash / a phone dialler constantly, so the
@@ -5375,40 +5636,6 @@ export default function DashboardPage() {
     }
   };
 
-  const markAttendance = async (regId, attended = true, opts = {}) => {
-    try {
-      const res = await fetch('/api/events/registrations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: regId, actorId: userData?.id, attended }) });
-      const data = await res.json();
-      if (data.success) {
-        setEventRegs((prev) => prev.map((r) => r.id === regId ? { ...r, attended, attended_at: attended ? (data.data?.attended_at || new Date().toISOString()) : null } : r));
-        if (!opts.silent) showToast(attended ? 'Marked as attended' : 'Marked as not attended', 'success');
-        return { ok: true, reg: data.data };
-      }
-      if (!opts.silent) showToast(data.message, 'danger');
-      return { ok: false, message: data.message };
-    } catch (e) {
-      if (!opts.silent) showToast('Error: ' + e.message, 'danger');
-      return { ok: false, message: e.message };
-    }
-  };
-
-  const handleQrDecoded = async (decodedText) => {
-    const match = /^SANCTUARYHUB-REG:(.+)$/.exec((decodedText || '').trim());
-    if (!match) { setQrScanResult({ status: 'error', message: 'This is not a valid attendance QR code.' }); return; }
-    const regId = match[1];
-    const reg = eventRegs.find((r) => r.id === regId);
-    if (!reg) { setQrScanResult({ status: 'error', message: 'This QR code does not belong to this event.' }); return; }
-    if (reg.status !== 'registered' && reg.status !== 'payment_verified') {
-      setQrScanResult({ status: 'error', message: `${reg.attendee_name}: registration is not confirmed (${statusLabel(reg.status)}).` });
-      return;
-    }
-    if (reg.attended) { setQrScanResult({ status: 'already', message: `${reg.attendee_name} was already checked in.` }); return; }
-    const result = await markAttendance(regId, true, { silent: true });
-    setQrScanResult(result.ok
-      ? { status: 'success', message: `${reg.attendee_name} checked in successfully!` }
-      : { status: 'error', message: result.message || 'Failed to mark attendance.' });
-  };
-
   const openRegisterModal = (evt) => {
     if (myRegIds.has(evt.id)) { showToast('You are already registered for this event.', 'warning'); return; }
     setRegisterModal(evt);
@@ -5711,40 +5938,6 @@ export default function DashboardPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
-
-  // Attendance QR camera scanner — mounts html5-qrcode only while the scanner modal is open
-  useEffect(() => {
-    if (!showQrScanner) return;
-    let scanner;
-    let cancelled = false;
-    let lastCode = '';
-    let lastTime = 0;
-    (async () => {
-      try {
-        const { Html5Qrcode } = await import('html5-qrcode');
-        if (cancelled) return;
-        scanner = new Html5Qrcode('evt-qr-reader');
-        await scanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: 240 },
-          (decodedText) => {
-            const now = Date.now();
-            if (decodedText === lastCode && now - lastTime < 4000) return;
-            lastCode = decodedText; lastTime = now;
-            handleQrDecoded(decodedText);
-          },
-          () => { /* ignore per-frame decode misses */ }
-        );
-      } catch (e) {
-        if (!cancelled) setQrScanResult({ status: 'error', message: 'Could not access the camera: ' + e.message });
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (scanner) { scanner.stop().then(() => scanner.clear()).catch(() => {}); }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showQrScanner]);
 
   // True once the event's end (or start, if no end date) has passed — used to stop
   // both public registration and admin registration management on finished events.
@@ -8224,6 +8417,19 @@ Examples:
   // ============================================
   const confirmLogout = () => { sessionStorage.removeItem('userData'); localStorage.removeItem('userData'); router.replace('/login'); };
 
+  // Cross to the committee dashboard without signing in again. The session is
+  // written where that dashboard looks for it (both stores, like the login
+  // page does, so it survives either kind of tab) and then we navigate.
+  const openCommitteeDashboard = () => {
+    if (!committeeSession) return;
+    try {
+      const payload = JSON.stringify(committeeSession);
+      sessionStorage.setItem('committeeUser', payload);
+      localStorage.setItem('committeeUser', payload);
+    } catch { /* storage blocked - the committee login page still works */ }
+    router.push('/event-committee/dashboard');
+  };
+
   // ============================================
   // HELPERS
   // ============================================
@@ -8288,6 +8494,85 @@ Examples:
   };
 
   const formatDateTime = (dateStr) => { if (!dateStr) return ''; return new Date(dateStr).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+  // "OCT 2, 2026 | 10:00 AM". Its own format because it is read off a moving
+  // queue: the date and the time are the two things wanted, split so neither
+  // has to be picked out of the other. These stamps are real instants -
+  // attended_at and claimed_at are both server now() - so new Date() is
+  // correct here, unlike the wall-clock event columns that need evtDate().
+  const formatStampLine = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
+    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return `${date} | ${time}`;
+  };
+
+  // The event's days, with the name each one goes by. What the day picker and
+  // the Attendance column are both drawn from, so they cannot disagree.
+  //
+  //   number  1, 2, 3...
+  //   label   the session name the admin typed, else "Day 2"
+  //   when    its own date and time, for the picker
+  //   started whether it has begun. A day still in the future is shown but
+  //           cannot be ticked - nobody has attended tomorrow.
+  const evtEventDays = (() => {
+    const rows = Array.isArray(eventRegsModal?.event_days) ? eventRegsModal.event_days : [];
+    const now = Date.now();
+
+    if (rows.length > 0) {
+      return rows
+        .slice()
+        .sort((a, b) => (a.day_number || 0) - (b.day_number || 0))
+        .map((d, i) => {
+          const num = Number(d.day_number) || i + 1;
+          const starts = evtDate(d.starts_at);
+          return {
+            number: num,
+            label: d.label ? String(d.label) : `Day ${num}`,
+            when: d.starts_at ? formatSessionRange(d.starts_at, d.ends_at) : '',
+            // No start time on the row means there is nothing to wait for.
+            started: !starts || starts.getTime() <= now,
+          };
+        });
+    }
+
+    // No per-day schedule: count calendar days across the span, so a two-day
+    // event created before sessions existed still gets two rows.
+    const start = evtDate(eventRegsModal?.event_date);
+    const end = evtDate(eventRegsModal?.end_date);
+    let count = 1;
+    if (start && end) {
+      const a = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const b = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      count = Math.min(Math.max(1, Math.round((b - a) / 86400000) + 1), 14);
+    }
+    return Array.from({ length: count }, (_, i) => {
+      const dayStart = start ? new Date(start.getTime() + i * 86400000) : null;
+      return {
+        number: i + 1,
+        label: `Day ${i + 1}`,
+        when: dayStart ? dayStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+        started: !dayStart || dayStart.getTime() <= now,
+      };
+    });
+  })();
+
+  // The kit, as the event defines it. events.merch_items is a jsonb array of
+  // { name, image_url } written straight from the event form, so a name is
+  // the only stable handle there is - it is also what the person at the
+  // counter reads off the screen and ticks.
+  const evtMerchItems = (() => {
+    const rows = Array.isArray(eventRegsModal?.merch_items) ? eventRegsModal.merch_items : [];
+    return rows
+      .map((m) => ({ name: String(m?.name || '').trim(), image_url: m?.image_url || null }))
+      .filter((m) => m.name);
+  })();
+
+  // Just the day numbers, for the meal grid. Taken off evtEventDays above so
+  // the meal columns and the attendance column can never disagree about how
+  // many days the event runs.
+  const evtEventDayNumbers = evtEventDays.map((d) => d.number);
   const extractYouTubeId = (url) => { if (!url) return null; const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m ? m[1] : null; };
   const getChatUserName = (u) => `${u?.firstname || ''} ${u?.lastname || ''}`.trim() || 'Unknown User';
   const getNameInitials = (name) => (name || '').split(' ').filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U';
@@ -8318,6 +8603,1278 @@ Examples:
   // ============================================
   // RENDER GUARD
   // ============================================
+  // ============================================
+  // RFID CARD READER - reading, and what a read means
+  // ============================================
+  const rfidWebSerialSupported = typeof navigator !== 'undefined' && 'serial' in navigator;
+
+  // A rolling window of what the reader said. Capped: a heartbeat every five
+  // seconds is 17k lines a day, and nobody needs yesterday's.
+  const pushRfidRaw = useCallback((line, kind) => {
+    setRfidRaw((prev) => {
+      const next = [...prev, { at: new Date(), line, kind: kind || 'in' }];
+      return next.length > 200 ? next.slice(-200) : next;
+    });
+    setRfidLastHeard(new Date());
+  }, []);
+
+  const loadRfidCards = useCallback(async () => {
+    try {
+      setRfidLoading(true);
+      const res = await fetch('/api/rfid/cards');
+      const data = await res.json();
+      if (data.success) setRfidCards(data.data || []);
+      else setRfidError(data.message || 'Could not load the registered cards');
+    } catch (err) {
+      setRfidError(err.message);
+    } finally {
+      setRfidLoading(false);
+    }
+  }, []);
+
+  const loadRfidScans = useCallback(async () => {
+    try {
+      const res = await fetch('/api/rfid/scan?limit=30');
+      const data = await res.json();
+      if (data.success) setRfidScans(data.data || []);
+    } catch { /* the log is a convenience - a failure here is not worth a toast */ }
+  }, []);
+
+  // One card number in. Everything that happens on a tap happens here, so the
+  // serial loop, the keyboard listener and the type-it-in box all behave
+  // identically - there is no second code path to keep in step.
+  const handleRfidScan = useCallback(async (rawUid, source) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+
+    setRfidBusy(true);
+    setRfidError('');
+    try {
+      const res = await fetch('/api/rfid/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid,
+          source: source || 'manual',
+          scannedBy: userData?.id || null,
+          markAttendance: rfidAutoAttend,
+        }),
+      });
+      const data = await res.json();
+
+      if (!data.success) {
+        setRfidError(data.message || 'That card could not be read');
+        showToast(data.message || 'That card could not be read', 'danger');
+        return;
+      }
+
+      setRfidLast(data);
+
+      if (data.result === 'unknown') {
+        // An unregistered card is not a failure - it is the moment to hand it
+        // to somebody. Open the form with the number already in it.
+        setRfidAssign({ uid: data.uid });
+        setRfidAssignUser('');
+        setRfidAssignLabel('');
+        setRfidAssignSearch('');
+        if (adminUsers.length === 0) loadAdminUsers();
+        showToast('Card not registered - choose who it belongs to', 'warning');
+      } else if (data.result === 'inactive') {
+        showToast(data.message, 'warning');
+      } else {
+        showToast(data.message, 'success');
+      }
+
+      loadRfidScans();
+      if (rfidAutoAttend && data.result === 'matched') loadAttendance();
+    } catch (err) {
+      setRfidError(err.message);
+      showToast(err.message, 'danger');
+    } finally {
+      setRfidBusy(false);
+      // Put the caret back in the scan box so the next tap lands somewhere.
+      setTimeout(() => rfidBoxRef.current?.focus(), 50);
+    }
+  }, [userData?.id, rfidAutoAttend, adminUsers.length, showToast, loadRfidScans]);
+
+  // Every event with its card counts, in one request. Drawn as the landing
+  // view, so it is asked for before anything has been clicked.
+  const loadRfidEventCards = useCallback(async () => {
+    try {
+      setRfidEventCardsLoading(true);
+      const res = await fetch('/api/rfid/event-checkin?overview=1');
+      const data = await res.json();
+      if (data.success) setRfidEventCards(data.data || []);
+      else setRfidError(data.message || 'Could not load the events');
+    } catch (err) {
+      setRfidError(err.message);
+    } finally {
+      setRfidEventCardsLoading(false);
+    }
+  }, []);
+
+  // ---- The door list for one event ----
+  const loadRfidRegs = useCallback(async (eventId) => {
+    if (!eventId) { setRfidRegs([]); setRfidRegSummary(null); return; }
+    try {
+      setRfidRegsLoading(true);
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) { setRfidRegs(data.data || []); setRfidRegSummary(data.summary || null); }
+      else setRfidError(data.message || 'Could not load the door list');
+    } catch (err) {
+      setRfidError(err.message);
+    } finally {
+      setRfidRegsLoading(false);
+    }
+  }, []);
+
+  // A tap at an event door. Separate from the member handler because it is
+  // asking a different question - "are you on the list for this event" rather
+  // than "who are you" - and answers it against a different table.
+  const handleRfidEventTap = useCallback(async (rawUid, source) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+    if (!rfidEventId) { showToast('Choose an event first', 'warning'); return; }
+
+    setRfidBusy(true);
+    setRfidError('');
+    try {
+      // A person was picked first: this tap is handing them their card, not
+      // checking anybody in.
+      if (rfidHandTo) {
+        const res = await fetch('/api/rfid/event-checkin', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid, registrationId: rfidHandTo.id, eventId: rfidEventId, actorId: userData?.id || null }),
+        });
+        const data = await res.json();
+        if (!data.success) { showToast(data.message, 'danger'); setRfidError(data.message); return; }
+        showToast(data.message, 'success');
+        setRfidHandTo(null);
+        loadRfidRegs(rfidEventId);
+        return;
+      }
+
+      const res = await fetch('/api/rfid/event-checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, eventId: rfidEventId, source: source || 'manual', actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { setRfidError(data.message); showToast(data.message, 'danger'); return; }
+
+      setRfidLast({ ...data, mode: 'event' });
+      showToast(
+        data.message,
+        data.result === 'checked_in' ? 'success'
+          : data.result === 'already_in' ? 'info' : 'warning',
+      );
+      if (data.result === 'checked_in') loadRfidRegs(rfidEventId);
+      loadRfidScans();
+    } catch (err) {
+      setRfidError(err.message);
+      showToast(err.message, 'danger');
+    } finally {
+      setRfidBusy(false);
+      setTimeout(() => rfidBoxRef.current?.focus(), 50);
+    }
+  }, [rfidEventId, rfidHandTo, userData?.id, showToast, loadRfidRegs, loadRfidScans]);
+
+  // One tap, routed by what the desk is doing. The serial loop and the
+  // keyboard listener both go through this, so neither needs to know.
+  const routeRfidTap = useCallback((rawUid, source) => {
+    // On screen straight away, before anything is asked of the server. The
+    // number is what the reader actually got; whether anybody owns it is a
+    // separate question with a separate answer below it.
+    const seen = normalizeUid(rawUid);
+    if (isPlausibleUid(seen)) setRfidLiveUid(seen);
+    // A dialog that asked for the taps gets them, whatever screen is behind it.
+    if (rfidSinkRef.current) return rfidSinkRef.current(rawUid, source);
+    if (rfidPurpose === 'event') return handleRfidEventTap(rawUid, source);
+    return handleRfidScan(rawUid, source);
+  }, [rfidPurpose, handleRfidEventTap, handleRfidScan]);
+
+  // Keep the ref pointing at the current handler - see the note by the ref.
+  useEffect(() => { rfidScanRef.current = routeRfidTap; }, [routeRfidTap]);
+
+  // ============================================
+  // The event screen's own desk: claims, and RFID
+  // ============================================
+  // Every claim at this event, in one request. A table of forty attendees
+  // across two days is two hundred checkboxes; asking per box would be two
+  // hundred round trips before the page could be looked at.
+  const loadEventClaims = useCallback(async (eventId) => {
+    if (!eventId) { setEvtClaims({}); return; }
+    try {
+      const res = await fetch(`/api/events/claims?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) { setEvtClaims(data.data || {}); return; }
+      // An empty grid and a grid that could not be read look identical, and
+      // one of them means somebody hands out a second lunch. The one cause
+      // worth naming is the migration not having been run - every other
+      // failure is transient and redraws on the next load.
+      if (/event_claims/i.test(data.message || '')) {
+        showToast('Kit and meal tracking needs its migration: run supabase/migrations/event_claims.sql', 'warning');
+      }
+    } catch { /* the ticks redraw on the next load - not worth a toast */ }
+  }, [showToast]);
+
+  // Who came, on which days. One request for the whole grid.
+  const loadEventDayAttendance = useCallback(async (eventId) => {
+    if (!eventId) { setEvtDayAttend({}); return; }
+    try {
+      const res = await fetch(`/api/events/attendance-days?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) { setEvtDayAttend(data.data || {}); return; }
+      // Blank because nobody came, and blank because it could not be read,
+      // look the same - and one of them locks every counter. The migration
+      // not having been run is the one cause worth naming.
+      if (/event_day_attendance/i.test(data.message || '')) {
+        showToast('Per-day attendance needs its migration: run supabase/migrations/event_day_attendance.sql', 'warning');
+      }
+    } catch { /* redraws on the next load */ }
+  }, [showToast]);
+
+  // Marking one day by hand, and undoing it.
+  const toggleDayAttendance = useCallback(async (reg, dayNumber, attended) => {
+    const eventId = eventRegsModal?.id;
+    if (!eventId) return;
+    const busyKey = `${reg.id}:${dayNumber}`;
+    if (evtDayBusy) return;
+
+    setEvtDayBusy(busyKey);
+    try {
+      const res = await fetch('/api/events/attendance-days', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId, registrationId: reg.id, dayNumber, attended,
+          actorId: userData?.id || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+
+      setEvtDayAttend((prev) => {
+        const forReg = { ...(prev[reg.id] || {}) };
+        if (data.attended) forReg[String(dayNumber)] = data.day || { attended_at: new Date().toISOString() };
+        else delete forReg[String(dayNumber)];
+        return { ...prev, [reg.id]: forReg };
+      });
+      // The registration's own "came at all" flag is kept in step by the
+      // server; mirror it here so the row does not need a reload.
+      setEventRegs((prev) => prev.map((r) => {
+        if (r.id !== reg.id) return r;
+        const days = { ...(evtDayAttend[reg.id] || {}) };
+        if (data.attended) days[String(dayNumber)] = 1; else delete days[String(dayNumber)];
+        const any = Object.keys(days).length > 0;
+        return { ...r, attended: any, attended_at: any ? (r.attended_at || new Date().toISOString()) : null };
+      }));
+      showToast(data.message, data.attended ? 'success' : 'warning');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setEvtDayBusy('');
+    }
+  }, [eventRegsModal?.id, evtDayBusy, evtDayAttend, userData?.id, showToast]);
+
+  // A correction made straight on the row, with the columns unlocked.
+  //
+  // Same endpoint the counters use, so the same rules apply - an unverified
+  // registration or somebody who never checked in is still refused, and the
+  // refusal says which. Unlocking the columns removes the guard against a
+  // stray click; it does not remove the rules underneath.
+  const toggleRowClaim = useCallback(async (reg, kind, dayNumber, claimed) => {
+    const eventId = eventRegsModal?.id;
+    if (!eventId || evtClaimBusy) return;
+    const key = `${kind}-${Number(dayNumber) || 0}`;
+
+    setEvtClaimBusy(`${reg.id}:${key}`);
+    try {
+      const res = await fetch('/api/events/claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          registrationId: reg.id,
+          kind,
+          dayNumber: Number(dayNumber) || 0,
+          claimed,
+          // A kit given back and re-given from the table keeps whatever was
+          // recorded at the counter; there is no checklist here to re-tick.
+          items: kind === 'kit' ? (evtClaims[reg.id]?.['kit-0']?.items || []) : [],
+          actorId: userData?.id || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+
+      setEvtClaims((prev) => {
+        const forReg = { ...(prev[reg.id] || {}) };
+        if (data.claimed) forReg[key] = data.claim || { claimed_at: new Date().toISOString(), items: [] };
+        else delete forReg[key];
+        return { ...prev, [reg.id]: forReg };
+      });
+
+      // Never silent. Taking something back off a record is exactly the
+      // action this lock exists to make deliberate, so it says so out loud.
+      const what = kind === 'kit' ? 'Kit' : `Day ${dayNumber} ${kind}`;
+      showToast(
+        data.claimed
+          ? `${what} recorded for ${reg.attendee_name}`
+          : `${what} taken back off ${reg.attendee_name}`,
+        data.claimed ? 'success' : 'warning',
+      );
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setEvtClaimBusy('');
+    }
+  }, [eventRegsModal?.id, evtClaimBusy, evtClaims, userData?.id, showToast]);
+
+  // The master card, tapped to unlock the columns.
+  //
+  // Any other card is refused by name rather than ignored - a reader that
+  // seems to do nothing is indistinguishable from a broken one, and the
+  // commonest mistake here is reaching for an attendee's card.
+  const tryUnlockTable = useCallback((rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+    if (uid === EVT_UNLOCK_UID) {
+      setEvtUnlocked(true);
+      setEvtUnlockOpen(false);
+      setEvtUnlockError('');
+      showToast('Columns unlocked — click any cell to correct it', 'success');
+      return;
+    }
+    setEvtUnlockError(`That is not the master card (${formatUid(uid)}). Only the master card unlocks editing.`);
+  }, [EVT_UNLOCK_UID, showToast]);
+
+  // A tap at a counter. Who is this, and what do they already hold?
+  //
+  // Deliberately a lookup and not a check-in: being handed a tote bag is not
+  // walking through the door, and a tap at the merch table must not mark
+  // somebody as having arrived. The API's ?uid= mode resolves without
+  // touching attendance - see api/rfid/event-checkin/route.js.
+  const lookupClaimCard = useCallback(async (rawUid) => {
+    const eventId = eventRegsModal?.id;
+    if (!eventId) return;
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+
+    setClaimLookupBusy(true);
+    setClaimTicked([]);
+    try {
+      const res = await fetch(
+        `/api/rfid/event-checkin?eventId=${encodeURIComponent(eventId)}&uid=${encodeURIComponent(uid)}`,
+      );
+      const data = await res.json();
+      if (!data.success) {
+        setClaimWho({ result: 'error', message: data.message, uid });
+        return;
+      }
+
+      // { 'kit-0': {...}, 'lunch-1': {...} } - the same keys the table uses.
+      const held = {};
+      (data.claims || []).forEach((c) => {
+        held[`${c.kind}-${Number(c.day_number) || 0}`] = c;
+      });
+
+      // What this person has ALREADY taken at this counter, said out loud.
+      //
+      // The whole failure this counter exists to prevent is a second lunch,
+      // and the queue moves faster than anybody reads a checklist. So the
+      // second tap of the same card is answered the way the door answers one
+      // - a name, and "already claimed" next to it - rather than by quietly
+      // showing some ticked boxes among unticked ones.
+      let already = '';
+      if (data.result === 'matched') {
+        if (claimDesk === 'kit') {
+          const kit = held['kit-0'];
+          if (kit) {
+            already = kit.claimed_at
+              ? `Kit already claimed — ${formatStampLine(kit.claimed_at)}`
+              : 'Kit already claimed';
+          }
+        } else {
+          // Named, not counted: "two meals taken" does not tell the person
+          // holding the tray whether THIS meal is one of them.
+          const taken = [];
+          evtEventDayNumbers.forEach((day) => {
+            ['lunch', 'dinner'].forEach((meal) => {
+              if (held[`${meal}-${day}`]) {
+                taken.push(`Day ${day} ${meal}`);
+              }
+            });
+          });
+          if (taken.length > 0) already = `Already taken: ${taken.join(', ')}`;
+        }
+      }
+
+      // Which days they turned up for. Nothing is collected by somebody who
+      // has not arrived - the server refuses it either way, but a locked
+      // checklist that says why beats a tick that comes back as an error.
+      //
+      //   a meal  needs them here THAT day: Day 2 lunch is not owed to
+      //           somebody who only came on Day 1
+      //   the kit needs them here at all, on whichever day they arrive
+      const attendedDays = new Set((data.days || []).map((d) => Number(d.day_number)));
+      let blocked = '';
+      if (data.result === 'matched') {
+        if (claimDesk === 'kit' && attendedDays.size === 0) {
+          blocked = 'Not checked in yet — check them in at the door first.';
+        } else if (claimDesk === 'meals' && !attendedDays.has(Number(evtCheckinDay))) {
+          blocked = `Not checked in for Day ${evtCheckinDay} yet — check them in first.`;
+        }
+      }
+
+      setClaimWho({
+        result: data.result,
+        message: data.message,
+        uid: data.uid,
+        registration: data.registration || null,
+        claims: held,
+        days: [...attendedDays],
+        already,
+        blocked,
+      });
+
+      // The kit already handed over comes back ticked, so a second visit
+      // shows what was given rather than an empty list to fill in again.
+      if (data.result === 'matched') {
+        const kit = held['kit-0'];
+        setClaimTicked(Array.isArray(kit?.items) ? kit.items : []);
+        if (blocked) {
+          showToast(`${data.registration.attendee_name} — ${blocked}`, 'warning');
+        } else if (already) {
+          showToast(
+            claimDesk === 'kit'
+              ? `${data.registration.attendee_name} — kit already claimed`
+              : `${data.registration.attendee_name} — ${already.toLowerCase()}`,
+            'info',
+          );
+        }
+      }
+    } catch (err) {
+      setClaimWho({ result: 'error', message: err.message, uid });
+    } finally {
+      setClaimLookupBusy(false);
+    }
+  }, [eventRegsModal?.id, claimDesk, evtCheckinDay, evtEventDayNumbers, formatStampLine, showToast]);
+
+  // The kit, handed over. One button at the end rather than a write per tick:
+  // the person at the counter is checking a bag against a list, and each item
+  // is provisional until the whole bag is right.
+  const commitKitClaim = useCallback(async () => {
+    const eventId = eventRegsModal?.id;
+    const reg = claimWho?.registration;
+    if (!eventId || !reg) return;
+
+    setEvtClaimBusy(`${reg.id}:kit-0`);
+    try {
+      const res = await fetch('/api/events/claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          registrationId: reg.id,
+          kind: 'kit',
+          dayNumber: 0,
+          claimed: true,
+          items: claimTicked,
+          actorId: userData?.id || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+
+      setEvtClaims((prev) => ({
+        ...prev,
+        [reg.id]: { ...(prev[reg.id] || {}), 'kit-0': data.claim || { claimed_at: new Date().toISOString(), items: claimTicked } },
+      }));
+      showToast(`Kit marked claimed for ${reg.attendee_name}`, 'success');
+      // Cleared for the next person in the queue, not closed - there is a
+      // line at a merch table and closing after each one makes it unusable.
+      setClaimWho(null);
+      setClaimTicked([]);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setEvtClaimBusy('');
+    }
+  }, [eventRegsModal?.id, claimWho, claimTicked, userData?.id, showToast]);
+
+  // A meal, ticked at the counter. Written as it is ticked - unlike the kit,
+  // a meal is one thing and there is nothing to check it against.
+  const toggleDeskMeal = useCallback(async (meal, day) => {
+    const eventId = eventRegsModal?.id;
+    const reg = claimWho?.registration;
+    if (!eventId || !reg) return;
+    const key = `${meal}-${day}`;
+    if (evtClaimBusy) return;
+
+    const already = !!claimWho.claims?.[key];
+    setEvtClaimBusy(`${reg.id}:${key}`);
+    try {
+      const res = await fetch('/api/events/claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          registrationId: reg.id,
+          kind: meal,
+          dayNumber: day,
+          claimed: !already,
+          actorId: userData?.id || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+
+      const nextClaim = data.claimed ? (data.claim || { claimed_at: new Date().toISOString() }) : null;
+      // Un-ticking a green chip takes a meal back off somebody's record. That
+      // is a real thing to do - a mis-tick - but it must never happen
+      // silently, because the same chip is what a server presses to hand a
+      // meal over and pressing it on a green one does the opposite.
+      showToast(
+        data.claimed
+          ? `Day ${day} ${meal} given to ${reg.attendee_name}`
+          : `Day ${day} ${meal} taken back off ${reg.attendee_name}`,
+        data.claimed ? 'success' : 'warning',
+      );
+      // Both the desk's own copy and the table behind it, so closing the
+      // dialog does not show stale ticks.
+      setClaimWho((prev) => {
+        if (!prev) return prev;
+        const claims = { ...(prev.claims || {}) };
+        if (nextClaim) claims[key] = nextClaim; else delete claims[key];
+        return { ...prev, claims };
+      });
+      setEvtClaims((prev) => {
+        const forReg = { ...(prev[reg.id] || {}) };
+        if (nextClaim) forReg[key] = nextClaim; else delete forReg[key];
+        return { ...prev, [reg.id]: forReg };
+      });
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setEvtClaimBusy('');
+    }
+  }, [eventRegsModal?.id, claimWho, evtClaimBusy, userData?.id, showToast]);
+
+  // A tap at the door, from the Attendance tab's scanner.
+  const scanEventRfid = useCallback(async (rawUid, source) => {
+    const eventId = eventRegsModal?.id;
+    if (!eventId) return;
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+
+    setEvtRfidBusy(true);
+    try {
+      const res = await fetch('/api/rfid/event-checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid, eventId, source: source || 'manual',
+          dayNumber: evtCheckinDay,
+          actorId: userData?.id || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setEvtRfidResult({ result: 'error', message: data.message, uid });
+        return;
+      }
+      setEvtRfidResult(data);
+      // The table behind the dialog has to agree with what it just said.
+      if (data.result === 'checked_in') refreshEventRegs(eventId);
+    } catch (err) {
+      setEvtRfidResult({ result: 'error', message: err.message, uid });
+    } finally {
+      setEvtRfidBusy(false);
+      setEvtRfidInput('');
+      setTimeout(() => evtRfidBoxRef.current?.focus(), 50);
+    }
+  }, [eventRegsModal?.id, userData?.id, evtCheckinDay]);
+
+  // Point the reader at whichever dialog is open. Cleared on close so taps go
+  // back to wherever they were going before.
+  useEffect(() => {
+    if (evtUnlockOpen) rfidSinkRef.current = (uid) => tryUnlockTable(uid);
+    else if (claimDesk) rfidSinkRef.current = (uid) => lookupClaimCard(uid);
+    else if (evtRfidScanOpen) rfidSinkRef.current = (uid, src) => scanEventRfid(uid, src);
+    else rfidSinkRef.current = null;
+    return () => { rfidSinkRef.current = null; };
+  }, [evtUnlockOpen, tryUnlockTable, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid]);
+
+  // The claims grid and the attendance grid for the event on screen.
+  useEffect(() => {
+    if (eventRegsModal?.id) {
+      loadEventClaims(eventRegsModal.id);
+      loadEventDayAttendance(eventRegsModal.id);
+    } else {
+      setEvtClaims({});
+      setEvtDayAttend({});
+    }
+  }, [eventRegsModal?.id, loadEventClaims, loadEventDayAttendance]);
+
+  // The day the desk defaults to: the one happening now, else the first that
+  // has not started, else the last. Opening the door on Day 2 and having it
+  // pre-set to Day 1 is how a whole morning gets recorded against the wrong
+  // session.
+  useEffect(() => {
+    if (!eventRegsModal?.id || evtEventDays.length === 0) return;
+    const live = evtEventDays.filter((d) => d.started);
+    setEvtCheckinDay(live.length > 0 ? live[live.length - 1].number : evtEventDays[0].number);
+    // Only when the event changes - re-running on every render would fight
+    // the person who just picked a different day.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventRegsModal?.id]);
+
+  // Every reader this device has, and its state, in one strip - and the button
+  // that fixes it right here rather than on another page. Being told to go and
+  // connect it somewhere else, with no way to see whether it worked, is what
+  // made this dialog impossible to use.
+  // Which day of the event this desk is working on.
+  //
+  // Chosen, never inferred from the clock: a door open at 8am on Day 2 is
+  // checking people in for Day 2 whatever a timezone says, and an event
+  // running past midnight would roll over mid-queue. Shown with the session
+  // name the admin typed, because "Day 2" and "Evening Rally" are the same
+  // thing to the system and only one of them is the thing on the poster.
+  //
+  // A single-day event has nothing to choose, so nothing is shown.
+  const renderDayPicker = (opts = {}) => {
+    if (evtEventDays.length < 2) return null;
+    return (
+      <div className="evt-daypick">
+        <span className="evt-daypick-label">
+          <i className="fas fa-calendar-day"></i> {opts.label || 'Checking in for'}
+        </span>
+        <div className="evt-daypick-row">
+          {evtEventDays.map((d) => (
+            <button
+              type="button"
+              key={d.number}
+              className={`evt-daypick-btn ${evtCheckinDay === d.number ? 'on' : ''} ${d.started ? '' : 'ahead'}`}
+              onClick={() => setEvtCheckinDay(d.number)}
+              title={d.started ? d.when : `${d.when} — has not started yet`}
+            >
+              <b>Day {d.number}</b>
+              <em>{d.label === `Day ${d.number}` ? (d.when || 'No date') : d.label}</em>
+              {!d.started && <span className="evt-daypick-ahead">upcoming</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderRfidStatus = () => (
+    <div className="rfid-status-strip">
+      {/* On a phone the wedge box and the serial port are both dead ends, so
+          the strip is the phone's own aerial and nothing else - two greyed
+          out things to ignore is worse than one thing that works. */}
+      {rfidNfcSupported && !rfidWebSerialSupported ? (
+        <span className={`rfid-stat ${
+          rfidNfcStatus === 'scanning' ? 'ok'
+            : rfidNfcStatus === 'starting' ? 'warn'
+              : rfidNfcStatus === 'error' ? 'bad' : 'off'}`}>
+          <i className="fas fa-mobile-screen-button"></i>
+          Phone NFC
+          <b>
+            {rfidNfcStatus === 'scanning' ? 'Reading — tap a card'
+              : rfidNfcStatus === 'starting' ? 'Starting…'
+                : rfidNfcStatus === 'error' ? 'Failed'
+                  : !rfidSecureContext ? 'Needs https://'
+                    : 'Not scanning'}
+          </b>
+          {rfidNfcStatus === 'scanning' ? (
+            <button type="button" className="rfid-stat-btn ghost" onClick={stopRfidNfcScan}>
+              Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="rfid-stat-btn"
+              onClick={startRfidNfcScan}
+              disabled={!rfidSecureContext || rfidNfcStatus === 'starting'}
+            >
+              Start scanning
+            </button>
+          )}
+        </span>
+      ) : (
+        <>
+      <span className={`rfid-stat ${evtRfidFocus ? 'ok' : 'warn'}`}>
+        <i className="fas fa-keyboard"></i>
+        USB reader
+        <b>{evtRfidFocus ? 'Ready — tap now' : 'Click the box below'}</b>
+      </span>
+
+      <span className={`rfid-stat ${
+        rfidSerialStatus === 'open' ? 'ok'
+          : rfidSerialStatus === 'opening' ? 'warn'
+            : rfidSerialStatus === 'error' ? 'bad' : 'off'}`}>
+        <i className="fas fa-microchip"></i>
+        Arduino
+        <b>
+          {rfidSerialStatus === 'open' ? 'Connected'
+            : rfidSerialStatus === 'opening' ? 'Connecting…'
+              : rfidSerialStatus === 'error' ? 'Failed'
+                : !rfidWebSerialSupported ? 'Not supported here'
+                  : rfidPaired ? 'Not plugged in'
+                    : 'Needs allowing once'}
+        </b>
+        {/* Only shown when it is actually needed: a board this browser has
+            already been shown connects itself, and a button offering to do
+            what just happened by itself is noise. */}
+        {rfidWebSerialSupported && rfidSerialStatus !== 'open' && rfidSerialStatus !== 'opening' && (
+          <button type="button" className="rfid-stat-btn" onClick={connectRfidSerial}>
+            {rfidPaired ? 'Connect' : 'Allow board'}
+          </button>
+        )}
+        {rfidSerialStatus === 'open' && (
+          <button type="button" className="rfid-stat-btn ghost" onClick={disconnectRfidSerial}>
+            Disconnect
+          </button>
+        )}
+      </span>
+
+        </>
+      )}
+
+      {/* The chip's own answer, once it has given one. A board that opened its
+          port but whose RC522 never replied looks "connected" and reads
+          nothing, which is the most confusing state of all. */}
+      {rfidSerialStatus === 'open' && rfidChip && (
+        <span className={`rfid-stat ${rfidChip.ok ? 'ok' : 'bad'}`}>
+          <i className="fas fa-wave-square"></i>
+          RC522
+          {/* The version is only known if the sketch printed it. A card that
+              read is proof enough on its own, and says so without one. */}
+          <b>
+            {rfidChip.ok
+              ? (rfidChip.version ? `Responding (${rfidChip.version})` : 'Responding')
+              : `No reply (${rfidChip.version})`}
+          </b>
+        </span>
+      )}
+    </div>
+  );
+
+  const takeBackRfidEventCard = async (reg) => {
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?registrationId=${encodeURIComponent(reg.id)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      showToast('Card taken back', 'success');
+      loadRfidRegs(rfidEventId);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
+  };
+
+  // ============================================
+  // The phone as the reader - Web NFC
+  // ============================================
+  // A phone with NFC already contains everything the RC522 was bought for.
+  // The tag's serial number IS the card UID, and it arrives in the same bytes
+  // the Arduino prints - "c3:c8:d6:e4" against "C3 C8 D6 E4" - so a card
+  // registered at the desk on the Arduino is found by the phone and the other
+  // way round. normalizeUid() is what makes those the same string.
+  //
+  // WHAT THIS CANNOT DO, said plainly because the alternative is an afternoon
+  // spent looking for a bug that is not there:
+  //
+  //   iPhone            Safari has no Web NFC at all. No version, no flag.
+  //                     Reading a card on an iPhone needs a native app.
+  //   http://           Web NFC needs a secure context. On a phone over the
+  //                     LAN a dev server is plain http, so it is refused -
+  //                     it works on the deployed https:// site.
+  //   MIFARE Classic    Whether the phone can read one depends on its NFC
+  //                     chip, not on this code. NXP-based phones can;
+  //                     Broadcom and some Qualcomm ones never could. NTAG
+  //                     and most NFC stickers work on everything.
+  const explainNfcError = (err) => {
+    const name = err?.name || '';
+    const msg = String(err?.message || err || '');
+
+    if (name === 'NotAllowedError') {
+      return `The phone would not allow the scan. Tap "Allow" when it asks to use NFC — if it never asked, NFC permission for this site was refused before: clear it in the browser's site settings and try again.`;
+    }
+    if (name === 'NotSupportedError') {
+      return 'This phone has no NFC, or its browser cannot use it. Android Chrome can; Safari on iPhone cannot, whatever the phone.';
+    }
+    if (name === 'NotReadableError') {
+      return `NFC is switched off. Turn it on in the phone's settings — usually Settings, Connected devices, NFC — then start the scan again.`;
+    }
+    if (name === 'SecurityError') {
+      return 'The browser blocked NFC because this page is not on https://. Open the deployed site rather than a local address.';
+    }
+    return msg || 'Could not start the NFC scan';
+  };
+
+  const stopRfidNfcScan = useCallback(() => {
+    try { rfidNfcAbortRef.current?.abort(); } catch { /* already gone */ }
+    rfidNfcAbortRef.current = null;
+    setRfidNfcStatus('idle');
+  }, []);
+
+  const startRfidNfcScan = useCallback(async () => {
+    if (typeof window === 'undefined' || !('NDEFReader' in window)) {
+      setRfidError('This browser cannot read NFC. Use Chrome on Android — Safari on iPhone has no support for it.');
+      setRfidNfcStatus('error');
+      return;
+    }
+    // Already scanning. scan() twice on one aerial throws, and the throw
+    // would read as a failure to the person watching.
+    if (rfidNfcAbortRef.current) return;
+
+    setRfidError('');
+    setRfidNfcNote('');
+    setRfidNfcStatus('starting');
+    try {
+      const ndef = new window.NDEFReader();
+      const control = new AbortController();
+      rfidNfcAbortRef.current = control;
+
+      ndef.onreading = (event) => {
+        // The serial number, not the tag's contents. Nothing has to be
+        // WRITTEN to a card for this to work - a blank card out of the packet
+        // has a UID and that is all this needs.
+        const uid = normalizeUid(event.serialNumber);
+        if (!isPlausibleUid(uid)) {
+          setRfidNfcNote('The phone read a card but it gave no usable number. That card cannot be used here.');
+          return;
+        }
+
+        pushRfidRaw(`Card UID: ${formatUid(uid)}`, 'uid');
+        setRfidLiveUid(uid);
+        setRfidNfcNote('');
+
+        // The phone fires repeatedly while the card is held against it, the
+        // same as the library's Arduino sketch does. Same guard, same window.
+        const prev = rfidLastSerialRef.current;
+        const held = prev.uid === uid && Date.now() - prev.at < 2500;
+        rfidLastSerialRef.current = { uid, at: Date.now() };
+        if (!held) rfidScanRef.current?.(uid, 'nfc');
+      };
+
+      // A card was there and could not be read. Almost always a MIFARE
+      // Classic on a phone whose NFC chip cannot do MIFARE Classic, which is
+      // a hardware fact about the phone and not something to keep retrying.
+      ndef.onreadingerror = () => {
+        pushRfidRaw('The phone saw a card but could not read it', 'err');
+        setRfidNfcNote('A card was there but the phone could not read it. Most often this is a MIFARE Classic card on a phone whose NFC chip cannot read them — the same card will still work on the Arduino reader. NTAG cards and NFC stickers work on every phone.');
+      };
+
+      await ndef.scan({ signal: control.signal });
+      setRfidNfcStatus('scanning');
+    } catch (err) {
+      rfidNfcAbortRef.current = null;
+      // Calling the scan off is not a failure worth reporting.
+      if (err?.name === 'AbortError') { setRfidNfcStatus('idle'); return; }
+      setRfidNfcStatus('error');
+      setRfidError(explainNfcError(err));
+    }
+  }, [pushRfidRaw]);
+
+  // ---- The Arduino, over the USB serial port ----
+  const disconnectRfidSerial = useCallback(async () => {
+    rfidKeepReadingRef.current = false;
+    try {
+      if (rfidReaderRef.current) {
+        await rfidReaderRef.current.cancel().catch(() => {});
+        try { rfidReaderRef.current.releaseLock(); } catch { /* already released */ }
+        rfidReaderRef.current = null;
+      }
+      if (rfidPortRef.current) {
+        await rfidPortRef.current.close().catch(() => {});
+        rfidPortRef.current = null;
+      }
+    } finally {
+      setRfidSerialStatus('idle');
+      setRfidChip(null);
+      setRfidLastHeard(null);
+      // A number left on screen after the reader is gone reads as a live one.
+      setRfidLiveUid('');
+      rfidLastSerialRef.current = { uid: '', at: 0 };
+      // A disconnect landing mid-open would otherwise leave this set and
+      // every later attempt would return early against a port that is gone.
+      rfidOpeningRef.current = false;
+    }
+  }, []);
+
+  // "Failed to open serial port" is what Chrome says for every reason a port
+  // will not open, and it names none of them. Almost always it is that
+  // something else already holds the port - a serial port can only be held by
+  // one program at a time - and the something else is almost always the
+  // Arduino IDE's Serial Monitor, left open after uploading the sketch.
+  // Saying that is the difference between a fix and an afternoon.
+  const explainSerialError = (err) => {
+    const name = err?.name || '';
+    const msg = String(err?.message || err || '');
+
+    if (/failed to open|access.?denied|NetworkError/i.test(msg) || name === 'NetworkError') {
+      return 'Could not open the port - another program is holding it. Close the Arduino IDE Serial Monitor (and the Serial Plotter, and any other tab connected to this board), then press Connect again.';
+    }
+    if (name === 'InvalidStateError') {
+      return 'That port is already open in this tab. Press Disconnect, or refresh the page, then try again.';
+    }
+    if (name === 'SecurityError') {
+      return 'The browser blocked the port. This needs to be running on https:// or http://localhost.';
+    }
+    return msg || 'Could not open the reader';
+  };
+
+  // Opening a port that has already been chosen. Split out from the choosing
+  // because the two have completely different rules: picking a port needs a
+  // click and shows the browser's chooser, opening one the browser already
+  // remembers needs neither. Everything after the pick is identical, and the
+  // read loop must not exist twice.
+  const openRfidPort = useCallback(async (port, { silent = false } = {}) => {
+    if (rfidOpeningRef.current) return false;
+    rfidOpeningRef.current = true;
+    setRfidError('');
+    setRfidSerialStatus('opening');
+    try {
+      // A port THIS tab already opened is still open, and open() on an open
+      // port throws. That happens on a dev hot-reload, and after a connect
+      // that got half way, and Chrome hands back the same port object either
+      // time - so the state has to be checked rather than assumed. An open
+      // port has a readable and a writable; a closed one has neither.
+      if (port.readable || port.writable) {
+        try { await port.close(); } catch { /* not ours to close - open() will say so */ }
+      }
+
+      await port.open({ baudRate: Number(rfidBaud) || 9600 });
+      rfidPortRef.current = port;
+      rfidKeepReadingRef.current = true;
+      setRfidSerialStatus('open');
+
+      const reader = port.readable.getReader();
+      rfidReaderRef.current = reader;
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      // Serial arrives in whatever sized chunks the driver feels like, which
+      // is not the same as line by line - a UID can and does get split across
+      // two reads. So bytes go into a buffer and only whole lines come out.
+      (async () => {
+        try {
+          while (rfidKeepReadingRef.current) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let cut;
+            while ((cut = buffer.search(/[\r\n]/)) >= 0) {
+              const line = buffer.slice(0, cut).trim();
+              buffer = buffer.slice(cut + 1);
+              if (!line) continue;
+
+              // EVERY line is logged, whatever it is. Only lines the sketch
+              // marks as a card are treated as one - but seeing the rest is
+              // how you find out the board is fine and the card is the wrong
+              // frequency, rather than guessing at both.
+              // Two sketches are in circulation on these boards and they say
+              // the same thing differently:
+              //
+              //   ours, hardware/rfid-rc522   UID:C3C8D6E4
+              //   MFRC522 library DumpInfo    Card UID: C3 C8 D6 E4
+              //
+              // DumpInfo is what most boards arrive flashed with, because it
+              // is the example everybody uses to prove the wiring works. Both
+              // are read here, so a working board does not have to be
+              // reflashed before the desk can use it. The spacing is stripped
+              // by normalizeUid, so both spell the same card.
+              const hit = /^(?:card\s+)?uid\s*[:=]\s*([0-9a-f][0-9a-f\s:.\-]*)$/i.exec(line);
+              const version = /^VERSION[:=]\s*(.+)$/i.exec(line);
+              // DumpInfo calls it "PICC type: MIFARE 1KB"; ours says "TYPE:".
+              const type = /^(?:TYPE|PICC\s+type)\s*[:=]\s*(.+)$/i.exec(line);
+
+              if (version) {
+                const v = version[1].trim();
+                // 0x00 and 0xFF both mean the chip never answered - a wiring
+                // or power fault, and no card will ever read until it is fixed.
+                const dead = /^0x?(00|FF)$/i.test(v.replace(/\s/g, ''));
+                setRfidChip({ version: v, ok: !dead });
+              }
+              if (type) setRfidCardType(type[1].trim());
+
+              // The heartbeat proves the board is alive; logging one line
+              // every five seconds would bury everything else.
+              if (/^ALIVE$/i.test(line)) { setRfidLastHeard(new Date()); continue; }
+
+              // DumpInfo's sector dump: sixty-four rows of hex per tap, plus
+              // its header. Kept, because it is the proof the card is really
+              // being talked to, but marked so it can be folded away - the
+              // UID line is worthless if it scrolls off the top instantly.
+              const isDump = !hit && (
+                /^(sector|block)\b/i.test(line)
+                || /^\s*\d+\s+\d+\s+[0-9a-f]{2}(\s+[0-9a-f]{2})+/i.test(line)
+                || /^\s*[0-9a-f]{2}(\s+[0-9a-f]{2}){3,}/i.test(line)
+              );
+
+              pushRfidRaw(
+                line,
+                hit ? 'uid' : /^ERROR/i.test(line) ? 'err' : isDump ? 'dump' : 'in',
+              );
+
+              if (hit) {
+                const uid = normalizeUid(hit[1]);
+                if (isPlausibleUid(uid)) {
+                  // A card read at all proves the chip is answering, which is
+                  // the one thing DumpInfo never says out loud.
+                  setRfidChip((c) => (c && c.version ? c : { version: '', ok: true }));
+                  setRfidLiveUid(uid);
+
+                  const prev = rfidLastSerialRef.current;
+                  const held = prev.uid === uid && Date.now() - prev.at < 2500;
+                  // Held against the aerial: push the window out so the block
+                  // lasts until the card actually leaves, rather than
+                  // expiring underneath it.
+                  rfidLastSerialRef.current = { uid, at: Date.now() };
+                  if (!held) rfidScanRef.current?.(uid, 'serial');
+                }
+              }
+            }
+            // A reader that never sends a newline would grow this forever.
+            if (buffer.length > 256) buffer = buffer.slice(-64);
+          }
+        } catch (err) {
+          if (rfidKeepReadingRef.current) {
+            // Unplugging the board mid-session lands here.
+            setRfidError(`The reader stopped: ${err.message}. Check the USB cable, then press Connect again.`);
+            setRfidSerialStatus('error');
+            rfidKeepReadingRef.current = false;
+            rfidPortRef.current = null;
+          }
+        }
+      })();
+      rfidOpeningRef.current = false;
+      return true;
+    } catch (err) {
+      // A port that failed to open was never ours; leaving the ref set would
+      // make Disconnect try to close somebody else's port.
+      rfidPortRef.current = null;
+      rfidKeepReadingRef.current = false;
+      // A silent attempt is one nobody asked for - the board is simply not
+      // there, or something else has it. Shouting about it would put a red
+      // banner on a screen the person opened to do something else entirely.
+      // The Connect button is still there if they actually want it.
+      if (silent) setRfidSerialStatus('idle');
+      else {
+        setRfidError(explainSerialError(err));
+        setRfidSerialStatus('error');
+      }
+      rfidOpeningRef.current = false;
+      return false;
+    }
+  }, [rfidBaud, pushRfidRaw]);
+
+  // Picking the board. This is the one step the browser will not let happen
+  // on its own: requestPort() must come from a click, and it always shows the
+  // chooser. It only has to happen ONCE per board per browser - after that
+  // the permission is remembered and autoConnectRfidSerial below opens it
+  // with no chooser and no click, which is why this is not on the hot path.
+  const connectRfidSerial = useCallback(async () => {
+    if (!rfidWebSerialSupported) {
+      setRfidError('This browser cannot open a USB serial port. Use Chrome or Edge on a computer, or switch to USB Reader mode.');
+      return;
+    }
+    try {
+      const port = await navigator.serial.requestPort();
+      setRfidPaired(true);
+      await openRfidPort(port);
+    } catch (err) {
+      // Closing the port chooser without picking anything is a normal thing
+      // to do, not an error worth shouting about.
+      if (err?.name === 'NotFoundError') { setRfidSerialStatus('idle'); return; }
+      setRfidError(explainSerialError(err));
+      setRfidSerialStatus('error');
+    }
+  }, [rfidWebSerialSupported, openRfidPort]);
+
+  // The board, opened by itself.
+  //
+  // getPorts() returns the ports this origin has ALREADY been granted, and
+  // Chrome keeps that grant across reloads and restarts. Opening one of those
+  // needs no gesture and shows no chooser - so the permission dialog is a
+  // once-per-board event, not a once-per-tap one.
+  //
+  // More than one port can be remembered (a board plugged into a different
+  // socket enumerates as a new one), and a remembered port may be unplugged
+  // or held by the Arduino IDE. So they are simply tried in turn until one
+  // opens, newest first - the newest grant is the board most recently chosen.
+  const autoConnectRfidSerial = useCallback(async () => {
+    if (!rfidWebSerialSupported) return false;
+    // Already open, or opening: leave it alone. Two open() calls racing on one
+    // port is how a port ends up locked with nothing reading it.
+    if (rfidPortRef.current || rfidOpeningRef.current) return false;
+
+    let ports = [];
+    try {
+      ports = await navigator.serial.getPorts();
+    } catch { return false; }
+    setRfidPaired(ports.length > 0);
+    if (!ports.length) return false;
+
+    for (const port of [...ports].reverse()) {
+      if (rfidPortRef.current) return true;
+      if (await openRfidPort(port, { silent: true })) return true;
+    }
+    return false;
+  }, [rfidWebSerialSupported, openRfidPort]);
+
+  // Let go of the port when the section is left or the page is closed. A port
+  // left open stays locked to this tab and the next connect attempt fails.
+  // The reader is let go when nothing needs it. "Nothing" means neither the
+  // RFID Reader section nor an assign/scan dialog somewhere else - a port
+  // closed out from under an open dialog would leave it silently dead.
+  const rfidInUse = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk || evtUnlockOpen;
+
+  // The events as the cards show them, filtered by the search box.
+  const rfidVisibleEventCards = rfidEventCards.filter((ev) => {
+    const q = rfidEventSearch.trim().toLowerCase();
+    if (!q) return true;
+    return `${ev.title || ''} ${ev.location || ''}`.toLowerCase().includes(q);
+  });
+  // The event being worked on. Taken from the overview rather than the events
+  // list, so the header cannot go blank while the events list is still loading.
+  const rfidChosenEvent = rfidEventCards.find((ev) => ev.id === rfidEventId)
+    || events.find((ev) => ev.id === rfidEventId)
+    || null;
+
+  // A phone: it has an NFC aerial and cannot ever have a serial port. Worth
+  // naming because it decides whether a keyboard capture box is worth showing
+  // at all - on a phone it only summons the on-screen keyboard.
+  const rfidIsPhone = rfidNfcSupported && !rfidWebSerialSupported;
+
+  // What to tell somebody standing at the pad. Every reader that is actually
+  // live gets a mention, because with all of them listening at once "hold it
+  // on the reader" is ambiguous - and when none is live, saying so is the
+  // only useful thing on the screen.
+  const rfidReadyHint = (() => {
+    const live = [];
+    if (rfidSerialStatus === 'open') live.push('the RC522 aerial');
+    if (rfidNfcStatus === 'scanning') live.push('the back of the phone');
+    if (rfidFocus) live.push('the USB reader');
+    if (live.length === 0) {
+      return rfidIsPhone
+        ? 'Start the phone scan above first.'
+        : 'No reader is listening yet. Click the box below for a USB reader, or connect the Arduino above.';
+    }
+    if (live.length === 1) return `Hold the card on ${live[0]}.`;
+    return `Hold the card on ${live.slice(0, -1).join(', ')} or ${live[live.length - 1]}.`;
+  })();
+  useEffect(() => {
+    if (!rfidInUse && rfidPortRef.current) disconnectRfidSerial();
+  }, [rfidInUse, disconnectRfidSerial]);
+  useEffect(() => () => { disconnectRfidSerial(); }, [disconnectRfidSerial]);
+
+  // What this device can actually do, asked once after mount.
+  useEffect(() => {
+    setRfidNfcSupported('NDEFReader' in window);
+    setRfidSecureContext(window.isSecureContext !== false);
+  }, []);
+
+  // An NFC scan left running keeps the aerial and keeps firing taps at
+  // whatever screen replaced this one.
+  useEffect(() => {
+    if (!rfidInUse) stopRfidNfcScan();
+  }, [rfidInUse, stopRfidNfcScan]);
+  useEffect(() => () => { stopRfidNfcScan(); }, [stopRfidNfcScan]);
+
+  // The board connects itself the moment something wants it - opening the
+  // reader section, or opening an assign or scan dialog. No button, no
+  // chooser, no permission box: the grant from the first ever Connect is
+  // remembered by the browser, and this reopens that same port.
+  //
+  // Attempted once per visit and never retried on failure. A board that is
+  // not plugged in cannot be talked into existing by asking repeatedly, and
+  // the Connect button is right there for the case where somebody plugs it in
+  // afterwards - as is the plug-in handler below, which is faster than they
+  // are.
+  useEffect(() => {
+    if (!rfidInUse) { rfidAutoTriedRef.current = false; return; }
+    if (rfidAutoTriedRef.current) return;
+    rfidAutoTriedRef.current = true;
+    autoConnectRfidSerial();
+  }, [rfidInUse, autoConnectRfidSerial]);
+
+  // Plugged in while the desk is already open, or plugged into a different
+  // socket mid-session. The browser fires this for ports it has been granted,
+  // so picking it up is free - and the alternative is a reader that sits there
+  // doing nothing until somebody thinks to press Connect.
+  useEffect(() => {
+    if (!rfidWebSerialSupported || !rfidInUse) return undefined;
+
+    const onConnect = () => { if (!rfidPortRef.current) autoConnectRfidSerial(); };
+    // Unplugged. The read loop notices too, but only when a read fails, and
+    // that can be a while - this says so at once, and clears the state so the
+    // next plug-in is a clean open rather than an InvalidStateError.
+    const onDisconnect = (e) => {
+      if (rfidPortRef.current && (!e.target || e.target === rfidPortRef.current)) {
+        rfidKeepReadingRef.current = false;
+        rfidReaderRef.current = null;
+        rfidPortRef.current = null;
+        rfidOpeningRef.current = false;
+        setRfidSerialStatus('idle');
+        setRfidChip(null);
+        setRfidLiveUid('');
+      }
+    };
+
+    navigator.serial.addEventListener('connect', onConnect);
+    navigator.serial.addEventListener('disconnect', onDisconnect);
+    return () => {
+      navigator.serial.removeEventListener('connect', onConnect);
+      navigator.serial.removeEventListener('disconnect', onDisconnect);
+    };
+  }, [rfidWebSerialSupported, rfidInUse, autoConnectRfidSerial]);
+
+  // ---- A USB reader pretending to be a keyboard ----
+  // It types the number and presses Enter, far faster than hands can. The gap
+  // between keystrokes is what tells the two apart: under 120ms is machinery,
+  // above it is a person, and a person's keystrokes must not be collected into
+  // a card number.
+  useEffect(() => {
+    // Always, on this screen - not only when a "USB reader" mode is selected.
+    // A wedge reader is a keyboard: listening for it costs nothing when there
+    // is none, and not listening for it is indistinguishable from a broken one.
+    const wanted = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk || evtUnlockOpen;
+    if (!wanted) return undefined;
+
+    const onKeyDown = (e) => {
+      // Anything typed INTO a field belongs to that field. The scan box below
+      // has its own handler; this listener is for taps that land on the page
+      // with nothing focused.
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+
+      const now = Date.now();
+      const state = rfidKeyRef.current;
+      if (now - state.at > 120) state.buf = '';
+      state.at = now;
+
+      if (e.key === 'Enter') {
+        const captured = state.buf;
+        state.buf = '';
+        if (isPlausibleUid(captured)) {
+          e.preventDefault();
+          rfidScanRef.current?.(captured, 'keyboard');
+        }
+        return;
+      }
+      if (e.key.length === 1) state.buf += e.key;
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeSection, evtRfidScanOpen, claimDesk, evtUnlockOpen]);
+
   if (!userData || !permissionsLoaded) {
     return (
       <div className="dashboard-loading-screen">
@@ -8344,7 +9901,10 @@ Examples:
   const SIDEBAR_GROUPS = [
     { key: 'people',    label: 'People & Roles',    icon: 'fas fa-users-cog',      ids: ['users', 'roles', 'ministries', 'attendance'] },
     { key: 'worship',   label: 'Worship & Schedule', icon: 'fas fa-hands-praying',  ids: ['schedule', 'praise-worship', 'lineup', 'meetings'] },
-    { key: 'content',   label: 'Events & Content',   icon: 'fas fa-calendar-alt',   ids: ['events', 'community-events', 'announcements', 'community', 'my-created-events', 'user-events-oversight', 'isom-inquiries'] },
+    // 'rfid' sits with Events on purpose: the screen is a list of events and
+    // the cards handed out at each one, so it is found by looking for the
+    // event rather than by looking for the hardware.
+    { key: 'content',   label: 'Events & Content',   icon: 'fas fa-calendar-alt',   ids: ['events', 'rfid', 'community-events', 'announcements', 'community', 'my-created-events', 'user-events-oversight', 'isom-inquiries'] },
     { key: 'media',     label: 'Media & Messages',   icon: 'fas fa-photo-film',     ids: ['live-stream-mgmt', 'recordings', 'messages'] },
     { key: 'insights',  label: 'Insights',           icon: 'fas fa-chart-bar',      ids: ['reports', 'audit'] },
     { key: 'system',    label: 'System',             icon: 'fas fa-cogs',           ids: ['permissions-control', 'system', 'terms-conditions', 'cloudinary-usage'] },
@@ -8370,6 +9930,89 @@ Examples:
 
   const canManage = (module) => hasPermission(userRole, module);
   const selectedChatUser = chatUsers.find((u) => u.id === selectedChatUserId) || null;
+
+  // ---- Giving a card to a member ----
+  const assignRfidCard = async () => {
+    if (!rfidAssign?.uid) return;
+    if (!rfidAssignUser) { showToast('Choose who this card belongs to', 'warning'); return; }
+    try {
+      setRfidBusy(true);
+      const res = await fetch('/api/rfid/cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: rfidAssign.uid,
+          userId: rfidAssignUser,
+          label: rfidAssignLabel.trim() || null,
+          assignedBy: userData?.id || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message || 'Could not register the card', 'danger'); return; }
+      showToast(data.message || 'Card registered', 'success');
+      setRfidAssign(null);
+      setRfidAssignUser('');
+      setRfidAssignLabel('');
+      loadRfidCards();
+      setTimeout(() => rfidBoxRef.current?.focus(), 50);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setRfidBusy(false);
+    }
+  };
+
+  const setRfidCardActive = async (card, isActive) => {
+    try {
+      const res = await fetch('/api/rfid/cards', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: card.id, isActive }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      showToast(isActive ? 'Card is active again' : 'Card marked lost', 'success');
+      loadRfidCards();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
+  };
+
+  const removeRfidCard = async (card) => {
+    const who = `${card.users?.firstname || ''} ${card.users?.lastname || ''}`.trim() || 'this member';
+    if (!window.confirm(`Remove this card from ${who}? It will stop working immediately.`)) return;
+    try {
+      const res = await fetch(`/api/rfid/cards?id=${encodeURIComponent(card.id)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      showToast('Card removed', 'success');
+      loadRfidCards();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
+  };
+
+  // Members to choose from when registering a card, narrowed by the search box.
+  const rfidPickableUsers = (() => {
+    const q = rfidAssignSearch.trim().toLowerCase();
+    const held = new Set(rfidCards.filter((c) => c.is_active).map((c) => c.user_id));
+    return adminUsers
+      .filter((u) => u.status !== 'Deactivated')
+      .filter((u) => {
+        if (!q) return true;
+        return `${u.firstname || ''} ${u.lastname || ''} ${u.email || ''} ${u.ministry || ''}`
+          .toLowerCase().includes(q);
+      })
+      .map((u) => ({ ...u, alreadyHasCard: held.has(u.id) }))
+      .slice(0, 60);
+  })();
+
+  const rfidVisibleCards = (() => {
+    const q = rfidCardSearch.trim().toLowerCase();
+    if (!q) return rfidCards;
+    return rfidCards.filter((c) => `${c.users?.firstname || ''} ${c.users?.lastname || ''} ${c.uid} ${c.label || ''} ${c.users?.ministry || ''}`
+      .toLowerCase().includes(q));
+  })();
 
   // ============================================
   // RENDER
@@ -8769,6 +10412,20 @@ Examples:
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Quick switch to the door: the same account, the other dashboard.
+                Only shown to accounts the server says may open it. */}
+            {committeeSession && (
+              <button
+                className="sidebar-notif-bell"
+                onClick={openCommitteeDashboard}
+                title="Open the Event Committee dashboard"
+                aria-label="Switch to the Event Committee dashboard"
+              >
+                <i className="fas fa-clipboard-user"></i>
+                <span>Event Committee</span>
+              </button>
             )}
 
             <div className={`sidebar-user-card ${(!isVerified && userRole !== 'Guest') ? 'locked' : ''}`}
@@ -9388,8 +11045,18 @@ Examples:
             )}
 
             {eventRegsModal && (() => {
-              const confirmedRegs = eventRegs.filter((r) => r.status === 'registered' || r.status === 'payment_verified');
-              const attendedCount = confirmedRegs.filter((r) => r.attended).length;
+              // Everyone who could attend, and the subset the search box is
+              // showing. Kept apart on purpose: the tab's badge counts the
+              // event, and a badge that fell as somebody typed would read as
+              // people vanishing.
+              const confirmedAll = eventRegs.filter((r) => r.status === 'registered' || r.status === 'payment_verified');
+              const confirmedRegs = confirmedAll.filter((r) => {
+                const q = attSearch.trim().toLowerCase();
+                if (!q) return true;
+                return `${r.attendee_name || ''} ${r.church_name || ''} ${r.attendee_mobile || ''} ${r.attendee_email || ''}`
+                  .toLowerCase().includes(q);
+              });
+              const attendedCount = confirmedAll.filter((r) => r.attended).length;
               return (
                 <>
                   <div className="evt-tabs">
@@ -9476,10 +11143,13 @@ Examples:
                             <tr key={r.id}>
                               <td className="evt-cell-name evt-td-primary" data-label="Attendee">
                                 {formatPersonName(r.attendee_name)}
+                                {/* Just the date. The group size used to hang
+                                    here as a chip and crowded the column for
+                                    something nobody scans a list by - it is
+                                    still on the Type column, and in full on
+                                    the receipt. */}
                                 <div className="evt-cell-sub">
                                   {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                  {/* registered together with others on one payment */}
-                                  {r.group_size > 1 && <span className="evt-group-tag"><i className="fas fa-user-group"></i> Group of {r.group_size}</span>}
                                 </div>
                               </td>
                               {/* how it was made, and whose name is on having made it */}
@@ -9611,14 +11281,44 @@ Examples:
                                   if (r.payment_plan === 'flexible' && r.status !== 'cancelled') {
                                     const owed = Number(r.amount) || 0;
                                     const paid = Number(r.amount_paid) || 0;
-                                    return paid >= owed && owed > 0
-                                      ? <span className="evt-status evt-status-payment_verified">paid</span>
-                                      : (
-                                        <>
-                                          <span className="evt-status evt-status-installment">installment</span>
+                                    const label = paid >= owed && owed > 0 ? 'paid' : 'installment';
+                                    const cls = paid >= owed && owed > 0 ? 'payment_verified' : 'installment';
+                                    return (
+                                      <>
+                                        {r.payment_proof_url ? (
+                                          <button
+                                            type="button"
+                                            className={`evt-status evt-status-${cls} evt-status-link`}
+                                            onClick={() => setProofModal(r)}
+                                            title="Open the proof of payment"
+                                          >
+                                            {label}
+                                          </button>
+                                        ) : (
+                                          <span className={`evt-status evt-status-${cls}`}>{label}</span>
+                                        )}
+                                        {label === 'installment' && (
                                           <div className="evt-cell-sub">₱{paid} of ₱{owed}</div>
-                                        </>
-                                      );
+                                        )}
+                                      </>
+                                    );
+                                  }
+                                  // "For Verification" means a receipt is waiting to
+                                  // be looked at, so the pill saying so IS the way to
+                                  // it. Only made a button when there is a proof to
+                                  // open - a pill that invites a click and does
+                                  // nothing is worse than a plain one.
+                                  if (r.payment_proof_url) {
+                                    return (
+                                      <button
+                                        type="button"
+                                        className={`evt-status evt-status-${r.status} evt-status-link`}
+                                        onClick={() => setProofModal(r)}
+                                        title="Open the proof of payment"
+                                      >
+                                        {statusLabel(r.status)}
+                                      </button>
+                                    );
                                   }
                                   return <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>;
                                 })()}
@@ -9691,6 +11391,13 @@ Examples:
                                             </button>
                                           )}
 
+                                          {/* Cards are handed out on the Events RFID
+                                              screen, where a reader is actually
+                                              listening - not from a menu here, where
+                                              the number had to be typed in by hand.
+                                              This table only reports whether one has
+                                              been given; the column does that. */}
+
                                           {/* A verified payment can be put back - the
                                               reference sometimes turns out not to match. */}
                                           {r.status === 'payment_verified' && r.payment_plan !== 'flexible' && (
@@ -9749,40 +11456,324 @@ Examples:
 
                   {manageTab === 'attendance' && (
                     <>
-                      <div className="evt-viewbar">
-                        <button className="btn-primary" onClick={() => { setQrScanResult(null); setShowQrScanner(true); }}><i className="fas fa-qrcode"></i> Scan QR to Check In</button>
+                      {/* Search on the left, the counters on the right. Each
+                          counter is a card tapped and a name appearing - the
+                          table below is the record, not the way things are
+                          normally done to it. */}
+                      <div className="evt-attbar">
+                        <div className="evt-search evt-attbar-search">
+                          <i className="fas fa-magnifying-glass"></i>
+                          <input
+                            type="search"
+                            value={attSearch}
+                            onChange={(e) => { setAttSearch(e.target.value); setAttPage(1); }}
+                            placeholder="Search attendees, church, contact"
+                            aria-label="Search attendees"
+                          />
+                        </div>
+                        <div className="evt-attbar-actions">
+                          <button className="btn-primary" onClick={() => { setEvtRfidResult(null); setEvtRfidInput(''); setEvtRfidScanOpen(true); }}>
+                            <i className="fas fa-id-card"></i> Scan RFID to Check In
+                          </button>
+                          <button
+                            className="btn-primary"
+                            onClick={() => { setClaimWho(null); setClaimTicked([]); setClaimManual(''); setClaimDesk('kit'); }}
+                          >
+                            <i className="fas fa-box-open"></i> Event Kit Counter
+                          </button>
+                          <button
+                            className="btn-primary"
+                            onClick={() => { setClaimWho(null); setClaimManual(''); setClaimDesk('meals'); }}
+                          >
+                            <i className="fas fa-utensils"></i> Meals Counter
+                          </button>
+                          {/* Last, and on its own: this is the one button that
+                              changes what the other columns DO. Locking needs
+                              no card - only unlocking does. */}
+                          <button
+                            type="button"
+                            className={`evt-lockbtn ${evtUnlocked ? 'open' : ''}`}
+                            title={evtUnlocked
+                              ? 'Columns are unlocked — click to lock them again'
+                              : 'Unlock the columns for corrections (master card required)'}
+                            aria-label={evtUnlocked ? 'Lock the columns' : 'Unlock the columns'}
+                            onClick={() => {
+                              if (evtUnlocked) {
+                                setEvtUnlocked(false);
+                                showToast('Columns locked', 'info');
+                                return;
+                              }
+                              setEvtUnlockError('');
+                              setEvtUnlockManual('');
+                              setEvtUnlockOpen(true);
+                            }}
+                          >
+                            <i className={`fas ${evtUnlocked ? 'fa-lock-open' : 'fa-circle-exclamation'}`}></i>
+                            {evtUnlocked ? 'Unlocked' : 'Corrections'}
+                          </button>
+                        </div>
                       </div>
+
+                      {/* Said plainly while it lasts, because an unlocked
+                          table looks exactly like a locked one until
+                          something is clicked by accident. */}
+                      {evtUnlocked && (
+                        <p className="evt-unlock-note">
+                          <i className="fas fa-triangle-exclamation"></i>
+                          <span>
+                            <b>Corrections are on.</b> Clicking a day, the kit or a meal changes it
+                            straight away — including taking one back. Lock it again when you are done.
+                          </span>
+                          <button type="button" className="btn-small btn-secondary" onClick={() => { setEvtUnlocked(false); showToast('Columns locked', 'info'); }}>
+                            <i className="fas fa-lock"></i> Lock
+                          </button>
+                        </p>
+                      )}
                       <div className="evt-table-wrapper">
                         <table className="evt-table">
                           <thead>
-                            <tr><th>Attendee</th><th>Contact</th><th>Status</th><th>Attendance</th></tr>
+                            <tr>
+                              <th>Attendee</th><th>Contact</th><th>Status</th>
+                              <th className="evt-th-center">Attendance</th>
+                              <th className="evt-th-center">Event Kit</th>
+                              {/* One column, however many days the event runs.
+                                  Two days of two meals is four boxes, and four
+                                  columns of "Day 1 Lunch" headings would push
+                                  the names off the screen. */}
+                              <th className="evt-th-center">Meals</th>
+                              <th style={{ textAlign: 'right' }}>Actions</th>
+                            </tr>
                           </thead>
                           <tbody>
                             {eventRegsLoading ? (
-                              <tr><td colSpan={4}>Loading…</td></tr>
+                              <tr><td colSpan={7}>Loading…</td></tr>
                             ) : confirmedRegs.length === 0 ? (
-                              <tr><td colSpan={4}>No confirmed registrations yet.</td></tr>
+                              <tr><td colSpan={7}>
+                                {attSearch.trim()
+                                  ? `No attendee matches “${attSearch.trim()}”.`
+                                  : 'No confirmed registrations yet.'}
+                              </td></tr>
                             ) : confirmedRegs.slice((attPage - 1) * attPageSize, attPage * attPageSize).map((r) => (
                               <tr key={r.id}>
                                 <td className="evt-cell-name evt-td-primary" data-label="Attendee">{formatPersonName(r.attendee_name)}</td>
                                 <td className="evt-cell-sub" data-label="Contact">{r.attendee_email}{r.attendee_mobile ? ` · ${r.attendee_mobile}` : ''}</td>
-                                <td className="evt-nowrap" data-label="Status"><span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span></td>
-                                <td className="evt-nowrap evt-td-actions" data-label="Attendance">
-                                  {r.attended ? (
-                                    <>
-                                      <span className="evt-attend-badge yes"><i className="fas fa-check-circle"></i> Attended{r.attended_at ? ` · ${formatDateTime(r.attended_at)}` : ''}</span>
+                                {/* "Paid" is the right word beside a peso
+                                    figure on the Registrations tab. Here the
+                                    column is about somebody standing at a
+                                    door, and what matters is that they are
+                                    cleared to come in - so the same status
+                                    gets the wording this table needs. */}
+                                <td className="evt-nowrap" data-label="Status">
+                                  <span className={`evt-status evt-status-${r.status}`}>
+                                    {r.status === 'payment_verified' || r.status === 'registered'
+                                      ? 'Verified Attendee'
+                                      : statusLabel(r.status)}
+                                  </span>
+                                </td>
+                                {/* ---- Came, and when ----
+                                    Centred, and the stamp on its own line: on
+                                    a two-day event the question is not "did
+                                    they come" but "which day, and how late",
+                                    and that has to be readable at a glance. */}
+                                {/* ---- Came, per day ----
+                                    An event over two or three days cannot
+                                    answer "did they come" with one word: the
+                                    person who came on Day 1 and went home
+                                    reads identically to the one who came to
+                                    all three. So one line per day, and a day
+                                    that has not started yet is greyed - it is
+                                    not a no-show, it simply has not happened.
+
+                                    Each line is a button, so any day can be
+                                    corrected by hand; a day still ahead is
+                                    disabled, because nobody attended tomorrow. */}
+                                <td className="evt-td-center" data-label="Attendance">
+                                  <div className="evt-attend-days">
+                                    {evtEventDays.map((d) => {
+                                      const day = evtDayAttend[r.id]?.[String(d.number)];
+                                      const busy = evtDayBusy === `${r.id}:${d.number}`;
+                                      const state = day ? 'in' : d.started ? 'out' : 'ahead';
+                                      return (
+                                        <button
+                                          type="button"
+                                          key={d.number}
+                                          className={`evt-attend-day ${state} ${evtUnlocked ? 'live' : ''}`}
+                                          disabled={!evtUnlocked || state === 'ahead' || !!evtDayBusy}
+                                          onClick={() => toggleDayAttendance(r, d.number, !day)}
+                                          title={!evtUnlocked
+                                            ? (day
+                                              ? `${d.label} — attended ${formatStampLine(day.attended_at)}`
+                                              : state === 'ahead'
+                                                ? `${d.label} has not started yet${d.when ? ` (${d.when})` : ''}`
+                                                : `${d.label} — not yet. Unlock corrections to change it.`)
+                                            : day
+                                              ? `${d.label} — attended ${formatStampLine(day.attended_at)}. Click to undo.`
+                                              : state === 'ahead'
+                                                ? `${d.label} has not started yet${d.when ? ` (${d.when})` : ''}`
+                                                : `${d.label} — click to mark attended`}
+                                        >
+                                          <i className={`fas ${busy ? 'fa-spinner fa-spin'
+                                            : day ? 'fa-circle-check' : 'fa-circle'}`}></i>
+                                          <b>Day {d.number}</b>
+                                          <span className="evt-attend-day-sep">|</span>
+                                          <em>
+                                            {day ? 'Attended' : state === 'ahead' ? 'Upcoming' : 'Not yet'}
+                                          </em>
+                                          {day?.attended_at && (
+                                            <time>{formatStampLine(day.attended_at)}</time>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+
+                                {/* ---- The kit ----
+                                    Read here, not changed here. Handing over a
+                                    bag means checking it against a list with
+                                    the person's card in hand, which is the Kit
+                                    Counter above - a checkbox in a table row
+                                    can be ticked for the wrong person by being
+                                    one line off. */}
+                                <td className="evt-td-center" data-label="Event Kit">
+                                  {(() => {
+                                    const kit = evtClaims[r.id]?.['kit-0'];
+                                    const busy = evtClaimBusy === `${r.id}:kit-0`;
+                                    // Unlocked, the state itself is the control:
+                                    // click to give the kit or take it back.
+                                    // Locked, it is a read-out - the kit is
+                                    // handed over at its counter, against a card.
+                                    const Tag = evtUnlocked ? 'button' : 'span';
+                                    const live = evtUnlocked
+                                      ? {
+                                        type: 'button',
+                                        disabled: !!evtClaimBusy,
+                                        onClick: () => toggleRowClaim(r, 'kit', 0, !kit),
+                                      }
+                                      : {};
+                                    if (!kit) {
+                                      return (
+                                        <Tag className={`evt-claim-state ${evtUnlocked ? 'live' : ''}`} {...live}>
+                                          {busy && <i className="fas fa-spinner fa-spin"></i>}
+                                          Not claimed
+                                        </Tag>
+                                      );
+                                    }
+                                    const items = Array.isArray(kit.items) ? kit.items : [];
+                                    return (
+                                      <div className="evt-claim-done">
+                                        <Tag className={`evt-claim-state yes ${evtUnlocked ? 'live' : ''}`} {...live}>
+                                          <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-box-open'}`}></i> Claimed
+                                        </Tag>
+                                        {kit.claimed_at && (
+                                          <time className="evt-attend-when">{formatStampLine(kit.claimed_at)}</time>
+                                        )}
+                                        {/* Which pieces, when the event has a
+                                            merch list and not everything was
+                                            handed over - the shirts running
+                                            out in one size is normal, and the
+                                            person who comes back for theirs
+                                            needs it recorded. */}
+                                        {evtMerchItems.length > 0 && items.length < evtMerchItems.length && (
+                                          <span className="evt-claim-partial">
+                                            {items.length} of {evtMerchItems.length} items
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </td>
+
+                                {/* ---- Meals ----
+                                    DAY 1  [x] Lunch  [x] Dinner
+                                    DAY 2  [ ] Lunch  [ ] Dinner
+                                    One cell for the lot, so the number of days
+                                    is a property of the event and not of the
+                                    table. Read-only for the same reason as the
+                                    kit: a meal is served at the Meals Counter,
+                                    against a card. */}
+                                <td className="evt-td-center" data-label="Meals">
+                                  <div className="evt-meals">
+                                    {evtEventDayNumbers.map((day) => (
+                                      <div className="evt-meal-day" key={day}>
+                                        <span className="evt-meal-daylabel">Day {day}</span>
+                                        {['lunch', 'dinner'].map((meal) => {
+                                          const key = `${meal}-${day}`;
+                                          const has = !!evtClaims[r.id]?.[key];
+                                          const at = evtClaims[r.id]?.[key]?.claimed_at;
+                                          const busy = evtClaimBusy === `${r.id}:${key}`;
+                                          const label = meal === 'lunch' ? 'Lunch' : 'Dinner';
+                                          const icon = busy ? 'fa-spinner fa-spin' : has ? 'fa-square-check' : 'fa-square';
+                                          // Locked, this is a tick on a record.
+                                          // Unlocked, it serves or takes back.
+                                          if (!evtUnlocked) {
+                                            return (
+                                              <span
+                                                key={meal}
+                                                className={`evt-meal-chip ${has ? 'yes' : ''}`}
+                                                title={has
+                                                  ? `${meal} taken${at ? ` ${formatStampLine(at)}` : ''}`
+                                                  : `${meal} not taken yet`}
+                                              >
+                                                <i className={`fas ${icon}`}></i>{label}
+                                              </span>
+                                            );
+                                          }
+                                          return (
+                                            <button
+                                              type="button"
+                                              key={meal}
+                                              className={`evt-meal-chip live ${has ? 'yes' : ''}`}
+                                              disabled={!!evtClaimBusy}
+                                              onClick={() => toggleRowClaim(r, meal, day, !has)}
+                                              title={has
+                                                ? `${meal} taken${at ? ` ${formatStampLine(at)}` : ''} — click to take back`
+                                                : `Click to record ${meal} as taken`}
+                                            >
+                                              <i className={`fas ${icon}`}></i>{label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </td>
+
+                                {/* ---- Actions ----
+                                    Marking somebody attended by hand, and
+                                    undoing it. Last, and together: they are
+                                    the same decision in two directions. */}
+                                {/* Marks the day the desk is currently on -
+                                    the one chosen in the scan dialog - and
+                                    says which, because on a three-day event
+                                    an unlabelled "Mark Attended" is a guess.
+                                    Any other day is corrected from its own
+                                    line in the Attendance column. */}
+                                <td className="evt-nowrap evt-td-actions" data-label="Actions">
+                                  {(() => {
+                                    const here = evtDayAttend[r.id]?.[String(evtCheckinDay)];
+                                    const many = evtEventDays.length > 1;
+                                    const suffix = many ? ` Day ${evtCheckinDay}` : '';
+                                    return here ? (
                                       <button
                                         className="evt-mini-btn danger"
+                                        disabled={!!evtDayBusy}
                                         onClick={() => askConfirm(
-                                          `${r.attendee_name} will be marked as not attended / no-show. You can mark them attended again later.`,
-                                          () => markAttendance(r.id, false),
+                                          `${r.attendee_name} will be marked as not attended for Day ${evtCheckinDay}. You can mark them attended again later.`,
+                                          () => toggleDayAttendance(r, evtCheckinDay, false),
                                           { title: 'Mark as Not Attended?', subtitle: eventRegsModal?.title || 'Event Attendance', confirmLabel: 'Mark Not Attended', icon: 'fa-user-xmark' }
                                         )}
-                                      ><i className="fas fa-user-xmark"></i> Undo</button>
-                                    </>
-                                  ) : (
-                                    <button className="evt-mini-btn ok" onClick={() => markAttendance(r.id, true)}><i className="fas fa-user-check"></i> Mark Attended</button>
-                                  )}
+                                      ><i className="fas fa-user-xmark"></i> Undo{suffix}</button>
+                                    ) : (
+                                      <button
+                                        className="evt-mini-btn ok"
+                                        disabled={!!evtDayBusy}
+                                        onClick={() => toggleDayAttendance(r, evtCheckinDay, true)}
+                                      >
+                                        <i className="fas fa-user-check"></i> Mark{suffix} Attended
+                                      </button>
+                                    );
+                                  })()}
                                 </td>
                               </tr>
                             ))}
@@ -9801,6 +11792,438 @@ Examples:
                 </>
               );
             })()}
+
+            {/* ---- Unlocking the columns ----
+                 One card, and only one, turns the record into something that
+                 can be edited in place. Locking again needs nothing - the
+                 friction belongs on the way in. */}
+            {evtUnlockOpen && (
+              <div className="evt-modal-overlay" onClick={() => setEvtUnlockOpen(false)}>
+                <div className="evt-modal evt-unlock-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3><i className="fas fa-circle-exclamation"></i> Unlock corrections</h3>
+                      <p>{eventRegsModal?.title || 'Event'}</p>
+                    </div>
+                    <button type="button" className="evt-modal-close" onClick={() => setEvtUnlockOpen(false)}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+
+                  <div className="evt-modal-body">
+                    {renderRfidStatus()}
+
+                    <div className={`evt-claim-who ${evtUnlockError ? 'bad' : ''}`}>
+                      <i className={`fas ${evtUnlockError ? 'fa-circle-exclamation' : 'fa-key'}`}></i>
+                      <div>
+                        <b>{evtUnlockError ? 'Wrong card' : 'Tap the master card'}</b>
+                        <em>
+                          {evtUnlockError || 'Only the master card unlocks editing. An attendee\u2019s card will not do it.'}
+                        </em>
+                      </div>
+                    </div>
+
+                    <div className="rfid-manual">
+                      <input
+                        className="form-control"
+                        value={evtUnlockManual}
+                        onChange={(e) => setEvtUnlockManual(e.target.value)}
+                        placeholder="\u2026or type the master card number"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && isPlausibleUid(evtUnlockManual)) {
+                            tryUnlockTable(evtUnlockManual);
+                            setEvtUnlockManual('');
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={!isPlausibleUid(evtUnlockManual)}
+                        onClick={() => { tryUnlockTable(evtUnlockManual); setEvtUnlockManual(''); }}
+                      >
+                        Unlock
+                      </button>
+                    </div>
+
+                    <p className="evt-rfid-hint">
+                      <i className="fas fa-circle-info"></i>
+                      With the columns unlocked you can mark a day attended or undo it, give the kit
+                      back, and tick or untick a meal &mdash; by clicking in the table. Every change
+                      saves straight away. The table locks itself again when this event is closed.
+                    </p>
+                  </div>
+
+                  <div className="evt-modal-foot">
+                    <button type="button" className="btn-secondary" onClick={() => setEvtUnlockOpen(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- The kit counter and the meal counter ----
+                 One dialog, two jobs, because they are the same shape: a card
+                 is tapped, a name appears, and only then is anything
+                 tickable. Nothing can be filled in before a card is read -
+                 that is the point, not a limitation. A checklist that works
+                 without a card is one that gets filled in for the person
+                 behind the person standing there. */}
+            {claimDesk && (
+              <div className="evt-modal-overlay" onClick={() => setClaimDesk(null)}>
+                <div className="evt-modal evt-claim-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3>
+                        <i className={`fas ${claimDesk === 'kit' ? 'fa-box-open' : 'fa-utensils'}`}></i>
+                        {claimDesk === 'kit' ? ' Event Kit Counter' : ' Meals Counter'}
+                      </h3>
+                      <p>{eventRegsModal?.title || 'Event'}</p>
+                    </div>
+                    <button type="button" className="evt-modal-close" onClick={() => setClaimDesk(null)}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+
+                  <div className="evt-modal-body">
+                    {renderRfidStatus()}
+                    {rfidError && (
+                      <p className="evt-rfid-hint bad">
+                        <i className="fas fa-triangle-exclamation"></i>
+                        {rfidError}
+                      </p>
+                    )}
+                    {/* Which day a meal belongs to. The kit has one day - the
+                        day they arrive - so the picker is only for meals. */}
+                    {claimDesk === 'meals' && renderDayPicker({ label: 'Serving' })}
+
+                    {/* ---- Who is standing here ---- */}
+                    <div className={`evt-claim-who ${
+                      claimWho?.result === 'matched'
+                        ? (claimWho.blocked ? 'blocked' : claimWho.already ? 'already' : 'ok')
+                        : claimWho ? 'bad' : ''}`}>
+                      {claimLookupBusy ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <div><b>Reading the card…</b></div>
+                        </>
+                      ) : !claimWho ? (
+                        <>
+                          <i className="fas fa-id-card"></i>
+                          <div>
+                            <b>Tap a card</b>
+                            <em>
+                              The list below stays locked until a card is read, so what is
+                              ticked is always recorded against the person holding it.
+                            </em>
+                          </div>
+                        </>
+                      ) : claimWho.result === 'matched' ? (
+                        <>
+                          <div className="rfid-avatar">
+                            {personInitials(claimWho.registration.attendee_name)}
+                          </div>
+                          <div>
+                            <b>{formatPersonName(claimWho.registration.attendee_name)}</b>
+                            {/* The refusal comes first. Somebody who has not
+                                arrived collects nothing, and that is the only
+                                thing worth saying about them here. */}
+                            {claimWho.blocked ? (
+                              <strong className="evt-claim-blocked">
+                                <i className="fas fa-user-clock"></i> {claimWho.blocked}
+                              </strong>
+                            ) : claimWho.already ? (
+                              <strong className="evt-claim-already">
+                                <i className="fas fa-clock-rotate-left"></i> {claimWho.already}
+                              </strong>
+                            ) : null}
+                            <em>
+                              {claimWho.registration.church_name
+                                ? formatChurchName(claimWho.registration.church_name)
+                                : claimWho.registration.attendee_mobile || 'Attendee'}
+                              {' · verified'}
+                            </em>
+                          </div>
+                          <button type="button" className="btn-small btn-secondary" onClick={() => { setClaimWho(null); setClaimTicked([]); }}>
+                            Next person
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-circle-exclamation"></i>
+                          <div>
+                            <b>{claimWho.message || 'That card could not be used'}</b>
+                            {/* Not verified is a different problem from an
+                                unknown card, and only one of them is fixed at
+                                this counter. */}
+                            <em>
+                              {claimWho.result === 'not_verified'
+                                ? 'Verify their registration first — nothing is owed until the payment is settled.'
+                                : claimWho.result === 'unknown'
+                                  ? 'Give them a card on the Events RFID screen first.'
+                                  : 'Try the card again.'}
+                            </em>
+                          </div>
+                          <button type="button" className="btn-small btn-secondary" onClick={() => setClaimWho(null)}>
+                            Try again
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Typing a number in, for a card whose reader is not to
+                        hand and for testing before the queue arrives. */}
+                    {!claimWho && (
+                      <div className="rfid-manual">
+                        <input
+                          className="form-control"
+                          value={claimManual}
+                          onChange={(e) => setClaimManual(e.target.value)}
+                          placeholder="…or type a card number"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && isPlausibleUid(claimManual)) {
+                              lookupClaimCard(claimManual);
+                              setClaimManual('');
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={!isPlausibleUid(claimManual) || claimLookupBusy}
+                          onClick={() => { lookupClaimCard(claimManual); setClaimManual(''); }}
+                        >
+                          Look up
+                        </button>
+                      </div>
+                    )}
+
+                    {/* ---- The kit checklist ---- */}
+                    {claimDesk === 'kit' && (() => {
+                      const ready = claimWho?.result === 'matched' && !claimWho.blocked;
+                      const already = ready && claimWho.claims?.['kit-0'];
+                      if (evtMerchItems.length === 0) {
+                        return (
+                          <p className="evt-rfid-hint">
+                            <i className="fas fa-circle-info"></i>
+                            This event has no merch list, so the kit is one thing. Add items under
+                            Events &rarr; Merch if it should be itemised; the button below still
+                            records the kit as handed over.
+                          </p>
+                        );
+                      }
+                      return (
+                        <div className={`evt-claim-list ${ready ? '' : 'locked'}`}>
+                          <div className="evt-claim-list-head">
+                            <b>What was handed over</b>
+                            {ready ? (
+                              <button
+                                type="button"
+                                className="evt-claim-all"
+                                onClick={() => setClaimTicked(
+                                  claimTicked.length === evtMerchItems.length
+                                    ? []
+                                    : evtMerchItems.map((m) => m.name),
+                                )}
+                              >
+                                {claimTicked.length === evtMerchItems.length ? 'Clear all' : 'Tick all'}
+                              </button>
+                            ) : (
+                              <em>
+                                <i className="fas fa-lock"></i>
+                                {claimWho?.blocked ? ' not checked in' : ' waiting for a card'}
+                              </em>
+                            )}
+                          </div>
+                          {evtMerchItems.map((m) => {
+                            const on = claimTicked.includes(m.name);
+                            return (
+                              <label key={m.name} className={`evt-claim-item ${on ? 'on' : ''}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  disabled={!ready}
+                                  onChange={(e) => setClaimTicked((prev) => (e.target.checked
+                                    ? [...prev, m.name]
+                                    : prev.filter((n) => n !== m.name)))}
+                                />
+                                {m.image_url && <img src={m.image_url} alt="" />}
+                                <span>{m.name}</span>
+                              </label>
+                            );
+                          })}
+                          {already && (
+                            <p className="evt-claim-note">
+                              <i className="fas fa-triangle-exclamation"></i>
+                              This kit is already on their record. Pressing Mark kit claimed again
+                              <b> replaces</b> the list above &mdash; untick anything they did not get.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* ---- The meal grid ---- */}
+                    {claimDesk === 'meals' && (() => {
+                      const ready = claimWho?.result === 'matched' && !claimWho.blocked;
+                      return (
+                        <div className={`evt-claim-list ${ready ? '' : 'locked'}`}>
+                          <div className="evt-claim-list-head">
+                            <b>Meals</b>
+                            {!ready && (
+                              <em>
+                                <i className="fas fa-lock"></i>
+                                {claimWho?.blocked ? ' not checked in' : ' waiting for a card'}
+                              </em>
+                            )}
+                          </div>
+                          {/* Ticked as they are served - a meal is one thing
+                              and there is nothing to check it against, so
+                              there is no Save to forget to press. */}
+                          {evtEventDayNumbers.map((day) => (
+                            <div className="evt-claim-mealrow" key={day}>
+                              <span className="evt-meal-daylabel">Day {day}</span>
+                              {['lunch', 'dinner'].map((meal) => {
+                                const key = `${meal}-${day}`;
+                                const on = ready && !!claimWho.claims?.[key];
+                                const busy = ready && evtClaimBusy === `${claimWho.registration.id}:${key}`;
+                                return (
+                                  <button
+                                    type="button"
+                                    key={meal}
+                                    className={`evt-meal-chip big ${on ? 'yes' : ''}`}
+                                    disabled={!ready || !!evtClaimBusy}
+                                    onClick={() => toggleDeskMeal(meal, day)}
+                                    title={on ? 'Taken — click to take back' : `Click when ${meal} is served`}
+                                  >
+                                    <i className={`fas ${busy ? 'fa-spinner fa-spin' : on ? 'fa-square-check' : 'fa-square'}`}></i>
+                                    {meal === 'lunch' ? 'Lunch' : 'Dinner'}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="evt-modal-foot">
+                    <button type="button" className="btn-secondary" onClick={() => setClaimDesk(null)}>Close</button>
+                    {/* The kit is one decision at the end: the person at the
+                        counter is checking a bag against a list, and each
+                        item is provisional until the whole bag is right.
+                        Meals have no such button - each is written as it is
+                        ticked, above. */}
+                    {claimDesk === 'kit' && (
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={claimWho?.result !== 'matched' || !!claimWho?.blocked || !!evtClaimBusy
+                          || (evtMerchItems.length > 0 && claimTicked.length === 0)}
+                        onClick={commitKitClaim}
+                      >
+                        <i className="fas fa-box-open"></i>
+                        {claimWho?.already ? ' Update kit claim' : ' Mark kit claimed'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- The door scanner ----
+                 Stays open between taps: at a door there is a queue, and
+                 closing after each person would make it unusable. */}
+            {evtRfidScanOpen && (
+              <div className="evt-modal-overlay" onClick={() => setEvtRfidScanOpen(false)}>
+                <div className="evt-modal evt-rfid-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3>Scan RFID to Check In</h3>
+                      <p>{eventRegsModal?.title}</p>
+                    </div>
+                    <button type="button" className="evt-modal-close" onClick={() => setEvtRfidScanOpen(false)}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                  <div className="evt-modal-body">
+                    {renderRfidStatus()}
+                    {/* Which day every tap in this queue counts for. Above the
+                        scan pad, because getting it wrong records a whole
+                        morning against the wrong session and nobody notices
+                        until the reports are run. */}
+                    {renderDayPicker()}
+                    {rfidError && (
+                      <p className="evt-rfid-hint bad">
+                        <i className="fas fa-triangle-exclamation"></i>
+                        {rfidError}
+                      </p>
+                    )}
+                    {/* The name is the whole point of this dialog and is sized
+                        accordingly - it has to be read at arm's length, across
+                        a desk, by someone who is also looking at a queue. */}
+                    {evtRfidResult ? (
+                      <div className={`evt-rfid-shout ${evtRfidResult.result}`}>
+                        <i className={`fas ${
+                          evtRfidResult.result === 'checked_in' ? 'fa-circle-check'
+                            : evtRfidResult.result === 'already_in' ? 'fa-clock-rotate-left'
+                              : 'fa-circle-exclamation'}`}></i>
+                        <strong>
+                          {evtRfidResult.registration
+                            ? formatPersonName(evtRfidResult.registration.attendee_name)
+                            : 'Not recognised'}
+                        </strong>
+                        <span>{evtRfidResult.message}</span>
+                        {evtRfidResult.registration?.church_name && (
+                          <em>{evtRfidResult.registration.church_name}</em>
+                        )}
+                        <code>{formatUid(evtRfidResult.uid)}</code>
+                      </div>
+                    ) : (
+                      <div className="evt-rfid-pad">
+                        <i className={`fas ${evtRfidBusy ? 'fa-spinner fa-spin' : 'fa-id-card'}`}></i>
+                        <h4>{evtRfidBusy ? 'Reading…' : 'Tap a card'}</h4>
+                        <p>The attendee&apos;s name appears here and they are checked in.</p>
+                      </div>
+                    )}
+
+                    <input
+                      ref={evtRfidBoxRef}
+                      className="rfid-catch"
+                      type="text"
+                      autoFocus
+                      autoComplete="off"
+                      spellCheck="false"
+                      value={evtRfidInput}
+                      placeholder="Waiting for a card…"
+                      aria-label="Card number"
+                      onChange={(e) => setEvtRfidInput(e.target.value)}
+                      onFocus={() => setEvtRfidFocus(true)}
+                      onBlur={() => setEvtRfidFocus(false)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        const v = e.currentTarget.value;
+                        setEvtRfidInput('');
+                        if (isPlausibleUid(v)) scanEventRfid(v, 'keyboard');
+                      }}
+                    />
+                  </div>
+                  <div className="evt-modal-foot">
+                    <button type="button" className="btn-secondary" onClick={() => setEvtRfidScanOpen(false)}>Done</button>
+                    {evtRfidResult && (
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={() => { setEvtRfidResult(null); setTimeout(() => evtRfidBoxRef.current?.focus(), 50); }}
+                      >
+                        <i className="fas fa-forward"></i> Next attendee
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {showEventForm && !eventRegsModal && (
               <div className="form-card evt-editor-page" style={{ marginBottom: 20, padding: 22, background: 'var(--bg-card)', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
@@ -11041,27 +13464,6 @@ Examples:
             })()}
 
             {/* ---- Attendance QR scanner ---- */}
-            {showQrScanner && (
-              <div className="evt-modal-overlay" onClick={() => setShowQrScanner(false)}>
-                <div className="evt-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
-                  <div className="evt-modal-head">
-                    <div><h3>Scan Attendance QR</h3><p>{eventRegsModal?.title}</p></div>
-                    <button className="evt-modal-close" onClick={() => setShowQrScanner(false)}><i className="fas fa-times"></i></button>
-                  </div>
-                  <div className="evt-modal-body">
-                    <div id="evt-qr-reader" className="evt-qr-reader"></div>
-                    {qrScanResult && (
-                      <div className={`evt-qr-result ${qrScanResult.status}`}>
-                        <i className={`fas ${qrScanResult.status === 'success' ? 'fa-check-circle' : qrScanResult.status === 'already' ? 'fa-info-circle' : 'fa-exclamation-triangle'}`}></i>
-                        <span>{qrScanResult.message}</span>
-                      </div>
-                    )}
-                    <p className="evt-muted" style={{ fontSize: '0.78rem', marginTop: 10 }}>Point the camera at an attendee&apos;s registration QR code. It will be marked as attended automatically once confirmed.</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* ---- Proof of payment: the receipt beside the numbers it should match ---- */}
             {proofModal && (
               <div className="evt-modal-overlay" onClick={() => setProofModal(null)}>
@@ -15074,6 +17476,889 @@ Examples:
               </div>
             ))}
             {attendanceRecords.length === 0 && <p style={{ color: '#6c757d' }}>No attendance records for this date.</p>}
+          </section>
+
+          {/* ========== RFID CARD READER ========== */}
+          <section className={`content-section ${activeSection === 'rfid-reader' ? 'active' : ''}`}>
+            <h2 className="section-title">Events RFID</h2>
+
+            {/* ---- What the reader is being used for ----
+                 Above the hardware choice on purpose: which reader is plugged
+                 in is a detail, what a tap MEANS is the decision. */}
+            <div className="rfid-purpose">
+              <button
+                type="button"
+                className={`rfid-purpose-btn ${rfidPurpose === 'members' ? 'on' : ''}`}
+                onClick={() => { setRfidPurpose('members'); setRfidHandTo(null); }}
+              >
+                <i className="fas fa-users"></i> Members
+                <em>Church member cards, and the day&apos;s attendance</em>
+              </button>
+              <button
+                type="button"
+                className={`rfid-purpose-btn ${rfidPurpose === 'event' ? 'on' : ''}`}
+                onClick={() => {
+                  setRfidPurpose('event');
+                  setRfidAutoAttend(false);
+                  loadRfidEventCards();
+                  if (events.length === 0) loadEvents();
+                  if (rfidEventId) loadRfidRegs(rfidEventId);
+                }}
+              >
+                <i className="fas fa-ticket"></i> Events
+                <em>Hand out cards, then check people in at the door</em>
+              </button>
+            </div>
+
+            {/* ---- Which event ----
+                 The landing view of this screen: one card per event, each
+                 saying how far through it is. Picked before anything else,
+                 because a card handed out belongs to an event and a tap means
+                 nothing without one - the old dropdown hid that behind a
+                 control that looked optional. */}
+            {rfidPurpose === 'event' && !rfidEventId && (
+              <div className="rfid-events">
+                <div className="rfid-cards-head">
+                  <h3>
+                    Events <span className="rfid-count">{rfidEventCards.length}</span>
+                  </h3>
+                  <div className="evt-search">
+                    <i className="fas fa-magnifying-glass"></i>
+                    <input
+                      type="search"
+                      value={rfidEventSearch}
+                      onChange={(e) => setRfidEventSearch(e.target.value)}
+                      placeholder="Search events"
+                      aria-label="Search events"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={loadRfidEventCards}
+                    disabled={rfidEventCardsLoading}
+                  >
+                    <i className="fas fa-rotate"></i> Refresh
+                  </button>
+                </div>
+
+                {rfidEventCardsLoading && rfidEventCards.length === 0 ? (
+                  <p className="events-empty-msg">Loading events\u2026</p>
+                ) : rfidVisibleEventCards.length === 0 ? (
+                  <p className="events-empty-msg">
+                    {rfidEventCards.length === 0
+                      ? 'No active events yet. Create one under Events and it will appear here.'
+                      : 'No events match that search.'}
+                  </p>
+                ) : (
+                  <div className="rfid-event-grid">
+                    {rfidVisibleEventCards.map((ev) => {
+                      const sum = ev.summary || { verified: 0, carded: 0, attended: 0 };
+                      // How far through handing cards out this event is. The
+                      // number that actually gets asked about, so it is the
+                      // one drawn as a bar rather than left to be worked out
+                      // from two figures.
+                      const pct = sum.verified > 0
+                        ? Math.round((sum.carded / sum.verified) * 100)
+                        : 0;
+                      return (
+                        <button
+                          type="button"
+                          key={ev.id}
+                          className="rfid-event-card"
+                          onClick={() => {
+                            setRfidEventId(ev.id);
+                            setRfidHandTo(null);
+                            setRfidRegSearch('');
+                            loadRfidRegs(ev.id);
+                          }}
+                        >
+                          <span className="rfid-event-card-top">
+                            <b>{ev.title}</b>
+                            <em>
+                              <i className="fas fa-calendar-day"></i>
+                              {ev.event_date ? formatEventDateTime(ev.event_date) : 'No date set'}
+                              {ev.location ? ` \u00b7 ${ev.location}` : ''}
+                            </em>
+                          </span>
+
+                          <span className="rfid-event-card-nums">
+                            <span>
+                              <b>{sum.verified}</b>
+                              <em>verified</em>
+                            </span>
+                            <span className={sum.carded > 0 ? 'has' : ''}>
+                              <b>{sum.carded}</b>
+                              <em>carded</em>
+                            </span>
+                            <span className={sum.attended > 0 ? 'in' : ''}>
+                              <b>{sum.attended}</b>
+                              <em>checked in</em>
+                            </span>
+                          </span>
+
+                          <span className="rfid-event-card-bar" aria-hidden="true">
+                            <span style={{ width: `${pct}%` }}></span>
+                          </span>
+                          <span className="rfid-event-card-foot">
+                            {sum.verified === 0
+                              ? 'Nobody verified yet'
+                              : sum.carded === sum.verified
+                                ? 'Everyone has a card'
+                                : `${sum.verified - sum.carded} still without a card`}
+                            <i className="fas fa-chevron-right"></i>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* The chosen event, and the way back out of it. */}
+            {rfidPurpose === 'event' && rfidEventId && (
+              <div className="rfid-event-bar">
+                <button
+                  type="button"
+                  className="rfid-back"
+                  onClick={() => {
+                    setRfidEventId('');
+                    setRfidHandTo(null);
+                    setRfidLast(null);
+                    // The counts on the cards have just been changed by
+                    // whatever was done in here.
+                    loadRfidEventCards();
+                  }}
+                >
+                  <i className="fas fa-arrow-left"></i> All events
+                </button>
+                <div className="rfid-event-bar-name">
+                  <b>{rfidChosenEvent?.title || 'Event'}</b>
+                  {rfidChosenEvent?.event_date && (
+                    <em>{formatEventDateTime(rfidChosenEvent.event_date)}</em>
+                  )}
+                </div>
+                {rfidRegSummary && (
+                  <div className="rfid-event-stats">
+                    <span><b>{rfidRegSummary.verified}</b> verified</span>
+                    <span><b>{rfidRegSummary.carded}</b> carded</span>
+                    <span className="in"><b>{rfidRegSummary.attended}</b> checked in</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => loadRfidRegs(rfidEventId)}
+                  disabled={rfidRegsLoading}
+                >
+                  <i className="fas fa-rotate"></i> Refresh
+                </button>
+              </div>
+            )}
+
+            {/* ---- Every reader, all live at once ----
+                 There is no reader to pick. A USB reader, the Arduino and a
+                 phone's own aerial can all be present at the same desk, and
+                 all three are listened to together - so a card tapped on any
+                 of them lands in the same place. Each strip below reports the
+                 one thing that can go wrong with that reader, and nothing
+                 about the other two. */}
+            <div className="rfid-readers">
+              <h3 className="rfid-readers-title">
+                <i className="fas fa-satellite-dish"></i> Readers
+                <em>All of these work at the same time &mdash; tap on whichever is to hand.</em>
+              </h3>
+
+              {/* A wedge reader types, so the only thing that can be wrong is
+                  which field has the caret. */}
+              <div className="rfid-reader-row">
+                <span className={`rfid-dot ${rfidFocus ? 'open' : 'opening'}`}></span>
+                <div className="rfid-serial-text">
+                  <b><i className="fas fa-keyboard"></i> USB reader{rfidFocus ? ' \u2014 armed' : ''}</b>
+                  <em>
+                    {rfidFocus
+                      ? 'The next card tapped lands here.'
+                      : 'A USB reader types into whatever has the caret, so the scan box needs it.'}
+                  </em>
+                </div>
+                <button type="button" className="btn-small btn-secondary" onClick={() => rfidBoxRef.current?.focus()}>
+                  <i className="fas fa-crosshairs"></i> Focus scan box
+                </button>
+              </div>
+
+              {/* The Arduino. Connects itself; the button is only for the
+                  first-ever permission and for a board plugged in late. */}
+              <div className="rfid-reader-row">
+                <span className={`rfid-dot ${rfidSerialStatus === 'idle' ? 'idle' : rfidSerialStatus}`}></span>
+                <div className="rfid-serial-text">
+                  <b>
+                    <i className="fas fa-microchip"></i> Arduino + RC522
+                    {rfidSerialStatus === 'open' ? ' \u2014 connected'
+                      : rfidSerialStatus === 'opening' ? ' \u2014 connecting\u2026'
+                        : rfidSerialStatus === 'error' ? ' \u2014 disconnected'
+                          : rfidPaired ? ' \u2014 not plugged in' : ' \u2014 not set up yet'}
+                  </b>
+                  <em>
+                    {!rfidWebSerialSupported
+                      ? 'This browser cannot open a serial port. Use Chrome or Edge on a computer, or one of the other readers.'
+                      : rfidSerialStatus === 'open'
+                        ? 'Connected by itself, and it will do that again every time this screen is opened.'
+                        : rfidPaired
+                          ? 'This board is already allowed \u2014 it connects on its own the moment it is plugged in.'
+                          : 'One click, once. The browser asks which board to use, and never asks again.'}
+                  </em>
+                </div>
+                {rfidWebSerialSupported && (
+                  <label className="rfid-baud">
+                    Baud
+                    <select
+                      className="form-control"
+                      value={rfidBaud}
+                      disabled={rfidSerialStatus === 'open'}
+                      onChange={(e) => setRfidBaud(Number(e.target.value))}
+                    >
+                      {[9600, 19200, 38400, 57600, 115200].map((b) => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  </label>
+                )}
+                {rfidSerialStatus === 'open' ? (
+                  <button type="button" className="btn-small btn-secondary" onClick={disconnectRfidSerial}>
+                    <i className="fas fa-plug-circle-xmark"></i> Disconnect
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-small btn-primary"
+                    onClick={connectRfidSerial}
+                    disabled={!rfidWebSerialSupported || rfidSerialStatus === 'opening'}
+                  >
+                    <i className="fas fa-plug"></i>
+                    {rfidPaired ? ' Connect' : ' Allow this board'}
+                  </button>
+                )}
+              </div>
+
+              {/* The phone's own aerial. Only worth a row where it can
+                  actually happen - on a desktop it is noise. */}
+              {rfidNfcSupported && (
+                <div className="rfid-reader-row">
+                  <span className={`rfid-dot ${
+                    rfidNfcStatus === 'scanning' ? 'open'
+                      : rfidNfcStatus === 'starting' ? 'opening'
+                        : rfidNfcStatus === 'error' ? 'error' : 'idle'}`}></span>
+                  <div className="rfid-serial-text">
+                    <b>
+                      <i className="fas fa-mobile-screen-button"></i> Phone NFC
+                      {rfidNfcStatus === 'scanning' ? ' \u2014 reading'
+                        : rfidNfcStatus === 'starting' ? ' \u2014 starting\u2026'
+                          : rfidNfcStatus === 'error' ? ' \u2014 could not start'
+                            : !rfidSecureContext ? ' \u2014 needs https://' : ' \u2014 not scanning'}
+                    </b>
+                    <em>
+                      {!rfidSecureContext
+                        ? 'The phone will only allow NFC on a secure page. This address is plain http, so open the deployed https:// site on the phone instead.'
+                        : rfidNfcStatus === 'scanning'
+                          ? 'Hold a card flat against the back of the phone, near the top.'
+                          : 'Tap Start scanning, allow NFC when asked, then hold cards to the back of the phone.'}
+                    </em>
+                  </div>
+                  {rfidNfcStatus === 'scanning' ? (
+                    <button type="button" className="btn-small btn-secondary" onClick={stopRfidNfcScan}>
+                      <i className="fas fa-stop"></i> Stop
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-small btn-primary"
+                      onClick={startRfidNfcScan}
+                      disabled={!rfidSecureContext || rfidNfcStatus === 'starting'}
+                    >
+                      <i className="fas fa-wifi"></i> Start scanning
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* A card the phone saw and could not read. Its own note, not an
+                error banner: nothing is broken and nothing needs pressing. */}
+            {rfidNfcNote && (
+              <p className="rfid-diag-note">
+                <i className="fas fa-circle-info"></i>
+                {rfidNfcNote}
+              </p>
+            )}
+
+            {/* Scanning, and no card has ever read. Said before it is asked,
+                because the honest answer is about the phone's own NFC chip and
+                there is nothing here to adjust. A phone that cannot do MIFARE
+                Classic does not report an error - the card simply does not
+                exist as far as it is concerned, which looks exactly like
+                holding it in the wrong place. */}
+            {rfidNfcStatus === 'scanning' && !rfidNfcNote
+              && !rfidRaw.some((r) => r.kind === 'uid') && (
+              <p className="rfid-diag-note">
+                <i className="fas fa-circle-info"></i>
+                Nothing read yet. The aerial is a small patch near the <b>top back</b> of most
+                phones, so a card held over the middle reads nothing &mdash; slide it about
+                slowly with the case off. If it still does nothing, the cards may be
+                <b> MIFARE Classic</b>, which only phones with an NXP NFC chip can read; those
+                cards still work on the Arduino reader, and NTAG cards or NFC stickers work on
+                every phone.
+              </p>
+            )}
+
+            {rfidError && (
+              <div className="rfid-alert">
+                <i className="fas fa-triangle-exclamation"></i>
+                <div>
+                  <b>{rfidError}</b>
+                  {/* Only once something has actually gone wrong - it is the
+                      answer to "I pressed Connect and nothing happened", not
+                      a wall of text to read before starting. The serial port
+                      is the only reader with an answer this long. */}
+                  {rfidSerialStatus === 'error' && (
+                    <ul>
+                      <li><b>Close the Arduino IDE Serial Monitor.</b> A serial port can only be held by one program, and this is the reason nine times out of ten.</li>
+                      <li>Close any other browser tab connected to this board.</li>
+                      <li>Refresh this page (F5), then press Connect again.</li>
+                      <li>Still nothing? Unplug the board, plug it back in, and pick the port again.</li>
+                    </ul>
+                  )}
+                </div>
+                <button type="button" className="rfid-alert-x" onClick={() => setRfidError('')} aria-label="Dismiss">
+                  <i className="fas fa-xmark"></i>
+                </button>
+              </div>
+            )}
+
+            {/* ---- What the reader is actually saying ----
+                 The panel that answers "it will not read". Silence, a chip
+                 that never answered, and a chip that is fine but is being
+                 shown the wrong kind of card all look identical from the
+                 outside and need completely different fixes. */}
+            {rfidSerialStatus === 'open' && (
+              <div className="rfid-diag">
+                <div className="rfid-diag-row">
+                  <span className={`rfid-chip-pill ${rfidChip ? (rfidChip.ok ? 'ok' : 'bad') : 'wait'}`}>
+                    <i className={`fas ${rfidChip ? (rfidChip.ok ? 'fa-microchip' : 'fa-triangle-exclamation') : 'fa-hourglass-half'}`}></i>
+                    {rfidChip
+                      ? (rfidChip.ok
+                        ? (rfidChip.version ? `RC522 responding (${rfidChip.version})` : 'RC522 responding')
+                        : `RC522 not responding (${rfidChip.version})`)
+                      : 'Waiting for the board…'}
+                  </span>
+                  {rfidLastHeard && (
+                    <span className="rfid-heard">
+                      Last heard {Math.max(0, Math.round((Date.now() - rfidLastHeard.getTime()) / 1000))}s ago
+                    </span>
+                  )}
+                  {rfidCardType && <span className="rfid-type-pill">Last card: {rfidCardType}</span>}
+                  {rfidLiveUid && (
+                    <span className="rfid-uid-pill" title="The number read off the last card">
+                      <i className="fas fa-id-card"></i>
+                      Card UID <code>{formatUid(rfidLiveUid)}</code>
+                    </span>
+                  )}
+                  <button type="button" className="rfid-diag-toggle" onClick={() => setRfidShowRaw((v) => !v)}>
+                    <i className={`fas fa-chevron-${rfidShowRaw ? 'up' : 'down'}`}></i>
+                    {rfidShowRaw ? 'Hide' : 'Show'} reader output
+                  </button>
+                </div>
+
+                {/* The chip never answered. Nothing about the card matters
+                    until this is fixed, so it is said before anything else. */}
+                {rfidChip && !rfidChip.ok && (
+                  <p className="rfid-diag-note bad">
+                    <i className="fas fa-plug-circle-exclamation"></i>
+                    The RC522 is not answering the Arduino. This is wiring or power, not the card.
+                    Check <b>3.3V (never 5V)</b>, then <b>SDA → pin 10</b>, then <b>RST → pin 9</b>.
+                  </p>
+                )}
+
+                {/* The chip is fine and nothing reads. Overwhelmingly this is
+                    a 125 kHz card being held to a 13.56 MHz reader, which no
+                    amount of holding it closer will ever fix. */}
+                {rfidChip && rfidChip.ok && rfidRaw.length === 0 && (
+                  <p className="rfid-diag-note">
+                    <i className="fas fa-circle-info"></i>
+                    The board is alive and waiting. If a card does nothing at all here, it is almost
+                    certainly the <b>wrong frequency</b>: the RC522 reads 13.56&nbsp;MHz (MIFARE / NFC)
+                    only, and the thin white cards and blue fobs sold in most shops are 125&nbsp;kHz.
+                    Hold the card to a phone with NFC on — if the phone reacts, the RC522 can read it.
+                    Try the card that came in the RC522 kit.
+                  </p>
+                )}
+
+                {rfidShowRaw && (
+                  <div className="rfid-console">
+                    {rfidRaw.length === 0 ? (
+                      <p className="rfid-console-empty">
+                        Nothing from the reader yet. Startup lines appear here the moment it connects,
+                        then a line for every card.
+                      </p>
+                    ) : (
+                      <>
+                        <ul>
+                          {rfidRaw
+                            .filter((r) => !(rfidHideDump && r.kind === 'dump'))
+                            .map((r, i) => (
+                              <li key={`${r.at.getTime()}-${i}`} className={r.kind}>
+                                <time>{r.at.toLocaleTimeString()}</time>
+                                <code>{r.line}</code>
+                              </li>
+                            ))}
+                        </ul>
+                        <div className="rfid-console-foot">
+                          {/* Sixty-four rows of hex per tap buries the one
+                              line that matters, so they are folded away by
+                              default and can be brought back when the
+                              question is the wiring rather than the card. */}
+                          {rfidRaw.some((r) => r.kind === 'dump') && (
+                            <label className="rfid-console-filter">
+                              <input
+                                type="checkbox"
+                                checked={rfidHideDump}
+                                onChange={(e) => setRfidHideDump(e.target.checked)}
+                              />
+                              Hide sector dump
+                            </label>
+                          )}
+                          <button type="button" className="btn-small btn-secondary" onClick={() => setRfidRaw([])}>
+                            Clear
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-small btn-secondary"
+                            onClick={() => {
+                              const text = rfidRaw.map((r) => `${r.at.toLocaleTimeString()}  ${r.line}`).join('\n');
+                              navigator.clipboard?.writeText(text)
+                                .then(() => showToast('Reader output copied', 'success'))
+                                .catch(() => showToast('Could not copy', 'warning'));
+                            }}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!(rfidPurpose === 'event' && !rfidEventId) && (
+            <div className="rfid-layout">
+              {/* ---- The scan pad ---- */}
+              <div className="rfid-pad">
+                <div className={`rfid-target ${rfidBusy ? 'busy' : ''} ${rfidHandTo ? 'handing' : ''} ${rfidLast?.result || ''}`}>
+                  <i className={`fas ${rfidBusy ? 'fa-spinner fa-spin' : rfidHandTo ? 'fa-hand-holding' : 'fa-id-card'}`}></i>
+                  <h3>
+                    {rfidBusy ? 'Reading…'
+                      : rfidHandTo ? `Tap the card for ${rfidHandTo.attendee_name}`
+                        : 'Tap a card'}
+                  </h3>
+                  <p>
+                    {rfidHandTo
+                      ? 'The next card tapped becomes theirs for this event.'
+                      : rfidPurpose === 'event' && !rfidEventId
+                        ? 'Choose an event above first.'
+                        : rfidReadyHint}
+                  </p>
+                  {/* The number, the instant it is read. Who it belongs to
+                      takes a round trip to the server; that the reader got
+                      something does not, and seeing it removes the whole
+                      question of whether the tap registered at all. */}
+                  {rfidLiveUid && (
+                    <div className="rfid-live-uid">
+                      <span>Card UID</span>
+                      <code>{formatUid(rfidLiveUid)}</code>
+                    </div>
+                  )}
+
+                  {rfidHandTo && (
+                    <button type="button" className="rfid-cancel-hand" onClick={() => setRfidHandTo(null)}>
+                      Cancel
+                    </button>
+                  )}
+
+                  {/* Keyboard readers type into whatever has focus. Giving them
+                      somewhere to type - and keeping it focused - is the whole
+                      trick; without it the number lands in the last field the
+                      person clicked. */}
+                  {/* A capture box is for a reader that TYPES. The phone
+                      does not type, and on a phone this box does nothing
+                      except summon the on-screen keyboard over the card
+                      being tapped. */}
+                  <input
+                    ref={rfidBoxRef}
+                    className="rfid-catch"
+                    type="text"
+                    hidden={rfidIsPhone}
+                    autoComplete="off"
+                    spellCheck="false"
+                    placeholder="Waiting for a card…"
+                    aria-label="Card number"
+                    onFocus={() => setRfidFocus(true)}
+                    onBlur={() => setRfidFocus(false)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      const v = e.currentTarget.value;
+                      e.currentTarget.value = '';
+                      if (isPlausibleUid(v)) routeRfidTap(v, 'keyboard');
+                    }}
+                  />
+                </div>
+
+                <label className="rfid-toggle" hidden={rfidPurpose === 'event'}>
+                  <input
+                    type="checkbox"
+                    checked={rfidAutoAttend}
+                    onChange={(e) => setRfidAutoAttend(e.target.checked)}
+                  />
+                  <span>
+                    Mark present on tap
+                    <em>Off while registering cards, on at the door.</em>
+                  </span>
+                </label>
+
+                {/* Typing a number in by hand: for a card whose reader is not
+                    to hand, and for testing the wiring before anybody arrives. */}
+                <div className="rfid-manual">
+                  <input
+                    className="form-control"
+                    value={rfidManual}
+                    onChange={(e) => setRfidManual(e.target.value)}
+                    placeholder="…or type a card number"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && isPlausibleUid(rfidManual)) {
+                        routeRfidTap(rfidManual, 'manual');
+                        setRfidManual('');
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={!isPlausibleUid(rfidManual) || rfidBusy}
+                    onClick={() => { routeRfidTap(rfidManual, 'manual'); setRfidManual(''); }}
+                  >
+                    Look up
+                  </button>
+                </div>
+
+                {/* ---- Who just tapped, at an event door ---- */}
+                {rfidLast?.mode === 'event' && (
+                  <div className={`rfid-result ${rfidLast.result === 'checked_in' ? 'matched' : rfidLast.result === 'already_in' ? 'unknown' : 'inactive'}`}>
+                    {rfidLast.registration ? (
+                      <div className="rfid-result-who">
+                        <div className="rfid-avatar">
+                          {personInitials(rfidLast.registration.attendee_name)}
+                        </div>
+                        <div>
+                          <b>{rfidLast.registration.attendee_name}</b>
+                          <em>{rfidLast.registration.church_name || rfidLast.registration.attendee_mobile || 'Attendee'}</em>
+                        </div>
+                      </div>
+                    ) : null}
+                    <p className="rfid-result-msg">
+                      <i className={`fas ${rfidLast.result === 'checked_in' ? 'fa-circle-check'
+                        : rfidLast.result === 'already_in' ? 'fa-clock-rotate-left' : 'fa-circle-exclamation'}`}></i>
+                      {rfidLast.message}
+                    </p>
+                    <code className="rfid-uid">{formatUid(rfidLast.uid)}</code>
+                  </div>
+                )}
+
+                {/* ---- Who just tapped ---- */}
+                {rfidLast && rfidLast.mode !== 'event' && (
+                  <div className={`rfid-result ${rfidLast.result}`}>
+                    {rfidLast.result === 'matched' && rfidLast.user ? (
+                      <>
+                        <div className="rfid-result-who">
+                          <div className="rfid-avatar">
+                            {personInitials(`${rfidLast.user.firstname || ''} ${rfidLast.user.lastname || ''}`)}
+                          </div>
+                          <div>
+                            <b>{rfidLast.user.firstname} {rfidLast.user.lastname}</b>
+                            <em>{rfidLast.user.ministry || rfidLast.user.role || 'Member'}</em>
+                          </div>
+                        </div>
+                        <p className="rfid-result-msg"><i className="fas fa-circle-check"></i> {rfidLast.message}</p>
+                      </>
+                    ) : rfidLast.result === 'inactive' ? (
+                      <p className="rfid-result-msg"><i className="fas fa-ban"></i> {rfidLast.message}</p>
+                    ) : (
+                      <p className="rfid-result-msg"><i className="fas fa-circle-question"></i> {rfidLast.message}</p>
+                    )}
+                    <code className="rfid-uid">{formatUid(rfidLast.uid)}</code>
+                  </div>
+                )}
+              </div>
+
+              {/* ---- Recent taps ---- */}
+              <aside className="rfid-log">
+                <h3><i className="fas fa-clock-rotate-left"></i> Recent taps</h3>
+                {rfidScans.length === 0 ? (
+                  <p className="rfid-empty">Nothing has been tapped yet.</p>
+                ) : (
+                  <ul>
+                    {rfidScans.map((sc) => (
+                      <li key={sc.id} className={sc.result}>
+                        <span className="rfid-log-who">
+                          {sc.users
+                            ? `${sc.users.firstname || ''} ${sc.users.lastname || ''}`.trim()
+                            : 'Unregistered card'}
+                        </span>
+                        <code>{formatUid(sc.uid)}</code>
+                        <time>{formatDateTime(sc.scanned_at)}</time>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </aside>
+            </div>
+            )}
+
+            {/* ---- The door list ---- */}
+            {rfidPurpose === 'event' ? (
+              !rfidEventId ? null : rfidRegsLoading ? (
+                <p className="events-empty-msg">Loading the door list…</p>
+              ) : (
+                <>
+                  <div className="rfid-cards-head">
+                    <h3>On the list <span className="rfid-count">{rfidRegs.length}</span></h3>
+                    <div className="evt-search">
+                      <i className="fas fa-magnifying-glass"></i>
+                      <input
+                        type="search"
+                        value={rfidRegSearch}
+                        onChange={(e) => setRfidRegSearch(e.target.value)}
+                        placeholder="Search attendees"
+                        aria-label="Search attendees"
+                      />
+                    </div>
+                  </div>
+
+                  {rfidRegs.length === 0 ? (
+                    <p className="events-empty-msg">
+                      Nobody is verified for this event yet. Only verified registrations can be
+                      given a card &mdash; verify them under Events first.
+                    </p>
+                  ) : (
+                    <div className="evt-table-wrapper">
+                      <table className="evt-table">
+                        <thead>
+                          <tr>
+                            <th>Attendee</th><th>Church</th><th>Card</th>
+                            <th>Checked in</th><th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rfidRegs
+                            .filter((r) => {
+                              const q = rfidRegSearch.trim().toLowerCase();
+                              if (!q) return true;
+                              return `${r.attendee_name || ''} ${r.church_name || ''} ${r.attendee_mobile || ''}`
+                                .toLowerCase().includes(q);
+                            })
+                            .map((r) => (
+                              <tr key={r.id} className={r.attended ? 'rfid-row-in' : ''}>
+                                <td className="evt-cell-name evt-td-primary" data-label="Attendee">{r.attendee_name}</td>
+                                <td data-label="Church">{r.church_name || <span className="evt-muted">—</span>}</td>
+                                <td data-label="Card">
+                                  {r.card ? (
+                                    <span className="rfid-has-card">
+                                      <i className="fas fa-id-card"></i>
+                                      <code>{formatUid(r.card.uid)}</code>
+                                    </span>
+                                  ) : <span className="evt-muted">none</span>}
+                                </td>
+                                <td data-label="Checked in">
+                                  {r.attended
+                                    ? <span className="ap-status ap-status-released">{r.attended_at ? formatDateTime(r.attended_at) : 'Yes'}</span>
+                                    : <span className="ap-status ap-status-pending">Not yet</span>}
+                                </td>
+                                <td data-label="Actions" style={{ textAlign: 'right' }}>
+                                  <div className="rfid-row-actions">
+                                    {/* Arms the readers for this one person: the
+                                        next card tapped on ANY of them becomes
+                                        theirs. Which reader it comes from is
+                                        not a decision anybody has to make. */}
+                                    <button
+                                      type="button"
+                                      className={`btn-small ${rfidHandTo?.id === r.id ? 'btn-primary' : 'btn-secondary'}`}
+                                      onClick={() => {
+                                        setRfidHandTo(rfidHandTo?.id === r.id ? null : r);
+                                        setTimeout(() => rfidBoxRef.current?.focus(), 50);
+                                      }}
+                                    >
+                                      <i className="fas fa-id-card"></i>
+                                      {rfidHandTo?.id === r.id ? ' Waiting for a tap\u2026'
+                                        : r.card ? ' Replace RFID' : ' Assign RFID'}
+                                    </button>
+                                    {r.card && (
+                                      <button type="button" className="btn-small btn-danger" onClick={() => takeBackRfidEventCard(r)}>
+                                        Take back
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )
+            ) : (
+            <>
+            {/* ---- Cards on file ---- */}
+            <div className="rfid-cards-head">
+              <h3>Registered cards <span className="rfid-count">{rfidCards.length}</span></h3>
+              <div className="evt-search">
+                <i className="fas fa-magnifying-glass"></i>
+                <input
+                  type="search"
+                  value={rfidCardSearch}
+                  onChange={(e) => setRfidCardSearch(e.target.value)}
+                  placeholder="Search by name or card"
+                  aria-label="Search registered cards"
+                />
+              </div>
+              <button type="button" className="btn-secondary" onClick={loadRfidCards} disabled={rfidLoading}>
+                <i className="fas fa-rotate"></i> Refresh
+              </button>
+            </div>
+
+            {rfidLoading ? (
+              <p className="events-empty-msg">Loading cards…</p>
+            ) : rfidVisibleCards.length === 0 ? (
+              <p className="events-empty-msg">
+                {rfidCards.length === 0
+                  ? 'No cards registered yet. Tap an unknown card above and it will ask who it belongs to.'
+                  : 'No cards match that search.'}
+              </p>
+            ) : (
+              <div className="evt-table-wrapper">
+                <table className="evt-table">
+                  <thead>
+                    <tr>
+                      <th>Member</th><th>Card number</th><th>Label</th>
+                      <th>Last used</th><th>Taps</th><th>Status</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rfidVisibleCards.map((c) => (
+                      <tr key={c.id}>
+                        <td className="evt-cell-name evt-td-primary" data-label="Member">
+                          {c.users ? `${c.users.firstname || ''} ${c.users.lastname || ''}`.trim() : 'Unknown member'}
+                          {c.users?.ministry && <em className="rfid-sub"> · {c.users.ministry}</em>}
+                        </td>
+                        <td data-label="Card number"><code>{formatUid(c.uid)}</code></td>
+                        <td data-label="Label">{c.label || <span className="evt-muted">—</span>}</td>
+                        <td data-label="Last used">{c.last_seen_at ? formatDateTime(c.last_seen_at) : <span className="evt-muted">never</span>}</td>
+                        <td data-label="Taps">{c.scan_count || 0}</td>
+                        <td data-label="Status">
+                          <span className={`ap-status ${c.is_active ? 'ap-status-released' : 'ap-status-cancelled'}`}>
+                            {c.is_active ? 'Active' : 'Lost'}
+                          </span>
+                        </td>
+                        <td data-label="Actions" style={{ textAlign: 'right' }}>
+                          <div className="rfid-row-actions">
+                            <button type="button" className="btn-small btn-secondary" onClick={() => setRfidCardActive(c, !c.is_active)}>
+                              {c.is_active ? 'Mark lost' : 'Reactivate'}
+                            </button>
+                            <button type="button" className="btn-small btn-danger" onClick={() => removeRfidCard(c)}>
+                              Remove
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            </>
+            )}
+
+            {/* ---- Giving an unknown card to a member ---- */}
+            {rfidAssign && (
+              <div className="evt-modal-overlay" onClick={() => !rfidBusy && setRfidAssign(null)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3>Register this card</h3>
+                      <p>{formatUid(rfidAssign.uid)}</p>
+                    </div>
+                    <button type="button" className="evt-modal-close" onClick={() => setRfidAssign(null)}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                  <div className="evt-modal-body">
+                    <div className="form-group">
+                      <label>Who does it belong to?</label>
+                      <div className="evt-search" style={{ marginBottom: 10 }}>
+                        <i className="fas fa-magnifying-glass"></i>
+                        <input
+                          type="search"
+                          value={rfidAssignSearch}
+                          onChange={(e) => setRfidAssignSearch(e.target.value)}
+                          placeholder="Search members"
+                          aria-label="Search members"
+                        />
+                      </div>
+                      <div className="rfid-people">
+                        {rfidPickableUsers.length === 0 ? (
+                          <p className="rfid-empty">No members match that.</p>
+                        ) : rfidPickableUsers.map((u) => (
+                          <button
+                            key={u.id}
+                            type="button"
+                            className={`rfid-person ${rfidAssignUser === u.id ? 'on' : ''}`}
+                            onClick={() => setRfidAssignUser(u.id)}
+                          >
+                            <span className="rfid-avatar sm">
+                              {(u.firstname?.[0] || '') + (u.lastname?.[0] || '')}
+                            </span>
+                            <span className="rfid-person-name">
+                              {u.firstname} {u.lastname}
+                              <em>{u.ministry || u.role || 'Member'}</em>
+                            </span>
+                            {/* Not a block - a member may carry a card AND a
+                                fob - but worth saying before a second one is
+                                handed out by mistake. */}
+                            {u.alreadyHasCard && <span className="rfid-has-card">has a card</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Label <span className="evt-muted">(optional)</span></label>
+                      <input
+                        className="form-control"
+                        value={rfidAssignLabel}
+                        onChange={(e) => setRfidAssignLabel(e.target.value)}
+                        placeholder="Blue fob, Sunday school card…"
+                      />
+                    </div>
+                  </div>
+                  <div className="evt-modal-foot">
+                    <button type="button" className="btn-secondary" onClick={() => setRfidAssign(null)}>Cancel</button>
+                    <button type="button" className="btn-primary" onClick={assignRfidCard} disabled={!rfidAssignUser || rfidBusy}>
+                      <i className="fas fa-id-card"></i> Register card
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* ========== MINISTRY OVERSIGHT (Pastor) ========== */}

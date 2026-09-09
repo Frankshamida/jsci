@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase';
+import { findEventActor, canWorkEvent, staffDeniedMessage } from '@/lib/eventCommittee';
 
 // Payments recorded against a registration that is being paid in installments.
 // The registration still carries what is owed (`amount`); this route is about
@@ -61,9 +62,9 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get('eventId');
-    const actor = await verifyEventManager(searchParams.get('actorId'));
-    if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
     if (!eventId) return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
+    const actor = await findEventActor(searchParams.get('actorId'));
+    if (!canWorkEvent(actor, eventId)) return NextResponse.json({ success: false, message: staffDeniedMessage(actor) }, { status: 403 });
 
     const { data: regs, error } = await supabase
       .from('event_registrations')
@@ -105,11 +106,16 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const actor = await verifyEventManager(body.actorId);
-    if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
+    if (!body.registrationId) return NextResponse.json({ success: false, message: 'registrationId required' }, { status: 400 });
+
+    // Scoped to the event the registration sits under, so a committee member
+    // assigned to one event cannot record payments against another.
+    const { data: owner } = await supabase
+      .from('event_registrations').select('event_id').eq('id', body.registrationId).single();
+    const actor = await findEventActor(body.actorId);
+    if (!canWorkEvent(actor, owner?.event_id)) return NextResponse.json({ success: false, message: staffDeniedMessage(actor) }, { status: 403 });
 
     const amount = Number(body.amount);
-    if (!body.registrationId) return NextResponse.json({ success: false, message: 'registrationId required' }, { status: 400 });
     if (!(amount > 0)) return NextResponse.json({ success: false, message: 'Enter an amount greater than zero.' }, { status: 400 });
 
     const { data: reg } = await supabase
@@ -156,6 +162,9 @@ export async function POST(request) {
 }
 
 // DELETE ?id=..&actorId=..  -> remove a payment that was entered by mistake
+// Admin-only on purpose. The committee records money coming in; unrecording
+// it lowers what someone has paid, so it stays with the people who answer for
+// the books.
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);

@@ -754,7 +754,7 @@ body.dark-mode .hp-service-card .hp-service-day {
 /* ---- ACTIVITIES / NEWS ---- */
 .hp-activities-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: 25px;
 }
 
@@ -2496,7 +2496,7 @@ body.dark-mode .hp-evt-info { border-color: rgba(255,255,255,0.1); }
 /* ============================================ */
 /* `start` so a card is never stretched taller than its own poster - a stretched
    card is what left a blank strip under the artwork. */
-.hp-invite-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 32px; justify-items: center; align-items: start; }
+.hp-invite-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 32px; justify-items: center; align-items: start; }
 .hp-invite-card {
   /* The poster IS the card, so the ground behind it is dark: any pixel the
      artwork does not cover reads as part of the design instead of a white gap. */

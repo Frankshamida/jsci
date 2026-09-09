@@ -367,6 +367,7 @@ export function getSidebarMenu(role, userData) {
       { id: 'community-events', icon: 'fas fa-calendar-day', label: 'Community Events', section: 'community-events' },
       { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements-management' },
       { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },
+      { id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' },
       { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
       { id: 'live-stream-mgmt', icon: 'fas fa-broadcast-tower', label: 'Live Streams', section: 'live-stream-management' },
       { id: 'recordings', icon: 'fas fa-microphone-alt', label: 'Recordings', section: 'recordings' },
@@ -420,6 +421,14 @@ export function getSidebarMenu(role, userData) {
   // Pastor-specific: User Events Oversight
   if (dashboardType === 'pastor') {
     menu.push({ id: 'user-events-oversight', icon: 'fas fa-calendar-plus', label: 'User Events', section: 'user-events-oversight' });
+  }
+
+  // RFID Reader: Admin only (Super Admin gets it in its own menu above).
+  // Deliberately not in the shared list: it registers cards against members
+  // and marks them present, so it belongs to whoever runs the door, not to
+  // everyone with a Permissions Control toggle turned on by accident.
+  if (dashboardType === 'admin') {
+    menu.push({ id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' });
   }
 
   // ISOM Inquiries: Admin & Pastor only (Super Admin gets it in its own menu above)
@@ -630,6 +639,7 @@ export const SIDEBAR_FEATURE_MAP = {
   'spiritual-assistant': 'sidebar.assistant',
   'reports': 'sidebar.reports',
   'attendance-management': 'sidebar.attendance',
+  'rfid-reader': 'sidebar.rfid',
   'user-management': 'sidebar.user_management',
   'ministry-management': 'sidebar.ministry_management',
   'ministry-oversight': 'sidebar.ministry_management',

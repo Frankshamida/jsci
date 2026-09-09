@@ -1,0 +1,815 @@
+/* ============================================
+   COMMITTEE APPAREL
+   The store, the basket and the catalogue editor.
+
+   Everything else on this dashboard is borrowed wholesale from
+   dashboard.css - heroes, tabs, tables, modals. These are the pieces that
+   file has no component for: a product card with a size picker, and a basket
+   that follows you down the page. They are built out of the SAME tokens
+   (--primary / --secondary / --accent / --bg-card) and follow the same
+   body.dark-mode convention, so they read as part of the dashboard rather
+   than as a store bolted onto it.
+   ============================================ */
+
+/* ---- Category chips ---- */
+.ap-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+
+.ap-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 999px;
+  background: var(--bg-card, #fff);
+  color: var(--text-secondary, #6c757d);
+  font-size: 0.84rem; font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.ap-chip:hover { border-color: var(--secondary); color: var(--primary); }
+.ap-chip.on {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  border-color: transparent; color: #fff;
+  box-shadow: 0 6px 16px rgba(146, 108, 21, 0.28);
+}
+.ap-chip b { font-weight: 700; opacity: 0.75; }
+
+body.dark-mode .ap-chip { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.1); color: #aaa; }
+body.dark-mode .ap-chip.on { color: #fff; }
+
+/* ---- The store: a grid of garments ----
+   Two columns that both start at the top of the section: the grid, and the
+   basket beside it. `align-items: start` is what lets the basket stick - a
+   stretched grid item has nothing to stick inside of. */
+.ap-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 22px;
+  align-items: start;
+}
+
+/* min() rather than a bare 240px: on a 300px phone a 240px minimum forces one
+   column to overflow the screen instead of shrinking. */
+.ap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+.ap-card {
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  /* Stretched by the grid, so every card in a row is the same height and the
+     Add buttons land on one line. */
+  height: 100%;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+.ap-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0, 0, 0, 0.1); border-color: var(--secondary); }
+.ap-card.out { opacity: 0.72; }
+
+.ap-card-img { position: relative; aspect-ratio: 1 / 1; background: #f4f1e9; overflow: hidden; }
+
+/* The garment WHOLE, never cropped to a square. A shirt photographed portrait
+   keeps its collar and its hem; a square logo still fills the frame. */
+.ap-card-img img {
+  position: relative; z-index: 1;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  padding: 6%;
+}
+
+/* The same picture behind it, blurred and blown up, so what `contain` leaves
+   over reads as part of the photograph rather than as a grey margin. */
+.ap-card-img-bg {
+  position: absolute; inset: 0;
+  background-size: cover; background-position: center;
+  filter: blur(22px) saturate(1.25);
+  transform: scale(1.25);
+  opacity: 0.55;
+}
+body.dark-mode .ap-card-img-bg { opacity: 0.4; }
+
+.ap-card-ph {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--primary), #3e2e08);
+  color: var(--accent); font-size: 2.4rem;
+}
+
+/* Open the picture full size. Bottom-right, where no ribbon already is. */
+.ap-card-zoom {
+  position: absolute; z-index: 2; bottom: 10px; right: 10px;
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border: none; border-radius: 9px;
+  background: rgba(0, 0, 0, 0.62); color: #fff;
+  font-size: 0.78rem; cursor: pointer;
+  opacity: 0; transform: translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+.ap-card:hover .ap-card-zoom,
+.ap-card-zoom:focus-visible { opacity: 1; transform: none; }
+.ap-card-zoom:hover { background: var(--primary); }
+
+/* No hover on a touch screen, so the button is simply always there. */
+@media (hover: none) {
+  .ap-card-zoom { opacity: 1; transform: none; }
+}
+
+/* Category on the picture, so the grid can be scanned without reading. */
+.ap-card-cat {
+  position: absolute; top: 10px; left: 10px;
+  padding: 4px 11px; border-radius: 7px;
+  background: rgba(0, 0, 0, 0.62); color: #fff;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+}
+
+.ap-card-flag {
+  position: absolute; top: 10px; right: 10px;
+  padding: 4px 11px; border-radius: 7px;
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+}
+.ap-card-flag.out { background: var(--danger, #dc3545); color: #fff; }
+.ap-card-flag.low { background: var(--accent); color: #3e2e08; }
+.ap-card-flag.off { background: #6c757d; color: #fff; }
+
+/* Which view is showing - "Back", "Sizing". Only rendered when the picture
+   carries a label, so an unlabelled photo gets no empty ribbon. */
+.ap-card-imglabel {
+  position: absolute; bottom: 10px; left: 10px;
+  padding: 4px 11px; border-radius: 7px;
+  background: rgba(0, 0, 0, 0.62); color: #fff;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.3px;
+}
+
+/* ---- The other views of the same garment ---- */
+.ap-thumbs {
+  display: flex; gap: 6px;
+  /* 40px of thumbnail plus its padding, held whether or not there is a
+     thumbnail in it - see .empty below. */
+  height: 62px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color, #eee);
+  overflow-x: auto; overflow-y: hidden;
+  /* A strip of five views should not widen the card it sits in. */
+  scrollbar-width: thin;
+}
+/* The held room. No border either, or a card with one photo would show a rule
+   across an otherwise blank band. */
+.ap-thumbs.empty { border-bottom-color: transparent; overflow: hidden; }
+.ap-thumb {
+  width: 40px; height: 40px; flex-shrink: 0;
+  padding: 0; overflow: hidden;
+  border: 2px solid transparent; border-radius: 8px;
+  background: #f4f1e9; cursor: pointer;
+  opacity: 0.62;
+  transition: opacity 0.18s ease, border-color 0.18s ease;
+}
+.ap-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ap-thumb:hover { opacity: 1; }
+.ap-thumb.on { opacity: 1; border-color: var(--secondary); }
+
+body.dark-mode .ap-thumbs { border-bottom-color: rgba(255, 255, 255, 0.07); }
+
+body.dark-mode .ap-thumb { background: #16161f; }
+
+.ap-card-body { padding: 14px 15px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
+/* Two lines' worth of room whether the name needs one or two, so the price
+   under it lands on the same line on every card in the row. */
+.ap-card-body h4 {
+  margin: 0; font-size: 1rem; font-weight: 700;
+  color: var(--text-primary, #333); line-height: 1.3;
+  min-height: 2.6em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ap-card-desc {
+  margin: 0; font-size: 0.8rem; color: var(--text-secondary, #6c757d); line-height: 1.5;
+  /* two lines, so one long description cannot make its card taller than the rest */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ap-card-price { font-size: 1.12rem; font-weight: 800; color: var(--primary); }
+.ap-card-price small { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary, #6c757d); margin-left: 6px; }
+
+body.dark-mode .ap-card { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .ap-card-body h4 { color: #f1f1f1; }
+body.dark-mode .ap-card-desc { color: #aaa; }
+body.dark-mode .ap-card-price { color: var(--accent); }
+body.dark-mode .ap-card-img { background: #16161f; }
+
+/* ---- Size picker ----
+   Pushed to the bottom of the card with the Add button, so the two things you
+   actually DO on a card line up across the whole row. */
+.ap-size-pick { margin-top: auto; display: flex; flex-direction: column; gap: 7px; }
+
+.ap-size-lead {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--text-secondary, #6c757d);
+}
+.ap-size-lead b { font-size: 0.78rem; color: var(--primary); letter-spacing: 0; }
+.ap-size-lead em {
+  font-style: normal; font-weight: 600; letter-spacing: 0;
+  text-transform: none; opacity: 0.8;
+}
+body.dark-mode .ap-size-lead b { color: var(--accent); }
+
+/* A grid, not a wrapping row: four equal buttons that stay equal, instead of
+   an S the width of its label beside an XL the width of its own. */
+.ap-sizes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+  gap: 6px;
+}
+
+.ap-size {
+  min-width: 0;
+  padding: 6px 4px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-primary, #333);
+  font-size: 0.8rem; font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.ap-size:hover:not(:disabled) { border-color: var(--secondary); background: rgba(146, 108, 21, 0.06); }
+.ap-size.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.ap-size:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: line-through; }
+.ap-size em {
+  display: block; font-size: 0.6rem; font-weight: 600; font-style: normal; opacity: 0.7;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+body.dark-mode .ap-size { border-color: rgba(255, 255, 255, 0.14); color: #ddd; }
+body.dark-mode .ap-size.on { background: var(--secondary); border-color: var(--secondary); color: #1a1a1a; }
+
+/* ---- Add to basket ---- */
+.ap-add {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 11px 10px;
+  border: none; border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: #fff; font-weight: 700; font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.ap-add:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(146, 108, 21, 0.35); }
+.ap-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- The basket ----
+   A column that follows you down the page on a desktop. It is a flex column
+   with its own scrolling middle, so a basket of twenty pieces still shows its
+   total and its Place Order button without the page being scrolled: the LIST
+   gives, the head and the foot do not. */
+.ap-cart {
+  position: sticky; top: 20px;
+  display: flex; flex-direction: column;
+  /* Never taller than the screen it sticks to. */
+  max-height: calc(100vh - 40px);
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.ap-cart-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border-color, #eee);
+}
+.ap-cart h3 {
+  margin: 0; font-size: 1rem; font-weight: 700;
+  color: var(--text-primary, #333);
+  display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0;
+}
+.ap-cart h3 i { color: var(--secondary); }
+.ap-cart-count {
+  background: var(--accent); color: #3e2e08;
+  border-radius: 999px; padding: 3px 10px;
+  font-size: 0.7rem; font-weight: 800; white-space: nowrap;
+}
+
+/* Only a sheet can be put away, so on a desktop this button is not there. */
+.ap-cart-hide { display: none; }
+
+.ap-cart-empty {
+  text-align: center; padding: 30px 18px;
+  color: var(--text-secondary, #6c757d); font-size: 0.84rem; line-height: 1.6;
+}
+.ap-cart-empty i { display: block; font-size: 1.9rem; color: var(--border-color, #ddd); margin-bottom: 10px; }
+
+.ap-cart-list {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+  padding: 6px 18px;
+  overflow-y: auto;
+}
+
+/* Thumbnail, name and a remove cross on the top row; the stepper and the
+   money on a row of their own underneath. The stepper gets the width it needs
+   to be tapped instead of being wedged between a name and a price. */
+.ap-cart-line {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 28px;
+  grid-template-areas:
+    "thumb main drop"
+    "thumb foot foot"
+    "note  note note";
+  gap: 4px 10px; align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color, #eee);
+}
+.ap-cart-line:last-child { border-bottom: none; }
+
+.ap-cart-thumb {
+  grid-area: thumb; align-self: start;
+  width: 46px; height: 46px;
+  border-radius: 9px; object-fit: cover;
+  background: #f4f1e9;
+  border: 1px solid var(--border-color, #eee);
+}
+.ap-cart-thumb.ph { display: grid; place-items: center; color: var(--text-secondary, #6c757d); }
+
+.ap-cart-line-main { grid-area: main; min-width: 0; }
+.ap-cart-line-name { font-size: 0.86rem; font-weight: 700; color: var(--text-primary, #333); line-height: 1.3; }
+.ap-cart-line-sub {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 3px;
+  font-size: 0.74rem; color: var(--text-secondary, #6c757d);
+}
+/* The size is the thing most often got wrong, so it is the thing picked out. */
+.ap-cart-size {
+  padding: 1px 7px; border-radius: 5px;
+  background: rgba(146, 108, 21, 0.12); color: var(--primary);
+  font-weight: 700;
+}
+
+.ap-cart-line-foot {
+  grid-area: foot;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 4px;
+}
+.ap-cart-line-money { font-size: 0.92rem; font-weight: 800; color: var(--text-primary, #333); }
+
+.ap-cart-line-note {
+  grid-area: note;
+  font-size: 0.7rem; color: var(--text-secondary, #6c757d);
+  padding-left: 56px;
+}
+
+/* A pill, so the count reads as one control rather than three loose buttons. */
+.ap-qty {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.ap-qty button {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border: none; background: transparent;
+  color: var(--text-primary, #333);
+  font-size: 0.72rem; cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.ap-qty button:hover:not(:disabled) { background: var(--primary); color: #fff; }
+.ap-qty button:disabled { opacity: 0.32; cursor: not-allowed; }
+.ap-qty span {
+  min-width: 30px; text-align: center;
+  font-size: 0.84rem; font-weight: 800;
+  border-left: 1px solid var(--border-color, #e0e0e0);
+  border-right: 1px solid var(--border-color, #e0e0e0);
+  align-self: stretch; line-height: 30px;
+}
+
+.ap-cart-drop {
+  grid-area: drop; align-self: start;
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border: none; border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary, #6c757d); cursor: pointer;
+  font-size: 0.78rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.ap-cart-drop:hover { background: rgba(220, 53, 69, 0.12); color: var(--danger, #dc3545); }
+
+/* Total and Place Order never scroll away. */
+.ap-cart-foot {
+  flex: 0 0 auto;
+  padding: 14px 18px 16px;
+  border-top: 1px solid var(--border-color, #eee);
+  background: var(--bg-card, #fff);
+}
+.ap-cart-total {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ap-cart-total span { font-size: 0.82rem; font-weight: 600; color: var(--text-secondary, #6c757d); }
+.ap-cart-total b { font-size: 1.3rem; font-weight: 800; color: var(--primary); }
+
+.ap-cart-go { width: 100%; justify-content: center; }
+
+.ap-cart-clear {
+  width: 100%; margin-top: 8px; padding: 8px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: none; background: transparent;
+  color: var(--text-secondary, #6c757d);
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.ap-cart-clear:hover { background: rgba(220, 53, 69, 0.09); color: var(--danger, #dc3545); }
+
+body.dark-mode .ap-cart { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .ap-cart-head { border-bottom-color: rgba(255, 255, 255, 0.07); }
+body.dark-mode .ap-cart h3,
+body.dark-mode .ap-cart-line-name,
+body.dark-mode .ap-cart-line-money { color: #f1f1f1; }
+body.dark-mode .ap-cart-line { border-bottom-color: rgba(255, 255, 255, 0.07); }
+body.dark-mode .ap-cart-thumb { background: #16161f; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .ap-cart-size { background: rgba(255, 195, 0, 0.14); color: var(--accent); }
+body.dark-mode .ap-cart-foot { background: #1e1e2e; border-top-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .ap-cart-total b { color: var(--accent); }
+body.dark-mode .ap-qty,
+body.dark-mode .ap-qty span { border-color: rgba(255, 255, 255, 0.14); }
+body.dark-mode .ap-qty button { color: #ddd; }
+body.dark-mode .ap-cart-empty i { color: rgba(255, 255, 255, 0.16); }
+
+/* ---- The bar on a phone ----
+   Not rendered at all until something is in the basket, and hidden while the
+   sheet it opens is up. Above the content, below the sheet. */
+.ap-cart-bar { display: none; }
+
+.ap-cart-veil { display: none; }
+
+/* ---- The account picker ----
+   A table of people needs the width a 560px dialog does not have: at that
+   size the Actions column is pushed off the right edge and every row has to
+   be scrolled sideways to be acted on. */
+.ap-picker {
+  /* Wider than a form dialog, but never wider than the screen it opens on. */
+  max-width: min(1040px, calc(100vw - 32px));
+  /* Fixed, not content-sized. A picker that shrinks to one row when a search
+     narrows it makes the whole dialog jump under the cursor between
+     keystrokes - and the Done button moves with it. So the box stays put and
+     the list inside it gets shorter. */
+  height: min(780px, calc(100vh - 48px));
+}
+
+/* The body is the part that gives, so the head and footer stay where they are. */
+.ap-picker > .evt-modal-body { flex: 1 1 auto; }
+
+/* The search stays put while the list scrolls under it. Negative margins
+   carry the bar across the modal body's own padding, so rows cannot be seen
+   sliding past its edges. */
+.ap-picker-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 -20px 14px;
+  padding: 2px 20px 12px;
+  background: var(--bg-card, #fff);
+  border-bottom: 1px solid var(--border-color, #eee);
+}
+.ap-picker-bar .evt-search { flex: 1 1 220px; }
+
+body.dark-mode .ap-picker-bar { background: #1e1e2e; border-bottom-color: rgba(255, 255, 255, 0.08); }
+
+@media (max-width: 640px) {
+  /* Sticking a two-row bar to the top of a phone screen eats the list it is
+     meant to help you search, so it scrolls away with everything else. */
+  .ap-picker-bar { position: static; }
+}
+
+/* ---- One event's assignment, with the roles held on it ----
+   Grouped in a box so it reads as "this event, and what you do there" rather
+   than as a checkbox followed by unrelated chips. */
+.ap-assign {
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 12px;
+  background: var(--bg-card, #fff);
+}
+
+.ap-assign-roles {
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-color, #e0e0e0);
+}
+
+body.dark-mode .ap-assign { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .ap-assign-roles { border-top-color: rgba(255, 255, 255, 0.12); }
+
+/* ---- Assigning a task ---- */
+.ap-task-form {
+  padding: 14px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 12px;
+  background: rgba(146, 108, 21, 0.04);
+}
+body.dark-mode .ap-task-form { background: rgba(255, 195, 0, 0.05); border-color: rgba(255, 255, 255, 0.08); }
+
+/* ---- Order status pills ---- */
+.ap-status {
+  display: inline-block;
+  padding: 4px 12px; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700; text-transform: capitalize;
+  white-space: nowrap;
+}
+.ap-status-pending { background: rgba(234, 179, 8, 0.18); color: #b45309; }
+.ap-status-approved { background: rgba(59, 130, 246, 0.15); color: #2563eb; }
+.ap-status-ready { background: rgba(147, 51, 234, 0.15); color: #7e22ce; }
+.ap-status-released { background: rgba(22, 163, 74, 0.15); color: #16a34a; }
+.ap-status-cancelled { background: rgba(220, 38, 38, 0.13); color: #b91c1c; }
+
+body.dark-mode .ap-status-pending { background: rgba(234, 179, 8, 0.2); color: #fbbf24; }
+body.dark-mode .ap-status-approved { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+body.dark-mode .ap-status-ready { background: rgba(147, 51, 234, 0.22); color: #d8b4fe; }
+body.dark-mode .ap-status-released { background: rgba(22, 163, 74, 0.2); color: #86efac; }
+body.dark-mode .ap-status-cancelled { background: rgba(220, 38, 38, 0.2); color: #fca5a5; }
+
+/* ---- What is in an order, inside a table cell ---- */
+.ap-lines { display: flex; flex-direction: column; gap: 3px; }
+.ap-line { font-size: 0.82rem; color: var(--text-primary, #333); }
+.ap-line b { font-weight: 700; }
+.ap-line em { font-style: normal; color: var(--text-secondary, #6c757d); }
+body.dark-mode .ap-line { color: #ddd; }
+body.dark-mode .ap-line em { color: #999; }
+
+/* ---- Size / stock editor in the catalogue form ---- */
+.ap-size-rows { display: flex; flex-direction: column; gap: 8px; }
+.ap-size-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px 38px; gap: 8px; align-items: center; }
+.ap-size-row input { width: 100%; }
+.ap-size-row button {
+  width: 38px; height: 38px;
+  border: 1px solid var(--border-color, #e0e0e0); border-radius: 9px;
+  background: transparent; color: var(--danger, #dc3545); cursor: pointer;
+}
+body.dark-mode .ap-size-row button { border-color: rgba(255, 255, 255, 0.14); }
+
+.ap-size-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) 110px 38px; gap: 8px;
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-secondary, #6c757d);
+  margin-bottom: 6px;
+}
+
+/* ---- The pictures already on the item, in the catalogue form ---- */
+.ap-pics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+}
+
+.ap-pic { display: flex; flex-direction: column; gap: 6px; }
+
+.ap-pic-shot {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--border-color, #e0e0e0);
+  background: #f8f9fa;
+}
+.ap-pic-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* The first picture is the one the store grid uses, which is worth saying on
+   the picture rather than in a paragraph underneath. */
+.ap-pic-main {
+  position: absolute; top: 6px; left: 6px;
+  padding: 2px 8px; border-radius: 6px;
+  background: var(--accent); color: #3e2e08;
+  font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+}
+
+/* Same full-size view the store has, so an Admin can check a photo is the
+   right way up before anyone orders off it. */
+.ap-pic-zoom {
+  position: absolute; bottom: 6px; right: 6px;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border: none; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6); color: #fff;
+  font-size: 0.62rem; cursor: pointer;
+}
+.ap-pic-zoom:hover { background: var(--primary); }
+
+.ap-pic-drop {
+  position: absolute; top: 6px; right: 6px;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border: none; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6); color: #fff;
+  font-size: 0.7rem; cursor: pointer;
+}
+.ap-pic-drop:hover { background: var(--danger, #dc3545); }
+
+.ap-pic-label { font-size: 0.78rem !important; padding: 7px 10px !important; text-align: center; }
+
+body.dark-mode .ap-pic-shot { background: #16161f; border-color: rgba(255, 255, 255, 0.12); }
+
+/* ---- Image picker in the catalogue form ---- */
+.ap-img-pick { display: flex; align-items: center; gap: 14px; }
+.ap-img-pick-preview {
+  width: 92px; height: 92px; flex-shrink: 0;
+  border-radius: 12px; overflow: hidden;
+  border: 1px dashed var(--border-color, #ddd);
+  display: grid; place-items: center;
+  background: #f8f9fa; color: var(--border-color, #ccc); font-size: 1.5rem;
+}
+.ap-img-pick-preview img { width: 100%; height: 100%; object-fit: cover; }
+body.dark-mode .ap-img-pick-preview { background: #16161f; border-color: rgba(255, 255, 255, 0.14); }
+
+/* ---- A picture, whole ----
+   Opened from a card or from the catalogue form. Everything about it is
+   dismissive: the backdrop closes it, Escape closes it, the cross closes it.
+   The picture itself is never cropped and never scaled past the frame. */
+.ap-lightbox {
+  position: fixed; inset: 0;
+  /* Above .evt-modal-overlay (15000) - it is opened from inside those. */
+  z-index: 16000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 76px 20px 20px;
+  background: rgba(0, 0, 0, 0.9);
+  animation: apFade 0.16s ease;
+}
+@keyframes apFade { from { opacity: 0; } to { opacity: 1; } }
+
+.ap-lightbox-top {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.65), transparent);
+  color: #fff;
+}
+.ap-lightbox-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ap-lightbox-title b { font-size: 0.98rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-lightbox-title span { font-size: 0.76rem; opacity: 0.75; }
+
+.ap-lightbox-close {
+  margin-left: auto; flex-shrink: 0;
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  border: none; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16); color: #fff;
+  font-size: 1rem; cursor: pointer;
+  transition: background 0.15s ease;
+}
+.ap-lightbox-close:hover { background: rgba(255, 255, 255, 0.3); }
+
+.ap-lightbox-shot {
+  max-width: 100%; max-height: 100%;
+  /* `contain` on an <img> that is already capped both ways: whatever the
+     photograph's shape, all of it is on screen and none of it is stretched. */
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  cursor: default;
+}
+
+.ap-lightbox-step {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 46px; height: 46px;
+  display: grid; place-items: center;
+  border: none; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16); color: #fff;
+  font-size: 1rem; cursor: pointer;
+  transition: background 0.15s ease;
+}
+.ap-lightbox-step:hover { background: rgba(255, 255, 255, 0.32); }
+.ap-lightbox-step.prev { left: 16px; }
+.ap-lightbox-step.next { right: 16px; }
+
+.ap-lightbox-strip {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow-x: auto;
+}
+.ap-lightbox-thumb {
+  width: 48px; height: 48px; flex-shrink: 0;
+  padding: 0; overflow: hidden;
+  border: 2px solid transparent; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1); cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.ap-lightbox-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ap-lightbox-thumb:hover { opacity: 1; }
+.ap-lightbox-thumb.on { opacity: 1; border-color: var(--accent); }
+
+@media (max-width: 640px) {
+  .ap-lightbox { padding: 68px 10px 88px; }
+  .ap-lightbox-step { width: 38px; height: 38px; }
+  .ap-lightbox-step.prev { left: 6px; }
+  .ap-lightbox-step.next { right: 6px; }
+  .ap-lightbox-thumb { width: 40px; height: 40px; }
+}
+
+/* ---- Narrow screens ---- */
+@media (max-width: 1100px) {
+  .ap-layout { grid-template-columns: minmax(0, 1fr); }
+
+  /* No column to sit in, so the basket becomes a sheet that comes up over the
+     grid when it is wanted and is out of the way when it is not. Putting it
+     above the grid instead - the old behaviour - meant scrolling back up past
+     every garment to check what you had picked. */
+  .ap-cart {
+    position: fixed; z-index: 14200;
+    left: 0; right: 0; bottom: 0; top: auto;
+    max-height: min(78vh, 620px);
+    border-radius: 18px 18px 0 0;
+    border-left: none; border-right: none; border-bottom: none;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.28);
+    transform: translateY(101%);
+    transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+    /* Not reachable by tab while it is off screen. */
+    visibility: hidden;
+  }
+  .ap-cart.open { transform: none; visibility: visible; }
+
+  /* A grab handle above the title, so the sheet reads as a sheet. */
+  .ap-cart-head { position: relative; padding-top: 20px; }
+  .ap-cart-head::before {
+    content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 40px; height: 4px; border-radius: 999px;
+    background: var(--border-color, #ddd);
+  }
+  body.dark-mode .ap-cart-head::before { background: rgba(255, 255, 255, 0.2); }
+
+  .ap-cart-hide {
+    display: grid; place-items: center; flex-shrink: 0;
+    width: 32px; height: 32px;
+    border: none; border-radius: 50%;
+    background: rgba(0, 0, 0, 0.05); color: var(--text-secondary, #6c757d);
+    cursor: pointer;
+  }
+  body.dark-mode .ap-cart-hide { background: rgba(255, 255, 255, 0.08); color: #ccc; }
+
+  .ap-cart-veil {
+    display: block; position: fixed; inset: 0;
+    z-index: 14100;
+    background: rgba(0, 0, 0, 0.42);
+    animation: apFade 0.2s ease;
+  }
+
+  /* The handle. Sits clear of the bottom edge and of the fixed nav some
+     phones draw there. */
+  .ap-cart-bar {
+    display: flex; align-items: center; gap: 12px;
+    position: fixed; z-index: 14000;
+    left: 14px; right: 14px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    padding: 11px 16px;
+    border: none; border-radius: 14px;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff; cursor: pointer;
+    box-shadow: 0 10px 28px rgba(146, 108, 21, 0.42);
+    transition: transform 0.22s ease, opacity 0.22s ease;
+  }
+  .ap-cart-bar.hidden { transform: translateY(140%); opacity: 0; pointer-events: none; }
+
+  .ap-cart-bar-icon { position: relative; font-size: 1.05rem; flex-shrink: 0; }
+  .ap-cart-bar-icon b {
+    position: absolute; top: -7px; right: -10px;
+    min-width: 18px; padding: 0 4px;
+    border-radius: 999px;
+    background: var(--accent); color: #3e2e08;
+    font-size: 0.66rem; font-weight: 800; line-height: 18px; text-align: center;
+  }
+  .ap-cart-bar-text {
+    display: flex; flex-direction: column; align-items: flex-start;
+    flex: 1; min-width: 0;
+    font-size: 0.88rem; font-weight: 700;
+  }
+  .ap-cart-bar-text em { font-style: normal; font-size: 0.72rem; font-weight: 600; opacity: 0.85; }
+  .ap-cart-bar-total { font-size: 1rem; font-weight: 800; flex-shrink: 0; }
+}
+
+@media (max-width: 640px) {
+  .ap-grid { grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr)); gap: 12px; }
+  .ap-card-body { padding: 12px; gap: 8px; }
+  .ap-card-body h4 { font-size: 0.9rem; }
+  .ap-sizes { grid-template-columns: repeat(auto-fit, minmax(46px, 1fr)); }
+  /* A phone's card is half a screen wide - the zoom button would cover the
+     garment, and the whole picture is one tap away in the strip anyway. */
+  .ap-card-zoom { width: 28px; height: 28px; bottom: 8px; right: 8px; }
+}
+
+/* Someone who has asked for less movement gets none of the sliding. */
+@media (prefers-reduced-motion: reduce) {
+  .ap-cart, .ap-cart-bar, .ap-card, .ap-add { transition: none; }
+  .ap-lightbox, .ap-cart-veil { animation: none; }
+}
