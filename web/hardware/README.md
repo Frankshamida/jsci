@@ -115,6 +115,21 @@ do — so it is worth knowing before ordering anything:
 | **MIFARE Classic cards** | Depends on the phone, not on this code. Phones with an NXP NFC chip read them; Broadcom and some Qualcomm ones never could. Those cards still work on the Arduino reader. |
 | **NTAG / NFC stickers** | Work on every NFC phone. If phone reading matters, buy these. |
 
+### "No supported app for this NFC tag"
+
+This is the message everybody hits first, and it is **not** a fault in the card
+or the phone. It is Android saying it handled the tag itself, which it only
+does when no app was in reader mode at that moment. For a web page that means
+**the scan was not running**.
+
+- Tap **Start scanning**, then **Allow** when the phone asks about NFC.
+- Keep the tab in front. Android suspends the scan when you switch apps or
+  lock the screen; the page restarts it when you come back, but a card tapped
+  while you were away goes to Android instead.
+- Once this site has been allowed once, the scan starts on its own every time
+  the reader screen is opened — the Start button is only needed for the very
+  first permission.
+
 If the phone reads nothing at all: the aerial is a small patch near the top
 back on most phones, not the middle, and a thick case blocks it. Slide the card
 about slowly with the case off before concluding anything.

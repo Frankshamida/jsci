@@ -1099,6 +1099,12 @@ export default function DashboardPage() {
   // NFC scan left running holds the aerial and keeps firing at whatever
   // screen has replaced this one.
   const rfidNfcAbortRef = useRef(null);
+  // Whether a scan is supposed to be running. Chrome suspends Web NFC when
+  // the page stops being the visible, focused tab, and does not always bring
+  // it back - so "should it be scanning" has to be remembered separately from
+  // "is it scanning", or the reader dies quietly when somebody checks a
+  // message and comes back.
+  const rfidNfcWantedRef = useRef(false);
 
   const [unsendConfirmId, setUnsendConfirmId] = useState(null);
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -9417,6 +9423,7 @@ Examples:
   };
 
   const stopRfidNfcScan = useCallback(() => {
+    rfidNfcWantedRef.current = false;
     try { rfidNfcAbortRef.current?.abort(); } catch { /* already gone */ }
     rfidNfcAbortRef.current = null;
     setRfidNfcStatus('idle');
@@ -9435,6 +9442,7 @@ Examples:
     setRfidError('');
     setRfidNfcNote('');
     setRfidNfcStatus('starting');
+    rfidNfcWantedRef.current = true;
     try {
       const ndef = new window.NDEFReader();
       const control = new AbortController();
@@ -9474,6 +9482,7 @@ Examples:
       setRfidNfcStatus('scanning');
     } catch (err) {
       rfidNfcAbortRef.current = null;
+      rfidNfcWantedRef.current = false;
       // Calling the scan off is not a failure worth reporting.
       if (err?.name === 'AbortError') { setRfidNfcStatus('idle'); return; }
       setRfidNfcStatus('error');
@@ -9786,6 +9795,54 @@ Examples:
     if (!rfidInUse) stopRfidNfcScan();
   }, [rfidInUse, stopRfidNfcScan]);
   useEffect(() => () => { stopRfidNfcScan(); }, [stopRfidNfcScan]);
+
+  // ---- Keeping the phone in reader mode ----
+  //
+  // "No supported app for this NFC tag" is Android saying it handled the tag
+  // itself, which it only does when NO app was in reader mode at that moment.
+  // For a web page that means the scan was not running - so the whole fix is
+  // making sure it is, and restarting it when the browser drops it.
+  //
+  // scan() needs a user gesture only for the PERMISSION prompt. Once this
+  // site has been granted NFC, it can be started without one - so a phone
+  // that has said yes before never has to press Start again.
+  useEffect(() => {
+    if (!rfidInUse || !rfidNfcSupported || !rfidSecureContext) return;
+    if (rfidNfcWantedRef.current || rfidNfcAbortRef.current) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await navigator.permissions?.query({ name: 'nfc' });
+        if (cancelled || status?.state !== 'granted') return;
+        startRfidNfcScan();
+      } catch { /* the browser cannot be asked - the Start button still works */ }
+    })();
+    return () => { cancelled = true; };
+  }, [rfidInUse, rfidNfcSupported, rfidSecureContext, startRfidNfcScan]);
+
+  // Chrome suspends Web NFC while the page is not the visible, focused tab,
+  // and coming back does not reliably resume it. Without this, checking a
+  // message mid-queue leaves a reader that looks connected and reads nothing
+  // - and every tap after that hits Android's own handler instead.
+  useEffect(() => {
+    if (!rfidNfcSupported) return undefined;
+    const rearm = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!rfidNfcWantedRef.current) return;
+      // The abort controller survives a suspend, so it cannot be trusted as
+      // proof the scan is live. Tear it down and start cleanly.
+      try { rfidNfcAbortRef.current?.abort(); } catch { /* already gone */ }
+      rfidNfcAbortRef.current = null;
+      rfidNfcWantedRef.current = false;
+      startRfidNfcScan();
+    };
+    document.addEventListener('visibilitychange', rearm);
+    window.addEventListener('focus', rearm);
+    return () => {
+      document.removeEventListener('visibilitychange', rearm);
+      window.removeEventListener('focus', rearm);
+    };
+  }, [rfidNfcSupported, startRfidNfcScan]);
 
   // The board connects itself the moment something wants it - opening the
   // reader section, or opening an assign or scan dialog. No button, no
@@ -17760,7 +17817,7 @@ Examples:
                         ? 'The phone will only allow NFC on a secure page. This address is plain http, so open the deployed https:// site on the phone instead.'
                         : rfidNfcStatus === 'scanning'
                           ? 'Hold a card flat against the back of the phone, near the top.'
-                          : 'Tap Start scanning, allow NFC when asked, then hold cards to the back of the phone.'}
+                          : 'Not scanning — a card tapped now goes to Android, not to this page. Tap Start scanning and allow NFC when asked.'}
                     </em>
                   </div>
                   {rfidNfcStatus === 'scanning' ? (
@@ -17787,6 +17844,21 @@ Examples:
               <p className="rfid-diag-note">
                 <i className="fas fa-circle-info"></i>
                 {rfidNfcNote}
+              </p>
+            )}
+
+            {/* The one Android message everybody hits, answered by name.
+                It is not a fault in the tag or the phone: Android only
+                handles a tag itself when NO app is in reader mode, which for
+                a web page means the scan was not running at that moment. */}
+            {rfidNfcSupported && rfidNfcStatus !== 'scanning' && (
+              <p className="rfid-diag-note">
+                <i className="fas fa-mobile-screen-button"></i>
+                Phone says <b>&ldquo;No supported app for this NFC tag&rdquo;</b>? That is Android
+                handling the card because this page was not scanning. Tap <b>Start scanning</b>
+                above, tap <b>Allow</b> when the phone asks about NFC, and keep this tab in front
+                &mdash; the scan pauses when you switch apps. Once allowed, it starts on its own
+                every time afterwards.
               </p>
             )}
 
