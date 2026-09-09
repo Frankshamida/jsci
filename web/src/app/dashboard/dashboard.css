@@ -25127,6 +25127,98 @@ body.dark-mode .evt-mini-btn { color: #eee; border-color: rgba(255,255,255,0.2);
 .evt-attend-badge + .evt-mini-btn { margin-left: 10px; }
 
 /* ============================================================
+   Scan method - which reader the dialog is showing
+   ============================================================ */
+/* A chooser, not a switch: every reader stays live whichever tab is on. It
+   decides what the person is LOOKING at, and gives NFC the one thing it
+   genuinely needs that the others do not - a button, because Chrome will not
+   put the phone into reader mode without a tap. */
+.rfid-method {
+  margin-bottom: 14px;
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 13px;
+  background: var(--bg-card, #fff);
+  overflow: hidden;
+}
+.rfid-method-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-color, #eee);
+  background: rgba(0, 0, 0, 0.02);
+}
+.rfid-method-label {
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-secondary, #6c757d);
+}
+.rfid-method-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.rfid-method-tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 14px;
+  border: 2px solid var(--border-color, #e0e0e0); border-radius: 9px;
+  background: transparent;
+  font-size: 0.8rem; font-weight: 700;
+  color: var(--text-secondary, #6c757d);
+  cursor: pointer; white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.rfid-method-tab:hover { border-color: var(--secondary); color: var(--primary); }
+.rfid-method-tab.on {
+  border-color: var(--secondary);
+  background: rgba(201, 152, 11, 0.1);
+  color: var(--primary);
+}
+/* Still choosable - picking it is how you find out WHY it cannot work, and
+   the panel underneath says so. Dimmed, not disabled. */
+.rfid-method-tab.off { opacity: 0.55; }
+
+.rfid-method-panel { padding: 14px; }
+.rfid-method-panel .rfid-status-strip { margin: 0; }
+
+/* ---- The phone panel ----
+   Centred and roomy, because it is read at arm's length with a card in the
+   other hand. */
+.rfid-method-panel.nfc {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 22px 18px;
+  text-align: center;
+}
+.rfid-method-icon { font-size: 1.9rem; color: var(--secondary); }
+.rfid-method-panel.nfc b {
+  font-size: 1.02rem; font-weight: 800; color: var(--text-primary, #333);
+}
+.rfid-method-panel.nfc p {
+  margin: 0; max-width: 34ch;
+  font-size: 0.84rem; line-height: 1.55; color: var(--text-secondary, #6c757d);
+}
+.rfid-method-go { margin-top: 6px; }
+.rfid-method-hint {
+  margin-top: 4px; max-width: 40ch;
+  font-style: normal; font-size: 0.73rem; line-height: 1.5;
+  color: var(--text-secondary, #8a8a8a);
+}
+/* Reading. The panel itself goes green, so "is it live" is answerable from
+   across a desk without reading a word. */
+.rfid-method-panel.nfc.live {
+  background: rgba(22, 163, 74, 0.06);
+}
+.rfid-method-panel.nfc.live .rfid-method-icon { color: #16a34a; }
+.rfid-method-panel.nfc.live b { color: #16a34a; }
+
+body.dark-mode .rfid-method { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .rfid-method-head {
+  background: rgba(255, 255, 255, 0.03); border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+body.dark-mode .rfid-method-tab { border-color: rgba(255, 255, 255, 0.14); color: #bbb; }
+body.dark-mode .rfid-method-panel.nfc b { color: #f1f1f1; }
+body.dark-mode .rfid-method-panel.nfc.live { background: rgba(22, 163, 74, 0.12); }
+body.dark-mode .rfid-method-panel.nfc.live b { color: #4ade80; }
+
+@media (max-width: 560px) {
+  .rfid-method-head { flex-direction: column; align-items: stretch; }
+  .rfid-method-tabs { margin-left: 0; }
+  .rfid-method-tab { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ============================================================
    The attendance toolbar, and the lock on the columns
    ============================================================ */
 /* Search on the left, everything that opens a counter on the right. The

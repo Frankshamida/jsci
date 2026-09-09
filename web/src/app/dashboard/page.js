@@ -1059,6 +1059,13 @@ export default function DashboardPage() {
   // Searching the attendance list. Its own box rather than the Registrations
   // one, because they are different lists on different tabs.
   const [attSearch, setAttSearch] = useState('');
+  // Which reader the scan dialogs SHOW. Presentational only: the USB wedge
+  // listener and the Arduino stay live whichever is picked, so a card tapped
+  // on either still lands. This chooses what the person is looking at and,
+  // for NFC, gives it the one button it genuinely needs - Chrome will not
+  // start an NFC scan without a tap.
+  const [rfidScanMethod, setRfidScanMethod] = useState('usb');
+  const rfidMethodChosenRef = useRef(false);
   const [evtRfidResult, setEvtRfidResult] = useState(null);
   const [evtRfidInput, setEvtRfidInput] = useState('');
   const [evtRfidBusy, setEvtRfidBusy] = useState(false);
@@ -9278,94 +9285,137 @@ Examples:
   };
 
   const renderRfidStatus = () => (
-    <div className="rfid-status-strip">
-      {/* On a phone the wedge box and the serial port are both dead ends, so
-          the strip is the phone's own aerial and nothing else - two greyed
-          out things to ignore is worse than one thing that works. */}
-      {rfidNfcSupported && !rfidWebSerialSupported ? (
-        <span className={`rfid-stat ${
-          rfidNfcStatus === 'scanning' ? 'ok'
-            : rfidNfcStatus === 'starting' ? 'warn'
-              : rfidNfcStatus === 'error' ? 'bad' : 'off'}`}>
-          <i className="fas fa-mobile-screen-button"></i>
-          Phone NFC
+    <div className="rfid-method">
+      <div className="rfid-method-head">
+        <span className="rfid-method-label">Scan method</span>
+        <div className="rfid-method-tabs">
+          <button
+            type="button"
+            className={`rfid-method-tab ${rfidScanMethod === 'usb' ? 'on' : ''}`}
+            onClick={() => setRfidScanMethod('usb')}
+          >
+            <i className="fas fa-keyboard"></i> USB RFID Reader
+          </button>
+          <button
+            type="button"
+            className={`rfid-method-tab ${rfidScanMethod === 'nfc' ? 'on' : ''} ${rfidNfcSupported ? '' : 'off'}`}
+            onClick={() => setRfidScanMethod('nfc')}
+            title={rfidNfcSupported
+              ? 'Read cards with this phone\u2019s own aerial'
+              : 'This device has no NFC. Android Chrome on a phone with NFC only.'}
+          >
+            <i className="fas fa-mobile-screen-button"></i> Phone NFC
+          </button>
+        </div>
+      </div>
+
+      {/* ---- The phone's own aerial ----
+          Its own panel, because it needs one thing the others do not: a tap
+          to start. Chrome will not put the phone into reader mode without a
+          gesture, and until it is in reader mode Android answers the card
+          itself with "No supported app for this NFC tag". */}
+      {rfidScanMethod === 'nfc' ? (
+        <div className={`rfid-method-panel nfc ${rfidNfcStatus === 'scanning' ? 'live' : ''}`}>
+          <i className={`fas ${rfidNfcStatus === 'scanning' ? 'fa-wifi' : 'fa-mobile-screen-button'} rfid-method-icon`}></i>
           <b>
-            {rfidNfcStatus === 'scanning' ? 'Reading — tap a card'
-              : rfidNfcStatus === 'starting' ? 'Starting…'
-                : rfidNfcStatus === 'error' ? 'Failed'
-                  : !rfidSecureContext ? 'Needs https://'
-                    : 'Not scanning'}
+            {!rfidNfcSupported ? 'Phone NFC not available here'
+              : !rfidSecureContext ? 'Phone NFC needs https://'
+                : rfidNfcStatus === 'scanning' ? 'Phone NFC Reading'
+                  : rfidNfcStatus === 'starting' ? 'Starting NFC\u2026'
+                    : rfidNfcStatus === 'error' ? 'NFC could not start'
+                      : 'Phone NFC Ready'}
           </b>
+          <p>
+            {!rfidNfcSupported
+              ? 'This needs Chrome on an Android phone with NFC. Safari on iPhone cannot read cards from a web page at all.'
+              : !rfidSecureContext
+                ? 'Open the deployed https:// site on the phone \u2014 NFC is refused on a plain http address.'
+                : rfidNfcStatus === 'scanning'
+                  ? 'Hold the attendee\u2019s card near the back of your phone.'
+                  : 'Hold the attendee\u2019s card near the back of your phone.'}
+          </p>
           {rfidNfcStatus === 'scanning' ? (
-            <button type="button" className="rfid-stat-btn ghost" onClick={stopRfidNfcScan}>
-              Stop
+            <button type="button" className="btn-secondary rfid-method-go" onClick={stopRfidNfcScan}>
+              <i className="fas fa-stop"></i> Stop NFC Scan
             </button>
           ) : (
             <button
               type="button"
-              className="rfid-stat-btn"
+              className="btn-primary rfid-method-go"
               onClick={startRfidNfcScan}
-              disabled={!rfidSecureContext || rfidNfcStatus === 'starting'}
+              disabled={!rfidNfcSupported || !rfidSecureContext || rfidNfcStatus === 'starting'}
             >
-              Start scanning
+              <i className="fas fa-wifi"></i> Start NFC Scan
             </button>
           )}
-        </span>
+          {/* The one Android message everybody hits, answered by name while
+              it is still relevant. */}
+          {rfidNfcSupported && rfidSecureContext && rfidNfcStatus !== 'scanning' && (
+            <em className="rfid-method-hint">
+              If the phone says &ldquo;No supported app for this NFC tag&rdquo;, the scan was not
+              running. Start it, tap Allow, and keep this tab in front.
+            </em>
+          )}
+        </div>
       ) : (
-        <>
-      <span className={`rfid-stat ${evtRfidFocus ? 'ok' : 'warn'}`}>
-        <i className="fas fa-keyboard"></i>
-        USB reader
-        <b>{evtRfidFocus ? 'Ready — tap now' : 'Click the box below'}</b>
-      </span>
+        /* ---- The readers plugged into a computer ----
+           Both listed, both live: a wedge reader types wherever the caret is
+           and the Arduino arrives on the serial port, and neither needs
+           choosing between. */
+        <div className="rfid-method-panel usb">
+          <div className="rfid-status-strip">
+            <span className={`rfid-stat ${evtRfidFocus ? 'ok' : 'warn'}`}>
+              <i className="fas fa-keyboard"></i>
+              USB reader
+              <b>{evtRfidFocus ? 'Ready \u2014 tap now' : 'Click the box below'}</b>
+            </span>
 
-      <span className={`rfid-stat ${
-        rfidSerialStatus === 'open' ? 'ok'
-          : rfidSerialStatus === 'opening' ? 'warn'
-            : rfidSerialStatus === 'error' ? 'bad' : 'off'}`}>
-        <i className="fas fa-microchip"></i>
-        Arduino
-        <b>
-          {rfidSerialStatus === 'open' ? 'Connected'
-            : rfidSerialStatus === 'opening' ? 'Connecting…'
-              : rfidSerialStatus === 'error' ? 'Failed'
-                : !rfidWebSerialSupported ? 'Not supported here'
-                  : rfidPaired ? 'Not plugged in'
-                    : 'Needs allowing once'}
-        </b>
-        {/* Only shown when it is actually needed: a board this browser has
-            already been shown connects itself, and a button offering to do
-            what just happened by itself is noise. */}
-        {rfidWebSerialSupported && rfidSerialStatus !== 'open' && rfidSerialStatus !== 'opening' && (
-          <button type="button" className="rfid-stat-btn" onClick={connectRfidSerial}>
-            {rfidPaired ? 'Connect' : 'Allow board'}
-          </button>
-        )}
-        {rfidSerialStatus === 'open' && (
-          <button type="button" className="rfid-stat-btn ghost" onClick={disconnectRfidSerial}>
-            Disconnect
-          </button>
-        )}
-      </span>
+            <span className={`rfid-stat ${
+              rfidSerialStatus === 'open' ? 'ok'
+                : rfidSerialStatus === 'opening' ? 'warn'
+                  : rfidSerialStatus === 'error' ? 'bad' : 'off'}`}>
+              <i className="fas fa-microchip"></i>
+              Arduino
+              <b>
+                {rfidSerialStatus === 'open' ? 'Connected'
+                  : rfidSerialStatus === 'opening' ? 'Connecting\u2026'
+                    : rfidSerialStatus === 'error' ? 'Failed'
+                      : !rfidWebSerialSupported ? 'Not supported here'
+                        : rfidPaired ? 'Not plugged in'
+                          : 'Needs allowing once'}
+              </b>
+              {/* Only shown when it is actually needed: a board this browser
+                  has already been shown connects itself, and a button
+                  offering to do what just happened by itself is noise. */}
+              {rfidWebSerialSupported && rfidSerialStatus !== 'open' && rfidSerialStatus !== 'opening' && (
+                <button type="button" className="rfid-stat-btn" onClick={connectRfidSerial}>
+                  {rfidPaired ? 'Connect' : 'Allow board'}
+                </button>
+              )}
+              {rfidSerialStatus === 'open' && (
+                <button type="button" className="rfid-stat-btn ghost" onClick={disconnectRfidSerial}>
+                  Disconnect
+                </button>
+              )}
+            </span>
 
-        </>
-      )}
-
-      {/* The chip's own answer, once it has given one. A board that opened its
-          port but whose RC522 never replied looks "connected" and reads
-          nothing, which is the most confusing state of all. */}
-      {rfidSerialStatus === 'open' && rfidChip && (
-        <span className={`rfid-stat ${rfidChip.ok ? 'ok' : 'bad'}`}>
-          <i className="fas fa-wave-square"></i>
-          RC522
-          {/* The version is only known if the sketch printed it. A card that
-              read is proof enough on its own, and says so without one. */}
-          <b>
-            {rfidChip.ok
-              ? (rfidChip.version ? `Responding (${rfidChip.version})` : 'Responding')
-              : `No reply (${rfidChip.version})`}
-          </b>
-        </span>
+            {/* The chip's own answer, once it has given one. A board that
+                opened its port but whose RC522 never replied looks
+                "connected" and reads nothing, which is the most confusing
+                state of all. */}
+            {rfidSerialStatus === 'open' && rfidChip && (
+              <span className={`rfid-stat ${rfidChip.ok ? 'ok' : 'bad'}`}>
+                <i className="fas fa-wave-square"></i>
+                RC522
+                <b>
+                  {rfidChip.ok
+                    ? (rfidChip.version ? `Responding (${rfidChip.version})` : 'Responding')
+                    : `No reply (${rfidChip.version})`}
+                </b>
+              </span>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -9788,6 +9838,15 @@ Examples:
     setRfidNfcSupported('NDEFReader' in window);
     setRfidSecureContext(window.isSecureContext !== false);
   }, []);
+
+  // Opened on the reader this device stands a chance with. A phone has no
+  // serial port and never will, so USB is a dead end there; a desktop has no
+  // NFC aerial. Chosen once so it cannot fight a deliberate switch.
+  useEffect(() => {
+    if (rfidMethodChosenRef.current || !rfidNfcSupported) return;
+    rfidMethodChosenRef.current = true;
+    if (!('serial' in navigator)) setRfidScanMethod('nfc');
+  }, [rfidNfcSupported]);
 
   // An NFC scan left running keeps the aerial and keeps firing taps at
   // whatever screen replaced this one.
