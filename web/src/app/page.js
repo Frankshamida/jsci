@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import './home.css';
 import { withTitleCase } from '@/lib/eventTitle';
+import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
 
 // ============================================
 // DATA
@@ -23,34 +24,6 @@ const EMPTY_GUEST_REG_FORM = {
   firstName: '', lastName: '', churchName: '', churchPastor: '', mobile: '', email: '',
   paymentMethod: '', paymentReference: '',
 };
-
-// Receipts are phone photos - often 3-5MB of JPEG for a picture of a screen.
-// Re-encoding to WebP at a sane width cuts that to a couple of hundred KB
-// before it ever leaves the browser, so uploads stay quick on mobile data.
-// Anything that can't be decoded (an odd format, a huge file) is uploaded as-is.
-const MAX_RECEIPT_WIDTH = 1600;
-const toWebpFile = (file) => new Promise((resolve) => {
-  if (!file || !file.type?.startsWith('image/')) { resolve(file); return; }
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-  img.onload = () => {
-    try {
-      const scale = Math.min(1, MAX_RECEIPT_WIDTH / img.width);
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => {
-        URL.revokeObjectURL(url);
-        if (!blob) { resolve(file); return; }
-        const name = (file.name || 'receipt').replace(/\.[^.]+$/, '') + '.webp';
-        resolve(new File([blob], name, { type: 'image/webp' }));
-      }, 'image/webp', 0.82);
-    } catch { URL.revokeObjectURL(url); resolve(file); }
-  };
-  img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
-  img.src = url;
-});
 
 const PASTORS = [
   { name: 'Dr. Weldon Pior', title: 'Senior Pastor', photo: '/assets/dr-weldon-pior.png' },
@@ -322,6 +295,7 @@ export default function HomePage() {
   const [guestRegAddonIds, setGuestRegAddonIds] = useState([]);
   const [guestRegProof, setGuestRegProof] = useState(null);      // already converted to .webp
   const [guestRegProofPreview, setGuestRegProofPreview] = useState('');
+  const [guestProofError, setGuestProofError] = useState('');   // a file too big to upload, said before submit
   const [guestRegStep, setGuestRegStep] = useState(0);           // 0 = who's coming, 1 = payment
   // The channel the payer chose, and whether the picker list is open. Only the
   // chosen account's details are shown - the QRs and numbers are long, and only
@@ -407,21 +381,44 @@ export default function HomePage() {
   };
 
   // Shrink + convert the receipt before it is attached, so the upload is small.
+  // `shrinkProofImage` hands back anything it cannot decode untouched, which is
+  // what lets a PDF or a .heic through as itself.
   const handleGuestProofPick = async (file) => {
+    setGuestProofError('');
     if (!file) { setGuestRegProof(null); setGuestRegProofPreview(''); return; }
-    const converted = await toWebpFile(file);
+    // Shrink FIRST, then measure. A phone photo of a receipt is routinely 5MB
+    // and a couple of hundred KB once re-encoded - measuring the original would
+    // turn away the very files this form exists to collect.
+    const converted = await shrinkProofImage(file);
+    if (converted.size > PROOF_MAX_BYTES) {
+      // Said now rather than at submit, where it would arrive after the whole
+      // payment step had been filled in.
+      setGuestProofError(`That file is ${(converted.size / 1024 / 1024).toFixed(1)}MB. Please attach one under ${PROOF_MAX_LABEL}.`);
+      setGuestRegProof(null); setGuestRegProofPreview('');
+      return;
+    }
     setGuestRegProof(converted);
     setGuestRegProofPreview(URL.createObjectURL(converted));
   };
 
+  // Only a picture can be shown back as a thumbnail; a PDF or a document is
+  // named instead, so "is my receipt attached?" is still answerable.
+  const guestProofIsImage = !!guestRegProof && String(guestRegProof.type || '').startsWith('image/');
+
   // "Gomez_GCash_POP_09-01-2026.webp" - so a folder of receipts can be scanned
   // by eye without opening every one.
+  //
+  // The extension follows the file that was actually attached. It used to be
+  // hard-coded to .webp, which was true only of the photos the browser had
+  // re-encoded: a bank's PDF went up named ".webp", and from then on nothing -
+  // not Cloudinary, not the admin's viewer - could tell it was a PDF.
   const proofFileName = () => {
     const last = (guestRegForm.lastName || 'Attendee').trim().replace(/[^a-z0-9]+/gi, '') || 'Attendee';
     const method = (guestRegForm.paymentMethod || 'Payment').replace(/[^a-z0-9]+/gi, '') || 'Payment';
     const d = new Date();
     const stamp = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
-    return `${last}_${method}_POP_${stamp}.webp`;
+    const ext = (String(guestRegProof?.name || '').match(/\.([a-z0-9]{1,8})$/i)?.[1] || 'webp').toLowerCase();
+    return `${last}_${method}_POP_${stamp}.${ext}`;
   };
 
   // Copying beats re-typing an 11-digit number off a screen - one wrong digit
@@ -535,7 +532,7 @@ export default function HomePage() {
     const q = guestRegForm.churchName.trim();
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/events/registrations?churches=1&q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/events/registrations?churches=1&eventId=${guestRegEvent.id}&q=${encodeURIComponent(q)}`);
         const data = await res.json();
         setChurchOptions(data.success ? data.data || [] : []);
       } catch { setChurchOptions([]); }
@@ -600,8 +597,10 @@ export default function HomePage() {
         <span className="hp-proof-label">Proof of Payment *</span>
         {guestRegProof ? (
           <div className="hp-proof-done">
-            <button type="button" className="hp-proof-thumb" onClick={() => window.open(guestRegProofPreview, '_blank', 'noopener')} title="Open the full screenshot">
-              <img src={guestRegProofPreview} alt="Your payment receipt" />
+            <button type="button" className="hp-proof-thumb" onClick={() => window.open(guestRegProofPreview, '_blank', 'noopener')} title="Open your receipt">
+              {guestProofIsImage
+                ? <img src={guestRegProofPreview} alt="Your payment receipt" />
+                : <span className="hp-proof-thumb-file"><i className="fas fa-file-lines"></i></span>}
             </button>
             <div className="hp-proof-info">
               <strong><i className="fas fa-circle-check"></i> Receipt attached</strong>
@@ -613,17 +612,20 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <label className={`hp-proof-drop ${guestFieldErrors.proof ? 'invalid' : ''}`} htmlFor="hp-reg-proof">
+          <label className={`hp-proof-drop ${guestFieldErrors.proof || guestProofError ? 'invalid' : ''}`} htmlFor="hp-reg-proof">
             <span className="hp-proof-drop-icon"><i className="fas fa-cloud-arrow-up"></i></span>
             <span className="hp-proof-drop-text">
-              <strong>Upload a screenshot of your receipt</strong>
-              <small>PNG or JPG from your payment app &middot; tap to choose</small>
+              <strong>Upload a screenshot or file of your receipt</strong>
+              <small>Photo, screenshot or PDF from your bank or payment app &middot; tap to choose</small>
             </span>
           </label>
         )}
-        <input id="hp-reg-proof" type="file" accept="image/*" hidden onChange={(e) => handleGuestProofPick(e.target.files?.[0] || null)} />
+        <input id="hp-reg-proof" type="file" accept={PROOF_ACCEPT} hidden onChange={(e) => handleGuestProofPick(e.target.files?.[0] || null)} />
       </div>
-      {guestFieldErrors.proof && (
+      {guestProofError && (
+        <p className="hp-pay-line-error"><i className="fas fa-circle-exclamation"></i> {guestProofError}</p>
+      )}
+      {guestFieldErrors.proof && !guestProofError && (
         <p className="hp-pay-line-error"><i className="fas fa-circle-exclamation"></i> {guestFieldErrors.proof}</p>
       )}
     </>

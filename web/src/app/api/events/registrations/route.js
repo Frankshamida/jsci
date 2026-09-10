@@ -47,6 +47,8 @@ function normName(name) {
 
 const EVENT_MANAGER_ROLES = ['Admin', 'Super Admin'];
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Which of the given names are already registered for an event. Only ever
 // answers about the names it was asked about, so it cannot be used to read the
 // attendee list of an event.
@@ -99,6 +101,7 @@ const OPTIONAL_COLUMNS = [
   'group_ref', 'group_size', 'representative', 'registration_type',
   'added_by', 'added_by_role', 'payment_plan', 'amount_paid',
   'church_name', 'church_pastor', 'base_amount', 'addons',
+  'registered_by_user_id',
   'deleted_at', 'deleted_by', 'deleted_by_name', 'deleted_reason',
 ];
 
@@ -226,11 +229,28 @@ export async function GET(request) {
       return NextResponse.json({ success: true, data: found.map((r) => r.name), details: found });
     }
 
+    // ?churches=1&eventId=..&q=..  -> the churches already registered FOR THAT
+    // EVENT, most-registered first.
+    //
+    // Scoped to the one event on purpose. The point of the list is that
+    // everybody at an event spells the same church the same way, so its counts
+    // and its attendance sheet add up - and a church from a Leyte conference is
+    // not an answer to "which church are you from?" at a Cebu one. Offering it
+    // there invites somebody to accept a suggestion that has nothing to do with
+    // the event they are joining.
+    //
+    // A new event therefore starts with no suggestions and builds its own list
+    // from its first registration onward, which is the intended behaviour.
     if (searchParams.get('churches')) {
       const q = (searchParams.get('q') || '').trim().toLowerCase();
+      const scope = searchParams.get('eventId');
+      if (!scope) {
+        return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
+      }
       const { data: rows } = await supabase
         .from('event_registrations')
         .select('church_name')
+        .eq('event_id', scope)
         .not('church_name', 'is', null)
         .neq('status', 'cancelled')
         .is('deleted_at', null)
@@ -253,17 +273,35 @@ export async function GET(request) {
 
     if (!eventId && !userId) return NextResponse.json({ success: false, message: 'eventId or userId required' }, { status: 400 });
 
-    // "My Registrations": all of a user's registrations joined with the event
+    // "My Registrations": all of a user's registrations joined with the event.
+    // Two kinds of row belong to a member: their own slot (user_id), and every
+    // row of a group they booked as the representative (registered_by_user_id).
+    // The second only exists once event_group_owner.sql has been run, so a
+    // database without it falls back to the slots and simply shows no groups.
     if (!eventId && userId) {
-      const { data, error } = await supabase
+      const withEvent = '*, event:events(id, title, description, image_url, event_date, end_date, location, loc_city, loc_province, latitude, longitude, has_fee, registration_fee)';
+      const mine = () => supabase
         .from('event_registrations')
-        .select('*, event:events(id, title, description, image_url, event_date, end_date, location, loc_city, loc_province, latitude, longitude, has_fee, registration_fee)')
-        .eq('user_id', userId)
+        .select(withEvent)
         .neq('status', 'cancelled')
         .is('deleted_at', null)
         .order('created_at', { ascending: false });
-      if (error) throw error;
-      return NextResponse.json({ success: true, data: data || [] });
+
+      let rows = null;
+      // The id goes into a PostgREST filter STRING rather than a bound value,
+      // so anything but a plain uuid is not put there - it takes the ordinary
+      // equality path instead, where the client cannot shape the filter.
+      const grouped = UUID_RE.test(String(userId))
+        ? await mine().or(`user_id.eq.${userId},registered_by_user_id.eq.${userId}`)
+        : { error: new Error('not a uuid') };
+      if (grouped.error) {
+        const own = await mine().eq('user_id', userId);
+        if (own.error) throw own.error;
+        rows = own.data;
+      } else {
+        rows = grouped.data;
+      }
+      return NextResponse.json({ success: true, data: rows || [] });
     }
 
     // The Recycle Bin: what was removed from this event, newest first, each row
@@ -328,9 +366,13 @@ export async function POST(request) {
         const buffer = await file.arrayBuffer();
         const uploaded = await uploadBufferToCloudinary(buffer, {
           fileName: file.name || 'payment-proof',
-          mimeType: file.type || 'image/jpeg',
+          mimeType: file.type || 'application/octet-stream',
           folder: 'JSCI-System/event-payments',
-          resourceType: 'image',
+          // 'auto', not 'image': a receipt is whatever the bank handed the
+          // payer. A PDF or a .heic sent to the image endpoint is rejected
+          // outright, and the registration then fails on the attachment rather
+          // than on anything to do with the registration itself.
+          resourceType: 'auto',
         });
         proofUrl = uploaded.secureUrl;
       }
@@ -357,6 +399,10 @@ export async function POST(request) {
           firstName: titleCaseName(a?.firstName),
           lastName: titleCaseName(a?.lastName),
           addonIds: Array.isArray(a?.addonIds) ? a.addonIds.filter(Boolean) : [],
+          // The representative's own place on the roster. A signed-in member's
+          // slot has to be theirs - their QR, their cancellation, their
+          // "already registered" - so that one row keeps their user_id.
+          isRep: !!a?.isRep,
         })).filter((a) => a.firstName || a.lastName)
       : [];
     // Extras the representative is adding to a slot they already hold. A group
@@ -381,15 +427,42 @@ export async function POST(request) {
     if (event.is_active === false) return NextResponse.json({ success: false, message: 'This event is no longer available' }, { status: 400 });
     if (event.is_published === false) return NextResponse.json({ success: false, message: 'This event is not open for registration yet' }, { status: 400 });
 
+    // The account behind the registration, when there is one. Read once: the
+    // role decides whether a restricted event is open to them, and the
+    // verification status decides whether they may book for other people.
+    let memberUser = null;
+    if (userId) {
+      const { data: u } = await supabase
+        .from('users').select('id, firstname, lastname, role, status').eq('id', userId).single();
+      memberUser = u || null;
+    }
+
     // Role restriction: if allowed_roles is set, the user's role must be in it
     if (Array.isArray(event.allowed_roles) && event.allowed_roles.length > 0) {
-      let role = null;
-      if (userId) {
-        const { data: u } = await supabase.from('users').select('role').eq('id', userId).single();
-        role = u?.role || null;
-      }
+      const role = memberUser?.role || null;
       if (!role || !event.allowed_roles.includes(role)) {
         return NextResponse.json({ success: false, message: 'This event is only open to specific roles.' }, { status: 403 });
+      }
+    }
+
+    // Booking on other people's behalf from an account is only for an account
+    // that has been verified. An unverified member may still register
+    // themselves - a slot they hold in their own name is theirs to hold - but
+    // filling an event with names nobody has vouched for is not something an
+    // unconfirmed account gets to do. Guests (no userId) are unaffected: they
+    // are held to the public form's own rules.
+    if (isBulk && userId && !fields.addedByAdmin) {
+      if (!memberUser) {
+        return NextResponse.json({
+          success: false,
+          message: 'Your account could not be found. Please sign out and sign in again, then try registering the group.',
+        }, { status: 401 });
+      }
+      if (String(memberUser.status) !== 'Verified') {
+        return NextResponse.json({
+          success: false,
+          message: 'Your account needs to be verified before you can register a group. You can still register yourself.',
+        }, { status: 403 });
       }
     }
 
@@ -419,8 +492,11 @@ export async function POST(request) {
       }
     }
 
-    // Prevent duplicate registration
-    if (userId) {
+    // Nobody holds two slots for the same event under one account. A GROUP is
+    // the exception, and deliberately so: a member who is already registered
+    // may come back to book other people, and their own slot is then left
+    // alone rather than counted, charged or refused a second time.
+    if (userId && !isBulk) {
       const { data: existing } = await supabase.from('event_registrations')
         .select('id, status').eq('event_id', eventId).eq('user_id', userId).neq('status', 'cancelled').maybeSingle();
       if (existing) return NextResponse.json({ success: false, message: 'You are already registered for this event' }, { status: 409 });
@@ -599,10 +675,16 @@ export async function POST(request) {
         : {}),
     };
 
+    // Whose slot is whose in a group. Every row is stamped with the account
+    // that booked it - that is what lets the representative see the whole
+    // group in My Registrations - but only the representative's own row is
+    // stamped as BEING theirs, because only that one is a seat they occupy.
+    const repKey = normName(fields.representative || attendeeName);
     const rows = isBulk
       ? priced.map((a) => ({
           ...shared,
-          user_id: null,
+          user_id: (userId && (a.isRep || normName(`${a.firstName} ${a.lastName}`) === repKey)) ? userId : null,
+          registered_by_user_id: userId || null,
           attendee_firstname: a.firstName || null,
           attendee_lastname: a.lastName || null,
           attendee_name: `${a.firstName} ${a.lastName}`.trim(),
@@ -664,8 +746,15 @@ export async function POST(request) {
       // column - their slot matters more than the labelling - but the gap is
       // still reported rather than left to look like a feature not working.
       columnWarning = `Saved, but this database is missing the ${droppedColumns.map((c) => `"${c}"`).join(', ')} `
-        + `column${droppedColumns.length > 1 ? 's' : ''}. Run supabase/migrations/event_bulk_registration.sql `
-        + 'and event_flexible_payment.sql to record them.';
+        + `column${droppedColumns.length > 1 ? 's' : ''}. Run supabase/migrations/event_registrations_columns.sql `
+        + 'to record them.';
+      // This one has a consequence worth naming: without it the rows are saved
+      // but nothing ties them to the account that booked them, so the group
+      // will not appear under My Registrations.
+      if (isBulk && userId && droppedColumns.includes('registered_by_user_id')) {
+        columnWarning += ' Everyone on your list is registered, but the group will not show under'
+          + ' My Registrations until that column exists.';
+      }
     }
 
     // The representative may be availing an extra on a slot they already hold -
@@ -675,13 +764,18 @@ export async function POST(request) {
       const repName = normName(fields.representative || attendeeName);
       const { data: candidates } = await supabase
         .from('event_registrations')
-        .select('id, attendee_name, addons, amount, amount_paid, payment_plan, status')
+        .select('id, user_id, attendee_name, addons, amount, amount_paid, payment_plan, status')
         .eq('event_id', eventId)
         .neq('status', 'cancelled')
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
         .limit(5000);
-      const target = (candidates || []).find((r) => normName(r.attendee_name) === repName);
+      // A signed-in representative's slot is known by their account, not by
+      // how their name happens to be spelled on it - two members can share a
+      // name, and one of them should not be able to buy extras on the other's
+      // registration. The name match stays for guests, who have no account.
+      const target = (userId && (candidates || []).find((r) => String(r.user_id) === String(userId)))
+        || (candidates || []).find((r) => normName(r.attendee_name) === repName);
       if (target) {
         const held = Array.isArray(target.addons) ? target.addons : [];
         const heldIds = new Set(held.map((a) => a.id));

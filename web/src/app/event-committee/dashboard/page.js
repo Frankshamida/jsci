@@ -10,6 +10,10 @@ import '../../dashboard/dashboard.css';
 // The store's own pieces - a product card and a basket, which the main
 // dashboard has no component for. Same tokens, same dark-mode convention.
 import './apparel.css';
+// One reading of what a proof of payment is, shared with the main dashboard:
+// a receipt can be a photo, a PDF from a bank, or another file entirely.
+import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
+import ProofDrop from '@/components/ProofDrop';
 
 // The Event Committee dashboard.
 //
@@ -971,11 +975,11 @@ export default function CommitteeDashboardPage() {
   // Churches people already registered under, so the same one is always spelled
   // the same way. Mirrors the public form.
   useEffect(() => {
-    if (!showAddReg || !churchOpen) return undefined;
+    if (!showAddReg || !churchOpen || !eventRegsModal) return undefined;
     const q = (addForm.churchName || '').trim();
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/events/registrations?churches=1&q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/events/registrations?churches=1&eventId=${eventRegsModal.id}&q=${encodeURIComponent(q)}`);
         const data = await res.json();
         setChurchOptions(data.success ? data.data || [] : []);
       } catch { setChurchOptions([]); }
@@ -3145,15 +3149,44 @@ export default function CommitteeDashboardPage() {
                   </div>
                   <div className="evt-modal-body evt-proof-body">
                     <div className="evt-proof-image">
-                      {proofModal.payment_proof_url ? (
+                      {/* A receipt is not always a picture. A PDF is shown in
+                          place so it can be read without leaving the page, and
+                          anything else is offered as a download - either way
+                          the checker sees what was sent rather than a broken
+                          image icon they have no explanation for. */}
+                      {!proofModal.payment_proof_url ? (
+                        <div className="evt-proof-empty"><i className="fas fa-image"></i> No proof uploaded</div>
+                      ) : isImageProof(proofModal.payment_proof_url) ? (
                         <>
                           <img src={proofModal.payment_proof_url} alt="Payment proof" />
                           <a href={proofModal.payment_proof_url} target="_blank" rel="noreferrer" className="evt-proof-zoom">
                             <i className="fas fa-up-right-and-down-left-from-center"></i> Open full size
                           </a>
                         </>
+                      ) : isPdfProof(proofModal.payment_proof_url) ? (
+                        <>
+                          <object className="evt-proof-doc" data={proofModal.payment_proof_url} type="application/pdf">
+                            <div className="evt-proof-file">
+                              <i className="fas fa-file-pdf"></i>
+                              <strong>{proofFileName(proofModal.payment_proof_url)}</strong>
+                              <small>This browser cannot show the PDF here.</small>
+                            </div>
+                          </object>
+                          <a href={proofModal.payment_proof_url} target="_blank" rel="noreferrer" className="evt-proof-zoom">
+                            <i className="fas fa-up-right-and-down-left-from-center"></i> Open full size
+                          </a>
+                        </>
                       ) : (
-                        <div className="evt-proof-empty"><i className="fas fa-image"></i> No proof uploaded</div>
+                        <>
+                          <div className="evt-proof-file">
+                            <i className="fas fa-file-lines"></i>
+                            <strong>{proofFileName(proofModal.payment_proof_url)}</strong>
+                            <small>This receipt is a file, not an image.</small>
+                          </div>
+                          <a href={proofModal.payment_proof_url} target="_blank" rel="noreferrer" className="evt-proof-zoom">
+                            <i className="fas fa-arrow-up-right-from-square"></i> Open the file
+                          </a>
+                        </>
                       )}
                     </div>
 
@@ -4508,16 +4541,7 @@ export default function CommitteeDashboardPage() {
                                         registration asks for. */}
                                     <div className="form-group">
                                       <label>Payment Receipt *</label>
-                                      <label className="evt-proof-drop">
-                                        <input type="file" accept="image/*" onChange={(e) => setProofFile(e.target.files?.[0] || null)} />
-                                        {proofFile
-                                          ? <img src={URL.createObjectURL(proofFile)} alt="Payment receipt" />
-                                          : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
-                                        <span className="evt-proof-text">
-                                          <strong>{proofFile ? proofFile.name : 'Upload a screenshot of your receipt'}</strong>
-                                          <small>{proofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
-                                        </span>
-                                      </label>
+                                      <ProofDrop id="committee-apparel-proof" file={proofFile} onPick={setProofFile} />
                                     </div>
                                   </div>
                                 </div>
@@ -4733,9 +4757,18 @@ export default function CommitteeDashboardPage() {
 
                     {orderProof.payment_proof_url ? (
                       <div className="evt-proof-image" style={{ marginTop: 14 }}>
-                        <img src={orderProof.payment_proof_url} alt="Payment receipt" />
+                        {isImageProof(orderProof.payment_proof_url) ? (
+                          <img src={orderProof.payment_proof_url} alt="Payment receipt" />
+                        ) : (
+                          <div className="evt-proof-file">
+                            <i className={`fas ${isPdfProof(orderProof.payment_proof_url) ? 'fa-file-pdf' : 'fa-file-lines'}`}></i>
+                            <strong>{proofFileName(orderProof.payment_proof_url)}</strong>
+                            <small>This receipt is a file, not an image.</small>
+                          </div>
+                        )}
                         <a href={orderProof.payment_proof_url} target="_blank" rel="noreferrer" className="evt-proof-zoom">
-                          <i className="fas fa-up-right-and-down-left-from-center"></i> Open full size
+                          <i className="fas fa-up-right-and-down-left-from-center"></i>
+                          {isImageProof(orderProof.payment_proof_url) ? ' Open full size' : ' Open the file'}
                         </a>
                       </div>
                     ) : (

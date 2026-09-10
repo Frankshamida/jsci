@@ -3722,3 +3722,10 @@ body.dark-mode .hp-proof-actions button { background: #262626; border-color: rgb
   .hp-invite-info { transform: translateY(0); }
   .hp-invite-scrim { opacity: 1; }
 }
+
+/* A receipt that is a PDF or a document has no thumbnail to show, so the tile
+   says what it is instead of rendering a broken image. */
+.hp-proof-thumb-file {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  font-size: 1.7rem; color: #16a34a; background: rgba(22,163,74,0.08);
+}

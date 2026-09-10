@@ -38,6 +38,16 @@ function resolveRefundDueAt(from = new Date()) {
   return d.toISOString();
 }
 
+// Whose registration this is to act on: the person holding the slot, or the
+// representative who booked and paid for it as part of a group.
+// `registered_by_user_id` arrives with event_group_owner.sql; a database
+// without it simply has no groups to own, and the slot check still answers.
+function ownedBy(reg, userId) {
+  if (!reg || !userId) return false;
+  if (String(reg.user_id) === String(userId)) return true;
+  return !!reg.registered_by_user_id && String(reg.registered_by_user_id) === String(userId);
+}
+
 // What the member is owed back. A flexible plan has only paid part of the fee,
 // so the refund follows what actually arrived, never what was owed.
 function refundableAmount(reg) {
@@ -63,8 +73,11 @@ export async function POST(request) {
       .single();
     if (error || !reg) return NextResponse.json({ success: false, message: 'Registration not found.' }, { status: 404 });
 
-    // Only over your own registration, and only one that is still live.
-    if (String(reg.user_id) !== String(userId)) {
+    // Only over your own registration, and only one that is still live. A
+    // group booking counts as yours: the representative registered and paid
+    // for those people, so they are the one who has to be able to pull a name
+    // back out when somebody can no longer come.
+    if (!ownedBy(reg, userId)) {
       return NextResponse.json({ success: false, message: 'This is not your registration.' }, { status: 403 });
     }
     if (reg.deleted_at || reg.status === 'cancelled') {
@@ -113,9 +126,9 @@ export async function DELETE(request) {
     const userId = searchParams.get('userId');
     if (!id || !userId) return NextResponse.json({ success: false, message: 'id and userId are required.' }, { status: 400 });
 
-    const { data: reg } = await supabase.from('event_registrations').select('id, user_id, cancel_status').eq('id', id).single();
+    const { data: reg } = await supabase.from('event_registrations').select('*').eq('id', id).single();
     if (!reg) return NextResponse.json({ success: false, message: 'Registration not found.' }, { status: 404 });
-    if (String(reg.user_id) !== String(userId)) {
+    if (!ownedBy(reg, userId)) {
       return NextResponse.json({ success: false, message: 'This is not your registration.' }, { status: 403 });
     }
     if (reg.cancel_status !== 'requested') {

@@ -27804,19 +27804,61 @@ body.dark-mode .evt-pay-box { background: rgba(255,255,255,0.03); border-color: 
 .dark-mode .evt-review-row { border-bottom-color: rgba(255,255,255,0.08); }
 .dark-mode .evt-review-receipt { background: rgba(212,164,55,0.10); }
 
-/* ---- Member registration: centred stepper ----
+/* ---- Member registration: the stepper ----
+   Two steps or four, on a 320px phone or a desktop dialog, this row must never
+   be wider than the modal. `.evt-modal-body` scrolls, and a row that overflows
+   it drags the entire form sideways - which is how a four-step group booking
+   ended up with a horizontal scrollbar under it and "Payment" off the edge.
+   So it is a column per step, number above label, each column an equal share
+   of whatever width there is. Nothing is measured in text length any more.
+
    `.evt-step-line` is redefined further up the file as an absolutely positioned
    connector for a different stepper, so it is put back to a plain flex rule here. */
-.evt-steps-center { justify-content: center; }
+.evt-steps-center {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  margin: 0 0 18px;
+}
+.evt-steps-center .evt-step {
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0 2px;
+  white-space: normal;
+  text-align: center;
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+.evt-steps-center .evt-step b { width: 28px; height: 28px; font-size: 0.8rem; }
+.evt-steps-center .evt-step-name { display: block; overflow-wrap: anywhere; }
+/* A step you cannot open yet is dimmed rather than looking clickable. */
+.evt-steps-center .evt-step:disabled { cursor: default; opacity: 0.65; }
+.evt-steps-center .evt-step.on:disabled, .evt-steps-center .evt-step.done:disabled { opacity: 1; }
+/* The connector sits level with the middle of the circles, not the labels. */
 .evt-steps-center .evt-step-line {
   position: static; top: auto; left: auto;
-  flex: 0 0 34px; width: 34px; height: 2px; border-radius: 2px;
+  flex: 1 1 8px; width: auto; min-width: 6px; max-width: 34px;
+  height: 2px; margin-top: 13px; border-radius: 2px;
   background: rgba(0,0,0,0.10);
 }
+.evt-steps-center .evt-step-line.done { background: var(--primary, #926c15); }
 body.dark-mode .evt-steps-center .evt-step-line { background: rgba(255,255,255,0.12); }
+body.dark-mode .evt-steps-center .evt-step-line.done { background: var(--accent, #e6be5a); }
 @media (max-width: 560px) {
-  .evt-steps-center { flex-wrap: wrap; row-gap: 8px; }
-  .evt-steps-center .evt-step-line { flex-basis: 18px; width: 18px; }
+  .evt-steps-center { margin-bottom: 14px; }
+  .evt-steps-center .evt-step { font-size: 0.7rem; gap: 5px; padding: 0 1px; }
+  .evt-steps-center .evt-step b { width: 25px; height: 25px; font-size: 0.74rem; }
+  .evt-steps-center .evt-step-line { margin-top: 11px; max-width: 22px; }
+}
+/* Smallest phones still in service (iPhone SE, Galaxy A0x at 320-360 CSS px):
+   the labels are what has to give, so they shrink and the circles stay a
+   tappable size. */
+@media (max-width: 380px) {
+  .evt-steps-center .evt-step { font-size: 0.64rem; }
+  .evt-steps-center .evt-step-line { max-width: 14px; }
 }
 
 /* ---- Member registration: pick the channel, then see its details ----
@@ -29024,4 +29066,318 @@ body.dark-mode .rfid-stat-btn.ghost { border-color: rgba(255, 255, 255, 0.16); c
 
 @media (max-width: 520px) {
   .rfid-stat { width: 100%; justify-content: flex-start; }
+}
+
+/* ============================================================ */
+/* Member registration: one person, or a group?                  */
+/* The choice that comes before the form. Both options are always */
+/* shown - one that is closed to this member is greyed out WITH   */
+/* the reason on it, because an option that is simply missing is  */
+/* a bug to the person looking for it.                            */
+/* ============================================================ */
+.evt-regchoice { max-width: 520px; }
+.evt-regchoice-option {
+  width: 100%; display: flex; align-items: flex-start; gap: 14px; text-align: left;
+  padding: 16px 18px; margin-bottom: 12px; cursor: pointer;
+  background: var(--bg-card, #fff); border: 1.5px solid var(--border-color, rgba(0,0,0,0.1));
+  border-radius: 14px; font-family: inherit; color: inherit;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+.evt-regchoice-option:hover:not(:disabled) { border-color: var(--primary, #926c15); background: rgba(146,108,21,0.06); transform: translateY(-2px); }
+.evt-regchoice-option > i { margin-top: 4px; color: var(--primary, #926c15); flex-shrink: 0; }
+.evt-regchoice-icon {
+  width: 42px; height: 42px; flex-shrink: 0; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 1.1rem;
+  background: rgba(146,108,21,0.12); color: var(--primary, #926c15);
+}
+.evt-regchoice-icon.alt { background: rgba(37,99,235,0.12); color: #2563eb; }
+.evt-regchoice-text { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.evt-regchoice-text strong { font-size: 0.97rem; font-family: var(--font-body); }
+.evt-regchoice-text small { font-size: 0.82rem; line-height: 1.45; color: var(--text-muted, #888); }
+.evt-regchoice-why {
+  display: inline-flex; align-items: flex-start; gap: 6px; margin-top: 4px;
+  font-style: normal; font-size: 0.8rem; font-weight: 600; line-height: 1.4; color: #16a34a;
+}
+.evt-regchoice-why.bad { color: #b45309; }
+.evt-regchoice-why i { margin-top: 2px; }
+.evt-regchoice-option.off { cursor: not-allowed; opacity: 0.72; background: rgba(120,120,120,0.06); }
+.evt-regchoice-option.off .evt-regchoice-icon { background: rgba(120,120,120,0.14); color: #8b8b8b; }
+.evt-regchoice-option.off .evt-regchoice-text strong { color: var(--text-muted, #8b8b8b); }
+.evt-regchoice-off-icon { color: #a3a3a3; }
+body.dark-mode .evt-regchoice-option { background: #2a2a3a; border-color: rgba(255,255,255,0.12); }
+body.dark-mode .evt-regchoice-option.off { background: rgba(255,255,255,0.04); }
+@media (max-width: 520px) {
+  .evt-regchoice-option { padding: 14px; gap: 11px; }
+  .evt-regchoice-icon { width: 36px; height: 36px; font-size: 1rem; }
+}
+
+/* Which flow the member form is running, on its header */
+.evt-reg-mode {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+  padding: 3px 11px; border-radius: 20px; font-size: 0.72rem; font-weight: 800;
+  background: rgba(146,108,21,0.14); color: var(--primary, #926c15);
+}
+.evt-reg-mode.bulk { background: rgba(37,99,235,0.14); color: #2563eb; }
+body.dark-mode .evt-reg-mode { background: rgba(230,190,90,0.16); color: var(--accent, #e6be5a); }
+body.dark-mode .evt-reg-mode.bulk { background: rgba(96,165,250,0.18); color: #93c5fd; }
+/* On the gold header those tinted-on-white palettes have nothing to sit on -
+   blue at 14% opacity over a gold gradient is unreadable. Inside the header the
+   badge is white on a translucent white, in both themes. */
+.evt-modal-head .evt-reg-mode,
+.evt-modal-head .evt-reg-mode.bulk,
+body.dark-mode .evt-modal-head .evt-reg-mode,
+body.dark-mode .evt-modal-head .evt-reg-mode.bulk {
+  background: rgba(255,255,255,0.22); color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+/* A value that came off the account and is not a field to fill in */
+.evt-field-from-account {
+  font-style: normal; font-weight: 600; font-size: 0.72rem; margin-left: 6px;
+  padding: 2px 8px; border-radius: 20px; background: rgba(146,108,21,0.12); color: var(--primary, #926c15);
+}
+body.dark-mode .evt-field-from-account { background: rgba(230,190,90,0.16); color: var(--accent, #e6be5a); }
+
+/* ============================================================ */
+/* My Registrations: a group booking's receipt                   */
+/* One card for the whole booking, with everybody on it - each    */
+/* keeping their own status and their own QR, because they check  */
+/* in as themselves.                                              */
+/* ============================================================ */
+.myreg-group-badge {
+  position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.7rem; font-weight: 800; padding: 4px 11px; border-radius: 20px;
+  background: rgba(30,30,46,0.82); color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  backdrop-filter: blur(2px);
+}
+.myreg-rep {
+  display: flex; flex-direction: column; gap: 3px; margin: 12px 0 0;
+  padding: 11px 13px; border-radius: 12px;
+  background: rgba(146,108,21,0.07); border: 1px solid rgba(146,108,21,0.18);
+}
+.myreg-rep-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--primary, #926c15);
+}
+.myreg-rep b { font-size: 0.95rem; font-family: var(--font-body); }
+.myreg-rep em { font-style: normal; font-size: 0.78rem; color: var(--text-muted, #888); }
+body.dark-mode .myreg-rep { background: rgba(230,190,90,0.09); border-color: rgba(230,190,90,0.22); }
+body.dark-mode .myreg-rep-label { color: var(--accent, #e6be5a); }
+
+.myreg-group-total {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+  padding: 10px 13px; border-radius: 12px; background: rgba(0,0,0,0.04);
+}
+.myreg-group-total span { font-size: 0.8rem; color: var(--text-muted, #777); }
+.myreg-group-total b { margin-left: auto; font-size: 1.02rem; font-variant-numeric: tabular-nums; }
+.myreg-group-total em { flex: 1 1 100%; font-style: normal; font-size: 0.76rem; color: #b45309; }
+body.dark-mode .myreg-group-total { background: rgba(255,255,255,0.06); }
+
+.myreg-people { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border-color, rgba(0,0,0,0.15)); display: flex; flex-direction: column; gap: 9px; }
+.myreg-person {
+  padding: 10px 12px; border-radius: 12px;
+  background: var(--bg-card, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.08));
+}
+.myreg-person.off { opacity: 0.6; }
+.myreg-person-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.myreg-person-name { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; font-weight: 700; min-width: 0; }
+.myreg-person-name b { color: var(--text-muted, #999); font-weight: 700; }
+.myreg-person-you {
+  font-style: normal; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+  padding: 2px 7px; border-radius: 20px; background: rgba(146,108,21,0.16); color: var(--primary, #926c15);
+}
+.myreg-person-chip {
+  flex-shrink: 0; font-size: 0.66rem; font-weight: 800; padding: 3px 9px; border-radius: 20px; color: #fff;
+}
+.myreg-person-chip.ok { background: #16a34a; }
+.myreg-person-chip.pending { background: #2563eb; }
+.myreg-person-chip.warn { background: #d97706; }
+.myreg-person-sub {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px;
+  font-size: 0.76rem; color: var(--text-muted, #888);
+}
+.myreg-person-in { color: #16a34a; font-weight: 700; }
+.myreg-person-cancelling { color: #b45309; font-weight: 700; }
+.myreg-person-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 8px; }
+/* Two short buttons belong side by side. The page-wide phone rule stretches
+   every `.evt-mini-btn` to a full-width row, which is right for a table card
+   and wrong for a name in a list. */
+.myreg-person-actions .evt-mini-btn { flex: 0 1 auto; padding: 6px 11px; font-size: 0.75rem; }
+.myreg-person-actions .evt-mini-btn + .evt-mini-btn { margin-left: 0; }
+.myreg-person-qr { margin-top: 10px; text-align: center; }
+.myreg-person-qr img { width: 148px; height: 148px; background: #fff; padding: 6px; border-radius: 10px; }
+.myreg-person-qr small { display: block; margin-top: 6px; font-size: 0.73rem; color: var(--text-muted, #888); }
+body.dark-mode .myreg-person { background: #262636; border-color: rgba(255,255,255,0.1); }
+body.dark-mode .myreg-person-you { background: rgba(230,190,90,0.18); color: var(--accent, #e6be5a); }
+
+.myreg-group-note, .myreg-group-ended {
+  display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 0;
+  font-size: 0.78rem; line-height: 1.45; color: var(--text-muted, #888);
+}
+.myreg-group-ended { color: #6b7280; font-weight: 600; }
+/* A group receipt carries a list of people, so it takes the full row rather
+   than being squeezed into one poster-sized column. `1 / -1` spans the tracks
+   that exist instead of forcing a new one, so it stays correct at every width
+   - a `span 2` would overflow wherever the grid has settled on one column. */
+.myreg-poster.myreg-group { grid-column: 1 / -1; }
+
+/* The round icon button beside "Registered" that opens a group booking. Shares
+   the Directions pill's shape; a <button> needs its own background reset. */
+button.evt-poster-map { background: transparent; cursor: pointer; font-size: 0.95rem; }
+button.evt-poster-map:hover { background: var(--primary); color: #fff; }
+body.dark-mode button.evt-poster-map:hover { background: var(--accent); color: #1e1e1e; }
+
+/* On a wide screen the full-row group receipt has room to put the poster beside
+   the list instead of above it, and to run the attendee list in two columns -
+   so eight people are a glance rather than a scroll. The banner's image is
+   absolutely positioned here because the banner is stretching to the body's
+   height rather than holding its own. */
+@media (min-width: 900px) {
+  .myreg-poster.myreg-group { display: flex; align-items: stretch; }
+  .myreg-poster.myreg-group > .myreg-banner { flex: 0 0 clamp(240px, 28%, 340px); height: auto; }
+  .myreg-poster.myreg-group > .myreg-banner img,
+  .myreg-poster.myreg-group > .myreg-banner .myreg-banner-ph { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .myreg-poster.myreg-group > .myreg-body { flex: 1 1 auto; min-width: 0; }
+  .myreg-poster.myreg-group .myreg-people { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+}
+
+/* ============================================================ */
+/* Events dialogs: two-field rows, and the guards that keep a     */
+/* modal from ever scrolling sideways                             */
+/* ============================================================ */
+
+/* A pair of fields on one line. This was an inline `grid-template-columns:
+   1fr 1fr`, which no media query can reach - so the pair stayed side by side
+   on a 360px phone, and the second field was squeezed to a stub with its
+   label wrapping down three lines.
+   Two things fix that, and both are needed:
+     - `min-width: 0` on the cells. A grid item defaults to `min-width: auto`,
+       which is the widest thing inside it, and a bare <input> reports its
+       ~20-character default width. That is what turned 1fr/1fr into
+       two-thirds/one-third regardless of what the columns were told to be.
+     - one column on a phone, where 1fr of a 360px screen is not a field
+       anybody can type a church name into. */
+.evt-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 12px;
+  row-gap: 0;
+  align-items: start;
+}
+.evt-form-grid > * { min-width: 0; }
+.evt-form-grid input,
+.evt-form-grid select,
+.evt-form-grid textarea { min-width: 0; max-width: 100%; }
+@media (max-width: 560px) {
+  .evt-form-grid { grid-template-columns: 1fr; }
+  /* Stacked, the last field has to provide the spacing the row used to. */
+  .evt-form-grid > .form-group:last-child { margin-bottom: 25px; }
+}
+
+/* Nothing in a dialog scrolls sideways. `overflow-y: auto` on the body forces
+   `overflow-x` to `auto` as well, so any one child that overruns takes the
+   whole form with it - the stepper did exactly that. Wide content that
+   genuinely needs to scroll (a roster table) carries its own
+   `.evt-table-wrapper` and is unaffected. */
+.evt-modal-body { overflow-x: hidden; overscroll-behavior: contain; }
+.evt-modal-body > * { min-width: 0; }
+
+/* A long event title belongs on its own lines, not pushing the close button
+   off the header. */
+.evt-modal-head { gap: 12px; }
+.evt-modal-head > div:first-child { min-width: 0; }
+.evt-modal-head h3, .evt-modal-head p { overflow-wrap: anywhere; }
+.evt-modal-close { flex-shrink: 0; }
+
+/* A group booking carries a roster table and a per-person receipt, so its
+   dialog is given room the single-slot form does not need. */
+.evt-modal.evt-modal-bulk { max-width: 680px; }
+
+/* Inside a dialog the stacked-card table is a list, not a page of cards: the
+   14px margin each row carries on a full page wastes the width a modal has
+   least of. */
+@media (max-width: 900px) {
+  .evt-modal-body .evt-table tbody tr { margin: 10px 0; }
+  .evt-modal-body .evt-table tbody td { padding: 10px 13px !important; }
+  .evt-modal-body .evt-table tbody td[data-label]::before { font-size: 0.66rem; }
+}
+
+/* The roster's total, which used to be a <tfoot> - and a <tfoot> has no place
+   in a table that becomes a stacked card list on narrow screens. */
+.evt-roster-total {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin: 0 0 12px; padding: 12px 14px; border-radius: 12px;
+  background: rgba(146,108,21,0.08); border: 1px solid rgba(146,108,21,0.2);
+}
+.evt-roster-total span { font-size: 0.82rem; font-weight: 700; color: var(--text-muted, #777); }
+.evt-roster-total b { font-size: 1.05rem; font-variant-numeric: tabular-nums; color: var(--primary, #926c15); }
+body.dark-mode .evt-roster-total { background: rgba(230,190,90,0.1); border-color: rgba(230,190,90,0.24); }
+body.dark-mode .evt-roster-total b { color: var(--accent, #e6be5a); }
+
+/* Back / Continue: side by side where there is room, stacked and full-width on
+   a phone so neither becomes a 60px sliver. Continue stays on top when
+   stacked - it is the one being reached for. */
+@media (max-width: 480px) {
+  .evt-modal-body .evt-modal-foot { flex-direction: column-reverse; gap: 8px; }
+  .evt-modal-body .evt-modal-foot > button { width: 100%; justify-content: center; }
+}
+
+/* ---- The group roster, on a phone ----
+   Below 900px `.evt-table` turns into a stack of cards: every cell becomes its
+   own labelled row. For a table of people that means four rows each, with
+   "REGISTRATION FEE ₱300" repeated down the page - correct, and unreadable.
+   A roster only ever answers three things per person, so it is laid out as
+   what it is: a name with its price beside it, what they added underneath,
+   and the buttons at the end. */
+@media (max-width: 900px) {
+  .evt-modal-body .evt-roster-table tbody tr {
+    display: grid; grid-template-columns: 1fr auto; gap: 3px 10px;
+    margin: 0 0 8px; padding: 11px 13px; border-radius: 12px;
+    box-shadow: none; background: rgba(0,0,0,0.02);
+  }
+  .evt-modal-body .evt-roster-table tbody tr:last-child { margin-bottom: 0; }
+  .evt-modal-body .evt-roster-table tbody td {
+    display: block; padding: 0 !important; border-bottom: none;
+    text-align: left; white-space: normal;
+  }
+  .evt-modal-body .evt-roster-table tbody td::before { content: none !important; }
+  .evt-modal-body .evt-roster-table td[data-label="Attendee"] {
+    grid-column: 1; grid-row: 1; font-weight: 700; font-size: 0.9rem;
+  }
+  .evt-modal-body .evt-roster-table td[data-label="Registration Fee"] {
+    grid-column: 2; grid-row: 1; text-align: right; font-variant-numeric: tabular-nums;
+    font-weight: 700; font-size: 0.88rem;
+  }
+  /* Extras are the one thing that can run long, so they get the full width. */
+  .evt-modal-body .evt-roster-table td[data-label="Extras"] {
+    grid-column: 1 / -1; grid-row: 2; font-size: 0.8rem; color: var(--text-muted, #888);
+  }
+  .evt-modal-body .evt-roster-table td[data-label="Extras"]:not(:empty)::after { content: ''; }
+  .evt-modal-body .evt-roster-table td.evt-td-actions {
+    grid-column: 1 / -1; grid-row: 3; display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 4px;
+  }
+  /* Icon-only buttons should stay buttons, not stretch across the card. */
+  .evt-modal-body .evt-roster-table td.evt-td-actions .evt-mini-btn { flex: 0 0 auto; min-width: 44px; }
+  .evt-modal-body .evt-roster-table tbody tr.evt-row-paid { background: rgba(22,163,74,0.07); }
+  .evt-modal-body .evt-roster-table tbody tr.evt-row-editing { background: rgba(146,108,21,0.12); }
+  body.dark-mode .evt-modal-body .evt-roster-table tbody tr { background: rgba(255,255,255,0.05); }
+}
+
+/* ---- A proof of payment that is not a picture ----
+   Receipts arrive as photos, as .heic straight off a phone, and as PDFs that a
+   bank emailed. The viewer used to put every one of them in an <img>, so the
+   last two showed a broken-image icon with nothing to explain it. A PDF now
+   renders in place; anything else is named and offered as a download. */
+.evt-proof-doc { width: 100%; height: 62vh; min-height: 320px; border: 0; display: block; background: #fff; }
+.evt-proof-file {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 34px 22px; text-align: center; color: #d8d8de;
+}
+.evt-proof-file > i { font-size: 2.6rem; opacity: 0.75; }
+.evt-proof-file strong { font-size: 0.92rem; word-break: break-all; color: #fff; }
+.evt-proof-file small { font-size: 0.78rem; color: #9a9aa4; }
+@media (max-width: 900px) {
+  .evt-proof-doc { height: 44vh; min-height: 220px; }
 }

@@ -12,6 +12,8 @@ import { moderateMessage, detectInappropriateWords } from '@/lib/contentModerati
 import SmartImage from '@/components/SmartImage';
 import './dashboard.css';
 import { withTitleCase } from '@/lib/eventTitle';
+import ProofDrop from '@/components/ProofDrop';
+import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 
 const Cropper = dynamic(() => import('react-easy-crop'), { ssr: false });
 
@@ -705,6 +707,19 @@ export default function DashboardPage() {
   const [registerAddonIds, setRegisterAddonIds] = useState([]);
   const [registerProofFile, setRegisterProofFile] = useState(null);
   const [registerSubmitting, setRegisterSubmitting] = useState(false);
+  // ---- Individual or a group: the same two options the public site offers ----
+  // Signed in changes what has to be typed, not what can be done. A member can
+  // register themselves, or hold a booking for a group of people - and can come
+  // back and do the second even after the first, which is why the choice is a
+  // step of its own rather than a mode buried in the form.
+  const [regChoiceEvent, setRegChoiceEvent] = useState(null);       // the event whose "who are you registering?" step is open
+  const [memberRegMode, setMemberRegMode] = useState('individual'); // 'individual' = just me, 'bulk' = a group on one payment
+  const [memberBulkList, setMemberBulkList] = useState([]);         // [{ firstName, lastName, addonIds }]
+  const [memberBulkDraft, setMemberBulkDraft] = useState({ firstName: '', lastName: '', addonIds: [] });
+  const [memberBulkEditing, setMemberBulkEditing] = useState(null); // index being edited, or null while adding
+  const [memberBulkError, setMemberBulkError] = useState('');
+  const [memberDupNames, setMemberDupNames] = useState([]);         // names already registered for this event (lower-cased)
+  const [openGroupQr, setOpenGroupQr] = useState({});               // which attendee's QR is open on a group receipt
   // "Pay Now" modal — for registrations that were free at signup but now require payment
   const [payNowModal, setPayNowModal] = useState(null); // { reg, event }
   const [payNowForm, setPayNowForm] = useState({ paymentMethod: '', paymentReference: '' });
@@ -5521,11 +5536,11 @@ export default function DashboardPage() {
   // Churches people already registered under, so the same one is always spelled
   // the same way. Mirrors the public form.
   useEffect(() => {
-    if (!showAdminAddReg || !adminChurchOpen) return undefined;
+    if (!showAdminAddReg || !adminChurchOpen || !eventRegsModal) return undefined;
     const q = (adminAddRegForm.churchName || '').trim();
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/events/registrations?churches=1&q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/events/registrations?churches=1&eventId=${eventRegsModal.id}&q=${encodeURIComponent(q)}`);
         const data = await res.json();
         setAdminChurchOptions(data.success ? data.data || [] : []);
       } catch { setAdminChurchOptions([]); }
@@ -5649,8 +5664,39 @@ export default function DashboardPage() {
     }
   };
 
-  const openRegisterModal = (evt) => {
-    if (myRegIds.has(evt.id)) { showToast('You are already registered for this event.', 'warning'); return; }
+  // Register opens on the choice, not on the form: one person, or a group. Which
+  // of the two is available depends on what this account already holds and
+  // whether it has been verified - both answered by `memberRegOptions` below.
+  const openRegChoice = (evt) => {
+    setEventDetail(null);
+    setRegChoiceEvent(evt);
+  };
+
+  // What the two options mean for THIS member and THIS event.
+  //   individual - only once. A slot they already hold is not held twice.
+  //   bulk       - only from a verified account. Booking other people in is
+  //                not something an unconfirmed account gets to do, and the
+  //                server refuses it as well as the form.
+  const memberRegOptions = (evt) => {
+    const alreadyIn = !!evt && myRegIds.has(evt.id);
+    return {
+      individual: {
+        allowed: !alreadyIn,
+        reason: alreadyIn ? 'You already have a slot for this event.' : '',
+      },
+      bulk: {
+        allowed: isVerified,
+        reason: isVerified ? '' : 'Your account needs to be verified before you can register other people.',
+      },
+    };
+  };
+
+  const openRegisterModal = (evt, mode = 'individual') => {
+    const opts = memberRegOptions(evt);
+    if (mode === 'bulk' && !opts.bulk.allowed) { showToast(opts.bulk.reason, 'warning'); return; }
+    if (mode !== 'bulk' && !opts.individual.allowed) { showToast(opts.individual.reason, 'warning'); return; }
+    setRegChoiceEvent(null);
+    setMemberRegMode(mode === 'bulk' ? 'bulk' : 'individual');
     setRegisterModal(evt);
     // Signed in, so nothing here should have to be typed twice: the name and email
     // come off the account, and the church, pastor and number off the most recent
@@ -5673,6 +5719,183 @@ export default function DashboardPage() {
     // Required add-ons are charged either way, so they start ticked and locked.
     setRegisterAddonIds((evt.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
     setRegisterProofFile(null);
+    // A group starts with an empty roster, built one person at a time above the table.
+    setMemberBulkList([]);
+    setMemberBulkDraft(memberEmptyDraft(evt));
+    setMemberBulkEditing(null);
+    setMemberBulkError('');
+    setMemberDupNames([]);
+  };
+
+  const closeRegisterModal = () => {
+    setRegisterModal(null);
+    setMemberRegMode('individual');
+    setMemberDupNames([]);
+    setMemberBulkError('');
+  };
+
+  // ============================================
+  // MEMBER GROUP BOOKING
+  // The public bulk form, with the representative already known. The account IS
+  // the representative - their name is not asked for and not editable, because
+  // it is the thing that makes this booking theirs. Only what the account does
+  // not hold (church, pastor, contact number) is typed.
+  // ============================================
+  const memberIsBulk = memberRegMode === 'bulk';
+
+  // A blank person, with the compulsory extras already ticked.
+  const memberEmptyDraft = (evt) => ({
+    firstName: '', lastName: '',
+    addonIds: (evt?.event_addons || []).filter((a) => a.is_required).map((a) => a.id),
+  });
+
+  const memberNameKey = (first, last) => `${(first || '').trim()} ${(last || '').trim()}`.trim().toLowerCase().replace(/\s+/g, ' ');
+
+  // The representative's own name, straight off the account.
+  const memberRepName = () => `${(registerForm.attendeeFirstName || '').trim()} ${(registerForm.attendeeLastName || '').trim()}`.trim();
+
+  // The slot this member already holds for the event being registered, if any.
+  // Its existence is what turns a second registration into a group-only one:
+  // the seat is theirs already, so it is not booked, counted or charged again -
+  // they are only adding other people to it, and possibly extras to their own.
+  const memberOwnReg = (() => {
+    if (!registerModal || !userData?.id) return null;
+    return myRegistrations.find((r) => r.event_id === registerModal.id
+      && String(r.user_id || '') === String(userData.id)) || null;
+  })();
+  const memberRepLocked = memberIsBulk && !!memberOwnReg;
+
+  // The extras already on that slot. Matched on the question text as well as the
+  // id, because the add-ons stored on a registration are a snapshot: an id can
+  // be stale after a rename, and then the padlock never appears against what
+  // they already availed.
+  const memberRepLockedAddonIds = (() => {
+    const held = Array.isArray(memberOwnReg?.addons) ? memberOwnReg.addons : [];
+    if (!memberRepLocked || held.length === 0) return [];
+    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    return (registerModal?.event_addons || [])
+      .filter((x) => held.some((h) => h.id === x.id || same(h.question, x.question)))
+      .map((x) => x.id);
+  })();
+
+  // Extras being added now on top of a slot they already hold.
+  const memberRepNewAddonIds = registerAddonIds.filter((id) => !memberRepLockedAddonIds.includes(id));
+  const memberRepTopUpAddons = () => (registerModal?.event_addons || []).filter((x) => memberRepNewAddonIds.includes(x.id));
+  const memberRepTopUpTotal = () => memberRepTopUpAddons().reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+
+  // The representative as a roster entry - present only when they still need a
+  // slot. `isRep` is sent to the server, and is what makes that one row theirs
+  // (their QR, their cancellation, their "already registered" check).
+  const memberRepAsAttendee = () => ((memberIsBulk && !memberRepLocked
+    && registerForm.attendeeFirstName.trim() && registerForm.attendeeLastName.trim())
+    ? {
+        firstName: registerForm.attendeeFirstName.trim(),
+        lastName: registerForm.attendeeLastName.trim(),
+        addonIds: registerAddonIds,
+        isRep: true,
+      }
+    : null);
+
+  // Everyone this submission registers: the representative first when they are
+  // coming, then the people they added.
+  const memberFullRoster = () => {
+    const rep = memberRepAsAttendee();
+    return rep ? [rep, ...memberBulkList] : memberBulkList;
+  };
+
+  // A group needs somebody in it - or, for a representative who already holds a
+  // slot, at least one extra to add to it.
+  const memberRosterReady = () => memberFullRoster().length > 0
+    || (memberRepLocked && memberRepTopUpAddons().length > 0);
+
+  // What the total is buying, in words. A representative who already holds a
+  // slot may be adding nothing but extras to it, and "0 people" is a wrong
+  // answer to a question nobody asked.
+  const memberChargeLabel = () => {
+    const n = memberFullRoster().length;
+    if (n > 0) return `${n} ${n === 1 ? 'person' : 'people'}`;
+    return memberRepLocked ? 'your extras' : '';
+  };
+
+  // What one person on the roster costs, and what their extras are called.
+  const memberPersonAddons = (a) => (registerModal?.event_addons || []).filter((x) => (a.addonIds || []).includes(x.id));
+  const memberPersonExtras = (a) => memberPersonAddons(a).reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+  const memberPersonTotal = (a) => registerBaseAmount(registerModal) + memberPersonExtras(a);
+
+  // Names on this event already, checked against the server as they are typed so
+  // nobody is told after paying that someone is signed up twice. The server only
+  // ever answers about the names it was asked about.
+  useEffect(() => {
+    if (!registerModal || !memberIsBulk) { setMemberDupNames([]); return undefined; }
+    const names = memberBulkList.map((a) => memberNameKey(a.firstName, a.lastName));
+    names.push(memberNameKey(memberBulkDraft.firstName, memberBulkDraft.lastName));
+    const wanted = [...new Set(names.filter((n) => n.includes(' ')))]; // a first name alone is not worth asking about
+    if (wanted.length === 0) { setMemberDupNames([]); return undefined; }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?eventId=${registerModal.id}&duplicates=${encodeURIComponent(wanted.join('|'))}`);
+        const data = await res.json();
+        setMemberDupNames(data.success ? (data.data || []).map((n) => String(n).toLowerCase()) : []);
+      } catch { /* a failed check must never block the form - the server checks again on submit */ }
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerModal, memberIsBulk, memberBulkList, memberBulkDraft.firstName, memberBulkDraft.lastName]);
+
+  const memberToggleDraftAddon = (addon) => {
+    if (addon.is_required) return;
+    setMemberBulkDraft((d) => ({
+      ...d,
+      addonIds: d.addonIds.includes(addon.id) ? d.addonIds.filter((v) => v !== addon.id) : [...d.addonIds, addon.id],
+    }));
+    setMemberBulkError('');
+  };
+
+  // Add, or save the row being edited. One button does both, so there is only
+  // ever one place a name is typed.
+  const memberCommitPerson = () => {
+    const first = (memberBulkDraft.firstName || '').trim();
+    const last = (memberBulkDraft.lastName || '').trim();
+    if (!first || !last) { setMemberBulkError('Enter both the first and last name.'); return; }
+    const key = memberNameKey(first, last);
+    if (key === memberNameKey(registerForm.attendeeFirstName, registerForm.attendeeLastName)) {
+      setMemberBulkError(memberRepLocked
+        ? 'That is you - you already have a slot for this event.'
+        : 'That is you - you are already on the list as the representative.');
+      return;
+    }
+    const clash = memberBulkList.findIndex((a, i) => i !== memberBulkEditing && memberNameKey(a.firstName, a.lastName) === key);
+    if (clash > -1) { setMemberBulkError('That person is already on the list below.'); return; }
+    if (memberDupNames.includes(key)) {
+      setMemberBulkError('That person already has a registration for this event.');
+      return;
+    }
+    const person = { firstName: first, lastName: last, addonIds: memberBulkDraft.addonIds };
+    setMemberBulkList((list) => (memberBulkEditing == null
+      ? [...list, person]
+      : list.map((a, i) => (i === memberBulkEditing ? person : a))));
+    setMemberBulkDraft(memberEmptyDraft(registerModal));
+    setMemberBulkEditing(null);
+    setMemberBulkError('');
+    setRegisterErrors({});
+  };
+
+  // Editing lifts the row back into the form above rather than turning the table
+  // into a grid of inputs.
+  const memberEditPerson = (index) => {
+    setMemberBulkDraft({ ...memberBulkList[index] });
+    setMemberBulkEditing(index);
+    setMemberBulkError('');
+  };
+  const memberCancelEditPerson = () => {
+    setMemberBulkDraft(memberEmptyDraft(registerModal));
+    setMemberBulkEditing(null);
+    setMemberBulkError('');
+  };
+  const memberRemovePerson = (index) => {
+    setMemberBulkList((list) => list.filter((_, i) => i !== index));
+    if (memberBulkEditing === index) memberCancelEditPerson();
+    else if (memberBulkEditing != null && index < memberBulkEditing) setMemberBulkEditing(memberBulkEditing - 1);
   };
 
   // Churches people already registered under, so the same one is always spelled the
@@ -5682,7 +5905,7 @@ export default function DashboardPage() {
     const q = (registerForm.churchName || '').trim();
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/events/registrations?churches=1&q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/events/registrations?churches=1&eventId=${registerModal.id}&q=${encodeURIComponent(q)}`);
         const data = await res.json();
         setMemberChurchOptions(data.success ? (data.data || []).slice(0, 6) : []);
       } catch { setMemberChurchOptions([]); }
@@ -5690,14 +5913,44 @@ export default function DashboardPage() {
     return () => clearTimeout(t);
   }, [registerModal, registerForm.churchName]);
 
-  // Step 1 of the member form: who is coming. Same rules as the public form.
+  // Step 1 of the member form: who is coming - or, for a group, who is holding
+  // the booking. Same rules as the public form, minus the name: it comes off
+  // the account and cannot be edited, so it is never a field to complete.
+  // It is still checked, because an account with no name on it would otherwise
+  // submit a nameless representative, and that is a profile problem worth
+  // saying out loud rather than a form problem to shrug at.
   const registerStepOneErrors = () => {
     const errs = {};
-    if (!registerForm.attendeeFirstName.trim()) errs.firstName = 'First name is required.';
-    if (!registerForm.attendeeLastName.trim()) errs.lastName = 'Last name is required.';
+    if (!registerForm.attendeeFirstName.trim() || !registerForm.attendeeLastName.trim()) {
+      if (memberIsBulk) errs.account = 'Your account has no name on it. Please complete your profile, then register the group.';
+      else {
+        if (!registerForm.attendeeFirstName.trim()) errs.firstName = 'First name is required.';
+        if (!registerForm.attendeeLastName.trim()) errs.lastName = 'Last name is required.';
+      }
+    }
     if (!registerForm.churchName.trim()) errs.churchName = 'Church name is required.';
     if (!registerForm.churchPastor.trim()) errs.churchPastor = 'Church pastor is required.';
     if (!isValidPhMobile(registerForm.attendeeMobile)) errs.mobile = 'Contact number must be 11 digits starting with 09.';
+    return errs;
+  };
+
+  // The roster step: somebody has to be on the list, and nobody may be on it
+  // twice - neither within the form nor against what is already registered.
+  const registerRosterErrors = () => {
+    const errs = {};
+    if (!memberRosterReady()) {
+      errs.roster = memberRepLocked
+        ? 'Add at least one person, or tick an extra to add to your own slot.'
+        : 'Add at least one attendee before continuing.';
+      return errs;
+    }
+    // Each name is checked as it is added; the list is checked again here in
+    // case somebody registered on the server while this form was open.
+    memberBulkList.forEach((a, i) => {
+      if (memberDupNames.includes(memberNameKey(a.firstName, a.lastName))) {
+        errs[`attendee-${i}`] = 'This person is already registered for this event.';
+      }
+    });
     return errs;
   };
 
@@ -5716,10 +5969,27 @@ export default function DashboardPage() {
 
   // Base + the add-ons ticked. Shown live so nobody is surprised by the total.
   // The server recomputes this from the DB; this is only the preview.
-  const registerTotalAmount = (evt) => registerBaseAmount(evt)
-    + (evt?.event_addons || [])
-        .filter((a) => registerAddonIds.includes(a.id))
-        .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+  //
+  // A group's bill is everyone on the roster, priced one by one because the
+  // extras are ticked per person - only some of a group need accommodation -
+  // plus anything the representative is availing on a slot they already hold.
+  const registerTotalAmount = (evt) => {
+    if (memberIsBulk) {
+      const base = registerBaseAmount(evt);
+      const topUp = memberRepLocked ? memberRepTopUpTotal() : 0;
+      return topUp + memberFullRoster().reduce((sum, a) => sum + base + memberPersonExtras(a), 0);
+    }
+    return registerBaseAmount(evt)
+      + (evt?.event_addons || [])
+          .filter((a) => registerAddonIds.includes(a.id))
+          .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+  };
+
+  // A genuinely free event: no base fee and no compulsory paid extra. Not the
+  // same as "the total is zero right now", which is also true of a group form
+  // before anybody has been added to it.
+  const registerEventIsFree = (evt) => registerBaseAmount(evt) <= 0
+    && (evt?.event_addons || []).filter((a) => a.is_required).every((a) => !(Number(a.fee) > 0));
 
   // The payment step, only asked when there is something to pay. Same rules as the
   // public form: an admin has to be able to trace the money to this registration.
@@ -5734,19 +6004,63 @@ export default function DashboardPage() {
     return errs;
   };
 
-  // Labels depend on whether there is anything to pay - a free event has no third
-  // step, so the review is where it is submitted from.
-  const registerStepLabels = registerModal && registerTotalAmount(registerModal) > 0
-    ? ['Details', 'View Details', 'Payment']
-    : ['Details', 'View Details'];
+  // Labels depend on whether there is anything to pay - a free event has no
+  // payment step, so the review is where it is submitted from. A group gets one
+  // extra step at the front, for the people being brought.
+  //
+  // A group is judged on whether the EVENT costs anything rather than on the
+  // running total: the total is zero until the first name is added, and the
+  // stepper must not lose and regain its last step while the roster is being
+  // typed.
+  //
+  // The labels are deliberately short. Each one sits in its own equal column
+  // under its own circle, so a long single word like "Representative" has
+  // nowhere to wrap and can only push the row wider than the dialog - which is
+  // what put a horizontal scrollbar under the whole form. Step 1's content
+  // already says whose details these are.
+  const registerStepLabels = (() => {
+    const base = memberIsBulk ? ['Your Details', 'Attendees', 'View Details'] : ['Details', 'View Details'];
+    if (!registerModal) return base;
+    const paid = memberIsBulk
+      ? (!registerEventIsFree(registerModal) || registerTotalAmount(registerModal) > 0)
+      : registerTotalAmount(registerModal) > 0;
+    return paid ? [...base, 'Payment'] : base;
+  })();
+  const registerRosterStep = memberIsBulk ? 1 : -1;
+  const registerReviewStep = memberIsBulk ? 2 : 1;
   const registerPayStep = registerStepLabels.length - 1;
 
+  // Everything that must be true before the step after `step` can be opened.
+  const registerStepsValidUpTo = (step) => {
+    if (step > 0 && Object.keys(registerStepOneErrors()).length > 0) return false;
+    if (memberIsBulk && step > registerRosterStep && Object.keys(registerRosterErrors()).length > 0) return false;
+    return true;
+  };
+
+  // Jumping around the stepper: back is always fine, forward has to satisfy the
+  // same rules as the Continue buttons.
   const goToRegisterStep = (i) => {
     if (i <= registerStep) { setRegisterStep(i); return; }
-    const errs = registerStepOneErrors();
+    const errs = registerStep === registerRosterStep ? registerRosterErrors() : registerStepOneErrors();
     setRegisterErrors(errs);
     if (Object.keys(errs).length > 0) return;
+    if (!registerStepsValidUpTo(i)) return;
     setRegisterStep(Math.min(i, registerStepLabels.length - 1));
+  };
+
+  // The Continue button, which is the stepper's rules applied one step at a time.
+  const registerNext = () => {
+    const errs = registerStep === registerRosterStep ? registerRosterErrors() : registerStepOneErrors();
+    if (Object.keys(errs).length > 0) {
+      setRegisterErrors(errs);
+      showToast(Object.values(errs)[0] || 'Please complete the highlighted fields.', 'danger');
+      return;
+    }
+    setRegisterErrors({});
+    if (registerStep < registerReviewStep) { setRegisterStep(registerStep + 1); return; }
+    // Nothing to pay - the review IS the last step.
+    if (registerTotalAmount(registerModal) <= 0) { submitRegistration(); return; }
+    setRegisterStep(registerPayStep);
   };
 
   const submitRegistration = async () => {
@@ -5757,6 +6071,15 @@ export default function DashboardPage() {
       setRegisterStep(0);
       showToast('Please complete your details first.', 'danger');
       return;
+    }
+    if (memberIsBulk) {
+      const rosterErrs = registerRosterErrors();
+      if (Object.keys(rosterErrs).length > 0) {
+        setRegisterErrors(rosterErrs);
+        setRegisterStep(registerRosterStep);
+        showToast(Object.values(rosterErrs)[0] || 'Please check the highlighted names.', 'danger');
+        return;
+      }
     }
     const payErrs = registerPaymentErrors();
     if (Object.keys(payErrs).length > 0) {
@@ -5777,6 +6100,20 @@ export default function DashboardPage() {
       fd.append('churchName', registerForm.churchName || '');
       fd.append('churchPastor', registerForm.churchPastor.trim() ? `Ptr. ${registerForm.churchPastor.trim()}` : '');
       fd.append('addonIds', JSON.stringify(registerAddonIds));
+      if (memberIsBulk) {
+        // The roster the server prices and writes a row for. `isRep` marks the
+        // representative's own place on it, so their slot comes back as theirs
+        // rather than as one more name on somebody else's booking.
+        fd.append('attendees', JSON.stringify(memberFullRoster().map((a) => ({
+          firstName: a.firstName.trim(), lastName: a.lastName.trim(), addonIds: a.addonIds, isRep: !!a.isRep,
+        }))));
+        // Who to call about this booking - stored on every row of the group.
+        fd.append('representative', memberRepName());
+        // Extras being availed on the slot the representative already holds.
+        if (memberRepLocked && memberRepNewAddonIds.length > 0) {
+          fd.append('repAddonTopUp', JSON.stringify(memberRepNewAddonIds));
+        }
+      }
       // A free event still needs payment details once a paid add-on is ticked.
       if (registerTotalAmount(registerModal) > 0) {
         fd.append('paymentMethod', registerForm.paymentMethod || '');
@@ -5787,11 +6124,16 @@ export default function DashboardPage() {
       const data = await res.json();
       if (data.success) {
         showToast(data.message, 'success');
-        setRegisterModal(null);
+        // Saved, but without the column that ties the group to this account -
+        // said out loud rather than left looking like the booking vanished.
+        if (data.warning) showToast(data.warning, 'danger');
+        closeRegisterModal();
         loadMyRegistrations();
         // A held seat is one fewer slot: re-read the events so Capacity is right
         // straight away instead of at the next page load.
         loadEvents();
+        // A group booking is a second receipt, so send them where it is.
+        if (memberIsBulk) setEventsTab('mine');
         try { localStorage.removeItem('pendingEventRegistration'); } catch { /* ignore */ }
       }
       else showToast(data.message, 'danger');
@@ -5913,7 +6255,13 @@ export default function DashboardPage() {
       if (data.success) {
         const regs = (data.data || []).map(withTitleCase);
         setMyRegistrations(regs);
-        setMyRegIds(new Set(regs.map((r) => r.event_id)));
+        // Only the slots that are THEIRS count as "you are registered". A group
+        // booking also returns the people they registered, and those rows are
+        // not seats this member holds - counting them would tell them they are
+        // already in an event they only booked other people into.
+        setMyRegIds(new Set(regs
+          .filter((r) => String(r.user_id || '') === String(userData.id))
+          .map((r) => r.event_id)));
         // Generate QR codes (encode the registration id) for attendance scanning
         const QRCode = (await import('qrcode')).default;
         const codes = {};
@@ -5932,6 +6280,56 @@ export default function DashboardPage() {
   useEffect(() => {
     if (userData?.id && events.length) loadMyRegistrations();
   }, [userData?.id, events.length, loadMyRegistrations]);
+
+  // ---- How a registration reads on a My Registrations card ----
+  // Shared by the single-slot cards and the group receipts, so a status never
+  // means one thing on one card and something else on the next.
+  const MYREG_STATUS = {
+    registered: { label: 'Registered', cls: 'ok' },
+    payment_verified: { label: 'Confirmed', cls: 'ok' },
+    payment_submitted: { label: 'Payment Under Review', cls: 'pending' },
+    pending_payment: { label: 'Awaiting Payment', cls: 'warn' },
+    installment: { label: 'Paying In Installments', cls: 'pending' },
+  };
+  // Registered while the event was free, and the admin has since put a fee on
+  // it: the slot is held but the money never was.
+  const myRegNeedsPayment = (r) => {
+    const ev = r.event || {};
+    return r.status === 'registered' && ev.has_fee && Number(ev.registration_fee || 0) > 0 && Number(r.amount || 0) === 0;
+  };
+  const myRegChip = (r) => (myRegNeedsPayment(r)
+    ? { label: 'Payment Required', cls: 'warn' }
+    : MYREG_STATUS[r.status] || { label: statusLabel(r.status), cls: 'pending' });
+  const myRegConfirmed = (r) => (r.status === 'registered' || r.status === 'payment_verified') && !myRegNeedsPayment(r);
+
+  // My Registrations shows one card per BOOKING, not per row. Registering
+  // yourself is one row and one card. A group booking is several rows that
+  // belong together - one payment, one representative, one shared reference -
+  // so they collapse into a single receipt that lists everyone on it. Rendering
+  // them separately would give a representative of eight people eight
+  // near-identical cards and no way to see the booking as the thing it is.
+  const myRegCards = useMemo(() => {
+    const cards = [];
+    const byRef = new Map();
+    myRegistrations.forEach((r) => {
+      if (!r.group_ref) { cards.push({ kind: 'single', key: r.id, reg: r }); return; }
+      const hit = byRef.get(r.group_ref);
+      if (hit) { hit.rows.push(r); return; }
+      const card = { kind: 'group', key: r.group_ref, rows: [r] };
+      byRef.set(r.group_ref, card);
+      cards.push(card);
+    });
+    // Inside a group the representative's own slot comes first - it is the row
+    // the reader is looking for - then everybody else in the order they were
+    // added. A representative who already had a slot has no row here at all,
+    // and the list is simply the people they brought.
+    const mine = (x) => (userData?.id && String(x.user_id || '') === String(userData.id) ? 0 : 1);
+    cards.forEach((c) => {
+      if (c.kind !== 'group') return;
+      c.rows.sort((a, b) => mine(a) - mine(b) || new Date(a.created_at || 0) - new Date(b.created_at || 0));
+    });
+    return cards;
+  }, [myRegistrations, userData?.id]);
 
   // After a public sign-up, auto-open the register modal for the pending event.
   // Consumed once (removed from storage immediately) so it never reappears on later logins —
@@ -12661,7 +13059,7 @@ Examples:
                               city like Cebu City has none recorded against it.
                               The province is what the events list is scanned by,
                               so it is typed rather than left blank. */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <div className="evt-form-grid">
                             <div className="form-group">
                               <label>City / Municipality</label>
                               <input
@@ -13236,9 +13634,19 @@ Examples:
                           {isPast ? (
                             <span className="evt-poster-locked"><i className="fas fa-calendar-xmark"></i> Event Ended</span>
                           ) : registered ? (
-                            <span className="evt-poster-registered"><i className="fas fa-check-circle"></i> Registered</span>
+                            <>
+                              <span className="evt-poster-registered"><i className="fas fa-check-circle"></i> Registered</span>
+                              {/* Holding a slot is not the end of it: a member can
+                                  come back and book a group. Their own place is
+                                  taken, so only that door is left open. */}
+                              {canJoin && isVerified && (
+                                <button className="evt-poster-map" title="Register a group" aria-label="Register a group" onClick={() => openRegChoice(evt)}>
+                                  <i className="fas fa-user-group"></i>
+                                </button>
+                              )}
+                            </>
                           ) : canJoin ? (
-                            <button className="evt-poster-btn" onClick={() => openRegisterModal(evt)}><i className="fas fa-user-plus"></i> Join Now</button>
+                            <button className="evt-poster-btn" onClick={() => openRegChoice(evt)}><i className="fas fa-user-plus"></i> Join Now</button>
                           ) : (
                             <span className="evt-poster-locked"><i className="fas fa-lock"></i> {evt.allowed_roles?.length ? `${evt.allowed_roles.join(', ')} only` : 'Closed'}</span>
                           )}
@@ -13414,19 +13822,140 @@ Examples:
                 <div className="evt-empty-mine"><i className="fas fa-ticket"></i><p>You haven&apos;t registered for any events yet.</p></div>
               ) : (
                 <div className="myreg-grid">
-                  {myRegistrations.map((r) => {
+                  {myRegCards.map((card) => {
+                    // ---- A group booking: one receipt for the whole list ----
+                    // The representative paid once for several people, so it
+                    // reads as one booking with everybody on it, each with their
+                    // own status and their own QR to hand over.
+                    if (card.kind === 'group') {
+                      const rows = card.rows;
+                      const ev = rows[0].event || {};
+                      const evEnd = evtMs(ev.end_date) ?? evtMs(ev.event_date);
+                      const isDone = !!evEnd && evEnd < Date.now();
+                      const repName = rows[0].representative
+                        || [userData?.firstname, userData?.lastname].filter(Boolean).join(' ');
+                      const owed = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+                      const paid = rows.reduce((sum, r) => sum + (Number(r.amount_paid) || 0), 0);
+                      // One chip for the booking. Rows share a status when it is
+                      // made, but an admin verifies them one at a time, so the
+                      // chip says where the SLOWEST one has got to - a booking is
+                      // not confirmed until everybody on it is.
+                      const unconfirmed = rows.filter((r) => !myRegConfirmed(r));
+                      const st = unconfirmed.length === 0
+                        ? { label: 'Confirmed', cls: 'ok' }
+                        : myRegChip(unconfirmed[0]);
+                      return (
+                        <div key={card.key} className={`myreg-poster myreg-group ${isDone ? 'done' : ''}`}>
+                          <div className="myreg-banner">
+                            {ev.image_url
+                              ? <img src={ev.image_url} alt={ev.title} />
+                              : <div className="myreg-banner-ph"><i className="fas fa-calendar-day"></i></div>}
+                            <span className={`myreg-status ${isDone ? 'done' : st.cls}`}>{isDone ? 'Completed' : st.label}</span>
+                            <span className="myreg-group-badge"><i className="fas fa-user-group"></i> Bulk &middot; {rows.length}</span>
+                          </div>
+                          <div className="myreg-body">
+                            <h4>{ev.title}</h4>
+                            <div className="myreg-meta"><i className="fas fa-calendar-check"></i> {ev.event_date ? formatEventDateTime(ev.event_date) : 'TBA'}</div>
+                            {(ev.location || ev.loc_city) && <div className="myreg-meta"><i className="fas fa-location-dot"></i> {[ev.location, ev.loc_city].filter(Boolean).join(', ')}</div>}
+
+                            <div className="myreg-rep">
+                              <span className="myreg-rep-label"><i className="fas fa-id-card"></i> Representative</span>
+                              <b>{formatPersonName(repName) || '—'}</b>
+                              <em>You registered {rows.length} {rows.length === 1 ? 'person' : 'people'} on one payment</em>
+                            </div>
+
+                            {owed > 0 && (
+                              <div className="myreg-group-total">
+                                <span>Total for the group</span>
+                                <b>₱{owed}</b>
+                                {paid > 0 && paid < owed && <em>₱{paid} paid so far</em>}
+                              </div>
+                            )}
+
+                            {/* Everyone on the booking. Each keeps their own QR:
+                                they check in as themselves, so the code has to be
+                                theirs to be shown at the door. */}
+                            <div className="myreg-people">
+                              {rows.map((r, i) => {
+                                const isMe = !!userData?.id && String(r.user_id || '') === String(userData.id);
+                                const rst = myRegChip(r);
+                                const rConfirmed = myRegConfirmed(r);
+                                const qrOpen = !!openGroupQr[r.id];
+                                const extras = Array.isArray(r.addons) ? r.addons : [];
+                                return (
+                                  <div className={`myreg-person ${r.status === 'cancelled' ? 'off' : ''}`} key={r.id}>
+                                    <div className="myreg-person-top">
+                                      <span className="myreg-person-name">
+                                        <b>{i + 1}.</b> {formatPersonName(r.attendee_name) || '—'}
+                                        {isMe && <em className="myreg-person-you">you</em>}
+                                      </span>
+                                      <span className={`myreg-person-chip ${rst.cls}`}>{rst.label}</span>
+                                    </div>
+                                    <div className="myreg-person-sub">
+                                      <span>₱{Number(r.amount) || 0}</span>
+                                      {extras.length > 0 && <span>&middot; {extras.map((x) => x.question).join(', ')}</span>}
+                                      {r.attended && <span className="myreg-person-in"><i className="fas fa-check"></i> Checked in</span>}
+                                      {r.cancel_status === 'requested' && <span className="myreg-person-cancelling"><i className="fas fa-hourglass-half"></i> Cancellation requested</span>}
+                                    </div>
+                                    {!isDone && (
+                                      <div className="myreg-person-actions">
+                                        {/* The event gained a fee after this
+                                            booking was made. The representative
+                                            paid for these people, so settling it
+                                            is theirs to do. */}
+                                        {myRegNeedsPayment(r) && (
+                                          <button className="evt-mini-btn ok" onClick={() => openPayNowModal(r, events.find((e) => e.id === r.event_id) || r.event || {})}>
+                                            <i className="fas fa-wallet"></i> Pay Now
+                                          </button>
+                                        )}
+                                        {rConfirmed && regQrCodes[r.id] && (
+                                          <button
+                                            className="evt-mini-btn"
+                                            onClick={() => setOpenGroupQr((m) => ({ ...m, [r.id]: !m[r.id] }))}
+                                          >
+                                            <i className={`fas ${qrOpen ? 'fa-eye-slash' : 'fa-qrcode'}`}></i> {qrOpen ? 'Hide QR' : 'Show QR'}
+                                          </button>
+                                        )}
+                                        {r.cancel_status === 'requested' ? (
+                                          <button className="evt-mini-btn" onClick={() => withdrawCancelRequest(r)}>
+                                            <i className="fas fa-rotate-left"></i> Withdraw
+                                          </button>
+                                        ) : (
+                                          <button className="evt-mini-btn danger" onClick={() => openCancelRequest(r)}>
+                                            <i className="fas fa-xmark"></i> Cancel
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                    {qrOpen && regQrCodes[r.id] && (
+                                      <div className="myreg-person-qr">
+                                        <img src={regQrCodes[r.id]} alt={`Attendance QR for ${r.attendee_name}`} />
+                                        <small><i className="fas fa-qrcode"></i> {formatPersonName(r.attendee_name)} shows this at the door</small>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {isDone && (
+                              <p className="myreg-group-ended"><i className="fas fa-calendar-xmark"></i> This event has ended.</p>
+                            )}
+                            {!isDone && st.cls !== 'ok' && (
+                              <p className="myreg-group-note">
+                                <i className="fas fa-shield-halved"></i> The QR codes unlock as each registration is confirmed by an admin.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const r = card.reg;
                     const ev = r.event || {};
-                    const needsPayment = r.status === 'registered' && ev.has_fee && Number(ev.registration_fee || 0) > 0 && Number(r.amount || 0) === 0;
-                    const statusMap = {
-                      registered: { label: 'Registered', cls: 'ok' },
-                      payment_verified: { label: 'Confirmed', cls: 'ok' },
-                      payment_submitted: { label: 'Payment Under Review', cls: 'pending' },
-                      pending_payment: { label: 'Awaiting Payment', cls: 'warn' },
-                      installment: { label: 'Paying In Installments', cls: 'pending' },
-                    };
-                    let st = statusMap[r.status] || { label: statusLabel(r.status), cls: 'pending' };
-                    if (needsPayment) st = { label: 'Payment Required', cls: 'warn' };
-                    const confirmed = (r.status === 'registered' || r.status === 'payment_verified') && !needsPayment;
+                    const needsPayment = myRegNeedsPayment(r);
+                    const st = myRegChip(r);
+                    const confirmed = myRegConfirmed(r);
                     const evEnd = evtMs(ev.end_date) ?? evtMs(ev.event_date);
                     const isDone = !!evEnd && evEnd < Date.now();
                     return (
@@ -13592,15 +14121,44 @@ Examples:
                     {/* Left: the screenshot itself, full size and openable in a new
                         tab when the reference is too small to read here. */}
                     <div className="evt-proof-image">
-                      {proofModal.payment_proof_url ? (
+                      {/* A receipt is not always a picture. A PDF is shown in
+                          place so it can be read without leaving the page, and
+                          anything else is offered as a download - either way
+                          the admin can see what was sent rather than a broken
+                          image icon they have no explanation for. */}
+                      {!proofModal.payment_proof_url ? (
+                        <div className="evt-proof-empty"><i className="fas fa-image"></i> No proof uploaded</div>
+                      ) : isImageProof(proofModal.payment_proof_url) ? (
                         <>
                           <img src={proofModal.payment_proof_url} alt="Payment proof" />
                           <a href={proofModal.payment_proof_url} target="_blank" rel="noreferrer" className="evt-proof-zoom">
                             <i className="fas fa-up-right-and-down-left-from-center"></i> Open full size
                           </a>
                         </>
+                      ) : isPdfProof(proofModal.payment_proof_url) ? (
+                        <>
+                          <object className="evt-proof-doc" data={proofModal.payment_proof_url} type="application/pdf">
+                            <div className="evt-proof-file">
+                              <i className="fas fa-file-pdf"></i>
+                              <strong>{proofFileName(proofModal.payment_proof_url)}</strong>
+                              <small>This browser cannot show the PDF here.</small>
+                            </div>
+                          </object>
+                          <a href={proofModal.payment_proof_url} target="_blank" rel="noreferrer" className="evt-proof-zoom">
+                            <i className="fas fa-up-right-and-down-left-from-center"></i> Open full size
+                          </a>
+                        </>
                       ) : (
-                        <div className="evt-proof-empty"><i className="fas fa-image"></i> No proof uploaded</div>
+                        <>
+                          <div className="evt-proof-file">
+                            <i className="fas fa-file-lines"></i>
+                            <strong>{proofFileName(proofModal.payment_proof_url)}</strong>
+                            <small>This receipt is a file, not an image.</small>
+                          </div>
+                          <a href={proofModal.payment_proof_url} target="_blank" rel="noreferrer" className="evt-proof-zoom">
+                            <i className="fas fa-arrow-up-right-from-square"></i> Open the file
+                          </a>
+                        </>
                       )}
                     </div>
 
@@ -14204,7 +14762,7 @@ Examples:
                       <div className="bal"><span>Balance To Pay</span><b>₱{Number(payModal.balance) || 0}</b></div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="evt-form-grid">
                       <div className="form-group">
                         <label>Amount Received *</label>
                         <input
@@ -14221,7 +14779,7 @@ Examples:
                       </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="evt-form-grid">
                       <div className="form-group"><label>Paid Through</label>
                         <select className="form-control" value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
                           <option value="">Select…</option>
@@ -14329,7 +14887,7 @@ Examples:
                             person responsible for the group. Their church and contact apply to everyone on the list.
                           </p>
                         )}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div className="evt-form-grid">
                           <div className="form-group">
                             <label>First Name *</label>
                             <input
@@ -14426,7 +14984,7 @@ Examples:
                           {adminAddErrors.churchName && <div className="evt-field-error-msg">{adminAddErrors.churchName}</div>}
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div className="evt-form-grid">
                           <div className="form-group">
                             <label>Church Pastor *</label>
                             <div className={`evt-prefix-input ${adminAddErrors.churchPastor ? 'evt-field-error' : ''}`}>
@@ -14507,7 +15065,7 @@ Examples:
                               <button type="button" className="evt-bulk-cancel" onClick={() => { setAdminBulkEditing(null); setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal.event_addons || []).filter((a) => a.is_required).map((a) => a.id) }); }}>Cancel</button>
                             )}
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <div className="evt-form-grid">
                             <div className="form-group"><label>First Name *</label>
                               <input className="form-control" value={adminBulkDraft.firstName}
                                 onChange={(e) => { setAdminBulkDraft({ ...adminBulkDraft, firstName: e.target.value }); setAdminBulkError(''); }}
@@ -14557,7 +15115,7 @@ Examples:
                                 <p className="evt-bulk-empty"><i className="fas fa-inbox"></i> No one added yet.</p>
                               ) : (
                                 <div className="evt-table-wrapper" style={{ marginBottom: 12 }}>
-                                  <table className="evt-table">
+                                  <table className="evt-table evt-roster-table">
                                     <thead><tr><th>Attendee</th><th>Registration Fee</th><th>Extras</th><th></th></tr></thead>
                                     <tbody>
                                       {roster.map((a, i) => {
@@ -14783,7 +15341,7 @@ Examples:
                                   <div><span>Paying now</span><b>₱{Number(adminAddRegForm.initialPayment) || 0}</b></div>
                                   <div className="bal"><span>Remaining balance</span><b>₱{Math.max(0, adminTotalAmount(eventRegsModal) - (Number(adminAddRegForm.initialPayment) || 0))}</b></div>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <div className="evt-form-grid">
                                   <div className="form-group">
                                     <label>First Payment (optional)</label>
                                     <input
@@ -14884,11 +15442,19 @@ Examples:
                         </div>
                       ) : eventDetail.registration_required !== false && (
                         registered ? (
-                          <button className="evt-detail-registered-btn" onClick={() => { setEventDetail(null); setEventsTab('mine'); loadMyRegistrations(); }}>
-                            <i className="fas fa-check-circle"></i> You&apos;re registered — View in My Registrations <i className="fas fa-arrow-right"></i>
-                          </button>
+                          <>
+                            <button className="evt-detail-registered-btn" onClick={() => { setEventDetail(null); setEventsTab('mine'); loadMyRegistrations(); }}>
+                              <i className="fas fa-check-circle"></i> You&apos;re registered — View in My Registrations <i className="fas fa-arrow-right"></i>
+                            </button>
+                            {/* Their own slot is taken; a group is still theirs to book. */}
+                            {canJoin && isVerified && (
+                              <button className="evt-detail-join" onClick={() => openRegChoice(eventDetail)}>
+                                <i className="fas fa-user-group"></i> Register a Group
+                              </button>
+                            )}
+                          </>
                         ) : canJoin ? (
-                          <button className="evt-detail-join" onClick={() => { setEventDetail(null); openRegisterModal(eventDetail); }}><i className="fas fa-user-plus"></i> Register for this Event</button>
+                          <button className="evt-detail-join" onClick={() => openRegChoice(eventDetail)}><i className="fas fa-user-plus"></i> Register for this Event</button>
                         ) : (
                           <div className="evt-detail-locked"><i className="fas fa-lock"></i> {eventDetail.allowed_roles?.length ? `Open to ${eventDetail.allowed_roles.join(', ')} only` : 'Registration is closed'}</div>
                         )
@@ -14899,28 +15465,108 @@ Examples:
               );
             })()}
 
+            {/* ---- Member: one person, or a group? ---- */}
+            {regChoiceEvent && (() => {
+              const opts = memberRegOptions(regChoiceEvent);
+              return (
+                <div className="evt-modal-overlay" onClick={() => setRegChoiceEvent(null)}>
+                  <div className="evt-modal evt-regchoice" onClick={(e) => e.stopPropagation()}>
+                    <div className="evt-modal-head">
+                      <div><h3>Who are you registering?</h3><p>{regChoiceEvent.title}</p></div>
+                      <button className="evt-modal-close" onClick={() => setRegChoiceEvent(null)}><i className="fas fa-times"></i></button>
+                    </div>
+                    <div className="evt-modal-body">
+                      {/* Both options are always shown. One that is closed to this
+                          member is greyed out WITH the reason on it, because
+                          "Individual" quietly missing is a bug to the person
+                          looking for it, while "you already have a slot" is an
+                          answer. */}
+                      <button
+                        type="button"
+                        className={`evt-regchoice-option ${opts.individual.allowed ? '' : 'off'}`}
+                        disabled={!opts.individual.allowed}
+                        onClick={() => openRegisterModal(regChoiceEvent, 'individual')}
+                      >
+                        <span className="evt-regchoice-icon"><i className="fas fa-user"></i></span>
+                        <span className="evt-regchoice-text">
+                          <strong>Individual Registration</strong>
+                          <small>Only you will be registered. Your details are filled in from your account.</small>
+                          {!opts.individual.allowed && (
+                            <em className="evt-regchoice-why"><i className="fas fa-circle-check"></i> {opts.individual.reason}</em>
+                          )}
+                        </span>
+                        {opts.individual.allowed
+                          ? <i className="fas fa-chevron-right"></i>
+                          : <i className="fas fa-ban evt-regchoice-off-icon"></i>}
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`evt-regchoice-option ${opts.bulk.allowed ? '' : 'off'}`}
+                        disabled={!opts.bulk.allowed}
+                        onClick={() => openRegisterModal(regChoiceEvent, 'bulk')}
+                      >
+                        <span className="evt-regchoice-icon alt"><i className="fas fa-user-group"></i></span>
+                        <span className="evt-regchoice-text">
+                          <strong>Bulk Registration</strong>
+                          <small>Register several people at once and pay for all of them together. You are the representative.</small>
+                          {!opts.bulk.allowed && (
+                            <em className="evt-regchoice-why bad"><i className="fas fa-lock"></i> {opts.bulk.reason}</em>
+                          )}
+                        </span>
+                        {opts.bulk.allowed
+                          ? <i className="fas fa-chevron-right"></i>
+                          : <i className="fas fa-lock evt-regchoice-off-icon"></i>}
+                      </button>
+
+                      {!opts.individual.allowed && opts.bulk.allowed && (
+                        <p className="evt-muted" style={{ margin: '12px 0 0', fontSize: '0.82rem' }}>
+                          <i className="fas fa-circle-info"></i> Your own slot is already booked, so only a group booking is left.
+                          Your registration stays exactly as it is.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ---- Member: Register for event ---- */}
             {registerModal && (
-              <div className="evt-modal-overlay" onClick={() => setRegisterModal(null)}>
-                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="evt-modal-overlay" onClick={closeRegisterModal}>
+                <div className={`evt-modal ${memberIsBulk ? 'evt-modal-bulk' : ''}`} onClick={(e) => e.stopPropagation()}>
                   <div className="evt-modal-head">
-                    <div><h3>Register</h3><p>{registerModal.title}</p></div>
-                    <button className="evt-modal-close" onClick={() => setRegisterModal(null)}><i className="fas fa-times"></i></button>
+                    <div>
+                      <h3>Register</h3>
+                      <p>{registerModal.title}</p>
+                      {/* Which of the two flows this is, so nobody wonders why the
+                          form is asking for a list of names. */}
+                      <span className={`evt-reg-mode ${memberIsBulk ? 'bulk' : ''}`}>
+                        <i className={`fas ${memberIsBulk ? 'fa-user-group' : 'fa-user'}`}></i>
+                        {memberIsBulk ? 'Bulk Registration' : 'Individual Registration'}
+                      </span>
+                    </div>
+                    <button className="evt-modal-close" onClick={closeRegisterModal}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
-                    {/* Same three steps as the public form: who is coming, a
-                        read-only check of it, then the money. */}
+                    {/* Same steps as the public form: who is coming, a read-only
+                        check of it, then the money - with the roster in between
+                        when a group is being booked. */}
                     <div className="evt-steps evt-steps-center">
                       {registerStepLabels.map((label, i) => (
                         <span className="evt-step-wrap" key={label}>
-                          {i > 0 && <span className="evt-step-line"></span>}
+                          {/* The connector is filled in behind you, so progress
+                              reads left to right. It cannot be derived in CSS -
+                              a line and the step before it are not siblings. */}
+                          {i > 0 && <span className={`evt-step-line ${registerStep >= i ? 'done' : ''}`}></span>}
                           <button
                             type="button"
                             className={`evt-step ${registerStep === i ? 'on' : ''} ${registerStep > i ? 'done' : ''}`}
                             onClick={() => goToRegisterStep(i)}
-                            disabled={registerSubmitting}
+                            disabled={registerSubmitting || (i > registerStep && !registerStepsValidUpTo(i))}
                           >
-                            <b>{registerStep > i ? <i className="fas fa-check"></i> : i + 1}</b> {label}
+                            <b>{registerStep > i ? <i className="fas fa-check"></i> : i + 1}</b>
+                            <span className="evt-step-name">{label}</span>
                           </button>
                         </span>
                       ))}
@@ -14928,24 +15574,54 @@ Examples:
 
                     {registerStep === 0 && (
                     <>
-                    {/* Signed in, so the account's own details are already in - they
-                        stay editable because what is on the account is not always
-                        what should go on the attendance sheet. */}
-                    <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
-                      <i className="fas fa-wand-magic-sparkles"></i> Filled in from your account and your last registration. Change anything that is out of date.
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div className="form-group">
-                        <label>First Name *</label>
-                        <input className={`form-control ${registerErrors.firstName ? 'evt-field-error' : ''}`} value={registerForm.attendeeFirstName} onChange={(e) => { setRegisterForm({ ...registerForm, attendeeFirstName: e.target.value }); setRegisterErrors({}); }} />
-                        {registerErrors.firstName && <div className="evt-field-error-msg">{registerErrors.firstName}</div>}
+                    {memberIsBulk ? (
+                      <>
+                        {/* The account IS the representative. Their name is not a
+                            field: it is what makes this booking theirs, and asking
+                            for it again would only invite a different spelling. */}
+                        <div className="evt-actas">
+                          <span className="evt-added-admin"><i className="fas fa-id-card"></i> Representative</span>
+                          <span>
+                            This booking is held by <b>{formatPersonName(memberRepName()) || 'your account'}</b>
+                            {userData?.email ? <> &middot; {userData.email}</> : null}
+                          </span>
+                        </div>
+                        {registerErrors.account && <div className="evt-field-error-msg" style={{ marginBottom: 10 }}>{registerErrors.account}</div>}
+                        <p className="evt-muted" style={{ margin: '0 0 12px', fontSize: '0.82rem' }}>
+                          <i className="fas fa-circle-info"></i> Your name and email come from your account, so there is nothing to type
+                          or confirm there. The church, pastor and contact number below are not on your account &mdash; they apply to
+                          everyone on your list, so please fill them in.
+                        </p>
+                        {memberRepLocked && (
+                          <p className="evt-muted" style={{ margin: '0 0 12px', fontSize: '0.82rem' }}>
+                            <i className="fas fa-circle-check" style={{ color: '#16a34a' }}></i> You already have a slot for this event
+                            {memberOwnReg?.status ? <> (<b>{statusLabel(memberOwnReg.status)}</b>)</> : null}, so it is not booked or
+                            charged again. You are only adding other people &mdash; and any extra you have not availed yet.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                      {/* Signed in, so the account's own details are already in - they
+                          stay editable because what is on the account is not always
+                          what should go on the attendance sheet. */}
+                      <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
+                        <i className="fas fa-wand-magic-sparkles"></i> Filled in from your account and your last registration. Change anything that is out of date.
+                      </p>
+                      <div className="evt-form-grid">
+                        <div className="form-group">
+                          <label>First Name *</label>
+                          <input className={`form-control ${registerErrors.firstName ? 'evt-field-error' : ''}`} value={registerForm.attendeeFirstName} onChange={(e) => { setRegisterForm({ ...registerForm, attendeeFirstName: e.target.value }); setRegisterErrors({}); }} />
+                          {registerErrors.firstName && <div className="evt-field-error-msg">{registerErrors.firstName}</div>}
+                        </div>
+                        <div className="form-group">
+                          <label>Last Name *</label>
+                          <input className={`form-control ${registerErrors.lastName ? 'evt-field-error' : ''}`} value={registerForm.attendeeLastName} onChange={(e) => { setRegisterForm({ ...registerForm, attendeeLastName: e.target.value }); setRegisterErrors({}); }} />
+                          {registerErrors.lastName && <div className="evt-field-error-msg">{registerErrors.lastName}</div>}
+                        </div>
                       </div>
-                      <div className="form-group">
-                        <label>Last Name *</label>
-                        <input className={`form-control ${registerErrors.lastName ? 'evt-field-error' : ''}`} value={registerForm.attendeeLastName} onChange={(e) => { setRegisterForm({ ...registerForm, attendeeLastName: e.target.value }); setRegisterErrors({}); }} />
-                        {registerErrors.lastName && <div className="evt-field-error-msg">{registerErrors.lastName}</div>}
-                      </div>
-                    </div>
+                      </>
+                    )}
 
                     {/* Full church name, offered from past registrations with a count */}
                     <div className="form-group evt-church-field">
@@ -14973,7 +15649,7 @@ Examples:
                       {registerErrors.churchName && <div className="evt-field-error-msg">{registerErrors.churchName}</div>}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="evt-form-grid">
                       <div className="form-group">
                         <label>Church Pastor *</label>
                         <div className={`evt-prefix-input ${registerErrors.churchPastor ? 'evt-field-error' : ''}`}>
@@ -15001,8 +15677,13 @@ Examples:
                     </div>
 
                     <div className="form-group">
-                      <label>Email</label>
-                      <input className="form-control" value={registerForm.attendeeEmail} onChange={(e) => setRegisterForm({ ...registerForm, attendeeEmail: e.target.value })} />
+                      <label>Email {memberIsBulk && <em className="evt-field-from-account">from your account</em>}</label>
+                      <input
+                        className="form-control"
+                        value={registerForm.attendeeEmail}
+                        readOnly={memberIsBulk}
+                        onChange={(e) => setRegisterForm({ ...registerForm, attendeeEmail: e.target.value })}
+                      />
                     </div>
 
                     {eventSessionsToShow(registerModal).length > 0 && (
@@ -15020,39 +15701,227 @@ Examples:
                       </div>
                     )}
 
-                    {/* Paid extras the admin set up, e.g. "Do you want accommodation? +₱200" */}
+                    {/* Paid extras the admin set up, e.g. "Do you want accommodation? +₱200".
+                        In a group these are the REPRESENTATIVE's own extras -
+                        everyone else's are ticked per person on the next step,
+                        because only some of a group need accommodation. Anything
+                        already availed on a slot they hold is shown ticked and
+                        locked, so what is in question is only what is being added. */}
                     {(registerModal.event_addons || []).length > 0 && (
                       <div className="evt-addon-pick">
-                        <div className="evt-addon-pick-head"><i className="fas fa-circle-plus"></i> Optional Extras</div>
-                        {(registerModal.event_addons || []).map((a) => (
-                          <label key={a.id} className={`evt-addon-option ${registerAddonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
-                            <input
-                              type="checkbox"
-                              checked={registerAddonIds.includes(a.id)}
-                              disabled={a.is_required}
-                              onChange={() => toggleRegisterAddon(a)}
-                            />
-                            <span className="evt-addon-option-text">
-                              <strong>{a.question}</strong>
-                              {a.is_required && <small>Required — included for everyone.</small>}
-                            </span>
-                            <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
-                          </label>
-                        ))}
+                        <div className="evt-addon-pick-head">
+                          <i className="fas fa-circle-plus"></i> {memberIsBulk ? 'Your Own Extras' : 'Optional Extras'}
+                        </div>
+                        {(registerModal.event_addons || []).map((a) => {
+                          const settled = memberRepLockedAddonIds.includes(a.id);
+                          return (
+                            <label key={a.id} className={`evt-addon-option ${registerAddonIds.includes(a.id) || settled ? 'on' : ''} ${a.is_required || settled ? 'locked' : ''}`}>
+                              <input
+                                type="checkbox"
+                                checked={settled || registerAddonIds.includes(a.id)}
+                                disabled={a.is_required || settled}
+                                onChange={() => toggleRegisterAddon(a)}
+                              />
+                              <span className="evt-addon-option-text">
+                                <strong>{a.question}</strong>
+                                {a.is_required && <small>Required — included for everyone.</small>}
+                                {settled && !a.is_required && <small>Already availed on your registration.</small>}
+                              </span>
+                              <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     )}
 
-                    <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={() => goToRegisterStep(1)}>
+                    <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={registerNext}>
                       Continue <i className="fas fa-arrow-right"></i>
                     </button>
                     </>
                     )}
 
-                    {/* ---- Step 2: everything read back, before any money moves ---- */}
-                    {registerStep === 1 && (
+                    {/* ---- Group step 2: the people being brought ---- */}
+                    {memberIsBulk && registerStep === registerRosterStep && (
+                      <>
+                        <div className="evt-bulk-entry">
+                          <div className="evt-bulk-entry-head">
+                            <span>
+                              <i className={`fas ${memberBulkEditing == null ? 'fa-user-plus' : 'fa-pen'}`}></i>
+                              {memberBulkEditing == null ? ' Add an Attendee' : ` Editing attendee #${memberBulkEditing + 1}`}
+                            </span>
+                            {memberBulkEditing != null && (
+                              <button type="button" className="evt-bulk-cancel" onClick={memberCancelEditPerson}>Cancel</button>
+                            )}
+                          </div>
+                          <div className="evt-form-grid">
+                            <div className="form-group"><label>First Name *</label>
+                              <input className="form-control" value={memberBulkDraft.firstName}
+                                onChange={(e) => { setMemberBulkDraft({ ...memberBulkDraft, firstName: e.target.value }); setMemberBulkError(''); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); memberCommitPerson(); } }} />
+                            </div>
+                            <div className="form-group"><label>Last Name *</label>
+                              <input className="form-control" value={memberBulkDraft.lastName}
+                                onChange={(e) => { setMemberBulkDraft({ ...memberBulkDraft, lastName: e.target.value }); setMemberBulkError(''); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); memberCommitPerson(); } }} />
+                            </div>
+                          </div>
+                          {/* Extras are per person - only some of a group need accommodation. */}
+                          {(registerModal.event_addons || []).length > 0 && (
+                            <div className="evt-addon-pick" style={{ marginTop: 4 }}>
+                              {registerModal.event_addons.map((a) => (
+                                <label key={a.id} className={`evt-addon-option ${memberBulkDraft.addonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
+                                  <input type="checkbox" checked={memberBulkDraft.addonIds.includes(a.id)} disabled={a.is_required} onChange={() => memberToggleDraftAddon(a)} />
+                                  <span className="evt-addon-option-text"><strong>{a.question}</strong></span>
+                                  <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          {memberBulkError && <div className="evt-field-error-msg">{memberBulkError}</div>}
+                          <button className="btn-primary" style={{ width: '100%' }} onClick={memberCommitPerson}>
+                            <i className={`fas ${memberBulkEditing == null ? 'fa-plus' : 'fa-check'}`}></i> {memberBulkEditing == null ? ' Add Attendee' : ' Save Changes'}
+                          </button>
+                        </div>
+
+                        {(() => {
+                          // The representative is the first row when they still
+                          // need a slot, so what is listed is what is charged for.
+                          // Their row is not editable here - step 1 owns it.
+                          const roster = memberFullRoster();
+                          const repRows = roster.filter((a) => a.isRep).length;
+                          const topUps = memberRepLocked ? memberRepTopUpAddons() : [];
+                          return (
+                            <>
+                              <div className="evt-bulk-listhead">
+                                <span><i className="fas fa-user-group"></i> People You Are Registering</span>
+                                <em>
+                                  {roster.length} {roster.length === 1 ? 'person' : 'people'}
+                                  {memberRepLocked && ' + you'}
+                                </em>
+                              </div>
+                              {roster.length === 0 && !memberRepLocked ? (
+                                <p className="evt-bulk-empty"><i className="fas fa-inbox"></i> No one added yet.</p>
+                              ) : (
+                                <div className="evt-table-wrapper" style={{ marginBottom: 12 }}>
+                                  <table className="evt-table">
+                                    <thead><tr><th>Attendee</th><th>Registration Fee</th><th>Extras</th><th></th></tr></thead>
+                                    <tbody>
+                                      {roster.map((a, i) => {
+                                        // Index back into the editable list, which
+                                        // does not include the representative.
+                                        const listIndex = a.isRep ? null : i - repRows;
+                                        const dup = memberDupNames.includes(memberNameKey(a.firstName, a.lastName));
+                                        return (
+                                          <tr key={a.isRep ? 'rep' : `p${listIndex}`} className={listIndex != null && memberBulkEditing === listIndex ? 'evt-row-editing' : ''}>
+                                            <td data-label="Attendee">
+                                              <b>{i + 1}.</b> {formatPersonName(`${a.firstName} ${a.lastName}`)}
+                                              {a.isRep && <div className="evt-cell-sub">You &middot; Representative</div>}
+                                              {dup && <div className="evt-field-error-msg">Already registered for this event.</div>}
+                                            </td>
+                                            <td data-label="Registration Fee">₱{registerBaseAmount(registerModal)}</td>
+                                            <td data-label="Extras">
+                                              {memberPersonAddons(a).length === 0 ? '—' : (
+                                                <>₱{memberPersonExtras(a)}<div className="evt-cell-sub">{memberPersonAddons(a).map((x) => x.question).join(', ')}</div></>
+                                              )}
+                                            </td>
+                                            <td data-label="" className="evt-td-actions">
+                                              {a.isRep ? (
+                                                <button className="evt-mini-btn" onClick={() => setRegisterStep(0)} title="Edit in step 1">
+                                                  <i className="fas fa-pen"></i>
+                                                </button>
+                                              ) : (
+                                                <>
+                                                  <button className="evt-mini-btn" onClick={() => memberEditPerson(listIndex)}><i className="fas fa-pen"></i></button>
+                                                  <button className="evt-mini-btn danger" onClick={() => memberRemovePerson(listIndex)}><i className="fas fa-trash"></i></button>
+                                                </>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                      {/* The representative who already holds a slot.
+                                          Listed - leaving them out makes the group
+                                          look like it is missing someone - but their
+                                          fee is struck through, because it was paid on
+                                          the earlier registration and is not part of
+                                          this total. Only extras being added count. */}
+                                      {memberRepLocked && (
+                                        <tr className="evt-row-paid">
+                                          <td data-label="Attendee">
+                                            {formatPersonName(memberRepName())}
+                                            <div className="evt-cell-sub">
+                                              You &middot; already registered
+                                              <span className={`evt-status evt-status-${memberOwnReg.status}`}>{statusLabel(memberOwnReg.status)}</span>
+                                            </div>
+                                          </td>
+                                          <td data-label="Registration Fee">
+                                            <s>₱{registerBaseAmount(registerModal)}</s>
+                                            <div className="evt-cell-sub">not charged again</div>
+                                          </td>
+                                          <td data-label="Extras">
+                                            {topUps.length > 0 ? (
+                                              <>
+                                                ₱{memberRepTopUpTotal()}
+                                                <div className="evt-cell-sub">{topUps.map((x) => x.question).join(', ')}</div>
+                                              </>
+                                            ) : <span className="evt-cell-sub">&mdash;</span>}
+                                            {memberRepLockedAddonIds.length > 0 && (
+                                              <div className="evt-cell-sub">
+                                                Already availed: {(registerModal.event_addons || [])
+                                                  .filter((x) => memberRepLockedAddonIds.includes(x.id))
+                                                  .map((x) => x.question).join(', ')}
+                                              </div>
+                                            )}
+                                          </td>
+                                          <td data-label="" className="evt-td-actions">
+                                            <button className="evt-mini-btn" onClick={() => setRegisterStep(0)} title="Edit in step 1">
+                                              <i className="fas fa-pen"></i>
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                              {(roster.length > 0 || memberRepLocked) && (
+                                <div className="evt-roster-total">
+                                  <span>Total{memberChargeLabel() ? ` · ${memberChargeLabel()}` : ''}</span>
+                                  <b>₱{registerTotalAmount(registerModal)}</b>
+                                </div>
+                              )}
+                              {registerErrors.roster && <div className="evt-field-error-msg" style={{ marginBottom: 10 }}>{registerErrors.roster}</div>}
+                              {memberRepLocked && (
+                                <p className="evt-muted" style={{ margin: '-2px 0 12px', fontSize: '0.8rem' }}>
+                                  <i className="fas fa-circle-info"></i> You already have a registration, so your
+                                  ₱{registerBaseAmount(registerModal)} fee is not in this total
+                                  {topUps.length > 0
+                                    ? <> &mdash; only the ₱{memberRepTopUpTotal()} of extras being added to it.</>
+                                    : '.'}
+                                </p>
+                              )}
+                            </>
+                          );
+                        })()}
+
+                        <div className="evt-modal-foot" style={{ padding: '4px 0 0', border: 'none', background: 'transparent' }}>
+                          <button className="btn-secondary" onClick={() => setRegisterStep(0)}><i className="fas fa-arrow-left"></i> Back</button>
+                          <button className="btn-primary" onClick={registerNext}>Continue <i className="fas fa-arrow-right"></i></button>
+                        </div>
+                      </>
+                    )}
+
+                    {/* ---- Review: everything read back, before any money moves ---- */}
+                    {registerStep === registerReviewStep && (
                     <>
+                    {memberIsBulk && (
+                      <div className="evt-bulk-listhead" style={{ marginTop: 0 }}>
+                        <span><i className="fas fa-id-card"></i> Representative</span>
+                        <em>applies to everyone on the list</em>
+                      </div>
+                    )}
                     <div className="evt-review">
-                      <div className="evt-review-row"><span>Full Name</span><b>{`${registerForm.attendeeFirstName} ${registerForm.attendeeLastName}`.trim() || '—'}</b></div>
+                      <div className="evt-review-row"><span>{memberIsBulk ? 'Representative' : 'Full Name'}</span><b>{`${registerForm.attendeeFirstName} ${registerForm.attendeeLastName}`.trim() || '—'}</b></div>
                       <div className="evt-review-row"><span>Church Name</span><b>{registerForm.churchName.trim() || '—'}</b></div>
                       <div className="evt-review-row"><span>Church Pastor</span><b>{registerForm.churchPastor.trim() ? `Ptr. ${registerForm.churchPastor.trim()}` : '—'}</b></div>
                       <div className="evt-review-row"><span>Contact Number</span><b>{registerForm.attendeeMobile || '—'}</b></div>
@@ -15074,27 +15943,59 @@ Examples:
                       </div>
                     )}
 
-                    {/* Itemised like a receipt, so the total is never a mystery. */}
+                    {/* Itemised like a receipt, so the total is never a mystery.
+                        A group is itemised per person - the roster is what is
+                        being paid for, so it is the roster that is listed. */}
                     <div className="evt-review-receipt">
-                      <div className="evt-review-receipt-line">
-                        <span>Registration</span>
-                        <b>₱{registerBaseAmount(registerModal)}</b>
-                      </div>
-                      {(registerModal.event_addons || []).filter((a) => registerAddonIds.includes(a.id)).map((a) => (
-                        <div className="evt-review-receipt-line" key={a.id}>
-                          <span>{a.question}</span>
-                          <b>+₱{Number(a.fee) || 0}</b>
-                        </div>
-                      ))}
+                      {memberIsBulk ? (
+                        <>
+                          {memberFullRoster().map((a, i) => (
+                            <div className="evt-review-receipt-line" key={a.isRep ? 'rep' : `p${i}`}>
+                              <span>
+                                {formatPersonName(`${a.firstName} ${a.lastName}`)}
+                                {memberPersonExtras(a) > 0 ? ` (+ ${memberPersonAddons(a).map((x) => x.question).join(', ')})` : ''}
+                                {a.isRep && ' — you'}
+                              </span>
+                              <b>₱{memberPersonTotal(a)}</b>
+                            </div>
+                          ))}
+                          {memberRepLocked && memberRepTopUpAddons().map((x) => (
+                            <div className="evt-review-receipt-line" key={`top-${x.id}`}>
+                              <span>{x.question} — added to your registration</span>
+                              <b>+₱{Number(x.fee) || 0}</b>
+                            </div>
+                          ))}
+                          {memberFullRoster().length === 0 && !memberRepLocked && (
+                            <div className="evt-review-receipt-line"><span>Nobody on the list yet</span><b>₱0</b></div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div className="evt-review-receipt-line">
+                            <span>Registration</span>
+                            <b>₱{registerBaseAmount(registerModal)}</b>
+                          </div>
+                          {(registerModal.event_addons || []).filter((a) => registerAddonIds.includes(a.id)).map((a) => (
+                            <div className="evt-review-receipt-line" key={a.id}>
+                              <span>{a.question}</span>
+                              <b>+₱{Number(a.fee) || 0}</b>
+                            </div>
+                          ))}
+                        </>
+                      )}
                       <div className="evt-review-receipt-total">
-                        <span>Total</span>
+                        <span>Total{memberIsBulk && memberChargeLabel() ? ` · ${memberChargeLabel()}` : ''}</span>
                         <b>₱{registerTotalAmount(registerModal)}</b>
                       </div>
                     </div>
 
                     {registerTotalAmount(registerModal) <= 0 ? (
                       <>
-                        <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event — you&apos;ll be registered instantly.</p>
+                        <p className="evt-free-note">
+                          <i className="fas fa-gift"></i> {memberIsBulk
+                            ? 'Nothing to pay — everyone on your list will be registered instantly.'
+                            : 'This is a free event — you\u2019ll be registered instantly.'}
+                        </p>
                         <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={submitRegistration} disabled={registerSubmitting}>
                           <i className={`fas ${registerSubmitting ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {registerSubmitting ? 'Submitting…' : 'Register'}
                         </button>
@@ -15104,14 +16005,31 @@ Examples:
                         Continue to Payment <i className="fas fa-arrow-right"></i>
                       </button>
                     )}
+                    {memberIsBulk && (
+                      <button className="btn-secondary" style={{ width: '100%', marginTop: 8 }} onClick={() => setRegisterStep(registerRosterStep)}>
+                        <i className="fas fa-arrow-left"></i> Back to the list
+                      </button>
+                    )}
                     </>
                     )}
 
-                    {/* ---- Step 3: pay, and prove it ---- */}
+                    {/* ---- Last step: pay, and prove it ---- */}
                     {registerStep === registerPayStep && registerTotalAmount(registerModal) > 0 && (
                       <div className="evt-pay-box">
-                        <div className="evt-pay-amount"><span>Amount to pay</span><strong>₱{registerTotalAmount(registerModal)}</strong></div>
-                        {registerTotalAmount(registerModal) !== registerBaseAmount(registerModal) && (
+                        <div className="evt-pay-amount">
+                          <span>Amount to pay{memberIsBulk && memberChargeLabel() ? ` · ${memberChargeLabel()}` : ''}</span>
+                          <strong>₱{registerTotalAmount(registerModal)}</strong>
+                        </div>
+                        {memberIsBulk ? (
+                          <div className="evt-muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
+                            {memberFullRoster().map((a, i) => (
+                              <span key={a.isRep ? 'rep' : `p${i}`}>
+                                {i > 0 && ' + '}₱{memberPersonTotal(a)} {formatPersonName(a.firstName)}
+                              </span>
+                            ))}
+                            {memberRepLocked && memberRepTopUpTotal() > 0 && <span> + ₱{memberRepTopUpTotal()} your extras</span>}
+                          </div>
+                        ) : registerTotalAmount(registerModal) !== registerBaseAmount(registerModal) && (
                           <div className="evt-muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
                             ₱{registerBaseAmount(registerModal)} registration
                             {(registerModal.event_addons || []).filter((a) => registerAddonIds.includes(a.id)).map((a) => (
@@ -15233,16 +16151,12 @@ Examples:
                                         {registerErrors.paymentReference && <div className="evt-field-error-msg">{registerErrors.paymentReference}</div>}
                                       </div>
                                       <div className="form-group"><label>Payment Receipt *</label>
-                                        <label className={`evt-proof-drop ${registerErrors.proof ? 'evt-field-error' : ''}`}>
-                                          <input type="file" accept="image/*" onChange={(e) => { setRegisterProofFile(e.target.files?.[0] || null); setRegisterErrors({}); }} />
-                                          {registerProofFile
-                                            ? <img src={URL.createObjectURL(registerProofFile)} alt="Payment receipt" />
-                                            : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
-                                          <span className="evt-proof-text">
-                                            <strong>{registerProofFile ? registerProofFile.name : 'Upload a screenshot of your receipt'}</strong>
-                                            <small>{registerProofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
-                                          </span>
-                                        </label>
+                                        <ProofDrop
+                                          id="member-reg-proof"
+                                          file={registerProofFile}
+                                          invalid={!!registerErrors.proof}
+                                          onPick={(f) => { setRegisterProofFile(f); setRegisterErrors({}); }}
+                                        />
                                         {registerErrors.proof && <div className="evt-field-error-msg">{registerErrors.proof}</div>}
                                       </div>
                                     </div>
@@ -15291,16 +16205,12 @@ Examples:
                               {registerErrors.paymentReference && <div className="evt-field-error-msg">{registerErrors.paymentReference}</div>}
                             </div>
                             <div className="form-group"><label>Payment Receipt *</label>
-                              <label className={`evt-proof-drop ${registerErrors.proof ? 'evt-field-error' : ''}`}>
-                                <input type="file" accept="image/*" onChange={(e) => { setRegisterProofFile(e.target.files?.[0] || null); setRegisterErrors({}); }} />
-                                {registerProofFile
-                                  ? <img src={URL.createObjectURL(registerProofFile)} alt="Payment receipt" />
-                                  : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
-                                <span className="evt-proof-text">
-                                  <strong>{registerProofFile ? registerProofFile.name : 'Upload a screenshot of your receipt'}</strong>
-                                  <small>{registerProofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
-                                </span>
-                              </label>
+                              <ProofDrop
+                                id="member-reg-proof-plain"
+                                file={registerProofFile}
+                                invalid={!!registerErrors.proof}
+                                onPick={(f) => { setRegisterProofFile(f); setRegisterErrors({}); }}
+                              />
                               {registerErrors.proof && <div className="evt-field-error-msg">{registerErrors.proof}</div>}
                             </div>
                           </div>
@@ -15386,7 +16296,7 @@ Examples:
                       <i className="fas fa-circle-info"></i> Recording the refund cancels the registration and moves it to the
                       Recycle Bin, releasing the slot. Send the money first, then record it here.
                     </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="evt-form-grid">
                       <div className="form-group">
                         <label>Refund Amount</label>
                         <input className="form-control" inputMode="decimal" value={refundForm.amount} onChange={(e) => setRefundForm({ ...refundForm, amount: e.target.value })} />
@@ -15492,16 +16402,7 @@ Examples:
                           </div>
                           <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" placeholder="e.g. 0123456789" value={payNowForm.paymentReference} onChange={(e) => setPayNowForm({ ...payNowForm, paymentReference: e.target.value })} /></div>
                           <div className="form-group"><label>Payment Receipt</label>
-                            <label className="evt-proof-drop">
-                              <input type="file" accept="image/*" onChange={(e) => setPayNowProofFile(e.target.files?.[0] || null)} />
-                              {payNowProofFile
-                                ? <img src={URL.createObjectURL(payNowProofFile)} alt="Payment receipt" />
-                                : <span className="evt-proof-icon"><i className="fas fa-cloud-arrow-up"></i></span>}
-                              <span className="evt-proof-text">
-                                <strong>{payNowProofFile ? payNowProofFile.name : 'Upload a screenshot of your receipt'}</strong>
-                                <small>{payNowProofFile ? 'Tap to choose a different image' : 'PNG or JPG from your payment app'}</small>
-                              </span>
-                            </label>
+                            <ProofDrop id="paynow-proof" file={payNowProofFile} onPick={setPayNowProofFile} />
                           </div>
                         </div>
                         <p className="evt-pay-note">

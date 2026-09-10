@@ -24,6 +24,8 @@ alter table public.event_registrations
   add column if not exists registration_type text,
   add column if not exists added_by text,
   add column if not exists added_by_role text,
+  -- the signed-in account behind a booking (event_group_owner.sql)
+  add column if not exists registered_by_user_id uuid,
   -- what is owed and how it is being settled (event_flexible_payment.sql)
   add column if not exists payment_plan text not null default 'full',
   add column if not exists amount_paid numeric(10, 2) not null default 0,
@@ -44,6 +46,9 @@ alter table public.event_registrations
 
 create index if not exists event_registrations_group_ref_idx
   on public.event_registrations (group_ref);
+
+create index if not exists event_registrations_registered_by_idx
+  on public.event_registrations (registered_by_user_id);
 
 -- `status` gained a new value ('installment'). If this database has a CHECK
 -- constraint listing the old values, the insert fails on the value rather than

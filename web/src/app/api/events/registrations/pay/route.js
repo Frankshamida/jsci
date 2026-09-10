@@ -32,9 +32,13 @@ export async function POST(request) {
         const buffer = await file.arrayBuffer();
         const uploaded = await uploadBufferToCloudinary(buffer, {
           fileName: file.name || 'payment-proof',
-          mimeType: file.type || 'image/jpeg',
+          mimeType: file.type || 'application/octet-stream',
           folder: 'JSCI-System/event-payments',
-          resourceType: 'image',
+          // 'auto', not 'image': a receipt is whatever the bank handed the
+          // payer. A PDF or a .heic sent to the image endpoint is rejected
+          // outright, and the registration then fails on the attachment rather
+          // than on anything to do with the registration itself.
+          resourceType: 'auto',
         });
         proofUrl = uploaded.secureUrl;
       }
@@ -49,10 +53,16 @@ export async function POST(request) {
 
     const { data: reg, error: regErr } = await supabase
       .from('event_registrations')
-      .select('id, user_id, event_id, status')
+      .select('*')
       .eq('id', registrationId).single();
     if (regErr || !reg) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
-    if (reg.user_id !== userId) return NextResponse.json({ success: false, message: 'Not authorized' }, { status: 403 });
+    // Yours to pay for: the slot you hold, or one you booked as a group's
+    // representative. The representative paid for those people in the first
+    // place, so when an event turns paid after the fact they are the one who
+    // has to be able to settle it.
+    const ownsIt = String(reg.user_id || '') === String(userId)
+      || (!!reg.registered_by_user_id && String(reg.registered_by_user_id) === String(userId));
+    if (!ownsIt) return NextResponse.json({ success: false, message: 'Not authorized' }, { status: 403 });
     if (reg.status === 'cancelled') return NextResponse.json({ success: false, message: 'This registration has been cancelled' }, { status: 400 });
 
     const { data: event, error: evErr } = await supabase

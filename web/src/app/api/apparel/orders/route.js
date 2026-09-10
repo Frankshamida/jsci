@@ -159,7 +159,9 @@ async function readOrderBody(request) {
       fileName: file.name || 'apparel-receipt',
       mimeType: file.type || 'image/jpeg',
       folder: 'JSCI-System/apparel-payments',
-      resourceType: 'image',
+      // 'auto', not 'image': the checkout accepts whatever receipt the payer
+      // has, and a PDF sent to the image endpoint is rejected outright.
+      resourceType: 'auto',
     });
     proofUrl = uploaded.secureUrl;
   }
