@@ -57,6 +57,53 @@ back into it after every tap.
 **3.3V, not 5V.** The RC522 is a 3.3V part and 5V on that pin destroys it.
 This is the single most common way these modules die.
 
+### A display at the door (optional)
+
+Without this the dashboard screen is the only display, which is fine at a desk
+where somebody is watching it. At a door, where the person tapping is looking
+at the reader and not at a laptop, a screen on the board itself is worth the
+four extra wires.
+
+| Part | Arduino Uno |
+|------|-------------|
+| LCD VCC | 5V |
+| LCD GND | GND |
+| LCD SDA | **A4** |
+| LCD SCL | **A5** |
+| Buzzer | pin 3 |
+| Green LED (+220Ω) | pin 4 |
+| Red LED (+220Ω) | pin 5 |
+
+Install **LiquidCrystal I2C** by *Frank de Brabander* alongside the MFRC522
+library. If the backlight comes on but the screen stays blank, change
+`LCD_ADDR` in the sketch from `0x27` to `0x3F` — those are the only two
+addresses these backpacks ship with. For a board with no screen, set
+`HAS_LCD` to `0` and everything else works unchanged.
+
+The RC522's own pin marked **SDA** is not an I2C pin — on that module it is
+the SPI chip select, which is why it goes to pin 10 and A4/A5 stay free for
+the LCD. A4 and A5 are the only I2C pins the Uno has.
+
+**Where the name on the screen comes from.** Not from the Arduino. The board
+has no network and no attendee list, and cannot have one — who holds a card is
+a question about the database. So a tap is a conversation:
+
+    board  ->  UID:A1B2C3D4          this is the number I just read
+    desk   ->  OK:Juan Dela Cruz     I asked the server; that is who it is
+
+The browser at the desk is the part that turns one into the other. It reads
+the UID over USB, calls the check-in API, and sends the answer back down the
+same cable, where the board shows it: **green light and one beep** for someone
+on the list, **red and three beeps** for a card that is not. Checking anybody
+in is still decided by the server, never by the board — which is what stops
+the two from ever disagreeing.
+
+This means **the dashboard tab has to be open and connected** for the display
+to say anything useful. When it is not, a tap reads the card fine and the
+screen says `No reply - desk?` rather than blaming the card. If you see that,
+the reader is working and the browser is not connected — check that the tab is
+open on the RFID screen, and that the Arduino IDE's Serial Monitor is closed.
+
 ### Flash it
 
 1. Arduino IDE → **Sketch → Include Library → Manage Libraries**, search

@@ -24980,29 +24980,31 @@ body.dark-mode .evt-copy-cell:hover { background: rgba(255,255,255,0.08); }
 /* Registrations table: the wide columns get the room, the rest stay tight so
    there are no acres of empty cell between Added By and Church. */
 .evt-table-regs { table-layout: fixed; }
-/* proportions, not pixels, so the row reads evenly at any width */
-.evt-table-regs th:nth-child(1), .evt-table-regs td:nth-child(1) { width: 15%; }  /* Attendee */
-.evt-table-regs th:nth-child(2), .evt-table-regs td:nth-child(2) { width: 9%; }   /* Type */
-.evt-table-regs th:nth-child(3), .evt-table-regs td:nth-child(3) { width: 14%; }  /* Added By */
-.evt-table-regs th:nth-child(4), .evt-table-regs td:nth-child(4) { width: 17%; }  /* Church */
-.evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { width: 11%; }  /* Contact */
-.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { width: 6%; }   /* Extras */
-.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { width: 13%; }  /* Payment */
-.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { width: 10%; }  /* Status */
-.evt-table-regs th:nth-child(9), .evt-table-regs td:nth-child(9) { width: 132px; } /* Actions */
+/* proportions, not pixels, so the row reads evenly at any width. Eight
+   columns since Contact went - the room it had is shared out among the ones
+   that get read, Attendee and Church most of all. */
+.evt-table-regs th:nth-child(1), .evt-table-regs td:nth-child(1) { width: 18%; }  /* Attendee */
+.evt-table-regs th:nth-child(2), .evt-table-regs td:nth-child(2) { width: 10%; }  /* Type */
+.evt-table-regs th:nth-child(3), .evt-table-regs td:nth-child(3) { width: 15%; }  /* Added By */
+.evt-table-regs th:nth-child(4), .evt-table-regs td:nth-child(4) { width: 20%; }  /* Church */
+.evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { width: 7%; }   /* Extras */
+.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { width: 15%; }  /* Payment */
+.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { width: 11%; }  /* Status */
+.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { width: 132px; } /* Actions */
 /* the same gutter the Attendee column gets on the other side */
-.evt-table-regs th:nth-child(9), .evt-table-regs td:nth-child(9) { padding-right: 18px; padding-left: 18px; }
+.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { padding-right: 18px; padding-left: 18px; }
 /* the extras tick sits under the middle of its heading, not off in the margin */
-.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { text-align: center; }
+.evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { text-align: center; }
 /* Manage keeps company with Status instead of hugging the table edge */
-.evt-table-regs th:nth-child(9), .evt-table-regs td:nth-child(9) { text-align: right; }
+.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { text-align: right; }
 .evt-table-regs td { word-break: break-word; }
 .evt-table-regs th, .evt-table-regs td { padding: 13px 12px; }
 .evt-table-regs th:first-child, .evt-table-regs td:first-child { padding-left: 18px; }
 .evt-table-regs th:last-child, .evt-table-regs td:last-child { padding-right: 18px; }
 @media (max-width: 1200px) {
-  /* below this the table scrolls instead of squeezing */
-  .evt-table-regs { table-layout: auto; min-width: 1080px; }
+  /* below this the table scrolls instead of squeezing - and one column less
+     means it needs less room before it has to */
+  .evt-table-regs { table-layout: auto; min-width: 960px; }
 }
 @media (max-width: 900px) { .evt-table-regs { min-width: 0; } }
 
@@ -25170,6 +25172,27 @@ body.dark-mode .evt-mini-btn { color: #eee; border-color: rgba(255,255,255,0.2);
    the panel underneath says so. Dimmed, not disabled. */
 .rfid-method-tab.off { opacity: 0.55; }
 
+/* ---- One reader, named rather than offered ----
+   A phone cannot have a serial port and a computer has no aerial, so on both
+   there is nothing to choose. This says which reader is in use, in the place
+   the tabs would have been, so the strip reads the same either way. */
+.rfid-method-only {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  border: 2px solid var(--secondary); border-radius: 9px;
+  background: rgba(201, 152, 11, 0.1);
+  font-size: 0.8rem; font-weight: 700; color: var(--primary);
+  white-space: nowrap;
+}
+.rfid-method-only em {
+  font-style: normal; font-weight: 700; font-size: 0.68rem;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-secondary, #6c757d);
+}
+body.dark-mode .rfid-method-only { color: #f0c419; border-color: rgba(240, 196, 25, 0.5); }
+body.dark-mode .rfid-method-only em { color: #aaa; }
+
 .rfid-method-panel { padding: 14px; }
 .rfid-method-panel .rfid-status-strip { margin: 0; }
 
@@ -25216,6 +25239,7 @@ body.dark-mode .rfid-method-panel.nfc.live b { color: #4ade80; }
   .rfid-method-head { flex-direction: column; align-items: stretch; }
   .rfid-method-tabs { margin-left: 0; }
   .rfid-method-tab { flex: 1 1 auto; justify-content: center; }
+  .rfid-method-only { margin-left: 0; justify-content: center; }
 }
 
 /* ============================================================
@@ -25228,10 +25252,21 @@ body.dark-mode .rfid-method-panel.nfc.live b { color: #4ade80; }
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   margin-bottom: 14px;
 }
-.evt-attbar-search { flex: 1 1 240px; min-width: 0; max-width: 420px; }
+/* The search takes every pixel the counters do not: its right edge meets the
+   first button, so the row reads as one strip rather than a box floating in a
+   gap. Capped at nothing - the table underneath is full width, and a search
+   that stops short of it looks like it belongs to something else. */
+.evt-attbar-search { flex: 1 1 260px; min-width: 0; }
 .evt-attbar-actions {
   margin-left: auto;
   display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+/* Same height as the search field beside them, so the strip has one line top
+   and bottom instead of four. Laid out rather than padded, because the
+   counters carry an icon and a label and they have to sit on one line. */
+.evt-attbar-actions > button {
+  min-height: 42px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
 }
 
 /* ---- The lock ----
@@ -25296,7 +25331,7 @@ body.dark-mode .evt-claim-state.live { border-color: rgba(255, 255, 255, 0.28); 
 @media (max-width: 900px) {
   .evt-attbar-actions { margin-left: 0; width: 100%; }
   .evt-attbar-actions > button { flex: 1 1 auto; justify-content: center; }
-  .evt-attbar-search { max-width: none; }
+  .evt-attbar-search { flex: 1 1 100%; }
 }
 
 /* ============================================================
@@ -29381,3 +29416,506 @@ body.dark-mode .evt-roster-total b { color: var(--accent, #e6be5a); }
 @media (max-width: 900px) {
   .evt-proof-doc { height: 44vh; min-height: 220px; }
 }
+
+/* ============================================================
+   ACCOMMODATION - the rooms booked for an event
+   ============================================================
+   Three levels, and the styling says which one you are on:
+     the events    a poster each, because that is how an event is recognised
+     a room type   a card - "Family Deluxe, 4 Pax" describes a SET of rooms
+     the rooms     a table, because 308/408/508 is a list to be checked
+   Built off the events screens on purpose: it is the same job, done on the
+   same day by the same person, so it should not look like another product. */
+.acc-lede {
+  margin: -4px 0 18px;
+  max-width: 76ch;
+  font-size: 0.88rem; line-height: 1.6;
+  color: var(--text-secondary, #6c757d);
+}
+
+/* ---- Picking the event ---- */
+.acc-picker-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.acc-picker-head h3 {
+  margin: 0; font-size: 1rem; font-weight: 800;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.acc-picker-head .evt-search { flex: 1 1 260px; }
+.acc-picker-head > button { min-height: 42px; white-space: nowrap; }
+
+.acc-event-grid {
+  display: grid; gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
+  align-content: start;
+}
+.acc-event-card {
+  display: flex; flex-direction: column;
+  border-radius: 15px; overflow: hidden;
+  background: var(--bg-card, #fff);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.16), 0 6px 18px rgba(0, 0, 0, 0.06);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.acc-event-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.16), 0 12px 26px rgba(0, 0, 0, 0.12);
+}
+/* The poster at the ratio it was uploaded at - the same 1080x1380 the event
+   form crops to, so nothing is squashed and every card is the same height. */
+.acc-event-poster {
+  position: relative; aspect-ratio: 1080 / 1380; overflow: hidden;
+  background: rgba(0, 0, 0, 0.04);
+}
+.acc-event-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.acc-event-poster-ph {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--primary, #926c15), #3e2e08);
+  color: var(--accent, #ffc300); font-size: 2.4rem;
+}
+/* Whether this event even sells a bed, on the poster where it is read with
+   the title rather than hunted for underneath it. */
+.acc-event-extras {
+  position: absolute; left: 10px; bottom: 10px; right: 10px;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 11px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  font-size: 0.72rem; font-weight: 700; color: #fff;
+  backdrop-filter: blur(2px);
+}
+.acc-event-extras.has { background: rgba(21, 128, 61, 0.9); }
+
+.acc-event-body { display: flex; flex-direction: column; gap: 6px; padding: 14px 15px 15px; }
+.acc-event-title { font-size: 0.98rem; font-weight: 800; line-height: 1.35; }
+/* The icon and the text are separate columns, so a long venue name wraps
+   under itself instead of leaving the icon stranded on its own line. */
+.acc-event-meta {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 0.79rem; line-height: 1.45;
+  color: var(--text-secondary, #6c757d);
+}
+.acc-event-meta > i { flex: 0 0 auto; margin-top: 3px; width: 12px; text-align: center; opacity: 0.75; }
+.acc-manage-btn {
+  margin-top: 6px; width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px; border: none; border-radius: 9px;
+  background: linear-gradient(135deg, var(--primary, #926c15), var(--secondary, #c9980b));
+  color: #fff; font: inherit; font-weight: 700; font-size: 0.86rem;
+  cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.acc-manage-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(146, 108, 21, 0.36); }
+body.dark-mode .acc-event-card { background: #1e1e2e; }
+
+/* ---- The event being managed ---- */
+.acc-head { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+.acc-head .evt-back-btn { align-self: flex-start; }
+.acc-head-card {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 15px;
+  background: var(--bg-card, #fff);
+}
+.acc-head-poster {
+  flex: 0 0 auto; width: 74px; aspect-ratio: 1080 / 1380;
+  border-radius: 10px; overflow: hidden; background: rgba(0, 0, 0, 0.04);
+}
+.acc-head-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.acc-head-poster .acc-event-poster-ph { font-size: 1.3rem; }
+.acc-head-text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
+.acc-head-text .section-title { margin: 0; font-size: 1.05rem; }
+.acc-head-text > b { font-size: 1.02rem; font-weight: 800; line-height: 1.3; }
+.acc-head-text > span {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.81rem; color: var(--text-secondary, #6c757d);
+}
+.acc-head-text > span > i { width: 12px; text-align: center; opacity: 0.75; }
+body.dark-mode .acc-head-card { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.1); }
+
+/* Beds on the block against people who paid for one. The pair that has to be
+   read together, so they sit in one strip. */
+.acc-stats {
+  display: grid; gap: 12px; margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.acc-stat {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 13px;
+  background: var(--bg-card, #fff);
+}
+.acc-stat > b { font-size: 1.55rem; font-weight: 800; line-height: 1.1; color: var(--primary, #926c15); }
+.acc-stat > em {
+  font-style: normal; font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-secondary, #6c757d);
+}
+/* More people than beds is the one number on this screen that is a problem
+   rather than a fact. */
+.acc-stat.over { border-color: rgba(185, 28, 28, 0.45); background: rgba(185, 28, 28, 0.06); }
+.acc-stat.over > b { color: #b91c1c; }
+body.dark-mode .acc-stat { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .acc-stat > b { color: #f0c419; }
+body.dark-mode .acc-stat.over > b { color: #fca5a5; }
+
+.acc-warn, .acc-note {
+  display: flex; align-items: flex-start; gap: 11px;
+  margin: 0 0 16px; padding: 12px 15px;
+  border-radius: 12px;
+  font-size: 0.84rem; line-height: 1.55;
+  color: var(--text-secondary, #6c757d);
+}
+.acc-warn { border: 1px solid rgba(185, 28, 28, 0.35); background: rgba(185, 28, 28, 0.06); }
+.acc-warn > i { color: #b91c1c; font-size: 1rem; margin-top: 2px; }
+.acc-warn b { color: #b91c1c; }
+.acc-note { border: 1px solid var(--border-color, #e6e6e6); background: rgba(0, 0, 0, 0.02); }
+.acc-note > i { color: var(--secondary); margin-top: 2px; }
+body.dark-mode .acc-warn { background: rgba(185, 28, 28, 0.14); }
+body.dark-mode .acc-note { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.1); }
+
+/* ---- Each list in its own card ---- */
+.acc-panel {
+  margin-bottom: 20px; padding: 16px 18px 8px;
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 15px;
+  background: var(--bg-card, #fff);
+}
+.acc-panel-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.acc-panel-head h3 {
+  margin: 0; font-size: 1rem; font-weight: 800;
+  display: inline-flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+.acc-panel-head h3 > i { color: var(--secondary); }
+.acc-panel-actions {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+.acc-panel-actions > button, .acc-panel-actions > select { min-height: 40px; }
+.acc-panel .evt-pager { border-top: 1px solid var(--border-color, #eee); }
+body.dark-mode .acc-panel { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.1); }
+
+/* ---- Nothing booked yet ---- */
+.acc-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  padding: 34px 22px 30px; text-align: center;
+}
+.acc-empty > i { font-size: 2.2rem; color: var(--secondary); opacity: 0.8; }
+.acc-empty > b { font-size: 1.02rem; font-weight: 800; }
+.acc-empty > p {
+  margin: 0; max-width: 46ch;
+  font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary, #6c757d);
+}
+.acc-empty > button { margin-top: 6px; }
+
+/* ---- One card per room type ----
+   The venue's sheet says "FAMILY DELUXE - 308, 408 and 508 - GOOD FOR 4 PAX",
+   which is one description covering three rooms. So the card is the type: what
+   it sleeps, what is in it, how many there are, and the numbers as a preview.
+   Clicking it opens the rooms themselves. */
+.acc-type-grid {
+  display: grid; gap: 14px; margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr));
+}
+.acc-type-card {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 16px 17px;
+  border: 1px solid var(--border-color, #e6e6e6); border-left: 4px solid var(--secondary);
+  border-radius: 13px;
+  background: var(--bg-card, #fff);
+  text-align: left; font: inherit; color: inherit; cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.acc-type-card:hover {
+  border-color: var(--secondary);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.09);
+  transform: translateY(-2px);
+}
+.acc-type-name {
+  font-size: 0.95rem; font-weight: 800; letter-spacing: 0.02em;
+  text-transform: uppercase; color: var(--primary, #926c15);
+  line-height: 1.3;
+}
+.acc-type-desc {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 0.83rem; color: var(--text-secondary, #6c757d);
+}
+.acc-type-desc > b { font-size: 0.95rem; font-weight: 800; color: inherit; }
+.acc-type-desc > em {
+  font-style: normal; font-size: 0.79rem; opacity: 0.9;
+}
+.acc-type-foot {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 10px;
+  padding-top: 9px; border-top: 1px dashed var(--border-color, #e2e2e2);
+}
+.acc-type-count { display: flex; flex-direction: column; font-size: 0.8rem; }
+.acc-type-count > b { font-size: 1.15rem; font-weight: 800; line-height: 1.1; }
+.acc-type-count > em {
+  font-style: normal; font-size: 0.73rem; color: var(--text-secondary, #6c757d);
+}
+.acc-type-go {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.78rem; font-weight: 700; color: var(--primary, #926c15);
+  white-space: nowrap;
+}
+.acc-type-card:hover .acc-type-go { text-decoration: underline; }
+.acc-type-nums { display: flex; gap: 5px; flex-wrap: wrap; }
+.acc-type-nums > em {
+  font-style: normal; font-size: 0.74rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 8px; border-radius: 6px;
+  background: rgba(201, 152, 11, 0.13); color: var(--primary, #926c15);
+}
+.acc-type-nums > em.more { background: rgba(0, 0, 0, 0.06); color: var(--text-secondary, #6c757d); }
+body.dark-mode .acc-type-card { background: #22222f; border-color: rgba(255, 255, 255, 0.1); border-left-color: var(--secondary); }
+body.dark-mode .acc-type-name, body.dark-mode .acc-type-go { color: #f0c419; }
+body.dark-mode .acc-type-nums > em { background: rgba(240, 196, 25, 0.16); color: #f0c419; }
+body.dark-mode .acc-type-foot { border-top-color: rgba(255, 255, 255, 0.12); }
+
+/* Back out of one type to all of them. Reads as a step back, not a button. */
+.acc-crumb {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-color, #e0e0e0); border-radius: 9px;
+  background: transparent; font: inherit; font-size: 0.8rem; font-weight: 700;
+  color: var(--text-secondary, #6c757d); cursor: pointer;
+}
+.acc-crumb:hover { border-color: var(--secondary); color: var(--primary, #926c15); }
+.acc-type-title { flex-wrap: wrap; }
+.acc-type-title > em {
+  font-style: normal; font-size: 0.79rem; font-weight: 600;
+  color: var(--text-secondary, #6c757d);
+}
+
+/* Every room in one table, for checking the whole block at once. Folded away
+   by default - the cards above are the way in. */
+.acc-allrooms { margin-bottom: 8px; }
+.acc-allrooms > summary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 13px; margin-bottom: 10px;
+  border: 1px solid var(--border-color, #e0e0e0); border-radius: 9px;
+  font-size: 0.8rem; font-weight: 700;
+  color: var(--text-secondary, #6c757d); cursor: pointer;
+  list-style: none;
+}
+.acc-allrooms > summary::-webkit-details-marker { display: none; }
+.acc-allrooms > summary:hover { border-color: var(--secondary); color: var(--primary, #926c15); }
+.acc-allrooms > summary > i { color: var(--secondary); }
+.acc-allrooms .evt-pager { border-top: 1px solid var(--border-color, #eee); }
+body.dark-mode .acc-allrooms .evt-pager { border-top-color: rgba(255, 255, 255, 0.1); }
+
+/* ---- The rooms table, and the chips in it ---- */
+.acc-num-chip {
+  display: inline-block; padding: 4px 10px;
+  border-radius: 8px; background: rgba(201, 152, 11, 0.14);
+  font-weight: 800; font-variant-numeric: tabular-nums;
+  color: var(--primary, #926c15);
+}
+.acc-beds { display: flex; gap: 6px; flex-wrap: wrap; }
+.acc-bed-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 0.76rem; font-weight: 600;
+}
+.acc-bed-chip > i { font-size: 0.72em; opacity: 0.6; }
+.acc-table td[data-label="Notes"] { max-width: 220px; }
+body.dark-mode .acc-num-chip { background: rgba(240, 196, 25, 0.18); color: #f0c419; }
+body.dark-mode .acc-bed-chip { background: rgba(255, 255, 255, 0.08); }
+
+/* ---- Adding a room ---- */
+.acc-modal { max-width: 620px; }
+.acc-form { display: flex; flex-direction: column; gap: 16px; }
+.acc-field { display: flex; flex-direction: column; gap: 6px; }
+.acc-field > span { font-size: 0.8rem; font-weight: 700; }
+.acc-field > input, .acc-field > select {
+  height: 42px; padding: 0 12px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.15)); border-radius: 10px;
+  background: var(--bg-card, #fff); color: inherit;
+  font: inherit; font-size: 0.88rem;
+}
+.acc-field > input:focus { outline: none; border-color: var(--primary, #926c15); }
+.acc-field > em {
+  font-style: normal; font-size: 0.76rem; line-height: 1.5;
+  color: var(--text-secondary, #6c757d);
+}
+.acc-field-pax > input { max-width: 140px; }
+/* The types this event already uses, one tap each. Typing "Executive" a
+   second time by hand is how one type becomes two. */
+.acc-type-picks { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.acc-type-pick {
+  padding: 5px 11px;
+  border: 1px solid var(--border-color, #ddd); border-radius: 999px;
+  background: transparent; font: inherit; font-size: 0.76rem; font-weight: 700;
+  color: var(--text-secondary, #6c757d); cursor: pointer;
+}
+.acc-type-pick:hover { border-color: var(--secondary); color: var(--primary, #926c15); }
+.acc-type-pick.on {
+  border-color: var(--secondary); background: rgba(201, 152, 11, 0.14);
+  color: var(--primary, #926c15);
+}
+body.dark-mode .acc-field > input { background: #2a2a3a; border-color: rgba(255, 255, 255, 0.18); }
+body.dark-mode .acc-type-pick.on { background: rgba(240, 196, 25, 0.16); color: #f0c419; }
+
+/* The bed list: a count, a name, and a way to drop the row. Narrow count
+   field on purpose - it is a number of beds, never a number of people. */
+.acc-beds-editor { display: flex; flex-direction: column; gap: 8px; }
+.acc-bed-row { display: flex; align-items: center; gap: 8px; }
+.acc-bed-count, .acc-bed-type {
+  height: 42px; padding: 0 12px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.15)); border-radius: 10px;
+  background: var(--bg-card, #fff); color: inherit;
+  font: inherit; font-size: 0.88rem;
+}
+.acc-bed-count { width: 80px; text-align: center; font-weight: 700; }
+.acc-bed-type { flex: 1; min-width: 0; }
+.acc-bed-count:focus, .acc-bed-type:focus { outline: none; border-color: var(--primary, #926c15); }
+.acc-bed-del {
+  width: 38px; height: 38px; flex: 0 0 auto;
+  border: 1px solid var(--border-color, #e0e0e0); border-radius: 10px;
+  background: transparent; color: var(--text-secondary, #6c757d);
+  cursor: pointer;
+}
+.acc-bed-del:hover { border-color: #b91c1c; color: #b91c1c; background: rgba(185, 28, 28, 0.08); }
+.acc-bed-add { align-self: flex-start; }
+body.dark-mode .acc-bed-count, body.dark-mode .acc-bed-type {
+  background: #2a2a3a; border-color: rgba(255, 255, 255, 0.18);
+}
+
+@media (max-width: 720px) {
+  .acc-panel { padding: 14px 13px 6px; }
+  .acc-panel-actions { margin-left: 0; width: 100%; }
+  .acc-panel-actions > button, .acc-panel-actions > select { flex: 1 1 auto; }
+  .acc-picker-head > button { width: 100%; }
+  .acc-head-card { gap: 12px; }
+  .acc-head-poster { width: 58px; }
+  .acc-type-foot { align-items: center; }
+}
+
+/* ============================================================
+   The room desk - names in the rooms, inside the event
+   ============================================================
+   The Accommodation screen books the rooms; this tab fills them. Same type
+   cards as that screen (.acc-type-*), so moving between the two does not feel
+   like moving between two products - with occupancy added, because here the
+   question is not "what have we booked" but "who is in it". */
+.rmn-stats { margin-bottom: 16px; }
+.rmn-head { margin-bottom: 8px; }
+.rmn-lede {
+  margin: 0 0 16px; max-width: 72ch;
+  font-size: 0.84rem; line-height: 1.6;
+  color: var(--text-secondary, #6c757d);
+}
+
+/* How full a type is. A bar, because "4 of 12" is read as a shape long before
+   it is read as a number. */
+.rmn-fill { display: flex; flex-direction: column; gap: 5px; }
+.rmn-fill-bar {
+  height: 6px; border-radius: 999px; overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+}
+.rmn-fill-bar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary, #926c15), var(--secondary, #c9980b));
+  transition: width 0.3s ease;
+}
+.rmn-fill > em {
+  font-style: normal; font-size: 0.74rem;
+  color: var(--text-secondary, #6c757d);
+}
+/* A type with no space left is not a failure, it is a job finished - so it
+   goes green rather than red. */
+.acc-type-card.full { border-left-color: #16a34a; }
+.acc-type-card.full .rmn-fill-bar > span { background: #16a34a; }
+body.dark-mode .rmn-fill-bar { background: rgba(255, 255, 255, 0.12); }
+
+/* ---- One card per room ---- */
+.rmn-room-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+}
+.rmn-room {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 14px 15px;
+  border: 1px solid var(--border-color, #e6e6e6); border-radius: 13px;
+  background: var(--bg-card, #fff);
+}
+.rmn-room.full { border-color: rgba(22, 163, 74, 0.45); background: rgba(22, 163, 74, 0.04); }
+.rmn-room-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rmn-room-count {
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 0.75rem; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, #6c757d);
+}
+.rmn-room-count.full { background: rgba(22, 163, 74, 0.16); color: #15803d; }
+.rmn-room-beds { font-size: 0.77rem; color: var(--text-secondary, #6c757d); }
+.rmn-room-none {
+  padding: 10px 0; font-size: 0.79rem; font-style: italic;
+  color: var(--text-muted, #999);
+}
+
+/* Who is in it. A list, not a table: it is two or four names, and the two
+   corrections that get made at a desk sit on each line. */
+.rmn-guests { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.rmn-guests > li {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color, #eee); border-radius: 10px;
+  background: rgba(0, 0, 0, 0.015);
+}
+.rmn-guests > li.busy { opacity: 0.6; }
+.rmn-guest-name {
+  flex: 1; min-width: 110px;
+  display: flex; flex-direction: column;
+  font-size: 0.85rem; font-weight: 700; line-height: 1.35;
+}
+.rmn-guest-name > em {
+  font-style: normal; font-weight: 500; font-size: 0.74rem;
+  color: var(--text-secondary, #6c757d);
+}
+.rmn-guest-acts { display: flex; align-items: center; gap: 6px; }
+/* The move control IS the edit: the correction that actually gets made at a
+   front desk is "that family is in the wrong room". */
+.rmn-move {
+  max-width: 130px; height: 34px; padding: 0 8px;
+  border: 1px solid var(--border-color, #ddd); border-radius: 9px;
+  background: var(--bg-card, #fff); color: inherit;
+  font: inherit; font-size: 0.78rem; cursor: pointer;
+}
+.rmn-move:focus { outline: none; border-color: var(--primary, #926c15); }
+.rmn-guests-lg > li { padding: 10px 12px; }
+.rmn-guests-lg .rmn-move { max-width: 160px; height: 38px; }
+body.dark-mode .rmn-room { background: #22222f; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .rmn-room.full { background: rgba(22, 163, 74, 0.1); }
+body.dark-mode .rmn-guests > li { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .rmn-move { background: #2a2a3a; border-color: rgba(255, 255, 255, 0.18); }
+body.dark-mode .rmn-room-count { background: rgba(255, 255, 255, 0.1); color: #bbb; }
+
+/* The button that opens the desk. Full width at the foot of the card, because
+   it is the one thing a room card is for. */
+.rmn-scan-btn {
+  margin-top: auto; width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px; border: none; border-radius: 9px;
+  background: linear-gradient(135deg, var(--primary, #926c15), var(--secondary, #c9980b));
+  color: #fff; font: inherit; font-weight: 700; font-size: 0.83rem;
+  cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.rmn-scan-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(146, 108, 21, 0.34); }
+.rmn-scan-btn:disabled {
+  background: rgba(22, 163, 74, 0.14); color: #15803d;
+  cursor: default; font-weight: 700;
+}
+body.dark-mode .rmn-scan-btn:disabled { background: rgba(22, 163, 74, 0.2); color: #4ade80; }
+
+/* The line under a name at the desk when the assignment worked. Green, and
+   loud, because at a counter it is read from arm's length. */
+.rmn-ok {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 3px 0;
+  font-size: 0.84rem; font-weight: 800; color: #15803d;
+}
+body.dark-mode .rmn-ok { color: #4ade80; }

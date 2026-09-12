@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import './home.css';
 import { withTitleCase } from '@/lib/eventTitle';
+import { eventSlug, findEventBySlug, slugFromPath } from '@/lib/eventSlug';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
 
 // ============================================
@@ -159,6 +160,36 @@ const evtStatus = (startStr, endStr) => {
   return 'ended';
 };
 
+// Whether registration is actually open for an event, and when it is not, why.
+// The details modal reads this to decide what its button says; the magic-link
+// handler reads the same thing to decide between opening the form and opening
+// the poster, so a shared link to a full event explains itself rather than
+// dropping somebody into a form the server would only turn away.
+const evtRegGate = (evt) => {
+  const left = evt?.slots_left != null
+    ? evt.slots_left
+    : (evt?.max_participants ? Math.max(0, evt.max_participants - (evt.registered_count || 0)) : null);
+  // Registration can be scheduled to open later; until that moment the button
+  // is dead rather than letting someone submit and be rejected.
+  const opensAt = evtDate(evt?.registration_start_date);
+  const closesAt = evtDate(evt?.registration_deadline);
+  return {
+    left,
+    opensAt,
+    required: evt?.registration_required !== false,
+    full: left != null && left <= 0,
+    notOpenYet: !!opensAt && Date.now() < opensAt.getTime(),
+    closed: !!closesAt && Date.now() > closesAt.getTime(),
+  };
+};
+
+// The one question the magic link needs answered: can this person register
+// right now?
+const evtRegOpen = (evt) => {
+  const gate = evtRegGate(evt);
+  return gate.required && !gate.full && !gate.notOpenYet && !gate.closed;
+};
+
 // "Saturday, September 26, 2025 at 9:00 AM - Monday, September 28 at 5:00 PM"
 // The old version formatted end_date with hour+minute ONLY, so a multi-day
 // event read as "September 26 at 9:00 AM - 5:00 PM" and silently lost the
@@ -189,6 +220,7 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // ============================================
 export default function HomePage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [darkMode, setDarkMode] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
@@ -429,6 +461,25 @@ export default function HomePage() {
       setCopiedField(field);
       setTimeout(() => setCopiedField(''), 1800);
     } catch { /* clipboard blocked - the number is still on screen to read */ }
+  };
+
+  // The event's own link, to paste into a group chat. Phones get their native
+  // share sheet; everything else falls back to copying it.
+  const shareEventLink = async (evt) => {
+    const slug = eventSlug(evt);
+    if (!slug || typeof window === 'undefined') return;
+    const url = `${window.location.origin}/${slug}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: evt.title, text: `Register for ${evt.title}`, url });
+        return;
+      } catch (err) {
+        // Dismissing the share sheet is a decision, not a failure - only a
+        // browser that could not open it at all falls through to the clipboard.
+        if (err?.name === 'AbortError') return;
+      }
+    }
+    copyToClipboard(url, 'event-link');
   };
 
   // A calendar entry for the event, generated in the browser. Opening the file
@@ -1138,6 +1189,94 @@ export default function HomePage() {
     loadNews();
   }, [eventsVersion]);
 
+  // ---- Magic links: /miracle-working-god-cebu-event -----------------------
+  // next.config.mjs rewrites any single-segment path with no page of its own
+  // to this page, so the slug someone was sent is still sitting in the address
+  // bar. It is matched against the published events (lib/eventSlug.js) and
+  // that event's registration is opened straight away - the point of the link
+  // is that the person who taps it never has to find the event themselves.
+  //
+  // The whole published list is asked for rather than the News section's top
+  // eight, because a link is just as likely to point at the ninth event.
+  const linkSlugRef = useRef('');   // the slug already acted on: closing the modal must not reopen it
+  const linkOwnsUrlRef = useRef(false); // an event link is up because this page put it there
+  const [linkResolving, setLinkResolving] = useState(false);
+  const [linkMiss, setLinkMiss] = useState('');  // a link that matched nothing, shown as a notice
+
+  useEffect(() => {
+    const slug = slugFromPath(pathname);
+    // Every path that is not a magic link - "/" included - lands here, and so
+    // does the "/" this effect itself restores when a modal closes.
+    if (!slug || linkSlugRef.current === slug) return undefined;
+    linkSlugRef.current = slug;
+
+    let cancelled = false;
+    setLinkResolving(true);
+    (async () => {
+      try {
+        const res = await fetch('/api/events?limit=200&published=true');
+        const json = res.ok ? await res.json() : null;
+        const match = findEventBySlug(json?.success && Array.isArray(json.data) ? json.data : [], slug);
+        if (cancelled) return;
+        if (!match) { setLinkMiss(slug); return; }
+        linkOwnsUrlRef.current = true;
+
+        const evt = withTitleCase(match);
+        // Behind the dialog, put them on the events section rather than the
+        // hero, so closing it leaves them looking at the event they came for.
+        document.getElementById('news')?.scrollIntoView({ block: 'start' });
+        // A full, closed or not-yet-open event opens its poster instead: the
+        // modal then says why in place of the Register button.
+        if (evtRegOpen(evt)) handlePublicRegister(evt);
+        else setDetailEvent(evt);
+      } catch {
+        if (!cancelled) setLinkMiss(slug);
+      } finally {
+        if (!cancelled) setLinkResolving(false);
+      }
+    })();
+    // Cleanup runs before the next effect body, so a slug that supersedes this
+    // one turns the overlay straight back on - it is only left off when there
+    // is genuinely nothing being looked up any more.
+    return () => { cancelled = true; setLinkResolving(false); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  // A link that matched nothing says so, then gets out of the way.
+  useEffect(() => {
+    if (!linkMiss) return undefined;
+    const t = setTimeout(() => setLinkMiss(''), 9000);
+    return () => clearTimeout(t);
+  }, [linkMiss]);
+
+  // Keep the address bar on the event's own link for as long as its dialog is
+  // up, so the tab can be shared exactly as it stands, and hand "/" back when
+  // it closes. history.replaceState rather than the router: this is a cosmetic
+  // URL, and a real navigation would tear down a half-filled form.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const open = guestRegEvent || regChoiceEvent || detailEvent;
+    const slug = open ? eventSlug(open) : '';
+
+    // Nothing open. "/" goes back only if this page is what put an event link
+    // in the address bar - on first load that link is the one the visitor
+    // arrived on, and it is still being looked up. Wiping it there cancelled
+    // the very lookup it was for.
+    if (!slug && !linkOwnsUrlRef.current) return;
+    // Claim the slug before writing it: the address bar is what the resolver
+    // above watches, and a link this page wrote itself has already been acted
+    // on. Without this, opening an event would immediately "resolve" its own
+    // URL and reopen the dialog from the top, wiping a half-filled form.
+    if (slug) linkSlugRef.current = slug;
+    linkOwnsUrlRef.current = !!slug;
+
+    const target = slug ? `/${slug}` : '/';
+    if (window.location.pathname === target) return;
+    try {
+      window.history.replaceState(window.history.state, '', target + window.location.search + window.location.hash);
+    } catch { /* the dialog matters more than the address bar */ }
+  }, [guestRegEvent, regChoiceEvent, detailEvent]);
+
 
   // ---- Scroll listener ----
   useEffect(() => {
@@ -1727,6 +1866,29 @@ If you don't know something specific, professionally encourage the user to conta
           </div>
         </div>
       </section>
+
+      {/* ---- MAGIC LINK: looking the event up ---- */}
+      {/* A shared link opens the page, then has to find the event before the
+          form can come up. That gap is covered rather than left looking like
+          nothing happened. */}
+      {linkResolving && (
+        <div className="hp-link-loading" role="status" aria-live="polite">
+          <span className="hp-link-spinner" aria-hidden="true"></span>
+          <span>Opening your registration&hellip;</span>
+        </div>
+      )}
+
+      {/* A link whose event has been renamed, unpublished or taken down. */}
+      {linkMiss && (
+        <div className="hp-link-miss" role="alert">
+          <i className="fas fa-link-slash"></i>
+          <div>
+            <strong>That registration link isn&apos;t available.</strong>
+            <span>The event may have been renamed or closed. Here&apos;s everything coming up.</span>
+          </div>
+          <button type="button" onClick={() => setLinkMiss('')} aria-label="Dismiss"><i className="fas fa-times"></i></button>
+        </div>
+      )}
 
       {/* ---- HOW DO YOU WANT TO REGISTER? ---- */}
       {regChoiceEvent && (
@@ -2916,15 +3078,17 @@ If you don't know something specific, professionally encourage the user to conta
                 )}
               </div>
 
+              {/* The event's own link, so anyone looking at the poster can pass
+                  it on: whoever opens it lands right back on this registration. */}
+              {eventSlug(detailEvent) && (
+                <button type="button" className="hp-evt-share" onClick={() => shareEventLink(detailEvent)}>
+                  <i className={`fas ${copiedField === 'event-link' ? 'fa-check' : 'fa-share-nodes'}`}></i>
+                  {copiedField === 'event-link' ? 'Link copied' : 'Share this event'}
+                </button>
+              )}
+
               {detailEvent.registration_required !== false && (() => {
-                const left = detailEvent.slots_left != null ? detailEvent.slots_left : (detailEvent.max_participants ? Math.max(0, detailEvent.max_participants - (detailEvent.registered_count || 0)) : null);
-                const full = left != null && left <= 0;
-                // Registration can be scheduled to open later; until that moment the
-                // button is dead rather than letting someone submit and be rejected.
-                const opensAt = evtDate(detailEvent.registration_start_date);
-                const notOpenYet = opensAt && !Number.isNaN(opensAt.getTime()) && Date.now() < opensAt.getTime();
-                const closesAt = evtDate(detailEvent.registration_deadline);
-                const closed = closesAt && !Number.isNaN(closesAt.getTime()) && Date.now() > closesAt.getTime();
+                const { full, notOpenYet, closed, opensAt } = evtRegGate(detailEvent);
 
                 if (notOpenYet) {
                   return (

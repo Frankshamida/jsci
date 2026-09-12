@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
+import { BED_TYPES, MAX_PAX, bedsSleep, bedsToText, compareRoomNumbers, parseRoomNumbers, roomEntitlement, roomTypeName } from '@/lib/rooms';
 import { supabase } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, formatUid } from '@/lib/rfid';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
@@ -12,6 +13,7 @@ import { moderateMessage, detectInappropriateWords } from '@/lib/contentModerati
 import SmartImage from '@/components/SmartImage';
 import './dashboard.css';
 import { withTitleCase } from '@/lib/eventTitle';
+import { eventSlugFor } from '@/lib/eventSlug';
 import ProofDrop from '@/components/ProofDrop';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 
@@ -125,6 +127,44 @@ const eventSessionsToShow = (evt) => {
 
 const EventLocationPicker = dynamic(() => import('@/components/EventLocationPicker'), { ssr: false });
 
+// ---- Has this person's visit to a counter actually been written down? ----
+//
+// The kit and meal counters both work the same way: a card is tapped, a name
+// appears, and something is recorded against it. The one thing that must not
+// happen is the middle step without the last one - a card read and then
+// skipped leaves somebody who walked off with a kit or a meal with nothing
+// against their name, and afterwards nobody can tell whether they got it.
+//
+// So this is the question the desk asks before it will move on:
+//   the kit   is one thing, marked claimed with the button at the foot
+//   a meal    belongs to a day, so it is the day being served that counts -
+//             Day 1 lunch is not what Day 2 lunch being ticked means
+//
+// Kept out of the component because two separate places need the same answer
+// and two copies of it would drift.
+// A blank room form. One bed row is shown from the start rather than an empty
+// list with an Add button: a room has a bed in it, and the fields being
+// visible is what tells somebody they are meant to be filled in.
+const BLANK_ROOM_FORM = {
+  roomType: '',
+  roomNumbers: '',
+  // Left blank means "however many the beds sleep" - the server works it out.
+  pax: '',
+  beds: [{ type: '', count: 1 }],
+  notes: '',
+};
+
+const claimDeskRecorded = (desk, who, dayNumber) => {
+  if (!desk || !who || who.result !== 'matched') return true;
+  // Nothing can be recorded for somebody who is not allowed to collect -
+  // not checked in, not verified - so there is nothing to hold the queue for.
+  if (who.blocked) return true;
+  const held = who.claims || {};
+  if (desk === 'kit') return !!held['kit-0'];
+  const day = Number(dayNumber) || 1;
+  return ['lunch', 'dinner'].some((meal) => !!held[`${meal}-${day}`]);
+};
+
 // Offered under the Province field so the same province is always spelled the
 // same way - the events list groups on this, and "Cebu" and "cebu province"
 // would read as two places. Typing something not on the list is still allowed.
@@ -153,6 +193,7 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // Known dashboard sections reachable via clean URLs (e.g. /bible-reader).
 // Any other/unknown path resolves to 'home' so the content is never blank.
 const VALID_SECTIONS = new Set([
+  'accommodation',
   'home', 'announcements', 'announcements-management', 'attendance-management', 'audit-logs',
   'bible-reader', 'cloudinary-usage', 'community-events', 'community-hub', 'create-lineup',
   'daily-quote', 'events', 'events-management', 'isom-management', 'live-stream-management',
@@ -680,7 +721,7 @@ export default function DashboardPage() {
   const [eventRegsModal, setEventRegsModal] = useState(null); // event object being managed (registrations/attendance page)
   const [eventRegs, setEventRegs] = useState([]);
   const [eventRegsLoading, setEventRegsLoading] = useState(false);
-  const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance' | 'installments' | 'bin'
+  const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance' | 'accommodation' | 'installments' | 'bin'
   // Admin/Super Admin manually adding a walk-in / offline registration
   const [showAdminAddReg, setShowAdminAddReg] = useState(false);
   const [adminAddRegForm, setAdminAddRegForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '', markVerified: true });
@@ -718,6 +759,11 @@ export default function DashboardPage() {
   const [memberBulkDraft, setMemberBulkDraft] = useState({ firstName: '', lastName: '', addonIds: [] });
   const [memberBulkEditing, setMemberBulkEditing] = useState(null); // index being edited, or null while adding
   const [memberBulkError, setMemberBulkError] = useState('');
+  // Is the representative coming as well? Booking a group is not the same as
+  // going to the event: a member may be sending people without going along,
+  // and is then not a seat and not a line on the bill. Only asked of a
+  // member who does not already hold a slot - one they hold answers it.
+  const [memberRepJoining, setMemberRepJoining] = useState(true);
   const [memberDupNames, setMemberDupNames] = useState([]);         // names already registered for this event (lower-cased)
   const [openGroupQr, setOpenGroupQr] = useState({});               // which attendee's QR is open on a group receipt
   // "Pay Now" modal — for registrations that were free at signup but now require payment
@@ -986,6 +1032,21 @@ export default function DashboardPage() {
   const [rfidNfcSupported, setRfidNfcSupported] = useState(false);
   const [rfidSecureContext, setRfidSecureContext] = useState(true);
   const [rfidNfcStatus, setRfidNfcStatus] = useState('idle'); // idle | starting | scanning | error
+  // What kind of machine this is, because the answer decides which reader is
+  // even possible. A phone has an aerial and can never have a serial port; a
+  // computer is the other way round. Asked once after mount and then treated
+  // as fact - 'desktop' until then, which is what the server renders.
+  const [rfidDeviceKind, setRfidDeviceKind] = useState('desktop'); // desktop | phone
+  // The same answer, readable from inside a handler without making that
+  // handler depend on a render.
+  const rfidIsPhoneRef = useRef(false);
+  // The phone would not start its scan without a tap. Not an error worth a
+  // banner - the next tap anywhere starts it - but the panel has to say so.
+  const [rfidNfcNeedsTap, setRfidNfcNeedsTap] = useState(false);
+  // Stopped on purpose. The aerial otherwise arms itself from any tap, which
+  // would make Stop do nothing at all - so a deliberate stop is remembered
+  // until the desk is closed or NFC is turned back on by hand.
+  const [rfidNfcHalted, setRfidNfcHalted] = useState(false);
   // What the phone said when it saw a card it could not read. A card that is
   // the wrong kind and a phone with NFC switched off are the same silence
   // otherwise, and they have nothing to do with each other.
@@ -1099,6 +1160,12 @@ export default function DashboardPage() {
   const rfidPortRef = useRef(null);
   const rfidReaderRef = useRef(null);
   const rfidKeepReadingRef = useRef(false);
+  // The write side of the same port. The board is not only a reader: once the
+  // server has said whose card that was, the answer goes back down the wire so
+  // the LCD at the door can show the name. Held separately from the reader
+  // because the two locks are released independently, and a writer left locked
+  // keeps the port open after a disconnect.
+  const rfidWriterRef = useRef(null);
   // The keyboard-wedge buffer, and when its last character arrived.
   const rfidKeyRef = useRef({ buf: '', at: 0 });
   const rfidBoxRef = useRef(null);
@@ -1886,6 +1953,9 @@ export default function DashboardPage() {
     if (sectionId === 'isom-management') loadIsomContent();
     if (sectionId === 'isom-inquiries') loadIsomInquiries();
     if (sectionId === 'payment-methods') loadPaymentMethods();
+    // The rooms belong to an event, so the events are what this screen opens
+    // on. The rooms and the attendee list are loaded once one is picked.
+    if (sectionId === 'accommodation') loadEvents();
     if (['events', 'events-management', 'my-created-events', 'community-events'].includes(sectionId)) loadActivePaymentMethods();
     if (sectionId === 'permissions-control') { loadPermissionOverrides(); } else { setPermCtrlUnlocked(false); setPermCtrlPasswordInput(''); setPermCtrlPasswordError(''); }
     if (sectionId === 'create-lineup') { loadScheduleData(); loadLineupExcuses(); loadSubRequests(); loadPawMembers(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
@@ -3199,6 +3269,37 @@ export default function DashboardPage() {
     return ids
       .map((id) => activePaymentMethods.find((m) => m.id === id))
       .filter(Boolean);
+  };
+
+  // The event's public "magic link". Whoever opens it lands on the home page
+  // with this event's registration already up, which is what makes it worth
+  // pasting into a group chat instead of "go to the site and scroll down".
+  // The year is only appended when another event would answer to the same
+  // link - see lib/eventSlug.js.
+  const copyEventLink = async (evt) => {
+    const slug = eventSlugFor(evt, events);
+    if (!slug) { showToast('Give the event a title first, then it can be shared', 'warning'); return; }
+    const url = `${window.location.origin}/${slug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Registration link copied', 'success');
+    } catch {
+      // Clipboard permission is routinely refused outside https - copy it the
+      // old way rather than leaving the admin with nothing to paste.
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('Registration link copied', 'success');
+      } catch {
+        showToast('Unable to copy the link', 'warning');
+      }
+    }
   };
 
   const copyPaymentDetail = async (label, value) => {
@@ -4674,6 +4775,13 @@ export default function DashboardPage() {
   };
 
   const closeEventManage = () => {
+    // The room desk is a dialog inside this modal, and a desk left open would
+    // keep the card reader pointed at a room belonging to an event nobody is
+    // looking at any more.
+    setRoomDesk(null);
+    setEvtRoomTypeOpen('');
+    setEvtRooms([]);
+    setEvtRoomGuests([]);
     // Locked again on the way out. An unlocked table left open is the thing
     // the lock exists to prevent, and nobody remembers to re-lock.
     setEvtUnlocked(false);
@@ -4796,18 +4904,6 @@ export default function DashboardPage() {
     const first = words[0].charAt(0);
     const last = words.length > 1 ? words[words.length - 1].charAt(0) : '';
     return (first + last).toUpperCase();
-  };
-
-  // Contact numbers get copied into GCash / a phone dialler constantly, so the
-  // cell is a click rather than a select-and-drag.
-  const [copiedContact, setCopiedContact] = useState('');
-  const copyContact = async (value) => {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedContact(value);
-      setTimeout(() => setCopiedContact((v) => (v === value ? '' : v)), 1600);
-    } catch { showToast('Could not copy the number', 'danger'); }
   };
 
   // The receipt view: the uploaded proof beside what the attendee actually owes,
@@ -5725,6 +5821,9 @@ export default function DashboardPage() {
     setMemberBulkEditing(null);
     setMemberBulkError('');
     setMemberDupNames([]);
+    // A group opens with the representative coming too - that is the usual
+    // case. Untick it and the booking is purely for other people.
+    setMemberRepJoining(true);
   };
 
   const closeRegisterModal = () => {
@@ -5783,10 +5882,16 @@ export default function DashboardPage() {
   const memberRepTopUpAddons = () => (registerModal?.event_addons || []).filter((x) => memberRepNewAddonIds.includes(x.id));
   const memberRepTopUpTotal = () => memberRepTopUpAddons().reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
 
+  // Whether the representative takes a seat in THIS submission: they are
+  // joining, and do not already hold one. A representative who is only sending
+  // other people is not registered and not charged - the group is the whole of
+  // what is being booked.
+  const memberRepTakesSeat = memberIsBulk && !memberRepLocked && memberRepJoining;
+
   // The representative as a roster entry - present only when they still need a
   // slot. `isRep` is sent to the server, and is what makes that one row theirs
   // (their QR, their cancellation, their "already registered" check).
-  const memberRepAsAttendee = () => ((memberIsBulk && !memberRepLocked
+  const memberRepAsAttendee = () => ((memberRepTakesSeat
     && registerForm.attendeeFirstName.trim() && registerForm.attendeeLastName.trim())
     ? {
         firstName: registerForm.attendeeFirstName.trim(),
@@ -5861,7 +5966,9 @@ export default function DashboardPage() {
     if (key === memberNameKey(registerForm.attendeeFirstName, registerForm.attendeeLastName)) {
       setMemberBulkError(memberRepLocked
         ? 'That is you - you already have a slot for this event.'
-        : 'That is you - you are already on the list as the representative.');
+        : (memberRepJoining
+          ? 'That is you - you are already on the list as the representative.'
+          : 'That is you - tick "I am joining this event too" above to take a slot for yourself.'));
       return;
     }
     const clash = memberBulkList.findIndex((a, i) => i !== memberBulkEditing && memberNameKey(a.firstName, a.lastName) === key);
@@ -6109,6 +6216,10 @@ export default function DashboardPage() {
         }))));
         // Who to call about this booking - stored on every row of the group.
         fd.append('representative', memberRepName());
+        // ...and whether that person is also attending. Sent explicitly because
+        // the server otherwise matches the representative to a row by name, and
+        // a namesake on the list must not end up holding this account's slot.
+        fd.append('repAttending', memberRepTakesSeat ? '1' : '0');
         // Extras being availed on the slot the representative already holds.
         if (memberRepLocked && memberRepNewAddonIds.length > 0) {
           fd.append('repAddonTopUp', JSON.stringify(memberRepNewAddonIds));
@@ -9029,6 +9140,39 @@ Examples:
     setRfidLastHeard(new Date());
   }, []);
 
+  // Talking back to the board.
+  //
+  // The desk knows the one thing the reader never can: whose card that was.
+  // An Uno has no network of its own, so a name on the LCD at the door can
+  // only have come from here - the browser looks the card up and sends the
+  // answer back down the same USB cable the number arrived on.
+  //
+  // One line, newline terminated, and the prefix is the whole protocol:
+  //
+  //   OK:Juan Dela Cruz     on the list - green light, one beep
+  //   DUP:Juan Dela Cruz    already through the door for this day
+  //   NO:Not on this list   refused - red light
+  //
+  // None of this is required for a tap to work. A desk with no LCD, a board
+  // running the library's DumpInfo example, a USB keyboard-wedge reader - none
+  // of them has a writer at all, and every one still checks people in exactly
+  // as before. This is a display, not a step in the decision.
+  const sendToReader = useCallback(async (prefix, text) => {
+    const writer = rfidWriterRef.current;
+    if (!writer) return;
+    // Two kilobytes of RAM and a sixteen character screen. A long church name
+    // arriving in full would be read into a buffer that cannot hold it, which
+    // on an AVR is not an error - it is silent corruption of whatever sits
+    // next to it. Cut it here, where there is room to think about it.
+    const line = `${prefix}:${String(text || '').replace(/\s+/g, ' ').trim().slice(0, 40)}\n`;
+    try {
+      await writer.write(new TextEncoder().encode(line));
+    } catch {
+      // The board was unplugged mid-queue. The tap already counted on the
+      // server, so this is cosmetic and must not surface as a failure.
+    }
+  }, []);
+
   const loadRfidCards = useCallback(async () => {
     try {
       setRfidLoading(true);
@@ -9081,6 +9225,15 @@ Examples:
 
       setRfidLast(data);
 
+      // The LCD at the desk, if there is one on this board.
+      const memberName = `${data.user?.firstname || ''} ${data.user?.lastname || ''}`.trim();
+      sendToReader(
+        data.result === 'matched' ? 'OK' : 'NO',
+        data.result === 'matched' ? (memberName || 'Member')
+          : data.result === 'inactive' ? 'Card marked lost'
+            : 'Card not issued',
+      );
+
       if (data.result === 'unknown') {
         // An unregistered card is not a failure - it is the moment to hand it
         // to somebody. Open the form with the number already in it.
@@ -9106,7 +9259,7 @@ Examples:
       // Put the caret back in the scan box so the next tap lands somewhere.
       setTimeout(() => rfidBoxRef.current?.focus(), 50);
     }
-  }, [userData?.id, rfidAutoAttend, adminUsers.length, showToast, loadRfidScans]);
+  }, [userData?.id, rfidAutoAttend, adminUsers.length, showToast, loadRfidScans, sendToReader]);
 
   // Every event with its card counts, in one request. Drawn as the landing
   // view, so it is asked for before anything has been clicked.
@@ -9162,6 +9315,7 @@ Examples:
         const data = await res.json();
         if (!data.success) { showToast(data.message, 'danger'); setRfidError(data.message); return; }
         showToast(data.message, 'success');
+        sendToReader('OK', `Card: ${rfidHandTo.attendee_name || 'given'}`);
         setRfidHandTo(null);
         loadRfidRegs(rfidEventId);
         return;
@@ -9173,7 +9327,26 @@ Examples:
         body: JSON.stringify({ uid, eventId: rfidEventId, source: source || 'manual', actorId: userData?.id || null }),
       });
       const data = await res.json();
-      if (!data.success) { setRfidError(data.message); showToast(data.message, 'danger'); return; }
+      if (!data.success) {
+        sendToReader('NO', data.message);
+        setRfidError(data.message); showToast(data.message, 'danger'); return;
+      }
+
+      // Back to the door. The board has been showing "Checking..." since the
+      // tap and has no way to resolve it on its own - every branch below has
+      // to answer, including the refusals, or the screen sticks until it
+      // times out and the queue learns to ignore it.
+      sendToReader(
+        data.result === 'checked_in' ? 'OK'
+          : data.result === 'already_in' ? 'DUP'
+            : 'NO',
+        data.result === 'checked_in' || data.result === 'already_in'
+          ? (data.registration?.attendee_name || 'Attendee')
+          : data.result === 'not_verified'
+            ? `${data.registration?.attendee_name || 'Attendee'}: unpaid`
+            : data.result === 'not_registered' ? 'Not on this list'
+              : 'Card not issued',
+      );
 
       setRfidLast({ ...data, mode: 'event' });
       showToast(
@@ -9190,7 +9363,7 @@ Examples:
       setRfidBusy(false);
       setTimeout(() => rfidBoxRef.current?.focus(), 50);
     }
-  }, [rfidEventId, rfidHandTo, userData?.id, showToast, loadRfidRegs, loadRfidScans]);
+  }, [rfidEventId, rfidHandTo, userData?.id, showToast, loadRfidRegs, loadRfidScans, sendToReader]);
 
   // One tap, routed by what the desk is doing. The serial loop and the
   // keyboard listener both go through this, so neither needs to know.
@@ -9201,10 +9374,19 @@ Examples:
     const seen = normalizeUid(rawUid);
     if (isPlausibleUid(seen)) setRfidLiveUid(seen);
     // A dialog that asked for the taps gets them, whatever screen is behind it.
-    if (rfidSinkRef.current) return rfidSinkRef.current(rawUid, source);
+    if (rfidSinkRef.current) {
+      // Those dialogs are registering a card, not checking anybody in, so
+      // there is no name to send and no verdict to give. The board still has
+      // to be told something: it has been showing "Checking..." since the tap
+      // and cannot resolve that on its own. INFO clears the screen without a
+      // light or a decision - the answer to "did it arrive" is yes, and the
+      // answer to "who is it" is being decided on the dialog, not at the door.
+      sendToReader('INFO', 'Sent to the desk');
+      return rfidSinkRef.current(rawUid, source);
+    }
     if (rfidPurpose === 'event') return handleRfidEventTap(rawUid, source);
     return handleRfidScan(rawUid, source);
-  }, [rfidPurpose, handleRfidEventTap, handleRfidScan]);
+  }, [rfidPurpose, handleRfidEventTap, handleRfidScan, sendToReader]);
 
   // Keep the ref pointing at the current handler - see the note by the ref.
   useEffect(() => { rfidScanRef.current = routeRfidTap; }, [routeRfidTap]);
@@ -9374,6 +9556,20 @@ Examples:
     const uid = normalizeUid(rawUid);
     if (!isPlausibleUid(uid)) return;
 
+    // The button will not skip somebody whose visit was never recorded - and
+    // neither should the next card in the queue, silently. It still replaces
+    // them, because the alternative is a desk that refuses to read a card
+    // while the person it is waiting for has walked off; but it says whose
+    // record was left empty, by name, while that is still fixable.
+    const leaving = claimWho;
+    if (leaving?.result === 'matched' && !claimDeskRecorded(claimDesk, leaving, evtCheckinDay)
+      && normalizeUid(leaving.uid) !== uid) {
+      showToast(
+        `Nothing was recorded for ${leaving.registration?.attendee_name || 'the last card'}`,
+        'warning',
+      );
+    }
+
     setClaimLookupBusy(true);
     setClaimTicked([]);
     try {
@@ -9472,7 +9668,7 @@ Examples:
     } finally {
       setClaimLookupBusy(false);
     }
-  }, [eventRegsModal?.id, claimDesk, evtCheckinDay, evtEventDayNumbers, formatStampLine, showToast]);
+  }, [eventRegsModal?.id, claimDesk, claimWho, evtCheckinDay, evtEventDayNumbers, formatStampLine, showToast]);
 
   // The kit, handed over. One button at the end rather than a write per tick:
   // the person at the counter is checking a bag against a list, and each item
@@ -9500,21 +9696,33 @@ Examples:
       const data = await res.json();
       if (!data.success) { showToast(data.message, 'danger'); return; }
 
+      const claim = data.claim || { claimed_at: new Date().toISOString(), items: claimTicked };
       setEvtClaims((prev) => ({
         ...prev,
-        [reg.id]: { ...(prev[reg.id] || {}), 'kit-0': data.claim || { claimed_at: new Date().toISOString(), items: claimTicked } },
+        [reg.id]: { ...(prev[reg.id] || {}), 'kit-0': claim },
       }));
       showToast(`Kit marked claimed for ${reg.attendee_name}`, 'success');
-      // Cleared for the next person in the queue, not closed - there is a
-      // line at a merch table and closing after each one makes it unusable.
-      setClaimWho(null);
-      setClaimTicked([]);
+      // The person STAYS on screen, now reading as claimed.
+      //
+      // Clearing them here is what it used to do, and it meant the only proof
+      // the kit had been recorded was a toast that had already gone. Next
+      // person is what moves the queue on, and it only unlocks once this is
+      // written - so the person at the counter sees the record they just made
+      // before they lose the name it belongs to.
+      setClaimWho((prev) => (prev ? {
+        ...prev,
+        claims: { ...(prev.claims || {}), 'kit-0': claim },
+        already: claim.claimed_at
+          ? `Kit claimed \u2014 ${formatStampLine(claim.claimed_at)}`
+          : 'Kit claimed',
+      } : prev));
+      setClaimTicked(Array.isArray(claim.items) ? claim.items : claimTicked);
     } catch (err) {
       showToast(err.message, 'danger');
     } finally {
       setEvtClaimBusy('');
     }
-  }, [eventRegsModal?.id, claimWho, claimTicked, userData?.id, showToast]);
+  }, [eventRegsModal?.id, claimWho, claimTicked, userData?.id, formatStampLine, showToast]);
 
   // A meal, ticked at the counter. Written as it is ticked - unlike the kit,
   // a meal is one thing and there is nothing to check it against.
@@ -9598,26 +9806,258 @@ Examples:
         return;
       }
       setEvtRfidResult(data);
-      // The table behind the dialog has to agree with what it just said.
-      if (data.result === 'checked_in') refreshEventRegs(eventId);
+
+      // ---- The table behind the dialog has to agree with what it just said ----
+      //
+      // Three things on the row mean "they are in", and all three read off
+      // state this dialog was not touching: the Attendance column's day
+      // buttons and the Actions button both come from evtDayAttend, and the
+      // came-at-all flag from the registration. Refreshing only the
+      // registrations left the day column looking like nobody had arrived and
+      // the row still offering to Mark Attended - the one thing that is now
+      // wrong to press, on somebody who is already standing inside.
+      if (data.result === 'checked_in' || data.result === 'already_in') {
+        const regId = data.registration?.id;
+        const dayKey = String(data.dayNumber || evtCheckinDay);
+        if (regId) {
+          // Ticked with the tap, not a request later: at a door the next card
+          // is already coming, and a column that catches up a second after
+          // the queue has moved on is a column nobody trusts. The reload
+          // underneath replaces this with the stamp the server actually wrote.
+          setEvtDayAttend((prev) => {
+            const forReg = { ...(prev[regId] || {}) };
+            if (!forReg[dayKey]) {
+              forReg[dayKey] = { attended_at: new Date().toISOString(), attended_by: userData?.id || null };
+            }
+            return { ...prev, [regId]: forReg };
+          });
+        }
+        refreshEventRegs(eventId);
+        loadEventDayAttendance(eventId);
+      }
     } catch (err) {
       setEvtRfidResult({ result: 'error', message: err.message, uid });
     } finally {
       setEvtRfidBusy(false);
       setEvtRfidInput('');
-      setTimeout(() => evtRfidBoxRef.current?.focus(), 50);
+      // The caret goes back to the capture box for the next card - but only
+      // on a computer. On a phone that box is a text field and focusing it
+      // throws the on-screen keyboard over the pad, for a wedge reader that
+      // cannot exist there anyway.
+      if (!rfidIsPhoneRef.current) setTimeout(() => evtRfidBoxRef.current?.focus(), 50);
     }
-  }, [eventRegsModal?.id, userData?.id, evtCheckinDay]);
+  }, [eventRegsModal?.id, userData?.id, evtCheckinDay, loadEventDayAttendance]);
+
+  // ============================================
+  // The room desk: putting names in the rooms
+  // ============================================
+  // The Accommodation screen books the rooms; this puts people in them, from
+  // inside the event being run. A room is opened, a card is tapped, and the
+  // name appears in it - the same motion as the kit and meal counters, for the
+  // same reason: the card in somebody's hand is the only proof of who is
+  // standing there, and a dropdown of forty names is how the person behind
+  // them gets given the bed.
+  //
+  // The one refusal this desk exists for: a room goes to somebody who PAID
+  // for accommodation. lib/rooms.js decides which extra that is and the API
+  // enforces it; both are checked here too, so the refusal lands with the tap
+  // rather than after a round trip.
+  const [evtRooms, setEvtRooms] = useState([]);
+  const [evtRoomsLoading, setEvtRoomsLoading] = useState(false);
+  const [evtRoomGuests, setEvtRoomGuests] = useState([]);
+  const [evtRoomTypeOpen, setEvtRoomTypeOpen] = useState('');
+  // The room currently open at the desk. Null means the desk is closed, and
+  // it is what points the card reader at this dialog.
+  const [roomDesk, setRoomDesk] = useState(null);
+  const [roomDeskResult, setRoomDeskResult] = useState(null);
+  const [roomDeskBusy, setRoomDeskBusy] = useState(false);
+  const [roomDeskManual, setRoomDeskManual] = useState('');
+  const [roomGuestBusy, setRoomGuestBusy] = useState('');
+
+  const loadEvtRooms = useCallback(async (eventId) => {
+    if (!eventId) { setEvtRooms([]); return; }
+    setEvtRoomsLoading(true);
+    try {
+      const res = await fetch(`/api/events/rooms?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) setEvtRooms(data.data || []);
+      // Never silent: an empty room list and a room list that could not be
+      // read look identical, and one of them means somebody is about to be
+      // told there is nowhere to sleep.
+      else showToast(data.message, 'danger');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setEvtRoomsLoading(false);
+    }
+  }, [showToast]);
+
+  const loadEvtRoomGuests = useCallback(async (eventId) => {
+    if (!eventId) { setEvtRoomGuests([]); return; }
+    try {
+      const res = await fetch(`/api/events/room-guests?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) { setEvtRoomGuests(data.data || []); return; }
+      showToast(data.message, 'danger');
+    } catch { /* the lists redraw on the next load */ }
+  }, [showToast]);
+
+  const openRoomDesk = (room) => {
+    setRoomDeskResult(null);
+    setRoomDeskManual('');
+    setRoomDesk(room);
+  };
+
+  // A tap at the room desk.
+  //
+  // Two steps, and the first is somebody else's: the card is resolved to a
+  // registration by /api/rfid/event-checkin?uid=.. , the same lookup the kit
+  // and meal counters use. A card that works at one desk therefore works at
+  // all of them, and this file does not get its own copy of the two-step
+  // card-to-registration search to drift from the others.
+  //
+  // Deliberately NOT a check-in: being given a room key is not walking
+  // through the door of the event, and a tap here must not mark somebody as
+  // having arrived.
+  const assignRoomCard = useCallback(async (rawUid) => {
+    const eventId = eventRegsModal?.id;
+    const room = roomDesk;
+    if (!eventId || !room) return;
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+
+    setRoomDeskBusy(true);
+    try {
+      const res = await fetch(
+        `/api/rfid/event-checkin?eventId=${encodeURIComponent(eventId)}&uid=${encodeURIComponent(uid)}`,
+      );
+      const found = await res.json();
+      if (!found.success || found.result !== 'matched' || !found.registration) {
+        setRoomDeskResult({
+          result: found.result || 'error',
+          uid,
+          message: found.message || 'That card could not be used',
+          registration: found.registration || null,
+        });
+        return;
+      }
+
+      const reg = found.registration;
+
+      // ---- Did they pay for a bed? ----
+      // Answered here from the registrations already on screen, so the
+      // refusal appears with the tap instead of after a write that was always
+      // going to be refused. The API checks the same thing against the
+      // database and is the authority - this is the fast path, not the rule.
+      const local = eventRegs.find((r) => r.id === reg.id);
+      if (local) {
+        const entitled = roomEntitlement(local.addons, eventRegsModal?.event_addons);
+        if (!entitled.ok) {
+          setRoomDeskResult({
+            result: 'not_entitled',
+            uid,
+            registration: reg,
+            message: `${formatPersonName(reg.attendee_name)} ${entitled.why}.`,
+          });
+          showToast(`${reg.attendee_name} did not avail accommodation`, 'warning');
+          return;
+        }
+      }
+
+      const assign = await fetch('/api/events/room-guests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          roomId: room.id,
+          registrationId: reg.id,
+          actorId: userData?.id || null,
+        }),
+      });
+      const data = await assign.json();
+
+      setRoomDeskResult({
+        result: data.success ? (data.result || 'assigned') : (data.result || 'error'),
+        uid,
+        registration: data.registration || reg,
+        room: data.room || room,
+        message: data.message,
+      });
+      if (!data.success) {
+        showToast(data.message, 'warning');
+        return;
+      }
+      showToast(data.message, 'success');
+      loadEvtRoomGuests(eventId);
+    } catch (err) {
+      setRoomDeskResult({ result: 'error', uid, message: err.message });
+    } finally {
+      setRoomDeskBusy(false);
+    }
+  }, [eventRegsModal?.id, eventRegsModal?.event_addons, roomDesk, eventRegs, userData?.id, showToast, loadEvtRoomGuests]);
+
+  // Somebody in the wrong room. One write, because a remove-then-add is two
+  // and the second one gets forgotten.
+  const moveRoomGuest = async (guest, roomId) => {
+    if (!roomId || roomId === guest.room_id) return;
+    setRoomGuestBusy(guest.id);
+    try {
+      const res = await fetch('/api/events/room-guests', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: guest.id, roomId, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      showToast(data.message, 'success');
+      loadEvtRoomGuests(eventRegsModal?.id);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setRoomGuestBusy('');
+    }
+  };
+
+  const removeRoomGuest = (guest) => {
+    const who = formatPersonName(guest.registration?.attendee_name) || 'This attendee';
+    askConfirm(
+      `${who} will be taken out of ${guest.room?.room_number || 'this room'}. They keep their registration and their accommodation extra — only the room is cleared, so they can be given another one.`,
+      async () => {
+        setRoomGuestBusy(guest.id);
+        try {
+          const res = await fetch(
+            `/api/events/room-guests?id=${encodeURIComponent(guest.id)}&actorId=${encodeURIComponent(userData?.id || '')}`,
+            { method: 'DELETE' },
+          );
+          const data = await res.json();
+          if (!data.success) { showToast(data.message, 'danger'); return; }
+          showToast(data.message, 'warning');
+          setEvtRoomGuests((prev) => prev.filter((g) => g.id !== guest.id));
+        } catch (err) {
+          showToast(err.message, 'danger');
+        } finally {
+          setRoomGuestBusy('');
+        }
+      },
+      {
+        title: 'Take them out of this room?',
+        subtitle: eventRegsModal?.title || 'Accommodation',
+        confirmLabel: 'Remove from room',
+        icon: 'fa-bed',
+      },
+    );
+  };
 
   // Point the reader at whichever dialog is open. Cleared on close so taps go
   // back to wherever they were going before.
   useEffect(() => {
     if (evtUnlockOpen) rfidSinkRef.current = (uid) => tryUnlockTable(uid);
+    else if (roomDesk) rfidSinkRef.current = (uid) => assignRoomCard(uid);
     else if (claimDesk) rfidSinkRef.current = (uid) => lookupClaimCard(uid);
     else if (evtRfidScanOpen) rfidSinkRef.current = (uid, src) => scanEventRfid(uid, src);
     else rfidSinkRef.current = null;
     return () => { rfidSinkRef.current = null; };
-  }, [evtUnlockOpen, tryUnlockTable, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid]);
+  }, [evtUnlockOpen, tryUnlockTable, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid]);
 
   // The claims grid and the attendance grid for the event on screen.
   useEffect(() => {
@@ -9682,46 +10122,65 @@ Examples:
     );
   };
 
+  // The reader strip at the top of every desk dialog.
+  //
+  // Which reader is decided by the machine, not by the person standing at the
+  // door: a computer gets the USB wedge and the Arduino, a phone gets its own
+  // aerial and arms it by itself. The tabs only appear where a device
+  // genuinely has both - everywhere else there is nothing to choose, and a
+  // switch offering a reader the machine cannot have is how a queue stops.
   const renderRfidStatus = () => (
     <div className="rfid-method">
       <div className="rfid-method-head">
         <span className="rfid-method-label">Scan method</span>
-        <div className="rfid-method-tabs">
-          <button
-            type="button"
-            className={`rfid-method-tab ${rfidScanMethod === 'usb' ? 'on' : ''}`}
-            onClick={() => setRfidScanMethod('usb')}
-          >
-            <i className="fas fa-keyboard"></i> USB RFID Reader
-          </button>
-          <button
-            type="button"
-            className={`rfid-method-tab ${rfidScanMethod === 'nfc' ? 'on' : ''} ${rfidNfcSupported ? '' : 'off'}`}
-            onClick={() => setRfidScanMethod('nfc')}
-            title={rfidNfcSupported
-              ? 'Read cards with this phone\u2019s own aerial'
-              : 'This device has no NFC. Android Chrome on a phone with NFC only.'}
-          >
-            <i className="fas fa-mobile-screen-button"></i> Phone NFC
-          </button>
-        </div>
+        {rfidBothMethods ? (
+          <div className="rfid-method-tabs">
+            <button
+              type="button"
+              className={`rfid-method-tab ${rfidMethod === 'usb' ? 'on' : ''}`}
+              onClick={() => setRfidScanMethod('usb')}
+            >
+              <i className="fas fa-keyboard"></i> USB RFID Reader
+            </button>
+            <button
+              type="button"
+              className={`rfid-method-tab ${rfidMethod === 'nfc' ? 'on' : ''}`}
+              onClick={() => setRfidScanMethod('nfc')}
+              title={'Read cards with this phone\u2019s own aerial'}
+            >
+              <i className="fas fa-mobile-screen-button"></i> Phone NFC
+            </button>
+          </div>
+        ) : (
+          /* One reader, named rather than offered: this device has no other.
+             A phone cannot have a serial port, and a computer has no aerial. */
+          <span className={`rfid-method-only ${rfidMethod}`}>
+            {rfidMethod === 'nfc' ? (
+              <><i className="fas fa-mobile-screen-button"></i> Phone NFC <em>automatic</em></>
+            ) : (
+              <><i className="fas fa-keyboard"></i> USB RFID or Arduino <em>this computer</em></>
+            )}
+          </span>
+        )}
       </div>
 
-      {/* ---- The phone's own aerial ----
-          Its own panel, because it needs one thing the others do not: a tap
-          to start. Chrome will not put the phone into reader mode without a
-          gesture, and until it is in reader mode Android answers the card
-          itself with "No supported app for this NFC tag". */}
-      {rfidScanMethod === 'nfc' ? (
+      {rfidMethod === 'nfc' ? (
+        /* ---- The phone's own aerial ----
+           Nothing to connect and nothing to press: the scan is started for
+           the person the moment a desk opens. The one thing this panel still
+           has to be honest about is the state it is in, because a phone that
+           is not in reader mode looks identical to one that is - Android
+           quietly answers the card itself and nothing reaches this page. */
         <div className={`rfid-method-panel nfc ${rfidNfcStatus === 'scanning' ? 'live' : ''}`}>
           <i className={`fas ${rfidNfcStatus === 'scanning' ? 'fa-wifi' : 'fa-mobile-screen-button'} rfid-method-icon`}></i>
           <b>
             {!rfidNfcSupported ? 'Phone NFC not available here'
               : !rfidSecureContext ? 'Phone NFC needs https://'
-                : rfidNfcStatus === 'scanning' ? 'Phone NFC Reading'
-                  : rfidNfcStatus === 'starting' ? 'Starting NFC\u2026'
+                : rfidNfcStatus === 'scanning' ? 'Phone NFC on \u2014 hold the card'
+                  : rfidNfcStatus === 'starting' ? 'Turning NFC on\u2026'
                     : rfidNfcStatus === 'error' ? 'NFC could not start'
-                      : 'Phone NFC Ready'}
+                      : rfidNfcNeedsTap ? 'Tap the screen once to arm NFC'
+                        : 'Waiting for NFC\u2026'}
           </b>
           <p>
             {!rfidNfcSupported
@@ -9729,29 +10188,40 @@ Examples:
               : !rfidSecureContext
                 ? 'Open the deployed https:// site on the phone \u2014 NFC is refused on a plain http address.'
                 : rfidNfcStatus === 'scanning'
-                  ? 'Hold the attendee\u2019s card near the back of your phone.'
-                  : 'Hold the attendee\u2019s card near the back of your phone.'}
+                  ? 'Hold the attendee\u2019s card flat against the back of the phone, near the top.'
+                  : rfidNfcStatus === 'error'
+                    ? 'Switch NFC on in the phone\u2019s settings, then tap the screen once.'
+                    : rfidNfcNeedsTap
+                      ? 'The phone wants one tap before it will let a web page read cards. Tap anywhere \u2014 it only ever asks once.'
+                      : 'Starting by itself. Keep NFC switched on and this tab in front.'}
           </p>
+          {/* Only where it is genuinely needed. Stopping is worth offering
+              while it reads; starting is worth offering only when the
+              automatic attempt could not - and never as the normal way in. */}
           {rfidNfcStatus === 'scanning' ? (
-            <button type="button" className="btn-secondary rfid-method-go" onClick={stopRfidNfcScan}>
+            <button
+              type="button"
+              className="btn-secondary rfid-method-go"
+              onClick={() => { setRfidNfcHalted(true); stopRfidNfcScan(); }}
+            >
               <i className="fas fa-stop"></i> Stop NFC Scan
             </button>
-          ) : (
+          ) : (rfidNfcNeedsTap || rfidNfcStatus === 'error') && rfidNfcSupported && rfidSecureContext ? (
             <button
               type="button"
               className="btn-primary rfid-method-go"
-              onClick={startRfidNfcScan}
-              disabled={!rfidNfcSupported || !rfidSecureContext || rfidNfcStatus === 'starting'}
+              onClick={() => startRfidNfcScan()}
+              disabled={rfidNfcStatus === 'starting'}
             >
-              <i className="fas fa-wifi"></i> Start NFC Scan
+              <i className="fas fa-wifi"></i> Turn NFC on
             </button>
-          )}
+          ) : null}
           {/* The one Android message everybody hits, answered by name while
               it is still relevant. */}
           {rfidNfcSupported && rfidSecureContext && rfidNfcStatus !== 'scanning' && (
             <em className="rfid-method-hint">
-              If the phone says &ldquo;No supported app for this NFC tag&rdquo;, the scan was not
-              running. Start it, tap Allow, and keep this tab in front.
+              If the phone says &ldquo;No supported app for this NFC tag&rdquo;, it was not
+              scanning yet. Tap the screen once and hold the card again.
             </em>
           )}
         </div>
@@ -9762,10 +10232,15 @@ Examples:
            choosing between. */
         <div className="rfid-method-panel usb">
           <div className="rfid-status-strip">
-            <span className={`rfid-stat ${evtRfidFocus ? 'ok' : 'warn'}`}>
+            {/* A wedge reader is a keyboard, and this screen listens for one
+                on the window itself - so it is armed with nothing focused,
+                which is the normal state of a counter dialog. The only thing
+                that takes the card away from it is a caret sitting in a text
+                box, and that is what the second wording is about. */}
+            <span className="rfid-stat ok" title="A USB reader types the card number. It lands here on its own unless the caret is inside a text box.">
               <i className="fas fa-keyboard"></i>
               USB reader
-              <b>{evtRfidFocus ? 'Ready \u2014 tap now' : 'Click the box below'}</b>
+              <b>{evtRfidFocus ? 'Ready \u2014 tap now' : 'Listening'}</b>
             </span>
 
             <span className={`rfid-stat ${
@@ -9877,10 +10352,17 @@ Examples:
     setRfidNfcStatus('idle');
   }, []);
 
-  const startRfidNfcScan = useCallback(async () => {
+  // opts.quiet - this attempt was made by the page rather than asked for by
+  // a person. A browser that wants a tap first has not failed at anything, so
+  // nothing is said about it: the panel asks for the tap and the next one
+  // starts the scan for real.
+  const startRfidNfcScan = useCallback(async (opts = {}) => {
+    const quiet = opts?.quiet === true;
     if (typeof window === 'undefined' || !('NDEFReader' in window)) {
-      setRfidError('This browser cannot read NFC. Use Chrome on Android — Safari on iPhone has no support for it.');
-      setRfidNfcStatus('error');
+      if (!quiet) {
+        setRfidError('This browser cannot read NFC. Use Chrome on Android — Safari on iPhone has no support for it.');
+        setRfidNfcStatus('error');
+      }
       return;
     }
     // Already scanning. scan() twice on one aerial throws, and the throw
@@ -9890,6 +10372,7 @@ Examples:
     setRfidError('');
     setRfidNfcNote('');
     setRfidNfcStatus('starting');
+    setRfidNfcHalted(false);
     rfidNfcWantedRef.current = true;
     try {
       const ndef = new window.NDEFReader();
@@ -9928,11 +10411,20 @@ Examples:
 
       await ndef.scan({ signal: control.signal });
       setRfidNfcStatus('scanning');
+      setRfidNfcNeedsTap(false);
     } catch (err) {
       rfidNfcAbortRef.current = null;
       rfidNfcWantedRef.current = false;
       // Calling the scan off is not a failure worth reporting.
       if (err?.name === 'AbortError') { setRfidNfcStatus('idle'); return; }
+      // The page tried by itself and the browser wanted a person. Left as
+      // idle and flagged, so the panel asks for the tap instead of showing a
+      // red error about something nobody did wrong.
+      if (quiet) {
+        setRfidNfcStatus('idle');
+        setRfidNfcNeedsTap(err?.name === 'NotAllowedError');
+        return;
+      }
       setRfidNfcStatus('error');
       setRfidError(explainNfcError(err));
     }
@@ -9946,6 +10438,15 @@ Examples:
         await rfidReaderRef.current.cancel().catch(() => {});
         try { rfidReaderRef.current.releaseLock(); } catch { /* already released */ }
         rfidReaderRef.current = null;
+      }
+      // The writer holds a lock on port.writable, and close() on a port with a
+      // locked stream never resolves - the port would stay open with nothing
+      // reading it and the next connect would fail as "already open". Only the
+      // lock is dropped, not the stream: awaiting writer.close() hangs if the
+      // board is not draining, and port.close() below closes it anyway.
+      if (rfidWriterRef.current) {
+        try { rfidWriterRef.current.releaseLock(); } catch { /* already released */ }
+        rfidWriterRef.current = null;
       }
       if (rfidPortRef.current) {
         await rfidPortRef.current.close().catch(() => {});
@@ -10010,6 +10511,16 @@ Examples:
       rfidPortRef.current = port;
       rfidKeepReadingRef.current = true;
       setRfidSerialStatus('open');
+
+      // The write side, for sending the resolved name back to the LCD. Not
+      // every board has anything listening for it, and a port opened only for
+      // reading is still perfectly usable - so a failure here is swallowed
+      // rather than failing the whole connect.
+      try {
+        rfidWriterRef.current = port.writable ? port.writable.getWriter() : null;
+      } catch {
+        rfidWriterRef.current = null;
+      }
 
       const reader = port.readable.getReader();
       rfidReaderRef.current = reader;
@@ -10190,7 +10701,8 @@ Examples:
   // The reader is let go when nothing needs it. "Nothing" means neither the
   // RFID Reader section nor an assign/scan dialog somewhere else - a port
   // closed out from under an open dialog would leave it silently dead.
-  const rfidInUse = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk || evtUnlockOpen;
+  const rfidInUse = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
+    || !!roomDesk || evtUnlockOpen;
 
   // The events as the cards show them, filtered by the search box.
   const rfidVisibleEventCards = rfidEventCards.filter((ev) => {
@@ -10207,7 +10719,16 @@ Examples:
   // A phone: it has an NFC aerial and cannot ever have a serial port. Worth
   // naming because it decides whether a keyboard capture box is worth showing
   // at all - on a phone it only summons the on-screen keyboard.
-  const rfidIsPhone = rfidNfcSupported && !rfidWebSerialSupported;
+  const rfidIsPhone = rfidDeviceKind === 'phone';
+  // Which readers this device could use at all. Only where both are possible
+  // is there anything to choose - everywhere else the choice is noise, and a
+  // tab offering a reader the machine cannot have is worse than noise.
+  const rfidCanUseNfc = rfidNfcSupported;
+  const rfidCanUseUsb = !rfidIsPhone;
+  const rfidBothMethods = rfidCanUseNfc && rfidCanUseUsb;
+  // What is actually being used, whatever the tabs say: a phone has nothing
+  // else, and a computer cannot use its own aerial because it has none.
+  const rfidMethod = rfidBothMethods ? rfidScanMethod : (rfidCanUseNfc ? 'nfc' : 'usb');
 
   // What to tell somebody standing at the pad. Every reader that is actually
   // live gets a mention, because with all of them listening at once "hold it
@@ -10231,25 +10752,46 @@ Examples:
   }, [rfidInUse, disconnectRfidSerial]);
   useEffect(() => () => { disconnectRfidSerial(); }, [disconnectRfidSerial]);
 
-  // What this device can actually do, asked once after mount.
+  // ---- What this device can actually do, asked once after mount ----
+  //
+  // And, from that, which reader it uses - decided here rather than left to
+  // whoever is standing at the door, because there is only ever one right
+  // answer and it is a property of the machine:
+  //
+  //   a phone      has an NFC aerial and cannot ever have a serial port, so
+  //                the phone IS the reader. Web NFC only exists in Chrome on
+  //                Android, so NDEFReader being there is itself the proof.
+  //   a computer   has no aerial, so the reader is the thing plugged into it:
+  //                a USB wedge that types, or the Arduino on a serial port.
+  //                Both listen at once; neither needs choosing between.
+  //
+  // The user-agent check is only a second opinion for the tablet case - a
+  // touch device with no serial port and no Web NFC is still not a desktop,
+  // and offering it a USB reader it cannot have is worse than saying so.
   useEffect(() => {
-    setRfidNfcSupported('NDEFReader' in window);
-    setRfidSecureContext(window.isSecureContext !== false);
-  }, []);
+    const hasNfc = 'NDEFReader' in window;
+    const hasSerial = 'serial' in navigator;
+    const uaMobile = /Android|iPhone|iPad|iPod|Windows Phone|webOS|BlackBerry|Opera Mini|IEMobile/i
+      .test(navigator.userAgent || '');
+    const kind = (hasNfc || (uaMobile && !hasSerial)) ? 'phone' : 'desktop';
 
-  // Opened on the reader this device stands a chance with. A phone has no
-  // serial port and never will, so USB is a dead end there; a desktop has no
-  // NFC aerial. Chosen once so it cannot fight a deliberate switch.
-  useEffect(() => {
-    if (rfidMethodChosenRef.current || !rfidNfcSupported) return;
-    rfidMethodChosenRef.current = true;
-    if (!('serial' in navigator)) setRfidScanMethod('nfc');
-  }, [rfidNfcSupported]);
+    setRfidNfcSupported(hasNfc);
+    setRfidSecureContext(window.isSecureContext !== false);
+    setRfidDeviceKind(kind);
+    rfidIsPhoneRef.current = kind === 'phone';
+
+    // Chosen once, so a later re-render cannot fight somebody who switched
+    // deliberately on a device that genuinely has both.
+    if (!rfidMethodChosenRef.current) {
+      rfidMethodChosenRef.current = true;
+      setRfidScanMethod(kind === 'phone' ? 'nfc' : 'usb');
+    }
+  }, []);
 
   // An NFC scan left running keeps the aerial and keeps firing taps at
   // whatever screen replaced this one.
   useEffect(() => {
-    if (!rfidInUse) stopRfidNfcScan();
+    if (!rfidInUse) { stopRfidNfcScan(); setRfidNfcHalted(false); }
   }, [rfidInUse, stopRfidNfcScan]);
   useEffect(() => () => { stopRfidNfcScan(); }, [stopRfidNfcScan]);
 
@@ -10263,19 +10805,43 @@ Examples:
   // scan() needs a user gesture only for the PERMISSION prompt. Once this
   // site has been granted NFC, it can be started without one - so a phone
   // that has said yes before never has to press Start again.
+  //
+  // So the phone arms itself the moment a desk opens: no button to find, no
+  // mode to pick. Tried quietly, because a browser that refuses it for want
+  // of a gesture has not failed at anything - the tap handler below picks
+  // that case up from the next touch anywhere on the screen, which at a door
+  // has already happened by the time the first card arrives.
   useEffect(() => {
-    if (!rfidInUse || !rfidNfcSupported || !rfidSecureContext) return;
-    if (rfidNfcWantedRef.current || rfidNfcAbortRef.current) return;
+    if (!rfidInUse || rfidMethod !== 'nfc' || !rfidNfcSupported || !rfidSecureContext) return undefined;
+    if (rfidNfcHalted || rfidNfcWantedRef.current || rfidNfcAbortRef.current) return undefined;
     let cancelled = false;
     (async () => {
       try {
         const status = await navigator.permissions?.query({ name: 'nfc' });
-        if (cancelled || status?.state !== 'granted') return;
-        startRfidNfcScan();
-      } catch { /* the browser cannot be asked - the Start button still works */ }
+        // Refused before, permanently: starting it would only throw. The
+        // panel says what to clear, and there is nothing to try here.
+        if (cancelled || status?.state === 'denied') return;
+      } catch { /* the browser cannot be asked - try it and see */ }
+      if (!cancelled) startRfidNfcScan({ quiet: true });
     })();
     return () => { cancelled = true; };
-  }, [rfidInUse, rfidNfcSupported, rfidSecureContext, startRfidNfcScan]);
+  }, [rfidInUse, rfidMethod, rfidNfcSupported, rfidSecureContext, rfidNfcHalted, startRfidNfcScan]);
+
+  // The gesture Chrome wants, taken from a tap that was going to happen
+  // anyway. A phone that has never granted NFC needs one touch for the
+  // permission prompt; making that touch be "anywhere" rather than a Start
+  // button of its own is the whole difference between a reader that works
+  // when you pick the phone up and one that needs explaining.
+  useEffect(() => {
+    if (!rfidInUse || rfidMethod !== 'nfc' || !rfidNfcSupported || !rfidSecureContext) return undefined;
+    if (rfidNfcHalted || rfidNfcStatus === 'scanning' || rfidNfcStatus === 'starting') return undefined;
+    const arm = () => {
+      if (rfidNfcAbortRef.current) return;
+      startRfidNfcScan();
+    };
+    document.addEventListener('pointerdown', arm, { once: true });
+    return () => document.removeEventListener('pointerdown', arm);
+  }, [rfidInUse, rfidMethod, rfidNfcSupported, rfidSecureContext, rfidNfcStatus, rfidNfcHalted, startRfidNfcScan]);
 
   // Chrome suspends Web NFC while the page is not the visible, focused tab,
   // and coming back does not reliably resume it. Without this, checking a
@@ -10358,7 +10924,8 @@ Examples:
     // Always, on this screen - not only when a "USB reader" mode is selected.
     // A wedge reader is a keyboard: listening for it costs nothing when there
     // is none, and not listening for it is indistinguishable from a broken one.
-    const wanted = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk || evtUnlockOpen;
+    const wanted = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
+      || !!roomDesk || evtUnlockOpen;
     if (!wanted) return undefined;
 
     const onKeyDown = (e) => {
@@ -10387,7 +10954,297 @@ Examples:
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeSection, evtRfidScanOpen, claimDesk, evtUnlockOpen]);
+  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen]);
+
+  // ============================================
+  // ACCOMMODATION - the rooms booked for an event
+  // ============================================
+  // An event that runs over several days has to put people up, and two
+  // questions get asked all week: which rooms do we have, and who is asking
+  // for one. Both live here, against one event at a time.
+  //
+  // Who is asking comes off the registrations rather than a list of its own:
+  // accommodation is sold as a paid extra on the registration form, so the
+  // people who ticked one are the people who need a bed. Nothing is entered
+  // twice, and a person who cancels stops appearing without anybody
+  // remembering to take them off.
+  const [accEventId, setAccEventId] = useState('');
+  const [accEventSearch, setAccEventSearch] = useState('');
+  const [accRooms, setAccRooms] = useState([]);
+  const [accRoomsLoading, setAccRoomsLoading] = useState(false);
+  const [accRegs, setAccRegs] = useState([]);
+  const [accRegsLoading, setAccRegsLoading] = useState(false);
+  // Which room type is open. The rooms of one type are all alike - same beds,
+  // same pax - so the type is the thing worth looking at first and the room
+  // numbers inside it are the detail. Empty means the types themselves.
+  const [accTypeOpen, setAccTypeOpen] = useState('');
+  // A hotel block runs to thirty rooms and more, and thirty rows pushed
+  // everything else off the screen. Paged, like every other table here.
+  const [accRoomPage, setAccRoomPage] = useState(1);
+  const [accRoomPageSize, setAccRoomPageSize] = useState(10);
+  // The add/edit form. Closed until asked for, because the list is what the
+  // screen is for and a form sitting open above it is in the way.
+  const [accFormOpen, setAccFormOpen] = useState(false);
+  const [accEditing, setAccEditing] = useState(null); // the room being corrected
+  const [accForm, setAccForm] = useState(BLANK_ROOM_FORM);
+  const [accSaving, setAccSaving] = useState(false);
+  const [accRoomBusy, setAccRoomBusy] = useState('');
+
+  const loadAccRooms = useCallback(async (eventId) => {
+    if (!eventId) { setAccRooms([]); return; }
+    setAccRoomsLoading(true);
+    try {
+      const res = await fetch(`/api/events/rooms?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) setAccRooms(data.data || []);
+      // Said out loud rather than swallowed: an empty room list and a room
+      // list that could not be read look identical, and one of them means
+      // somebody is about to hand out a room that does not exist.
+      else showToast(data.message, 'danger');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setAccRoomsLoading(false);
+    }
+  }, [showToast]);
+
+  // The event's registrations, which is where the extras live. The same
+  // endpoint the Registrations tab uses - one source for who is on the list.
+  const loadAccRegs = useCallback(async (eventId) => {
+    if (!eventId) { setAccRegs([]); return; }
+    setAccRegsLoading(true);
+    try {
+      const res = await fetch(`/api/events/registrations?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) setAccRegs(data.data || []);
+      else showToast(data.message, 'danger');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setAccRegsLoading(false);
+    }
+  }, [showToast]);
+
+  const openAccEvent = (eventId) => {
+    setAccEventId(eventId);
+    setAccTypeOpen('');
+    setAccRoomPage(1);
+    setAccFormOpen(false);
+    setAccEditing(null);
+    setAccForm(BLANK_ROOM_FORM);
+    loadAccRooms(eventId);
+    loadAccRegs(eventId);
+  };
+
+  const openAccType = (key) => {
+    setAccTypeOpen(key);
+    setAccRoomPage(1);
+  };
+
+  const closeAccEvent = () => {
+    setAccEventId('');
+    setAccTypeOpen('');
+    setAccRooms([]);
+    setAccRegs([]);
+  };
+
+  // Adding, and correcting. One form for both: the fields are the same and
+  // two of them would drift.
+  // opts.type - adding another room to a type that already exists. The type
+  // comes with the beds and the pax of the rooms already in it, because that
+  // is what a type IS: 519 is furnished like 419, and typing it out again is
+  // how the two end up disagreeing.
+  const openAccRoomForm = (room, opts = {}) => {
+    if (!room && opts.type) {
+      const sibling = accRooms.find((r) => r.room_type === opts.type);
+      setAccEditing(null);
+      setAccForm({
+        ...BLANK_ROOM_FORM,
+        roomType: opts.type,
+        pax: sibling ? String(sibling.pax || '') : '',
+        beds: (Array.isArray(sibling?.beds) && sibling.beds.length > 0)
+          ? sibling.beds.map((b) => ({ type: b.type || '', count: Number(b.count) || 1 }))
+          : [{ type: '', count: 1 }],
+      });
+      setAccFormOpen(true);
+      return;
+    }
+    if (room) {
+      setAccEditing(room);
+      setAccForm({
+        roomType: room.room_type || '',
+        roomNumbers: room.room_number || '',
+        pax: String(room.pax || ''),
+        beds: (Array.isArray(room.beds) && room.beds.length > 0)
+          ? room.beds.map((b) => ({ type: b.type || '', count: Number(b.count) || 1 }))
+          : [{ type: '', count: 1 }],
+        notes: room.notes || '',
+      });
+    } else {
+      setAccEditing(null);
+      setAccForm(BLANK_ROOM_FORM);
+    }
+    setAccFormOpen(true);
+  };
+
+  const saveAccRoom = async () => {
+    if (!accEventId || accSaving) return;
+    const beds = accForm.beds.filter((b) => String(b.type || '').trim());
+    const numbers = parseRoomNumbers(accForm.roomNumbers);
+    if (!roomTypeName(accForm.roomType)) {
+      showToast('Give the room a type — Family Deluxe, Executive, Dormtype', 'warning');
+      return;
+    }
+    if (numbers.length === 0) {
+      showToast('Give at least one room number', 'warning');
+      return;
+    }
+
+    setAccSaving(true);
+    try {
+      const editing = !!accEditing;
+      const res = await fetch('/api/events/rooms', {
+        method: editing ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorId: userData?.id || null,
+          ...(editing
+            ? { id: accEditing.id, roomNumber: accForm.roomNumbers }
+            : { eventId: accEventId, roomNumbers: numbers }),
+          roomType: accForm.roomType,
+          // Left blank on purpose means "work it out from the beds" - see
+          // normalizePax. Sent as-is so the server decides, not two places.
+          pax: accForm.pax === '' ? 0 : Number(accForm.pax),
+          beds,
+          notes: accForm.notes,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+
+      showToast(data.message || 'Saved', 'success');
+      setAccFormOpen(false);
+      setAccEditing(null);
+      setAccForm(BLANK_ROOM_FORM);
+      loadAccRooms(accEventId);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setAccSaving(false);
+    }
+  };
+
+  const deleteAccRoom = (room) => {
+    askConfirm(
+      `Room ${room.room_number} (${room.room_type}) will be taken off this event's list. Anybody you have already told about it will need to be moved.`,
+      async () => {
+        setAccRoomBusy(room.id);
+        try {
+          const res = await fetch(
+            `/api/events/rooms?id=${encodeURIComponent(room.id)}&actorId=${encodeURIComponent(userData?.id || '')}`,
+            { method: 'DELETE' },
+          );
+          const data = await res.json();
+          if (!data.success) { showToast(data.message, 'danger'); return; }
+          showToast(data.message, 'warning');
+          setAccRooms((prev) => prev.filter((r) => r.id !== room.id));
+        } catch (err) {
+          showToast(err.message, 'danger');
+        } finally {
+          setAccRoomBusy('');
+        }
+      },
+      { title: 'Remove this room?', subtitle: accEvent?.title || 'Accommodation', confirmLabel: 'Remove Room', icon: 'fa-bed' },
+    );
+  };
+
+  // ---- What the screen is looking at ----
+  const accEvent = events.find((ev) => ev.id === accEventId) || null;
+  const accVisibleEvents = (() => {
+    const q = accEventSearch.trim().toLowerCase();
+    return events.filter((ev) => {
+      if (!q) return true;
+      return `${ev.title || ''} ${ev.location || ''}`.toLowerCase().includes(q);
+    });
+  })();
+
+  // How many people paid for an extra, which is how many need a bed. Kept as
+  // a figure rather than a list: the names are read off the Registrations tab,
+  // and this screen is about whether there is room for them.
+  //
+  // A cancelled registration is not a person needing a bed, whatever they
+  // ticked before they pulled out.
+  const accExtraRegs = accRegs.filter((r) => r.status !== 'cancelled'
+    && Array.isArray(r.addons) && r.addons.length > 0);
+
+  // ---- The rooms, grouped by type ----
+  //
+  // A type is not a label on a room, it is the description of a set of rooms
+  // that are alike: "Family Deluxe, good for 4 pax, one queen and one double"
+  // describes 308, 408 and 508 equally. So the screen leads with the types
+  // and the numbers live inside them, which is also how the venue's own sheet
+  // is written and how it gets read out over the phone.
+  //
+  // Alike is not guaranteed, though - somebody can give one Executive room an
+  // extra bed - so the summary says what is actually true of the set: one pax
+  // figure if they all agree, a range if they do not.
+  const accRoomGroups = (() => {
+    const groups = new Map();
+    accRooms.forEach((r) => {
+      const key = String(r.room_type || '').toLowerCase();
+      if (!groups.has(key)) groups.set(key, { key, type: r.room_type, rooms: [] });
+      groups.get(key).rooms.push(r);
+    });
+    return [...groups.values()]
+      .map((g) => {
+        const rooms = [...g.rooms].sort((a, b) => compareRoomNumbers(a.room_number, b.room_number));
+        const paxes = [...new Set(rooms.map((r) => Number(r.pax) || 0))].sort((a, b) => a - b);
+        const bedTexts = [...new Set(rooms.map((r) => bedsToText(r.beds)).filter(Boolean))];
+        return {
+          ...g,
+          rooms,
+          // The whole block, for "have we got the beds".
+          pax: rooms.reduce((sum, r) => sum + (Number(r.pax) || 0), 0),
+          // What one room of this type sleeps - the figure on the card.
+          paxLabel: paxes.length === 1
+            ? `${paxes[0]} Pax`
+            : `${paxes[0]}–${paxes[paxes.length - 1]} Pax`,
+          bedsLabel: bedTexts.length === 1 ? bedTexts[0] : (bedTexts.length > 1 ? 'Mixed beds' : ''),
+          mixed: paxes.length > 1 || bedTexts.length > 1,
+        };
+      })
+      .sort((a, b) => String(a.type).localeCompare(String(b.type)));
+  })();
+
+  // The type being looked at, if one is open. Read back off the list rather
+  // than held in state, so deleting the last room of a type cannot leave the
+  // screen inside a type that no longer exists.
+  const accOpenGroup = accTypeOpen
+    ? accRoomGroups.find((g) => g.key === accTypeOpen) || null
+    : null;
+
+  // The rooms the table is showing: the whole block at the types level, or one
+  // type's rooms inside it. Paged either way - the safe page is recomputed
+  // rather than stored, so removing the last room on page 4 lands on page 3
+  // instead of an empty table.
+  const accTableRooms = accOpenGroup ? accOpenGroup.rooms : accRooms;
+  const accRoomPageSafe = Math.min(
+    accRoomPage,
+    Math.max(1, Math.ceil(accTableRooms.length / accRoomPageSize)),
+  );
+  const accPagedRooms = accTableRooms.slice(
+    (accRoomPageSafe - 1) * accRoomPageSize,
+    accRoomPageSafe * accRoomPageSize,
+  );
+
+  // Every room type already used at this event, offered as suggestions so the
+  // second Executive room is not typed "EXECUTIVE " and grouped on its own.
+  const accRoomTypeOptions = [...new Set(accRooms.map((r) => r.room_type).filter(Boolean))].sort();
+  const accCapacity = accRooms.reduce((sum, r) => sum + (Number(r.pax) || 0), 0);
+  // What the beds in the form add up to, shown beside the pax field. The
+  // suggestion, not the answer - a hall sleeps 15 with no beds at all.
+  const accFormBedPax = bedsSleep(accForm.beds.filter((b) => String(b.type || '').trim()));
+  const accFormNumbers = parseRoomNumbers(accForm.roomNumbers);
 
   if (!userData || !permissionsLoaded) {
     return (
@@ -10418,7 +11275,7 @@ Examples:
     // 'rfid' sits with Events on purpose: the screen is a list of events and
     // the cards handed out at each one, so it is found by looking for the
     // event rather than by looking for the hardware.
-    { key: 'content',   label: 'Events & Content',   icon: 'fas fa-calendar-alt',   ids: ['events', 'rfid', 'community-events', 'announcements', 'community', 'my-created-events', 'user-events-oversight', 'isom-inquiries'] },
+    { key: 'content',   label: 'Events & Content',   icon: 'fas fa-calendar-alt',   ids: ['events', 'rfid', 'accommodation', 'community-events', 'announcements', 'community', 'my-created-events', 'user-events-oversight', 'isom-inquiries'] },
     { key: 'media',     label: 'Media & Messages',   icon: 'fas fa-photo-film',     ids: ['live-stream-mgmt', 'recordings', 'messages'] },
     { key: 'insights',  label: 'Insights',           icon: 'fas fa-chart-bar',      ids: ['reports', 'audit'] },
     { key: 'system',    label: 'System',             icon: 'fas fa-cogs',           ids: ['permissions-control', 'system', 'terms-conditions', 'cloudinary-usage'] },
@@ -10526,6 +11383,92 @@ Examples:
     if (!q) return rfidCards;
     return rfidCards.filter((c) => `${c.users?.firstname || ''} ${c.users?.lastname || ''} ${c.uid} ${c.label || ''} ${c.users?.ministry || ''}`
       .toLowerCase().includes(q));
+  })();
+
+  // ---- The event modal's Accommodation tab ----
+  //
+  // The same rooms the Accommodation screen books, with names in them. Two
+  // maps are all the tab needs: who is in each room, and the rooms grouped by
+  // type - because a type is a set of rooms that are alike, and "is there a
+  // Family Deluxe free?" is the question actually asked at a desk.
+  const evtGuestsByRoom = (() => {
+    const map = new Map();
+    evtRoomGuests.forEach((g) => {
+      if (!map.has(g.room_id)) map.set(g.room_id, []);
+      map.get(g.room_id).push(g);
+    });
+    return map;
+  })();
+
+  const evtRoomGroups = (() => {
+    const groups = new Map();
+    evtRooms.forEach((r) => {
+      const key = String(r.room_type || '').toLowerCase();
+      if (!groups.has(key)) groups.set(key, { key, type: r.room_type, rooms: [] });
+      groups.get(key).rooms.push(r);
+    });
+    return [...groups.values()]
+      .map((g) => {
+        const rooms = [...g.rooms].sort((a, b) => compareRoomNumbers(a.room_number, b.room_number));
+        const paxes = [...new Set(rooms.map((r) => Number(r.pax) || 0))].sort((a, b) => a - b);
+        const bedTexts = [...new Set(rooms.map((r) => bedsToText(r.beds)).filter(Boolean))];
+        return {
+          ...g,
+          rooms,
+          pax: rooms.reduce((sum, r) => sum + (Number(r.pax) || 0), 0),
+          filled: rooms.reduce((sum, r) => sum + (evtGuestsByRoom.get(r.id)?.length || 0), 0),
+          // How many rooms of this type still have a free bed - the answer to
+          // "have you got anything left?".
+          free: rooms.filter((r) => (evtGuestsByRoom.get(r.id)?.length || 0) < (Number(r.pax) || 1)).length,
+          paxLabel: paxes.length === 1
+            ? `${paxes[0]} Pax`
+            : `${paxes[0]}–${paxes[paxes.length - 1]} Pax`,
+          bedsLabel: bedTexts.length === 1 ? bedTexts[0] : (bedTexts.length > 1 ? 'Mixed beds' : ''),
+        };
+      })
+      .sort((a, b) => String(a.type).localeCompare(String(b.type)));
+  })();
+
+  const evtRoomOpenGroup = evtRoomTypeOpen
+    ? evtRoomGroups.find((g) => g.key === evtRoomTypeOpen) || null
+    : null;
+  const evtRoomsPax = evtRooms.reduce((sum, r) => sum + (Number(r.pax) || 0), 0);
+
+  // Everybody who paid for a bed, and the ones who have not been given one
+  // yet. This is the number the desk works down to zero, so it is worth
+  // having on screen rather than counted by hand off two lists.
+  const evtRoomEntitled = eventRegs.filter((r) => r.status !== 'cancelled'
+    && roomEntitlement(r.addons, eventRegsModal?.event_addons).ok);
+  const evtRoomUnhoused = evtRoomEntitled.filter((r) => !evtRoomGuests.some((g) => g.registration_id === r.id));
+
+  // The room open at the desk, and what is in it. Read back off the loaded
+  // rooms rather than trusted from the click, so a room deleted in another
+  // tab cannot leave the desk assigning people into it.
+  const roomDeskRoom = roomDesk ? evtRooms.find((r) => r.id === roomDesk.id) || roomDesk : null;
+  const roomDeskGuests = roomDeskRoom ? (evtGuestsByRoom.get(roomDeskRoom.id) || []) : [];
+  const roomDeskFull = !!roomDeskRoom && roomDeskGuests.length >= (Number(roomDeskRoom.pax) || 1);
+
+  // ---- Moving the queue on at a counter ----
+  //
+  // Next person is deliberately not a way past somebody. The whole point of a
+  // counter is that a card tapped becomes a record; a card read and then
+  // skipped leaves somebody who walked off with a kit or a meal with nothing
+  // against their name, and afterwards nobody can tell whether they got it.
+  // The queue moving fast is exactly when that happens.
+  //
+  // So it unlocks only once this person's visit is written down:
+  //   the kit   marked claimed, with the button at the foot of the dialog
+  //   a meal    at least one ticked for the day being served
+  //
+  // Somebody who cannot collect anything is a different case - not checked
+  // in, not verified, an unknown card. There is nothing to record for them
+  // and holding the queue would be absurd, so they pass straight through.
+  const claimDeskGate = (() => {
+    const ok = claimDeskRecorded(claimDesk, claimWho, evtCheckinDay);
+    if (ok) return { ok: true, why: 'Clear this card and wait for the next one' };
+    return claimDesk === 'kit'
+      ? { ok: false, why: 'Mark the kit claimed first \u2014 nothing is recorded for this person yet.' }
+      : { ok: false, why: `Tick the meal being served before moving on \u2014 nothing is recorded for Day ${Number(evtCheckinDay) || 1} yet.` };
   })();
 
   // ============================================
@@ -11583,6 +12526,23 @@ Examples:
                         <i className="fas fa-calendar-day"></i> Flexible Installment {installments.length > 0 && <span className="evt-tab-count">{installments.length}</span>}
                       </button>
                     )}
+                    {/* Accommodation, for an event that sells any paid
+                        extra. No extras means nobody can be entitled to a
+                        bed, so there would be nothing here to do. */}
+                    {(eventRegsModal.event_addons || []).length > 0 && (
+                      <button
+                        className={`evt-tab ${manageTab === 'accommodation' ? 'active' : ''}`}
+                        onClick={() => {
+                          setManageTab('accommodation');
+                          setEvtRoomTypeOpen('');
+                          loadEvtRooms(eventRegsModal.id);
+                          loadEvtRoomGuests(eventRegsModal.id);
+                        }}
+                      >
+                        <i className="fas fa-bed"></i> Accommodation
+                        {evtRoomGuests.length > 0 && <span className="evt-tab-count">{evtRoomGuests.length}</span>}
+                      </button>
+                    )}
                     {/* Only worth a tab once something is actually in it. */}
                     {deletedRegs.length > 0 && (
                       <button
@@ -11644,13 +12604,18 @@ Examples:
                       <div className={`evt-table-wrapper ${openRowMenu ? 'menu-open' : ''}`}>
                       <table className="evt-table evt-table-regs">
                         <thead>
-                          <tr><th>Attendee</th><th>Type</th><th>Added By</th><th>Church</th><th>Contact</th><th>Extras</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
+                          {/* Contact is searched for, not read down: the
+                              box above matches on the number and the email,
+                              and the column they used to sit in was two
+                              lines deep on every row for something nobody
+                              scans a list by. */}
+                          <tr><th>Attendee</th><th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
                         </thead>
                         <tbody>
                           {eventRegsLoading ? (
-                            <tr><td colSpan={9}>Loading…</td></tr>
+                            <tr><td colSpan={8}>Loading…</td></tr>
                           ) : pagedRegs.length === 0 ? (
-                            <tr><td colSpan={9}>{eventRegs.length === 0
+                            <tr><td colSpan={8}>{eventRegs.length === 0
                               ? 'No registrations yet.'
                               : (regSearch.trim() ? `No one matches “${regSearch.trim()}”.` : 'No registrations match these filters.')}</td></tr>
                           ) : pagedRegs.map((r) => (
@@ -11723,20 +12688,6 @@ Examples:
                                     {`Ptr. ${formatPersonName(String(r.church_pastor).replace(/^ptr\.?\s*/i, ''))}`}
                                   </div>
                                 )}
-                              </td>
-                              <td className="evt-cell-sub" data-label="Contact">
-                                {r.attendee_mobile ? (
-                                  <button
-                                    type="button"
-                                    className={`evt-copy-cell ${copiedContact === r.attendee_mobile ? 'copied' : ''}`}
-                                    onClick={() => copyContact(r.attendee_mobile)}
-                                    title="Copy number"
-                                  >
-                                    {r.attendee_mobile}
-                                    <i className={`fas ${copiedContact === r.attendee_mobile ? 'fa-check' : 'fa-copy'}`}></i>
-                                  </button>
-                                ) : '—'}
-                                {r.attendee_email && <div>{r.attendee_email}</div>}
                               </td>
                               {/* what the total is actually made of, so a ₱500 line is explainable */}
                               {/* One mark per extra the event offers: ticked if they
@@ -12047,7 +12998,14 @@ Examples:
                         <table className="evt-table">
                           <thead>
                             <tr>
-                              <th>Attendee</th><th>Contact</th><th>Status</th>
+                              {/* No Contact column here on purpose: at a door
+                                  the question is who they are and whether
+                                  they are cleared to come in, and an email
+                                  address in the middle of that pushes the
+                                  columns that answer it off the screen.
+                                  Contact details are still searchable in the
+                                  box above. */}
+                              <th>Attendee</th><th>Status</th>
                               <th className="evt-th-center">Attendance</th>
                               <th className="evt-th-center">Event Kit</th>
                               {/* One column, however many days the event runs.
@@ -12060,9 +13018,9 @@ Examples:
                           </thead>
                           <tbody>
                             {eventRegsLoading ? (
-                              <tr><td colSpan={7}>Loading…</td></tr>
+                              <tr><td colSpan={6}>Loading…</td></tr>
                             ) : confirmedRegs.length === 0 ? (
-                              <tr><td colSpan={7}>
+                              <tr><td colSpan={6}>
                                 {attSearch.trim()
                                   ? `No attendee matches “${attSearch.trim()}”.`
                                   : 'No confirmed registrations yet.'}
@@ -12070,7 +13028,6 @@ Examples:
                             ) : confirmedRegs.slice((attPage - 1) * attPageSize, attPage * attPageSize).map((r) => (
                               <tr key={r.id}>
                                 <td className="evt-cell-name evt-td-primary" data-label="Attendee">{formatPersonName(r.attendee_name)}</td>
-                                <td className="evt-cell-sub" data-label="Contact">{r.attendee_email}{r.attendee_mobile ? ` · ${r.attendee_mobile}` : ''}</td>
                                 {/* "Paid" is the right word beside a peso
                                     figure on the Registrations tab. Here the
                                     column is about somebody standing at a
@@ -12303,6 +13260,216 @@ Examples:
                       )}
                     </>
                   )}
+                  {/* ================= ACCOMMODATION =================
+                       The rooms booked for this event, with names in them.
+                       Room type, then room, then a card tapped - and the
+                       refusal that matters: a bed goes to somebody who paid
+                       for accommodation, nobody else. */}
+                  {manageTab === 'accommodation' && (
+                    <>
+                      <div className="acc-stats rmn-stats">
+                        <div className="acc-stat">
+                          <b>{evtRooms.length}</b>
+                          <em>rooms booked</em>
+                        </div>
+                        <div className="acc-stat">
+                          <b>{evtRoomsPax}</b>
+                          <em>pax of space</em>
+                        </div>
+                        <div className="acc-stat">
+                          <b>{evtRoomGuests.length}</b>
+                          <em>given a room</em>
+                        </div>
+                        {/* The number the desk works down to zero. */}
+                        <div className={`acc-stat ${evtRoomUnhoused.length > 0 ? 'over' : ''}`}>
+                          <b>{evtRoomUnhoused.length}</b>
+                          <em>still without one</em>
+                        </div>
+                      </div>
+
+                      {evtRoomsLoading && evtRooms.length === 0 ? (
+                        <p className="events-empty-msg">Loading rooms&hellip;</p>
+                      ) : evtRooms.length === 0 ? (
+                        <div className="acc-empty">
+                          <i className="fas fa-bed"></i>
+                          <b>No rooms booked for this event yet</b>
+                          <p>
+                            Rooms are set up once, under Accommodation &mdash; type, numbers, pax
+                            and beds. They appear here the moment they exist, ready to be given out.
+                          </p>
+                          <button type="button" className="btn-primary" onClick={() => showSection('accommodation')}>
+                            <i className="fas fa-arrow-right"></i> Go to Accommodation
+                          </button>
+                        </div>
+                      ) : !evtRoomOpenGroup ? (
+                        <>
+                          <div className="acc-panel-head rmn-head">
+                            <h3><i className="fas fa-bed"></i> Room Types</h3>
+                            <div className="acc-panel-actions">
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => { loadEvtRooms(eventRegsModal.id); loadEvtRoomGuests(eventRegsModal.id); }}
+                                disabled={evtRoomsLoading}
+                              >
+                                <i className="fas fa-rotate"></i> Refresh
+                              </button>
+                            </div>
+                          </div>
+                          <p className="rmn-lede">
+                            Pick the type, then the room, then tap the attendee&apos;s card. Only
+                            attendees who availed accommodation can be given a bed &mdash; anybody
+                            else is refused by name.
+                          </p>
+
+                          <div className="acc-type-grid">
+                            {evtRoomGroups.map((g) => (
+                              <button
+                                type="button"
+                                key={g.key}
+                                className={`acc-type-card ${g.free === 0 ? 'full' : ''}`}
+                                onClick={() => setEvtRoomTypeOpen(g.key)}
+                              >
+                                <span className="acc-type-name">{g.type}</span>
+                                <span className="acc-type-desc">
+                                  Description: <b>{g.paxLabel}</b>
+                                  {g.bedsLabel ? <em>{g.bedsLabel}</em> : null}
+                                </span>
+                                {/* How full this type is, as a bar and as a
+                                    figure. "4 of 12 pax" is the sentence
+                                    somebody says on the phone. */}
+                                <span className="rmn-fill">
+                                  <span className="rmn-fill-bar" aria-hidden="true">
+                                    <span style={{ width: `${g.pax > 0 ? Math.min(100, Math.round((g.filled / g.pax) * 100)) : 0}%` }}></span>
+                                  </span>
+                                  <em>{g.filled} of {g.pax} pax filled</em>
+                                </span>
+                                <span className="acc-type-foot">
+                                  <span className="acc-type-count">
+                                    <b>{g.rooms.length}</b> {g.rooms.length === 1 ? 'room' : 'rooms'}
+                                    <em>
+                                      {g.free === 0
+                                        ? 'all full'
+                                        : `${g.free} with space`}
+                                    </em>
+                                  </span>
+                                  <span className="acc-type-go">
+                                    Open rooms <i className="fas fa-arrow-right"></i>
+                                  </span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="acc-panel-head rmn-head">
+                            <button type="button" className="acc-crumb" onClick={() => setEvtRoomTypeOpen('')}>
+                              <i className="fas fa-arrow-left"></i> Room Types
+                            </button>
+                            <h3 className="acc-type-title">
+                              <i className="fas fa-bed"></i> {evtRoomOpenGroup.type}
+                              <em>
+                                {evtRoomOpenGroup.paxLabel}
+                                {evtRoomOpenGroup.bedsLabel ? ` · ${evtRoomOpenGroup.bedsLabel}` : ''}
+                                {` · ${evtRoomOpenGroup.filled} of ${evtRoomOpenGroup.pax} pax filled`}
+                              </em>
+                            </h3>
+                          </div>
+
+                          {/* One card per room. The names in it are the whole
+                              point, so they are on the card rather than
+                              behind a click - and the card itself opens the
+                              desk for the next person. */}
+                          <div className="rmn-room-grid">
+                            {evtRoomOpenGroup.rooms.map((r) => {
+                              const guests = evtGuestsByRoom.get(r.id) || [];
+                              const pax = Number(r.pax) || 1;
+                              const full = guests.length >= pax;
+                              return (
+                                <div key={r.id} className={`rmn-room ${full ? 'full' : ''} ${guests.length === 0 ? 'empty' : ''}`}>
+                                  <div className="rmn-room-top">
+                                    <b className="acc-num-chip">{r.room_number}</b>
+                                    <span className={`rmn-room-count ${full ? 'full' : ''}`}>
+                                      {guests.length} / {pax} pax
+                                    </span>
+                                  </div>
+                                  {bedsToText(r.beds) && (
+                                    <span className="rmn-room-beds">{bedsToText(r.beds)}</span>
+                                  )}
+
+                                  {guests.length === 0 ? (
+                                    <span className="rmn-room-none">Nobody in this room yet</span>
+                                  ) : (
+                                    <ul className="rmn-guests">
+                                      {guests.map((g) => (
+                                        <li key={g.id} className={roomGuestBusy === g.id ? 'busy' : ''}>
+                                          <span className="rmn-guest-name">
+                                            {formatPersonName(g.registration?.attendee_name) || 'Attendee'}
+                                            {g.registration?.church_name && (
+                                              <em>{formatChurchName(g.registration.church_name)}</em>
+                                            )}
+                                          </span>
+                                          {/* Edit is a move: the correction
+                                              that actually gets made is "wrong
+                                              room", and it is one write. */}
+                                          <span className="rmn-guest-acts">
+                                            <select
+                                              className="rmn-move"
+                                              value={g.room_id}
+                                              disabled={roomGuestBusy === g.id}
+                                              aria-label={`Move ${g.registration?.attendee_name || 'attendee'} to another room`}
+                                              onChange={(e) => moveRoomGuest(g, e.target.value)}
+                                            >
+                                              {evtRoomGroups.map((grp) => (
+                                                <optgroup key={grp.key} label={grp.type}>
+                                                  {grp.rooms.map((room) => {
+                                                    const used = (evtGuestsByRoom.get(room.id) || []).length;
+                                                    const cap = Number(room.pax) || 1;
+                                                    const here = room.id === g.room_id;
+                                                    return (
+                                                      <option key={room.id} value={room.id} disabled={!here && used >= cap}>
+                                                        {room.room_number} ({used}/{cap})
+                                                        {here ? ' — here' : ''}
+                                                      </option>
+                                                    );
+                                                  })}
+                                                </optgroup>
+                                              ))}
+                                            </select>
+                                            <button
+                                              type="button"
+                                              className="evt-mini-btn danger"
+                                              disabled={roomGuestBusy === g.id}
+                                              onClick={() => removeRoomGuest({ ...g, room: r })}
+                                              title="Take them out of this room"
+                                            >
+                                              <i className={`fas ${roomGuestBusy === g.id ? 'fa-spinner fa-spin' : 'fa-user-minus'}`}></i>
+                                            </button>
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    className="rmn-scan-btn"
+                                    disabled={full}
+                                    onClick={() => openRoomDesk(r)}
+                                  >
+                                    <i className={`fas ${full ? 'fa-circle-check' : 'fa-id-card'}`}></i>
+                                    {full ? ' Room is full' : ' Scan RFID to assign'}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
                 </>
               );
             })()}
@@ -12457,7 +13624,18 @@ Examples:
                               {' · verified'}
                             </em>
                           </div>
-                          <button type="button" className="btn-small btn-secondary" onClick={() => { setClaimWho(null); setClaimTicked([]); }}>
+                          {/* Locked until this person's visit is recorded -
+                              see claimDeskGate. A queue moves faster than
+                              anybody's memory, and this is the only thing
+                              standing between "next" and a kit nobody can
+                              account for. */}
+                          <button
+                            type="button"
+                            className="btn-small btn-secondary"
+                            disabled={!claimDeskGate.ok}
+                            title={claimDeskGate.why}
+                            onClick={() => { setClaimWho(null); setClaimTicked([]); }}
+                          >
                             Next person
                           </button>
                         </>
@@ -12483,6 +13661,15 @@ Examples:
                         </>
                       )}
                     </div>
+
+                    {/* Why Next person will not move yet. A disabled button
+                        with nothing beside it reads as a broken one. */}
+                    {claimWho?.result === 'matched' && !claimWho.blocked && !claimDeskGate.ok && (
+                      <p className="evt-rfid-hint">
+                        <i className="fas fa-circle-info"></i>
+                        {claimDeskGate.why}
+                      </p>
+                    )}
 
                     {/* Typing a number in, for a card whose reader is not to
                         hand and for testing before the queue arrives. */}
@@ -12645,6 +13832,215 @@ Examples:
               </div>
             )}
 
+            {/* ---- The room desk ----
+                 One room open, and a card tapped puts the person holding it
+                 in that room. Stays open between taps: a family arrives at
+                 the front desk together and closing after each one would make
+                 it unusable.
+
+                 The refusal this desk exists for is the one below in red - a
+                 bed goes to somebody who PAID for accommodation. It is
+                 checked here and again on the server, and it names the person
+                 and what they actually availed, because "not allowed" on its
+                 own is the kind of refusal that gets worked around. */}
+            {roomDeskRoom && (
+              <div className="evt-modal-overlay" onClick={() => setRoomDesk(null)}>
+                <div className="evt-modal evt-claim-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3>
+                        <i className="fas fa-bed"></i>
+                        {` ${roomDeskRoom.room_type} ${roomDeskRoom.room_number}`}
+                      </h3>
+                      <p>
+                        {`${roomDeskGuests.length} of ${roomDeskRoom.pax} pax`}
+                        {bedsToText(roomDeskRoom.beds) ? ` · ${bedsToText(roomDeskRoom.beds)}` : ''}
+                        {roomDeskRoom.notes ? ` · ${roomDeskRoom.notes}` : ''}
+                      </p>
+                    </div>
+                    <button type="button" className="evt-modal-close" onClick={() => setRoomDesk(null)}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+
+                  <div className="evt-modal-body">
+                    {renderRfidStatus()}
+                    {rfidError && (
+                      <p className="evt-rfid-hint bad">
+                        <i className="fas fa-triangle-exclamation"></i>
+                        {rfidError}
+                      </p>
+                    )}
+
+                    {/* ---- Who just tapped ---- */}
+                    <div className={`evt-claim-who ${
+                      roomDeskBusy ? ''
+                        : !roomDeskResult ? ''
+                          : ['assigned', 'moved', 'already_here'].includes(roomDeskResult.result) ? 'ok' : 'bad'}`}>
+                      {roomDeskBusy ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <div><b>Reading the card…</b></div>
+                        </>
+                      ) : !roomDeskResult ? (
+                        <>
+                          <i className="fas fa-id-card"></i>
+                          <div>
+                            <b>{roomDeskFull ? 'This room is full' : 'Tap a card'}</b>
+                            <em>
+                              {roomDeskFull
+                                ? `${roomDeskRoom.room_number} already has ${roomDeskGuests.length} of ${roomDeskRoom.pax} pax. Take somebody out below, or use another room.`
+                                : `Whoever taps goes into ${roomDeskRoom.room_number} — if they availed accommodation.`}
+                            </em>
+                          </div>
+                        </>
+                      ) : ['assigned', 'moved', 'already_here'].includes(roomDeskResult.result) ? (
+                        <>
+                          <div className="rfid-avatar">
+                            {personInitials(roomDeskResult.registration?.attendee_name)}
+                          </div>
+                          <div>
+                            <b>{formatPersonName(roomDeskResult.registration?.attendee_name)}</b>
+                            <strong className="rmn-ok">
+                              <i className="fas fa-circle-check"></i> {roomDeskResult.message}
+                            </strong>
+                            <em>
+                              {roomDeskResult.registration?.church_name
+                                ? formatChurchName(roomDeskResult.registration.church_name)
+                                : roomDeskResult.registration?.attendee_mobile || 'Attendee'}
+                            </em>
+                          </div>
+                          <button type="button" className="btn-small btn-secondary" onClick={() => setRoomDeskResult(null)}>
+                            Next person
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <i className={`fas ${roomDeskResult.result === 'not_entitled' ? 'fa-ban' : 'fa-circle-exclamation'}`}></i>
+                          <div>
+                            <b>
+                              {roomDeskResult.result === 'not_entitled'
+                                ? 'No accommodation on this registration'
+                                : roomDeskResult.result === 'full'
+                                  ? 'That room is full'
+                                  : (roomDeskResult.message || 'That card could not be used')}
+                            </b>
+                            <em>
+                              {roomDeskResult.result === 'not_entitled'
+                                ? `${roomDeskResult.message} A bed can only be given to somebody who availed accommodation — add the extra to their registration first, or take payment for it.`
+                                : roomDeskResult.result === 'full'
+                                  ? roomDeskResult.message
+                                  : roomDeskResult.result === 'unknown'
+                                    ? 'That card is not registered for this event. Give them one on the Events RFID screen first.'
+                                    : roomDeskResult.result === 'not_verified'
+                                      ? 'Verify their registration first — nothing is owed until the payment is settled.'
+                                      : roomDeskResult.message || 'Try the card again.'}
+                            </em>
+                          </div>
+                          <button type="button" className="btn-small btn-secondary" onClick={() => setRoomDeskResult(null)}>
+                            Try again
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Typing a number in, for a card whose reader is not to
+                        hand and for testing before the queue arrives. */}
+                    {!roomDeskResult && !roomDeskFull && (
+                      <div className="rfid-manual">
+                        <input
+                          className="form-control"
+                          value={roomDeskManual}
+                          onChange={(e) => setRoomDeskManual(e.target.value)}
+                          placeholder="…or type a card number"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && isPlausibleUid(roomDeskManual)) {
+                              assignRoomCard(roomDeskManual);
+                              setRoomDeskManual('');
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={!isPlausibleUid(roomDeskManual) || roomDeskBusy}
+                          onClick={() => { assignRoomCard(roomDeskManual); setRoomDeskManual(''); }}
+                        >
+                          Assign
+                        </button>
+                      </div>
+                    )}
+
+                    {/* ---- Who is in this room ----
+                         With the two corrections that get made at a desk:
+                         wrong room, and wrong person. */}
+                    <div className="evt-claim-list">
+                      <div className="evt-claim-list-head">
+                        <b>In this room</b>
+                        <em>{roomDeskGuests.length} of {roomDeskRoom.pax} pax</em>
+                      </div>
+                      {roomDeskGuests.length === 0 ? (
+                        <p className="evt-rfid-hint">
+                          <i className="fas fa-circle-info"></i>
+                          Nobody yet. The first card tapped goes in here.
+                        </p>
+                      ) : (
+                        <ul className="rmn-guests rmn-guests-lg">
+                          {roomDeskGuests.map((g) => (
+                            <li key={g.id} className={roomGuestBusy === g.id ? 'busy' : ''}>
+                              <span className="rmn-guest-name">
+                                {formatPersonName(g.registration?.attendee_name) || 'Attendee'}
+                                {g.registration?.church_name && (
+                                  <em>{formatChurchName(g.registration.church_name)}</em>
+                                )}
+                              </span>
+                              <span className="rmn-guest-acts">
+                                <select
+                                  className="rmn-move"
+                                  value={g.room_id}
+                                  disabled={roomGuestBusy === g.id}
+                                  aria-label={`Move ${g.registration?.attendee_name || 'attendee'} to another room`}
+                                  onChange={(e) => moveRoomGuest(g, e.target.value)}
+                                >
+                                  {evtRoomGroups.map((grp) => (
+                                    <optgroup key={grp.key} label={grp.type}>
+                                      {grp.rooms.map((room) => {
+                                        const used = (evtGuestsByRoom.get(room.id) || []).length;
+                                        const cap = Number(room.pax) || 1;
+                                        const here = room.id === g.room_id;
+                                        return (
+                                          <option key={room.id} value={room.id} disabled={!here && used >= cap}>
+                                            {room.room_number} ({used}/{cap})
+                                            {here ? ' — here' : ''}
+                                          </option>
+                                        );
+                                      })}
+                                    </optgroup>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  className="evt-mini-btn danger"
+                                  disabled={roomGuestBusy === g.id}
+                                  onClick={() => removeRoomGuest({ ...g, room: roomDeskRoom })}
+                                >
+                                  <i className={`fas ${roomGuestBusy === g.id ? 'fa-spinner fa-spin' : 'fa-user-minus'}`}></i> Remove
+                                </button>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="evt-modal-foot">
+                    <button type="button" className="btn-secondary" onClick={() => setRoomDesk(null)}>Close</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ---- The door scanner ----
                  Stays open between taps: at a door there is a queue, and
                  closing after each person would make it unusable. */}
@@ -12705,11 +14101,14 @@ Examples:
                       ref={evtRfidBoxRef}
                       className="rfid-catch"
                       type="text"
-                      autoFocus
+                      /* Armed for a USB reader on a computer. Not on a phone:
+                         there is no wedge to catch, and the caret would only
+                         raise the keyboard over the name. */
+                      autoFocus={!rfidIsPhone}
                       autoComplete="off"
                       spellCheck="false"
                       value={evtRfidInput}
-                      placeholder="Waiting for a card…"
+                      placeholder={rfidIsPhone ? 'Or type a card number' : 'Waiting for a card…'}
                       aria-label="Card number"
                       onChange={(e) => setEvtRfidInput(e.target.value)}
                       onFocus={() => setEvtRfidFocus(true)}
@@ -12729,7 +14128,10 @@ Examples:
                       <button
                         type="button"
                         className="btn-primary"
-                        onClick={() => { setEvtRfidResult(null); setTimeout(() => evtRfidBoxRef.current?.focus(), 50); }}
+                        onClick={() => {
+                          setEvtRfidResult(null);
+                          if (!rfidIsPhone) setTimeout(() => evtRfidBoxRef.current?.focus(), 50);
+                        }}
                       >
                         <i className="fas fa-forward"></i> Next attendee
                       </button>
@@ -14096,6 +15498,14 @@ Examples:
                         </button>
                       );
                     })()}
+                    {evt.is_published !== false && (
+                      <button
+                        title={`${typeof window !== 'undefined' ? window.location.origin : ''}/${eventSlugFor(evt, events)}`}
+                        onClick={() => { setEventActionMenu(null); copyEventLink(evt); }}
+                      >
+                        <i className="fas fa-link"></i> Copy Registration Link
+                      </button>
+                    )}
                     {evt.latitude && evt.longitude && (
                       <a href={`https://www.google.com/maps/dir/?api=1&destination=${evt.latitude},${evt.longitude}`} target="_blank" rel="noreferrer" onClick={() => setEventActionMenu(null)}><i className="fas fa-directions"></i> Directions</a>
                     )}
@@ -15509,7 +16919,7 @@ Examples:
                         <span className="evt-regchoice-icon alt"><i className="fas fa-user-group"></i></span>
                         <span className="evt-regchoice-text">
                           <strong>Bulk Registration</strong>
-                          <small>Register several people at once and pay for all of them together. You are the representative.</small>
+                          <small>Register several people at once and pay for all of them together. You are the representative &mdash; whether you attend as well is up to you.</small>
                           {!opts.bulk.allowed && (
                             <em className="evt-regchoice-why bad"><i className="fas fa-lock"></i> {opts.bulk.reason}</em>
                           )}
@@ -15598,6 +17008,47 @@ Examples:
                             {memberOwnReg?.status ? <> (<b>{statusLabel(memberOwnReg.status)}</b>)</> : null}, so it is not booked or
                             charged again. You are only adding other people &mdash; and any extra you have not availed yet.
                           </p>
+                        )}
+                        {/* Booking a group is not the same as going. A member
+                            who has no slot yet is asked once, here, whether they
+                            are coming too - and if not, they are not on the
+                            roster, not counted against the capacity and not a
+                            peso of the total. */}
+                        {!memberRepLocked && (
+                          <div className="evt-addon-pick" style={{ marginBottom: 12 }}>
+                            <div className="evt-addon-pick-head"><i className="fas fa-user-check"></i> Are You Joining Too?</div>
+                            <label className={`evt-addon-option ${memberRepJoining ? 'on' : ''}`}>
+                              <input
+                                type="checkbox"
+                                checked={memberRepJoining}
+                                onChange={() => {
+                                  const next = !memberRepJoining;
+                                  setMemberRepJoining(next);
+                                  // Their own extras belong to a slot they are no
+                                  // longer taking, so they go back to the compulsory
+                                  // ones and are hidden until they join again.
+                                  if (!next) {
+                                    setRegisterAddonIds((registerModal.event_addons || [])
+                                      .filter((a) => a.is_required).map((a) => a.id));
+                                  }
+                                  setRegisterErrors({});
+                                }}
+                              />
+                              <span className="evt-addon-option-text">
+                                <strong>Yes, register me as an attendee too</strong>
+                                <small>
+                                  {memberRepJoining
+                                    ? 'You are first on the list, and your fee is part of the total.'
+                                    : 'You are only booking other people — no slot and no fee for you in this total. You can still register yourself separately later.'}
+                                </small>
+                              </span>
+                              {registerBaseAmount(registerModal) > 0 && (
+                                <span className="evt-addon-option-fee">
+                                  {memberRepJoining ? `+₱${registerBaseAmount(registerModal)}` : '₱0'}
+                                </span>
+                              )}
+                            </label>
+                          </div>
                         )}
                       </>
                     ) : (
@@ -15706,8 +17157,12 @@ Examples:
                         everyone else's are ticked per person on the next step,
                         because only some of a group need accommodation. Anything
                         already availed on a slot they hold is shown ticked and
-                        locked, so what is in question is only what is being added. */}
-                    {(registerModal.event_addons || []).length > 0 && (
+                        locked, so what is in question is only what is being added.
+                        A representative who is not coming has no slot of their own
+                        for an extra to sit on, so the section is not shown to them -
+                        everyone they are registering still picks their own. */}
+                    {(registerModal.event_addons || []).length > 0
+                      && (!memberIsBulk || memberRepLocked || memberRepJoining) && (
                       <div className="evt-addon-pick">
                         <div className="evt-addon-pick-head">
                           <i className="fas fa-circle-plus"></i> {memberIsBulk ? 'Your Own Extras' : 'Optional Extras'}
@@ -15797,6 +17252,7 @@ Examples:
                                 <em>
                                   {roster.length} {roster.length === 1 ? 'person' : 'people'}
                                   {memberRepLocked && ' + you'}
+                                  {!memberRepLocked && !memberRepJoining && ' · you are not joining'}
                                 </em>
                               </div>
                               {roster.length === 0 && !memberRepLocked ? (
@@ -15900,6 +17356,17 @@ Examples:
                                     : '.'}
                                 </p>
                               )}
+                              {/* Said where the money is, not only where the tick
+                                  box was: a representative who is not coming is
+                                  paying for other people and nothing else. */}
+                              {!memberRepLocked && !memberRepJoining && (
+                                <p className="evt-muted" style={{ margin: '-2px 0 12px', fontSize: '0.8rem' }}>
+                                  <i className="fas fa-circle-info"></i> You are not joining this event, so no slot is booked in
+                                  your name and your ₱{registerBaseAmount(registerModal)} fee is not in this total &mdash; only the
+                                  {roster.length === 1 ? ' person ' : ' people '}on your list.
+                                  {' '}Change that in <b>Step 1</b> if you are coming too.
+                                </p>
+                              )}
                             </>
                           );
                         })()}
@@ -15965,6 +17432,15 @@ Examples:
                               <b>+₱{Number(x.fee) || 0}</b>
                             </div>
                           ))}
+                          {/* Spelled out on the receipt rather than left to be
+                              noticed by its absence: the representative is not
+                              coming, so there is no line that costs anything. */}
+                          {!memberRepLocked && !memberRepJoining && (
+                            <div className="evt-review-receipt-line">
+                              <span>{formatPersonName(memberRepName()) || 'You'} &mdash; you, not joining</span>
+                              <b>₱0</b>
+                            </div>
+                          )}
                           {memberFullRoster().length === 0 && !memberRepLocked && (
                             <div className="evt-review-receipt-line"><span>Nobody on the list yet</span><b>₱0</b></div>
                           )}
@@ -18781,7 +20257,11 @@ Examples:
                     </em>
                   </div>
                   {rfidNfcStatus === 'scanning' ? (
-                    <button type="button" className="btn-small btn-secondary" onClick={stopRfidNfcScan}>
+                    <button
+                      type="button"
+                      className="btn-small btn-secondary"
+                      onClick={() => { setRfidNfcHalted(true); stopRfidNfcScan(); }}
+                    >
                       <i className="fas fa-stop"></i> Stop
                     </button>
                   ) : (
@@ -20462,6 +21942,586 @@ Examples:
                   </div>
                 </div>
               </div>
+            )}
+          </section>
+
+          {/* ========== ACCOMMODATION (Super Admin, Admin) ==========
+               Where the people at an event sleep, in three steps that match
+               how the job is actually done:
+
+                 the events    each with its poster, because that is how staff
+                               recognise an event - two conferences can share
+                               a title and differ only by the picture
+                 a room type   "Family Deluxe, good for 4 pax" describes a SET
+                               of rooms, so the type is the card and the
+                               numbers live inside it
+                 the rooms     308, 408, 508 - the detail, and the level where
+                               a room is added, corrected or given back
+
+               Alongside it, everybody who availed an extra on their
+               registration, which is the list of people needing a bed. */}
+          <section className={`content-section ${activeSection === 'accommodation' ? 'active' : ''}`}>
+            {!accEventId ? (
+              <>
+                <h2 className="section-title">Accommodation</h2>
+                <p className="acc-lede">
+                  Rooms are booked for one event at a time. Pick an event to manage its rooms and to
+                  see everybody who availed an extra on their registration.
+                </p>
+
+                <div className="acc-picker-head">
+                  <h3>Events <span className="rfid-count">{accVisibleEvents.length}</span></h3>
+                  <div className="evt-search">
+                    <i className="fas fa-magnifying-glass"></i>
+                    <input
+                      type="search"
+                      value={accEventSearch}
+                      onChange={(e) => setAccEventSearch(e.target.value)}
+                      placeholder="Search events"
+                      aria-label="Search events"
+                    />
+                  </div>
+                  <button type="button" className="btn-secondary" onClick={loadEvents}>
+                    <i className="fas fa-rotate"></i> Refresh
+                  </button>
+                </div>
+
+                {accVisibleEvents.length === 0 ? (
+                  <p className="events-empty-msg">
+                    {events.length === 0
+                      ? 'No events yet. Create one under Events and it will appear here.'
+                      : 'No events match that search.'}
+                  </p>
+                ) : (
+                  <div className="acc-event-grid">
+                    {accVisibleEvents.map((ev) => {
+                      const extras = Array.isArray(ev.event_addons) ? ev.event_addons : [];
+                      return (
+                        <article key={ev.id} className="acc-event-card">
+                          {/* The poster, at the ratio it was uploaded at. An
+                              event is recognised by its picture long before
+                              anybody reads the date. */}
+                          <div className="acc-event-poster">
+                            {ev.image_url
+                              ? <img src={ev.image_url} alt={ev.title} loading="lazy" />
+                              : <div className="acc-event-poster-ph"><i className="fas fa-calendar-day"></i></div>}
+                            <span className={`acc-event-extras ${extras.length > 0 ? 'has' : ''}`}>
+                              <i className={`fas ${extras.length > 0 ? 'fa-square-check' : 'fa-circle-minus'}`}></i>
+                              {extras.length > 0
+                                ? `${extras.length} paid ${extras.length === 1 ? 'extra' : 'extras'}`
+                                : 'No paid extras'}
+                            </span>
+                          </div>
+
+                          <div className="acc-event-body">
+                            <b className="acc-event-title">{ev.title}</b>
+                            <span className="acc-event-meta">
+                              <i className="fas fa-calendar-day"></i>
+                              <span>{ev.event_date ? formatEventDateTime(ev.event_date) : 'No date set'}</span>
+                            </span>
+                            {(ev.location || ev.loc_city) && (
+                              <span className="acc-event-meta">
+                                <i className="fas fa-location-dot"></i>
+                                <span>{ev.location || ev.loc_city}</span>
+                              </span>
+                            )}
+                            <button type="button" className="acc-manage-btn" onClick={() => openAccEvent(ev.id)}>
+                              <i className="fas fa-bed"></i> Manage Rooms
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* ---- The event being managed ---- */}
+                <div className="acc-head">
+                  <button type="button" className="evt-back-btn" onClick={closeAccEvent}>
+                    <i className="fas fa-arrow-left"></i> Back to Events
+                  </button>
+                  <div className="acc-head-card">
+                    <div className="acc-head-poster">
+                      {accEvent?.image_url
+                        ? <img src={accEvent.image_url} alt={accEvent.title} />
+                        : <div className="acc-event-poster-ph"><i className="fas fa-calendar-day"></i></div>}
+                    </div>
+                    <div className="acc-head-text">
+                      <h2 className="section-title">Accommodation</h2>
+                      <b>{accEvent?.title || 'Event'}</b>
+                      <span>
+                        <i className="fas fa-calendar-day"></i>
+                        {accEvent?.event_date ? formatEventDateTime(accEvent.event_date) : 'No date set'}
+                      </span>
+                      {(accEvent?.location || accEvent?.loc_city) && (
+                        <span>
+                          <i className="fas fa-location-dot"></i>
+                          {accEvent.location || accEvent.loc_city}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ---- The two numbers that get asked about ----
+                     Beds on the block against people who paid for one. Side
+                     by side, because the answer nobody wants to find out late
+                     is that the second is bigger than the first. */}
+                <div className="acc-stats">
+                  <div className="acc-stat">
+                    <b>{accRooms.length}</b>
+                    <em>rooms booked</em>
+                  </div>
+                  <div className="acc-stat">
+                    <b>{accCapacity}</b>
+                    <em>pax of space</em>
+                  </div>
+                  {/* The people who paid for a bed. The names are on the
+                      event's Registrations tab - here it is the figure that
+                      matters, because it is the one the room count has to
+                      cover. */}
+                  <div className={`acc-stat ${accExtraRegs.length > accCapacity ? 'over' : ''}`}>
+                    <b>
+                      {accRegsLoading && accRegs.length === 0
+                        ? <i className="fas fa-spinner fa-spin"></i>
+                        : accExtraRegs.length}
+                    </b>
+                    <em>availed an extra</em>
+                  </div>
+                  <div className="acc-stat">
+                    <b>{accRoomGroups.length}</b>
+                    <em>room types</em>
+                  </div>
+                </div>
+                {accExtraRegs.length > accCapacity && accRooms.length > 0 && (
+                  <p className="acc-warn">
+                    <i className="fas fa-triangle-exclamation"></i>
+                    <span>
+                      <b>{accExtraRegs.length - accCapacity} more people than beds.</b> Everybody
+                      in the list below availed an extra on their registration; the rooms booked so
+                      far sleep {accCapacity}.
+                    </span>
+                  </p>
+                )}
+
+                {/* ================= ROOMS ================= */}
+                <div className="acc-panel">
+                  {!accOpenGroup ? (
+                    <>
+                      <div className="acc-panel-head">
+                        <h3><i className="fas fa-bed"></i> Room Types</h3>
+                        <div className="acc-panel-actions">
+                          <button type="button" className="btn-secondary" onClick={() => loadAccRooms(accEventId)} disabled={accRoomsLoading}>
+                            <i className="fas fa-rotate"></i> Refresh
+                          </button>
+                          <button type="button" className="btn-primary" onClick={() => openAccRoomForm(null)}>
+                            <i className="fas fa-plus"></i> Add Room
+                          </button>
+                        </div>
+                      </div>
+
+                      {accRoomsLoading && accRooms.length === 0 ? (
+                        <p className="events-empty-msg">Loading rooms&hellip;</p>
+                      ) : accRoomGroups.length === 0 ? (
+                        <div className="acc-empty">
+                          <i className="fas fa-bed"></i>
+                          <b>No rooms yet</b>
+                          <p>
+                            Add the block the venue gave you. A type and its numbers go in together,
+                            so <b>Family Deluxe</b> with <b>308, 408, 508</b> becomes three rooms in
+                            one go.
+                          </p>
+                          <button type="button" className="btn-primary" onClick={() => openAccRoomForm(null)}>
+                            <i className="fas fa-plus"></i> Add the first rooms
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          {/* One card per type: what it sleeps, what is in it,
+                              and how many rooms of it there are. Click it for
+                              the numbers. */}
+                          <div className="acc-type-grid">
+                            {accRoomGroups.map((g) => (
+                              <button
+                                type="button"
+                                key={g.key}
+                                className="acc-type-card"
+                                onClick={() => openAccType(g.key)}
+                              >
+                                <span className="acc-type-name">{g.type}</span>
+                                <span className="acc-type-desc">
+                                  Description: <b>{g.paxLabel}</b>
+                                  {g.bedsLabel ? <em>{g.bedsLabel}</em> : null}
+                                </span>
+                                <span className="acc-type-foot">
+                                  <span className="acc-type-count">
+                                    <b>{g.rooms.length}</b> {g.rooms.length === 1 ? 'room' : 'rooms'}
+                                    <em>{g.pax} pax in total</em>
+                                  </span>
+                                  <span className="acc-type-go">
+                                    View rooms <i className="fas fa-arrow-right"></i>
+                                  </span>
+                                </span>
+                                {/* The numbers themselves, as a preview - the
+                                    thing people are actually looking for when
+                                    they open this screen. */}
+                                <span className="acc-type-nums">
+                                  {g.rooms.slice(0, 8).map((r) => (
+                                    <em key={r.id}>{r.room_number}</em>
+                                  ))}
+                                  {g.rooms.length > 8 && <em className="more">+{g.rooms.length - 8}</em>}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Every room at the event, flat, under the cards.
+                              The cards are for finding a type; this is for
+                              checking the whole block at once. */}
+                          <details className="acc-allrooms" open>
+                            <summary>
+                              <i className="fas fa-table-list"></i>
+                              All {accRooms.length} {accRooms.length === 1 ? 'room' : 'rooms'} in one table
+                            </summary>
+                            <div className="evt-table-wrapper">
+                              <table className="evt-table acc-table">
+                                <thead>
+                                  <tr>
+                                    <th>Type of Room</th>
+                                    <th>Room Number</th>
+                                    <th className="evt-th-center">Pax</th>
+                                    <th>Bed Description</th>
+                                    <th>Notes</th>
+                                    <th style={{ textAlign: 'right' }}>Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {accPagedRooms.map((r) => {
+                                    const busy = accRoomBusy === r.id;
+                                    return (
+                                      <tr key={r.id}>
+                                        <td className="evt-cell-name evt-td-primary" data-label="Type of Room">{r.room_type}</td>
+                                        <td data-label="Room Number"><span className="acc-num-chip">{r.room_number}</span></td>
+                                        <td className="evt-td-center" data-label="Pax"><b>{r.pax}</b></td>
+                                        <td data-label="Bed Description">
+                                          {bedsToText(r.beds) || <span className="evt-cell-sub">&mdash;</span>}
+                                        </td>
+                                        <td className="evt-cell-sub" data-label="Notes">{r.notes || '—'}</td>
+                                        <td className="evt-nowrap evt-td-actions" data-label="Actions">
+                                          <button type="button" className="evt-mini-btn" disabled={busy} onClick={() => openAccRoomForm(r)}>
+                                            <i className="fas fa-pen"></i> Edit
+                                          </button>
+                                          <button type="button" className="evt-mini-btn danger" disabled={busy} onClick={() => deleteAccRoom(r)}>
+                                            <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-trash'}`}></i> Remove
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                            {accTableRooms.length > 0 && (
+                              <TablePager
+                                page={accRoomPageSafe} pageSize={accRoomPageSize}
+                                total={accTableRooms.length}
+                                onPage={setAccRoomPage} onSize={setAccRoomPageSize} label="rooms"
+                              />
+                            )}
+                          </details>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    /* ---- Inside one type: its rooms ---- */
+                    <>
+                      <div className="acc-panel-head">
+                        <button type="button" className="acc-crumb" onClick={() => openAccType('')}>
+                          <i className="fas fa-arrow-left"></i> Room Types
+                        </button>
+                        <h3 className="acc-type-title">
+                          <i className="fas fa-bed"></i> {accOpenGroup.type}
+                          <em>{accOpenGroup.paxLabel}{accOpenGroup.bedsLabel ? ` · ${accOpenGroup.bedsLabel}` : ''}</em>
+                        </h3>
+                        <div className="acc-panel-actions">
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            onClick={() => openAccRoomForm(null, { type: accOpenGroup.type })}
+                          >
+                            <i className="fas fa-plus"></i> Add Room to {accOpenGroup.type}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Same beds, same pax, so a new room of this type
+                          starts pre-filled from the ones already here. */}
+                      {accOpenGroup.mixed && (
+                        <p className="acc-note">
+                          <i className="fas fa-circle-info"></i>
+                          The rooms in this type are not all the same &mdash; the pax or the beds
+                          differ between them. That is fine, it is just worth knowing before you
+                          promise somebody &ldquo;a {accOpenGroup.type}&rdquo;.
+                        </p>
+                      )}
+
+                      <div className="evt-table-wrapper">
+                        <table className="evt-table acc-table">
+                          <thead>
+                            <tr>
+                              <th>Room Number</th>
+                              <th className="evt-th-center">Pax</th>
+                              <th>Bed Description</th>
+                              <th>Notes</th>
+                              <th style={{ textAlign: 'right' }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {accPagedRooms.map((r) => {
+                              const busy = accRoomBusy === r.id;
+                              return (
+                                <tr key={r.id}>
+                                  <td className="evt-td-primary" data-label="Room Number">
+                                    <span className="acc-num-chip">{r.room_number}</span>
+                                  </td>
+                                  <td className="evt-td-center" data-label="Pax"><b>{r.pax}</b></td>
+                                  <td data-label="Bed Description">
+                                    {(Array.isArray(r.beds) ? r.beds : []).length > 0 ? (
+                                      <span className="acc-beds">
+                                        {r.beds.map((b) => (
+                                          <span className="acc-bed-chip" key={`${r.id}-${b.type}`}>
+                                            <i className="fas fa-bed"></i>{b.count} {b.type}
+                                          </span>
+                                        ))}
+                                      </span>
+                                    ) : <span className="evt-cell-sub">&mdash;</span>}
+                                  </td>
+                                  <td className="evt-cell-sub" data-label="Notes">{r.notes || '—'}</td>
+                                  <td className="evt-nowrap evt-td-actions" data-label="Actions">
+                                    <button
+                                      type="button"
+                                      className="evt-mini-btn"
+                                      disabled={busy}
+                                      onClick={() => openAccRoomForm(r)}
+                                    >
+                                      <i className="fas fa-pen"></i> Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="evt-mini-btn danger"
+                                      disabled={busy}
+                                      onClick={() => deleteAccRoom(r)}
+                                    >
+                                      <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-trash'}`}></i> Remove
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      {accTableRooms.length > 0 && (
+                        <TablePager
+                          page={accRoomPageSafe} pageSize={accRoomPageSize}
+                          total={accTableRooms.length}
+                          onPage={setAccRoomPage} onSize={setAccRoomPageSize} label="rooms"
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* ================= ADD / EDIT A ROOM ================= */}
+                {accFormOpen && (
+                  <div className="evt-modal-overlay" onClick={() => setAccFormOpen(false)}>
+                    <div className="evt-modal acc-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                      <div className="evt-modal-head">
+                        <div>
+                          <h3>
+                            <i className={`fas ${accEditing ? 'fa-pen' : 'fa-bed'}`}></i>
+                            {accEditing ? ' Edit room' : ' Add rooms'}
+                          </h3>
+                          <p>{accEvent?.title || 'Event'}</p>
+                        </div>
+                        <button type="button" className="evt-modal-close" onClick={() => setAccFormOpen(false)}>
+                          <i className="fas fa-times"></i>
+                        </button>
+                      </div>
+
+                      <div className="evt-modal-body acc-form">
+                        <label className="acc-field">
+                          <span>Type of room *</span>
+                          <input
+                            type="text"
+                            list="acc-room-types"
+                            value={accForm.roomType}
+                            placeholder="e.g. Family Deluxe, Executive, Standard with View, Dormtype"
+                            onChange={(e) => setAccForm((f) => ({ ...f, roomType: e.target.value }))}
+                          />
+                          <datalist id="acc-room-types">
+                            {accRoomTypeOptions.map((t) => <option key={t} value={t} />)}
+                          </datalist>
+                          {accRoomTypeOptions.length > 0 && !accEditing && (
+                            <span className="acc-type-picks">
+                              {accRoomTypeOptions.map((t) => (
+                                <button
+                                  type="button"
+                                  key={t}
+                                  className={`acc-type-pick ${accForm.roomType === t ? 'on' : ''}`}
+                                  onClick={() => {
+                                    // Picking an existing type brings its beds
+                                    // and pax with it - that is what makes it
+                                    // the same type.
+                                    const sibling = accRooms.find((r) => r.room_type === t);
+                                    setAccForm((f) => ({
+                                      ...f,
+                                      roomType: t,
+                                      pax: sibling ? String(sibling.pax || '') : f.pax,
+                                      beds: (Array.isArray(sibling?.beds) && sibling.beds.length > 0)
+                                        ? sibling.beds.map((b) => ({ type: b.type || '', count: Number(b.count) || 1 }))
+                                        : f.beds,
+                                    }));
+                                  }}
+                                >
+                                  {t}
+                                </button>
+                              ))}
+                            </span>
+                          )}
+                        </label>
+
+                        <label className="acc-field">
+                          <span>{accEditing ? 'Room number *' : 'Room number(s) *'}</span>
+                          <input
+                            type="text"
+                            value={accForm.roomNumbers}
+                            placeholder={accEditing ? 'e.g. 308' : 'e.g. 308, 408, 508 or Function Hall'}
+                            onChange={(e) => setAccForm((f) => ({ ...f, roomNumbers: e.target.value }))}
+                          />
+                          {/* Said before it happens, because "308, 408, 508"
+                              becoming three rooms is the one thing about this
+                              form that could surprise somebody. */}
+                          <em>
+                            {accEditing
+                              ? 'One room. A dorm can be named rather than numbered — "Function Hall".'
+                              : accFormNumbers.length > 1
+                                ? `Creates ${accFormNumbers.length} rooms: ${accFormNumbers.join(', ')}`
+                                : 'Separate rooms with commas — 308, 408, 508 adds three rooms with these same beds.'}
+                          </em>
+                        </label>
+
+                        {/* ---- The beds ----
+                             What is in the room, counted. "Double Bed" with a
+                             count of 2 is two double beds, and the pax field
+                             below offers what they sleep. */}
+                        <div className="acc-field">
+                          <span>Bed description</span>
+                          <div className="acc-beds-editor">
+                            {accForm.beds.map((b, i) => (
+                              <div className="acc-bed-row" key={i}>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="40"
+                                  className="acc-bed-count"
+                                  value={b.count}
+                                  aria-label="How many of this bed"
+                                  onChange={(e) => setAccForm((f) => ({
+                                    ...f,
+                                    beds: f.beds.map((row, j) => (j === i
+                                      ? { ...row, count: Math.max(1, Number(e.target.value) || 1) }
+                                      : row)),
+                                  }))}
+                                />
+                                <input
+                                  type="text"
+                                  list="acc-bed-types"
+                                  className="acc-bed-type"
+                                  value={b.type}
+                                  placeholder="e.g. Double Bed"
+                                  aria-label="Bed type"
+                                  onChange={(e) => setAccForm((f) => ({
+                                    ...f,
+                                    beds: f.beds.map((row, j) => (j === i ? { ...row, type: e.target.value } : row)),
+                                  }))}
+                                />
+                                <button
+                                  type="button"
+                                  className="acc-bed-del"
+                                  title="Remove this bed"
+                                  onClick={() => setAccForm((f) => ({
+                                    ...f,
+                                    beds: f.beds.length > 1 ? f.beds.filter((_, j) => j !== i) : [{ type: '', count: 1 }],
+                                  }))}
+                                >
+                                  <i className="fas fa-xmark"></i>
+                                </button>
+                              </div>
+                            ))}
+                            <datalist id="acc-bed-types">
+                              {BED_TYPES.map((b) => <option key={b.name} value={b.name} />)}
+                            </datalist>
+                            <button
+                              type="button"
+                              className="btn-small btn-secondary acc-bed-add"
+                              onClick={() => setAccForm((f) => ({ ...f, beds: [...f.beds, { type: '', count: 1 }] }))}
+                            >
+                              <i className="fas fa-plus"></i> Add another bed
+                            </button>
+                          </div>
+                        </div>
+
+                        <label className="acc-field acc-field-pax">
+                          <span>Good for how many pax?</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max={MAX_PAX}
+                            value={accForm.pax}
+                            placeholder={accFormBedPax > 0 ? String(accFormBedPax) : '1'}
+                            onChange={(e) => setAccForm((f) => ({ ...f, pax: e.target.value }))}
+                          />
+                          <em>
+                            {accFormBedPax > 0 ? (
+                              <>
+                                The beds above sleep <b>{accFormBedPax}</b>.
+                                {accForm.pax === '' ? ' Leave this blank to use that.' : ''}
+                                {' '}A family room is often sold for more than its beds sleep, so this
+                                one is yours to set.
+                              </>
+                            ) : (
+                              'Leave blank and it counts as 1. A dorm floor has no beds and its own pax — set it here.'
+                            )}
+                          </em>
+                        </label>
+
+                        <label className="acc-field">
+                          <span>Notes (optional)</span>
+                          <input
+                            type="text"
+                            value={accForm.notes}
+                            placeholder="e.g. beside the lift, keys at the front desk"
+                            onChange={(e) => setAccForm((f) => ({ ...f, notes: e.target.value }))}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="evt-modal-foot">
+                        <button type="button" className="btn-secondary" onClick={() => setAccFormOpen(false)}>Cancel</button>
+                        <button type="button" className="btn-primary" onClick={saveAccRoom} disabled={accSaving}>
+                          <i className={`fas ${accSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>
+                          {accEditing
+                            ? ' Save room'
+                            : accFormNumbers.length > 1 ? ` Add ${accFormNumbers.length} rooms` : ' Add room'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </section>
 

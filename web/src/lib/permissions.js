@@ -368,6 +368,7 @@ export function getSidebarMenu(role, userData) {
       { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements-management' },
       { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },
       { id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' },
+      { id: 'accommodation', icon: 'fas fa-bed', label: 'Accommodation', section: 'accommodation' },
       { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
       { id: 'live-stream-mgmt', icon: 'fas fa-broadcast-tower', label: 'Live Streams', section: 'live-stream-management' },
       { id: 'recordings', icon: 'fas fa-microphone-alt', label: 'Recordings', section: 'recordings' },
@@ -429,6 +430,10 @@ export function getSidebarMenu(role, userData) {
   // everyone with a Permissions Control toggle turned on by accident.
   if (dashboardType === 'admin') {
     menu.push({ id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' });
+    // Accommodation sits with the RFID desk for the same reason: it is the
+    // event being run rather than the event being advertised. Who sleeps
+    // where is decided by whoever handles the registrations and the money.
+    menu.push({ id: 'accommodation', icon: 'fas fa-bed', label: 'Accommodation', section: 'accommodation' });
   }
 
   // ISOM Inquiries: Admin & Pastor only (Super Admin gets it in its own menu above)
@@ -488,6 +493,7 @@ export const FEATURE_CONTROLS = {
   'sidebar.user_events': { label: 'My Events / User Events', category: 'Sidebar Sections', icon: 'fas fa-calendar-plus', description: 'Show My Events in sidebar' },
   'sidebar.live_streams': { label: 'Live Streams Management', category: 'Sidebar Sections', icon: 'fas fa-broadcast-tower', description: 'Show Live Stream Management in sidebar (Admin only)' },
   'sidebar.recordings': { label: 'Recordings', category: 'Sidebar Sections', icon: 'fas fa-microphone-alt', description: 'Show Recordings in sidebar' },
+  'sidebar.accommodation': { label: 'Accommodation', category: 'Sidebar Sections', icon: 'fas fa-bed', description: 'Show Accommodation (event rooms) in sidebar' },
   'sidebar.profile': { label: 'My Profile', category: 'Sidebar Sections', icon: 'fas fa-user', description: 'Show My Profile in sidebar' },
 
   // --- Profile ---
@@ -640,6 +646,7 @@ export const SIDEBAR_FEATURE_MAP = {
   'reports': 'sidebar.reports',
   'attendance-management': 'sidebar.attendance',
   'rfid-reader': 'sidebar.rfid',
+  'accommodation': 'sidebar.accommodation',
   'user-management': 'sidebar.user_management',
   'ministry-management': 'sidebar.ministry_management',
   'ministry-oversight': 'sidebar.ministry_management',

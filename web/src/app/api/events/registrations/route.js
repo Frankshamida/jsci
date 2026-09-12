@@ -679,11 +679,19 @@ export async function POST(request) {
     // that booked it - that is what lets the representative see the whole
     // group in My Registrations - but only the representative's own row is
     // stamped as BEING theirs, because only that one is a seat they occupy.
+    //
+    // A representative who is not attending has no such row: booking a group is
+    // not the same as going to the event, and a member may be sending people
+    // without taking a slot or paying a fee themselves. `repAttending: '0'` says
+    // so, and it also switches OFF the match-by-name below - otherwise a
+    // namesake on the roster would be handed this account's slot.
+    const repAttending = !(fields.repAttending === false
+      || fields.repAttending === '0' || fields.repAttending === 'false');
     const repKey = normName(fields.representative || attendeeName);
     const rows = isBulk
       ? priced.map((a) => ({
           ...shared,
-          user_id: (userId && (a.isRep || normName(`${a.firstName} ${a.lastName}`) === repKey)) ? userId : null,
+          user_id: (userId && repAttending && (a.isRep || normName(`${a.firstName} ${a.lastName}`) === repKey)) ? userId : null,
           registered_by_user_id: userId || null,
           attendee_firstname: a.firstName || null,
           attendee_lastname: a.lastName || null,
