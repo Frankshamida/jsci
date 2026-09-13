@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 // The main dashboard's stylesheet, not a second one of our own. The committee
 // screen IS the main dashboard as far as the eye is concerned - same sidebar,
@@ -10,10 +11,22 @@ import '../../dashboard/dashboard.css';
 // The store's own pieces - a product card and a basket, which the main
 // dashboard has no component for. Same tokens, same dark-mode convention.
 import './apparel.css';
+// The contributions tab: drive cards, the share table and its payment history.
+// Committee-only, so it stays out of the main dashboard's stylesheet - nothing
+// on the Admin side renders any of it.
+import './contributions.css';
 // One reading of what a proof of payment is, shared with the main dashboard:
 // a receipt can be a photo, a PDF from a bank, or another file entirely.
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import ProofDrop from '@/components/ProofDrop';
+// The figures on a receipt, said again in words. A receipt carries the amount
+// twice because a pen stroke can turn 100 into 1000 and cannot do that to
+// "One Hundred Pesos Only".
+import { amountInWords } from '@/lib/amountInWords';
+// The event door, shared with the Admin dashboard: the RFID reader, the
+// per-day attendance columns, the kit and meal counters and the corrections
+// lock. One component, so the two desks cannot drift apart again.
+import EventAttendanceTab from '@/components/eventDesk/EventAttendanceTab';
 
 // The Event Committee dashboard.
 //
@@ -134,6 +147,18 @@ const formatDateTime = (dateStr) => (dateStr
   ? new Date(dateStr).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   : '');
 
+// A day with no clock on it. Payments are stored as a plain date - the
+// question is which day the money came in - and putting "12:00 AM" beside
+// every instalment reads as a time somebody recorded rather than as noise.
+// Split by hand rather than through Date(), which reads a bare "2026-09-14" as
+// UTC midnight and can show the day before in a timezone behind it.
+const formatDateOnly = (dateStr) => {
+  if (!dateStr) return '';
+  const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return String(dateStr);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
 // Compared as words, not as a substring: "GCash" is an online wallet that
 // happens to contain the letters of "cash".
 const isCashMethod = (method) => {
@@ -149,6 +174,19 @@ const regTypeOf = (r) => {
 };
 
 const onlyDigits = (v) => (v || '').replace(/\D/g, '').slice(0, 11);
+
+// A blank contribution, and the one payment channel nobody administers.
+//
+// Both live out here rather than inside the component on purpose: a constant
+// rebuilt on every render is a NEW object every render, which makes anything
+// deriving from it re-derive forever - contribMethods below is a useMemo, and
+// a useMemo over a value that changes identity every render is just a slower
+// way of not memoising.
+const CONTRIB_BLANK = { id: null, title: '', description: '' };
+// Cash is not a row in Mode of Payment and should not be: there is no account
+// number to administer. It is offered beside the channels that ARE
+// administered, carrying no id - see resolveMethod on the server.
+const CASH_METHOD = { id: '', name: 'Cash' };
 const isValidPhMobile = (v) => /^09\d{9}$/.test(v || '');
 
 const eventStatusOf = (evt) => {
@@ -376,12 +414,8 @@ export default function CommitteeDashboardPage() {
   const [regPage, setRegPage] = useState(1);
   const [regPageSize, setRegPageSize] = useState(10);
   const [openRowMenu, setOpenRowMenu] = useState(null);
-  const [copiedContact, setCopiedContact] = useState('');
   const [busyRow, setBusyRow] = useState('');
 
-  const [attPage, setAttPage] = useState(1);
-  const [attPageSize, setAttPageSize] = useState(10);
-  const [attSearch, setAttSearch] = useState('');
 
   // ---- Installments ----
   const [installments, setInstallments] = useState([]);
@@ -396,11 +430,8 @@ export default function CommitteeDashboardPage() {
   const [payForm, setPayForm] = useState({ amount: '', paidOn: '', method: '', reference: '', note: '' });
   const [paySaving, setPaySaving] = useState(false);
 
-  // ---- Proof + QR ----
+  // ---- Proof ----
   const [proofModal, setProofModal] = useState(null);
-  const [showQrScanner, setShowQrScanner] = useState(false);
-  const [qrScanResult, setQrScanResult] = useState(null);
-  const [qrLog, setQrLog] = useState([]);
 
   // ---- Walk-in ----
   const [showAddReg, setShowAddReg] = useState(false);
@@ -505,6 +536,33 @@ export default function CommitteeDashboardPage() {
   // rather than under the members table, so the page answers "who IS on the
   // committee" and adding somebody is a deliberate act.
   const [inviteOpen, setInviteOpen] = useState(false);
+
+  // ---- Committee contributions (Admins only) ----
+  // Which half of the Team screen is showing. The members table and the
+  // contributions are both "the committee", asked two different ways: who is
+  // on it, and what they have put in.
+  const [teamTab, setTeamTab] = useState('members');
+  const [contribs, setContribs] = useState([]);
+  const [contribsLoading, setContribsLoading] = useState(false);
+  const [contribsError, setContribsError] = useState('');
+  // The drive being looked at, by id. Held as an id rather than as the object
+  // so a reload of the list refreshes what is on screen instead of leaving a
+  // stale copy of it open.
+  const [openContrib, setOpenContrib] = useState(null);
+  const [contribSearch, setContribSearch] = useState('');
+  // The "what is this collection" form - new drive when editingId is null.
+  const [contribForm, setContribForm] = useState(null);
+  const [contribSaving, setContribSaving] = useState(false);
+  // Add Payment. One form for both jobs: opening somebody's share of a drive,
+  // and adding an instalment to a share that already exists (payer set).
+  const [payerForm, setPayerForm] = useState(null);
+  const [payerSaving, setPayerSaving] = useState(false);
+  const [payerPickOpen, setPayerPickOpen] = useState(false);
+  // Whose instalment history is unfolded, by share id.
+  const [openPayer, setOpenPayer] = useState(null);
+  // The slip on screen: one payment, with the arithmetic as it stood WHEN that
+  // payment was taken rather than as it stands now.
+  const [receipt, setReceipt] = useState(null);
 
   /* ---------------- Session + theme ---------------- */
   useEffect(() => {
@@ -751,17 +809,6 @@ export default function CommitteeDashboardPage() {
   const regPageSafe = Math.min(regPage, Math.max(1, Math.ceil(visibleRegs.length / regPageSize)));
   const pagedRegs = visibleRegs.slice((regPageSafe - 1) * regPageSize, regPageSafe * regPageSize);
 
-  // Only a confirmed registration can be checked in.
-  const confirmedRegs = useMemo(() => {
-    const q = attSearch.trim().toLowerCase();
-    return eventRegs
-      .filter((r) => r.status === 'registered' || r.status === 'payment_verified')
-      .filter((r) => !q || [r.attendee_name, r.attendee_email, r.attendee_mobile, r.church_name]
-        .some((v) => String(v || '').toLowerCase().includes(q)));
-  }, [eventRegs, attSearch]);
-
-  const attPageSafe = Math.min(attPage, Math.max(1, Math.ceil(confirmedRegs.length / attPageSize)));
-  const pagedAtt = confirmedRegs.slice((attPageSafe - 1) * attPageSize, attPageSafe * attPageSize);
 
   const instChurchOptions = useMemo(() => {
     const counts = new Map();
@@ -795,14 +842,6 @@ export default function CommitteeDashboardPage() {
     || eventRegs.some((r) => r.payment_plan === 'flexible' && r.status !== 'cancelled');
 
   /* ---------------- Row actions ---------------- */
-  const copyContact = async (value) => {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedContact(value);
-      setTimeout(() => setCopiedContact((v) => (v === value ? '' : v)), 1600);
-    } catch { /* clipboard blocked - the number is still readable */ }
-  };
 
   const verifyRegistration = async (regId, status) => {
     setBusyRow(regId);
@@ -847,66 +886,6 @@ export default function CommitteeDashboardPage() {
     }
   }, [me, showToast]);
 
-  /* ---------------- QR check-in ---------------- */
-  const handleQrDecoded = useCallback(async (decodedText) => {
-    const match = /^SANCTUARYHUB-REG:(.+)$/.exec((decodedText || '').trim());
-    if (!match) { setQrScanResult({ status: 'error', message: 'This is not a valid attendance QR code.' }); return; }
-    const regId = match[1];
-    const reg = eventRegs.find((r) => r.id === regId);
-    if (!reg) { setQrScanResult({ status: 'error', message: 'This QR code does not belong to the event you have open.' }); return; }
-    if (reg.status !== 'registered' && reg.status !== 'payment_verified') {
-      setQrScanResult({ status: 'error', message: `${reg.attendee_name}: registration is not confirmed (${statusLabel(reg.status)}).` });
-      return;
-    }
-    if (reg.attended) { setQrScanResult({ status: 'already', message: `${reg.attendee_name} was already checked in.` }); return; }
-    const result = await markAttendance(regId, true, { silent: true });
-    if (result.ok) {
-      setQrScanResult({ status: 'success', message: `${reg.attendee_name} checked in successfully!` });
-      setQrLog((prev) => [{ id: regId, name: reg.attendee_name, at: new Date() }, ...prev].slice(0, 12));
-    } else {
-      setQrScanResult({ status: 'error', message: result.message || 'Failed to mark attendance.' });
-    }
-  }, [eventRegs, markAttendance]);
-
-  // The decoder callback is re-created whenever the registration list changes,
-  // so it is held in a ref: the camera is started once and keeps reading the
-  // newest version, instead of being torn down mid-queue at the door.
-  const decodeRef = useRef(handleQrDecoded);
-  useEffect(() => { decodeRef.current = handleQrDecoded; }, [handleQrDecoded]);
-
-  useEffect(() => {
-    if (!showQrScanner) return undefined;
-    let scanner;
-    let cancelled = false;
-    let lastCode = '';
-    let lastTime = 0;
-    (async () => {
-      try {
-        const { Html5Qrcode } = await import('html5-qrcode');
-        if (cancelled) return;
-        scanner = new Html5Qrcode('evt-qr-reader');
-        await scanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: 240 },
-          (decodedText) => {
-            // The camera reads the same code many times a second; one scan per
-            // code per four seconds is what a queue actually looks like.
-            const now = Date.now();
-            if (decodedText === lastCode && now - lastTime < 4000) return;
-            lastCode = decodedText; lastTime = now;
-            decodeRef.current(decodedText);
-          },
-          () => { /* per-frame decode misses are normal */ },
-        );
-      } catch (e) {
-        if (!cancelled) setQrScanResult({ status: 'error', message: 'Could not access the camera: ' + e.message });
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (scanner) scanner.stop().then(() => scanner.clear()).catch(() => {});
-    };
-  }, [showQrScanner]);
 
   /* ---------------- Installments ---------------- */
   const openPayModal = (plan) => {
@@ -954,7 +933,7 @@ export default function CommitteeDashboardPage() {
     { title: 'Remove Payment?', confirmLabel: 'Remove Payment', icon: 'fa-trash' },
   );
 
-  /* ---------------- Walk-in ---------------- */
+  /* ---------------- Add an attendee ---------------- */
   const openAddReg = () => {
     if (!eventRegsModal) { showToast('Open an event first', 'warning'); return; }
     setAddForm({
@@ -2024,6 +2003,647 @@ export default function CommitteeDashboardPage() {
     { title: 'Delete Task?', subtitle: 'Committee Team', confirmLabel: 'Delete', icon: 'fa-trash' },
   );
 
+  /* ---------------- Committee contributions (Admins only) ---------------- */
+  // A contribution is money collected from the committee for a named purpose.
+  // It borrows the installment arithmetic from the events side - amount due,
+  // paid so far, balance - because a member paying ₱2,000 off at ₱500 a month
+  // is the same problem whether the ₱2,000 is a conference fee or a Christmas
+  // drive. What it does NOT borrow is the event: nobody is being booked onto
+  // anything here, so there is no slot, no attendance and no confirmation.
+
+  // What the Add Payment dialog offers: every channel an Admin has set up and
+  // left active, plus Cash. Read from the same Mode of Payment screen in this
+  // dashboard, so adding Maribank there puts it here without a second edit.
+  const contribMethods = useMemo(
+    () => [CASH_METHOD, ...pmList.filter((m) => m.is_active !== false).map((m) => ({ id: m.id, name: m.name, category: m.category }))],
+    [pmList],
+  );
+
+  const loadContribs = useCallback(async (quiet = false) => {
+    if (!me || !isManager) return;
+    if (!quiet) setContribsLoading(true);
+    setContribsError('');
+    try {
+      const res = await fetch(`/api/event-committee/contributions?actorId=${encodeURIComponent(me.id)}`);
+      const data = await res.json();
+      if (!data.success) { setContribsError(data.message || 'Could not load contributions'); return; }
+      setContribs(data.data || []);
+    } catch (error) {
+      setContribsError(error.message);
+    } finally {
+      setContribsLoading(false);
+    }
+  }, [me, isManager]);
+
+  // The contributions tab needs the payment channels as well - it is the same
+  // list the Mode of Payment screen edits, and waiting until somebody visits
+  // that screen would leave the dropdown holding nothing but Cash.
+  useEffect(() => {
+    if (activeSection !== 'team' || teamTab !== 'contributions') return;
+    loadContribs();
+    if (pmList.length === 0) loadPaymentMethods();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, teamTab, loadContribs]);
+
+  // The drive on screen, re-read from the list on every render so that
+  // recording a payment updates what is open without a second copy to keep in
+  // step.
+  const currentContrib = useMemo(
+    () => (openContrib ? contribs.find((c) => c.id === openContrib) || null : null),
+    [openContrib, contribs],
+  );
+
+  const visibleContribs = useMemo(() => {
+    const q = contribSearch.trim().toLowerCase();
+    if (!q) return contribs;
+    return contribs.filter((c) => `${c.title} ${c.description || ''}`.toLowerCase().includes(q));
+  }, [contribs, contribSearch]);
+
+  /* ---- The drive itself ---- */
+  const saveContrib = async () => {
+    if (!contribForm) return;
+    const title = contribForm.title.trim();
+    if (!title) { showToast('Give the contribution a title', 'warning'); return; }
+    setContribSaving(true);
+    try {
+      const editing = !!contribForm.id;
+      const res = await fetch('/api/event-committee/contributions', {
+        method: editing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorId: me.id,
+          ...(editing ? { id: contribForm.id } : {}),
+          title,
+          description: contribForm.description.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message || 'Could not save', 'danger'); return; }
+      await loadContribs(true);
+      setContribForm(null);
+      showToast(data.message || 'Saved', 'success');
+      // A brand new drive opens straight away: the next thing anybody wants is
+      // to put somebody on it, and that is a screen away otherwise.
+      if (!editing && data.data?.id) setOpenContrib(data.data.id);
+    } catch (error) {
+      showToast('Error: ' + error.message, 'danger');
+    } finally {
+      setContribSaving(false);
+    }
+  };
+
+  const removeContrib = (contrib, force = false) => askConfirm(
+    force
+      ? `Delete "${contrib.title}" along with every payment recorded against it? This cannot be undone.`
+      : `Delete "${contrib.title}"?`,
+    async () => {
+      try {
+        const res = await fetch(
+          `/api/event-committee/contributions?id=${contrib.id}&actorId=${me.id}${force ? '&force=1' : ''}`,
+          { method: 'DELETE' },
+        );
+        const data = await res.json();
+        // Money on the drive stops the first press and asks again with what is
+        // actually at stake spelled out.
+        if (!data.success && data.code === 'HAS_PAYMENTS') {
+          showToast(data.message, 'warning');
+          setTimeout(() => removeContrib(contrib, true), 400);
+          return;
+        }
+        if (!data.success) { showToast(data.message || 'Could not delete', 'danger'); return; }
+        setContribs((prev) => prev.filter((c) => c.id !== contrib.id));
+        if (openContrib === contrib.id) setOpenContrib(null);
+        showToast(data.message || 'Deleted', 'success');
+      } catch (error) { showToast('Error: ' + error.message, 'danger'); }
+    },
+    {
+      title: force ? 'Delete Everything?' : 'Delete Contribution?',
+      subtitle: 'Committee Contribution',
+      confirmLabel: force ? 'Delete it all' : 'Delete',
+      icon: 'fa-trash',
+    },
+  );
+
+  /* ---- Shares, and the money against them ---- */
+  // Opened two ways. With no `payer` it is a new share of the drive and asks
+  // who, how much and on what plan; with one it is another instalment against
+  // a share that already exists, so the person and the amount due are settled
+  // and only the money is in question.
+  const openPayerForm = (contribution, payer = null) => {
+    setPayerPickOpen(false);
+    setPayerForm({
+      contributionId: contribution.id,
+      payerId: payer?.id || null,
+      payerLabel: payer ? payer.payer_name : '',
+      userId: payer?.user_id || '',
+      userQuery: '',
+      amountDue: payer ? String(payer.amount_due) : '',
+      plan: payer ? payer.plan : 'full',
+      // A fresh instalment defaults to what is left, which is the figure the
+      // person at the desk is holding the money against.
+      amount: payer ? String(payer.balance || '') : '',
+      methodId: '',
+      methodName: 'Cash',
+      paidOn: new Date().toISOString().slice(0, 10),
+      reference: '',
+      note: '',
+    });
+  };
+
+  // Who can be put on a contribution: the committee itself. This screen is the
+  // Committee Team, and a drive here is the committee's own collection - a
+  // member of the wider church paying into one is a different feature with a
+  // different pool behind it.
+  const payerPool = useMemo(() => {
+    const already = new Set(
+      (currentContrib?.payers || []).map((p) => String(p.user_id)),
+    );
+    const q = (payerForm?.userQuery || '').trim().toLowerCase();
+    return (team.members || [])
+      .filter((m) => !already.has(String(m.id)))
+      .filter((m) => !q || `${m.firstname} ${m.lastname} ${m.email} ${m.member_id || ''}`.toLowerCase().includes(q))
+      .slice(0, 40);
+  }, [team.members, currentContrib, payerForm?.userQuery]);
+
+  // What the dialog says is left after this payment. Live, because the number
+  // somebody is checking against the cash in their hand should not wait for a
+  // round trip.
+  const payerPreview = useMemo(() => {
+    if (!payerForm) return { due: 0, paid: 0, after: 0 };
+    const due = Number(payerForm.amountDue) || 0;
+    const payer = payerForm.payerId
+      ? (currentContrib?.payers || []).find((p) => p.id === payerForm.payerId)
+      : null;
+    const paid = payer ? payer.paid : 0;
+    const now = payerForm.plan === 'full' && !payerForm.payerId
+      ? due
+      : (Number(payerForm.amount) || 0);
+    return { due, paid, now, after: Math.max(0, due - paid - now) };
+  }, [payerForm, currentContrib]);
+
+  const submitPayer = async () => {
+    if (!payerForm) return;
+    const isInstalment = !!payerForm.payerId;
+    if (!isInstalment && !payerForm.userId) { showToast('Choose who is paying', 'warning'); return; }
+    if (!isInstalment && !(Number(payerForm.amountDue) > 0)) { showToast('Enter the payment to pay', 'warning'); return; }
+    // An instalment of nothing is not a record of anything. A NEW share on the
+    // instalment plan may legitimately start at zero - somebody signed up who
+    // has not paid yet - so only the instalment itself is required to be real.
+    if (isInstalment && !(Number(payerForm.amount) > 0)) { showToast('Enter how much was received', 'warning'); return; }
+
+    setPayerSaving(true);
+    try {
+      const res = await fetch('/api/event-committee/contributions/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorId: me.id,
+          ...(isInstalment
+            ? { payerId: payerForm.payerId }
+            : {
+              contributionId: payerForm.contributionId,
+              userId: payerForm.userId,
+              amountDue: payerForm.amountDue,
+              plan: payerForm.plan,
+            }),
+          amount: payerForm.amount,
+          methodId: payerForm.methodId || null,
+          methodName: payerForm.methodName,
+          paidOn: payerForm.paidOn,
+          reference: payerForm.reference,
+          note: payerForm.note,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message || 'Could not save the payment', 'danger'); return; }
+      await loadContribs(true);
+      setPayerForm(null);
+      showToast(data.message || 'Payment recorded', 'success');
+    } catch (error) {
+      showToast('Error: ' + error.message, 'danger');
+    } finally {
+      setPayerSaving(false);
+    }
+  };
+
+  // The slip for one payment.
+  //
+  // The balance on a receipt is the balance AS OF that payment, not the
+  // balance now. Somebody who paid ₱200 against ₱1,000 was handed a slip
+  // saying ₱800 remained; paying another ₱300 next month must not rewrite the
+  // one in their wallet. So it is summed over the payments up to and including
+  // this one, in the order they were taken, rather than read off the share.
+  const openReceipt = (contribution, payer, payment) => {
+    const upTo = payer.payments.slice(0, payer.payments.findIndex((p) => p.id === payment.id) + 1);
+    const paidUpTo = upTo.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const balanceAfter = Math.max(0, (Number(payer.amount_due) || 0) - paidUpTo);
+    setReceipt({
+      contribution,
+      payer,
+      payment,
+      balanceAfter,
+      settled: balanceAfter <= 0,
+      // Four digits, like the pad of pre-printed slips this replaces. The
+      // number itself comes from the database, never from the position in this
+      // list - a deleted payment must not renumber the ones after it.
+      number: payment.receipt_no
+        ? String(payment.receipt_no).padStart(4, '0')
+        : '—',
+    });
+  };
+
+  const removePayment = (payment) => askConfirm(
+    `Remove the ${peso(payment.amount)} payment recorded on ${formatDateOnly(payment.paid_on)}? The balance goes back up by that much.`,
+    async () => {
+      try {
+        const res = await fetch(`/api/event-committee/contributions/payments?paymentId=${payment.id}&actorId=${me.id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) { showToast(data.message || 'Could not remove it', 'danger'); return; }
+        await loadContribs(true);
+        showToast(data.message || 'Payment removed', 'success');
+      } catch (error) { showToast('Error: ' + error.message, 'danger'); }
+    },
+    { title: 'Remove Payment?', subtitle: 'Committee Contribution', confirmLabel: 'Remove', icon: 'fa-rotate-left' },
+  );
+
+  const removePayer = (payer, force = false) => askConfirm(
+    force
+      ? `Remove ${formatPersonName(payer.payer_name)} from this contribution along with the ${payer.payments.length} payment${payer.payments.length === 1 ? '' : 's'} on their record?`
+      : `Remove ${formatPersonName(payer.payer_name)} from this contribution?`,
+    async () => {
+      try {
+        const res = await fetch(
+          `/api/event-committee/contributions/payments?payerId=${payer.id}&actorId=${me.id}${force ? '&force=1' : ''}`,
+          { method: 'DELETE' },
+        );
+        const data = await res.json();
+        if (!data.success && data.code === 'HAS_PAYMENTS') {
+          showToast(data.message, 'warning');
+          setTimeout(() => removePayer(payer, true), 400);
+          return;
+        }
+        if (!data.success) { showToast(data.message || 'Could not remove them', 'danger'); return; }
+        await loadContribs(true);
+        showToast(data.message || 'Removed', 'success');
+      } catch (error) { showToast('Error: ' + error.message, 'danger'); }
+    },
+    {
+      title: force ? 'Remove Them And Their Payments?' : 'Remove From Contribution?',
+      subtitle: 'Committee Contribution',
+      confirmLabel: force ? 'Remove it all' : 'Remove',
+      icon: 'fa-user-minus',
+    },
+  );
+
+  /* ---------------- E-Signature ---------------- */
+  // One signature per account, set by the person it belongs to and nobody else.
+  //
+  // Two things make a signature block, and they are asked for in that order: a
+  // PRINTED NAME, which is what a reader uses to know who signed, and a MARK
+  // over it. The name comes first because a mark on its own is not a signature
+  // block - it is a squiggle - and because somebody who has typed their name
+  // has already decided how they want to be known on a document.
+  //
+  // The mark is drawn at three times the size it is shown, trimmed to the ink
+  // and exported as WebP on a transparent ground: sharp on a printed receipt,
+  // usually 10-30KB, and with nothing behind it to cover the line it sits on.
+
+  // How much bigger the canvas is than the box on screen. 3 is the point where
+  // a stroke printed at 300dpi stops showing its own pixels; past that the file
+  // grows and nothing looks better.
+  const SIG_SCALE = 3;
+  // The long edge of the exported image. A signature is printed about 45mm
+  // wide, which is ~530px at 300dpi - 1200 is comfortably past that and keeps
+  // the file in the tens of kilobytes rather than the hundreds.
+  const SIG_MAX_EDGE = 1200;
+  const SIG_PEN = 2.4;
+
+  const sigCanvasRef = useRef(null);
+  // Strokes live in a ref, not in state: a pointermove fires dozens of times a
+  // second and re-rendering the dashboard on each one would make the pen lag
+  // behind the finger. React only needs to know whether there is ANY ink.
+  const sigStrokes = useRef([]);
+  const sigDrawing = useRef(false);
+  const [sigHasInk, setSigHasInk] = useState(false);
+
+  const [sigLoading, setSigLoading] = useState(false);
+  const [sigSaving, setSigSaving] = useState(false);
+  const [sigError, setSigError] = useState('');
+  const [sigName, setSigName] = useState('');
+  // What is actually stored, as opposed to what is being typed or drawn.
+  const [sigSaved, setSigSaved] = useState({ signatureUrl: '', signaturePath: '', signatureName: '', hasName: false, updatedAt: null });
+  const [sigMode, setSigMode] = useState('draw'); // 'draw' | 'upload'
+  const [sigKnockout, setSigKnockout] = useState(true);
+  const [sigPreview, setSigPreview] = useState(null); // an uploaded file, before saving
+
+  const loadSignature = useCallback(async () => {
+    if (!me) return;
+    setSigLoading(true);
+    setSigError('');
+    try {
+      const res = await fetch(`/api/event-committee/signature?actorId=${encodeURIComponent(me.id)}`);
+      const data = await res.json();
+      if (!data.success) { setSigError(data.message || 'Could not load your signature'); return; }
+      setSigSaved(data.data);
+      setSigName(data.data.signatureName || '');
+    } catch (error) {
+      setSigError(error.message);
+    } finally {
+      setSigLoading(false);
+    }
+  }, [me]);
+
+  useEffect(() => {
+    if (activeSection !== 'signature') return;
+    loadSignature();
+  }, [activeSection, loadSignature]);
+
+  /* ---- The pad ---- */
+  // Redrawn from the stroke list rather than left on the canvas, because that
+  // is what makes Undo possible: taking the last stroke off and drawing what
+  // is left. Painting a white rectangle over the end of a line would be a lie
+  // on a transparent image.
+  const sigRepaint = useCallback(() => {
+    const canvas = sigCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(SIG_SCALE, SIG_SCALE);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = SIG_PEN;
+
+    sigStrokes.current.forEach((stroke) => {
+      if (stroke.length === 0) return;
+      ctx.beginPath();
+      if (stroke.length === 1) {
+        // A tap is a dot. Without this, dotting an i draws nothing.
+        ctx.arc(stroke[0].x, stroke[0].y, SIG_PEN / 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#111';
+        ctx.fill();
+        return;
+      }
+      ctx.moveTo(stroke[0].x, stroke[0].y);
+      // Through the midpoints, with each recorded point as the control. Joining
+      // the points with straight lines shows every one of them as a corner at
+      // the speed a hand actually moves.
+      for (let i = 1; i < stroke.length - 1; i += 1) {
+        const mid = { x: (stroke[i].x + stroke[i + 1].x) / 2, y: (stroke[i].y + stroke[i + 1].y) / 2 };
+        ctx.quadraticCurveTo(stroke[i].x, stroke[i].y, mid.x, mid.y);
+      }
+      ctx.lineTo(stroke[stroke.length - 1].x, stroke[stroke.length - 1].y);
+      ctx.stroke();
+    });
+  }, []);
+
+  // The backing store follows the box on screen, at SIG_SCALE. Done here and
+  // not in the markup because the box is a percentage of a column whose width
+  // is not known until it is laid out - and a canvas with no width attribute
+  // defaults to 300x150 regardless of what CSS says it is.
+  const sigFitCanvas = useCallback(() => {
+    const canvas = sigCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) return;
+    canvas.width = Math.round(rect.width * SIG_SCALE);
+    canvas.height = Math.round(rect.height * SIG_SCALE);
+    sigRepaint();
+  }, [sigRepaint]);
+
+  useEffect(() => {
+    if (activeSection !== 'signature' || sigMode !== 'draw') return undefined;
+    // After paint: the section is display:none until it is the active one, and
+    // a hidden element measures zero.
+    const id = requestAnimationFrame(sigFitCanvas);
+    window.addEventListener('resize', sigFitCanvas);
+    return () => { cancelAnimationFrame(id); window.removeEventListener('resize', sigFitCanvas); };
+  }, [activeSection, sigMode, sigFitCanvas]);
+
+  const sigPoint = (e) => {
+    const rect = sigCanvasRef.current.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  const sigDown = (e) => {
+    // Pointer events rather than mouse or touch: one set of handlers covers a
+    // mouse, a finger and a stylus, and setPointerCapture keeps the stroke
+    // going when the hand leaves the box mid-letter.
+    e.currentTarget.setPointerCapture(e.pointerId);
+    sigDrawing.current = true;
+    sigStrokes.current.push([sigPoint(e)]);
+    setSigHasInk(true);
+  };
+
+  const sigMove = (e) => {
+    if (!sigDrawing.current) return;
+    const stroke = sigStrokes.current[sigStrokes.current.length - 1];
+    const p = sigPoint(e);
+    const last = stroke[stroke.length - 1];
+    // Points closer than a pixel are the digitiser's noise, not the hand's
+    // movement, and keeping them only makes the file bigger.
+    if (last && Math.hypot(p.x - last.x, p.y - last.y) < 1) return;
+    stroke.push(p);
+    sigRepaint();
+  };
+
+  const sigUp = () => { sigDrawing.current = false; };
+
+  const sigClear = () => {
+    sigStrokes.current = [];
+    setSigHasInk(false);
+    sigRepaint();
+  };
+
+  const sigUndo = () => {
+    sigStrokes.current.pop();
+    setSigHasInk(sigStrokes.current.length > 0);
+    sigRepaint();
+  };
+
+  // The box the ink actually occupies, in CSS pixels. Computed from the points
+  // rather than by reading the canvas back: exact, cheap, and it does not need
+  // the canvas to still hold what was drawn.
+  const sigInkBounds = () => {
+    let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+    sigStrokes.current.forEach((stroke) => stroke.forEach((p) => {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }));
+    if (minX === Infinity) return null;
+    // The pen has width, so the ink reaches half a stroke past the points.
+    const pad = SIG_PEN;
+    return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+  };
+
+  // Trimmed to the ink and exported. Trimming is what makes the mark usable
+  // anywhere: an untrimmed pad is mostly empty, and dropping it onto a receipt
+  // gives a signature the size of a postage stamp floating in a box.
+  const sigToWebp = () => new Promise((resolve, reject) => {
+    const canvas = sigCanvasRef.current;
+    const bounds = sigInkBounds();
+    if (!canvas || !bounds) { reject(new Error('Draw your signature first')); return; }
+
+    const sx = Math.max(0, bounds.minX) * SIG_SCALE;
+    const sy = Math.max(0, bounds.minY) * SIG_SCALE;
+    const sw = Math.min(canvas.width - sx, (bounds.maxX - bounds.minX) * SIG_SCALE);
+    const sh = Math.min(canvas.height - sy, (bounds.maxY - bounds.minY) * SIG_SCALE);
+    if (sw <= 0 || sh <= 0) { reject(new Error('Draw your signature first')); return; }
+
+    const shrink = Math.min(1, SIG_MAX_EDGE / Math.max(sw, sh));
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(sw * shrink));
+    out.height = Math.max(1, Math.round(sh * shrink));
+    const ctx = out.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    // No fill: the ground stays transparent so the mark sits ON the line it is
+    // printed over instead of covering it with a white block.
+    ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, out.width, out.height);
+
+    out.toBlob(
+      (blob) => (blob
+        ? resolve(new File([blob], 'signature.webp', { type: 'image/webp' }))
+        : reject(new Error('Could not save that signature'))),
+      'image/webp',
+      0.92,
+    );
+  });
+
+  // A photographed signature. Scaled, and - unless the toggle is turned off -
+  // the paper behind it knocked out, because a white rectangle pasted over a
+  // receipt's signature line hides the line.
+  const sigFileToWebp = (file) => new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const shrink = Math.min(1, SIG_MAX_EDGE / Math.max(img.width, img.height));
+      const out = document.createElement('canvas');
+      out.width = Math.max(1, Math.round(img.width * shrink));
+      out.height = Math.max(1, Math.round(img.height * shrink));
+      const ctx = out.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, out.width, out.height);
+
+      if (sigKnockout) {
+        // Paper is not pure white under a phone camera, so the threshold is
+        // generous - and the fade between 150 and 230 keeps the edge of every
+        // stroke soft instead of turning the mark into a jagged stencil.
+        const data = ctx.getImageData(0, 0, out.width, out.height);
+        const px = data.data;
+        for (let i = 0; i < px.length; i += 4) {
+          const light = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114);
+          if (light > 230) px[i + 3] = 0;
+          else if (light > 150) px[i + 3] = Math.round(px[i + 3] * ((230 - light) / 80));
+          // What is left is ink: forced to near-black so a blue biro under
+          // yellow lamplight still prints as a signature.
+          if (px[i + 3] > 0) { px[i] = 17; px[i + 1] = 17; px[i + 2] = 17; }
+        }
+        ctx.putImageData(data, 0, 0);
+      }
+
+      out.toBlob(
+        (blob) => (blob
+          ? resolve(new File([blob], 'signature.webp', { type: 'image/webp' }))
+          : reject(new Error('Could not read that image'))),
+        'image/webp',
+        0.92,
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file is not an image')); };
+    img.src = url;
+  });
+
+  /* ---- Saving ---- */
+  const saveSigName = async () => {
+    const name = sigName.trim();
+    if (!name) { showToast('Enter the full name to print under your signature', 'warning'); return; }
+    setSigSaving(true);
+    try {
+      const res = await fetch('/api/event-committee/signature', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: me.id, signatureName: name }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message || 'Could not save', 'danger'); return; }
+      setSigSaved(data.data);
+      showToast(data.message || 'Printed name saved', 'success');
+    } catch (error) {
+      showToast('Error: ' + error.message, 'danger');
+    } finally {
+      setSigSaving(false);
+    }
+  };
+
+  const saveSignature = async (file) => {
+    setSigSaving(true);
+    try {
+      const webp = file || await sigToWebp();
+      const fd = new FormData();
+      fd.append('file', webp);
+      fd.append('actorId', me.id);
+      // So the one it replaces is dropped rather than left in the bucket.
+      if (sigSaved.signaturePath) fd.append('replaces', sigSaved.signaturePath);
+
+      const upload = await fetch('/api/event-committee/signature/upload', { method: 'POST', body: fd });
+      const uploaded = await upload.json();
+      if (!uploaded.success) { showToast(uploaded.message || 'Upload failed', 'danger'); return; }
+
+      const res = await fetch('/api/event-committee/signature', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorId: me.id,
+          signatureName: sigName.trim(),
+          signatureUrl: uploaded.url,
+          signaturePath: uploaded.path,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message || 'Could not save', 'danger'); return; }
+
+      setSigSaved(data.data);
+      setSigPreview(null);
+      sigClear();
+      showToast(`Signature saved (${Math.round((uploaded.bytes || 0) / 1024)}KB)`, 'success');
+    } catch (error) {
+      showToast(error.message, 'danger');
+    } finally {
+      setSigSaving(false);
+    }
+  };
+
+  const pickSignatureFile = async (file) => {
+    if (!file) return;
+    setSigSaving(true);
+    try {
+      const webp = await sigFileToWebp(file);
+      setSigPreview({ file: webp, url: URL.createObjectURL(webp), bytes: webp.size });
+    } catch (error) {
+      showToast(error.message, 'danger');
+    } finally {
+      setSigSaving(false);
+    }
+  };
+
+  const removeSignature = () => askConfirm(
+    'Remove your signature? Receipts you record after this print with a blank line to sign by hand. Your printed name is kept.',
+    async () => {
+      try {
+        const res = await fetch(`/api/event-committee/signature?actorId=${me.id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) { showToast(data.message || 'Could not remove it', 'danger'); return; }
+        setSigSaved((s) => ({ ...s, signatureUrl: '', signaturePath: '' }));
+        showToast(data.message || 'Signature removed', 'success');
+      } catch (error) { showToast('Error: ' + error.message, 'danger'); }
+    },
+    { title: 'Remove Signature?', subtitle: 'E-Signature', confirmLabel: 'Remove', icon: 'fa-eraser' },
+  );
+
   /* ---------------- Gates ---------------- */
   if (me === undefined) {
     return (
@@ -2063,6 +2683,10 @@ export default function CommitteeDashboardPage() {
       { section: 'payment-methods', label: 'Mode of Payment', icon: 'fas fa-money-check-dollar' },
       { section: 'team', label: 'Committee Team', icon: 'fas fa-users-gear', badge: team.waiting.length || 0 },
     ] : []),
+    // Everybody, not just Admins: a signature belongs to the person, and a
+    // member working a door hands over receipts too. Last in the list because
+    // it is set up once and then left alone.
+    { section: 'signature', label: 'E-Signature', icon: 'fas fa-signature' },
   ];
 
   const scopeNote = isManager
@@ -2331,7 +2955,7 @@ export default function CommitteeDashboardPage() {
                             title={isEventOver(eventRegsModal) ? 'This event has already ended' : ''}
                             onClick={openAddReg}
                           >
-                            <i className="fas fa-user-plus"></i> Add Walk-in
+                            <i className="fas fa-user-plus"></i> Add Attendee
                           </button>
                         )}
                         {manageTab === 'attendance' && (
@@ -2409,7 +3033,7 @@ export default function CommitteeDashboardPage() {
                 <div className="um-hero-content">
                   <h2 className="um-hero-title">Events</h2>
                   <p className="um-hero-sub">
-                    Open an event to work its door: verify payments, check people in, collect on a plan and add walk-ins. {scopeNote}
+                    Open an event to work its door: verify payments, check people in, collect on a plan and add attendees. {scopeNote}
                   </p>
                   <button className="um-hero-btn" onClick={loadEvents}>
                     <i className="fas fa-rotate"></i> Refresh
@@ -2605,16 +3229,16 @@ export default function CommitteeDashboardPage() {
 
                     {/* the wrapper scrolls sideways, which would clip an open row
                         menu - so it stops clipping while one is open */}
-                    <div className={`evt-table-wrapper ${openRowMenu ? 'menu-open' : ''}`}>
+                    <div className={`evt-table-wrapper evt-table-steady ${openRowMenu ? 'menu-open' : ''}`}>
                       <table className="evt-table evt-table-regs">
                         <thead>
-                          <tr><th>Attendee</th><th>Type</th><th>Added By</th><th>Church</th><th>Contact</th><th>Extras</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
+                          <tr><th>Attendee</th><th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
                         </thead>
                         <tbody>
                           {eventRegsLoading ? (
-                            <tr><td colSpan={9}>Loading…</td></tr>
+                            <tr><td colSpan={8}>Loading…</td></tr>
                           ) : pagedRegs.length === 0 ? (
-                            <tr><td colSpan={9}>{eventRegs.length === 0
+                            <tr><td colSpan={8}>{eventRegs.length === 0
                               ? 'No registrations yet.'
                               : (regSearch.trim() ? `No one matches “${regSearch.trim()}”.` : 'No registrations match these filters.')}</td></tr>
                           ) : pagedRegs.map((r) => (
@@ -2675,20 +3299,6 @@ export default function CommitteeDashboardPage() {
                                     {`Ptr. ${formatPersonName(String(r.church_pastor).replace(/^ptr\.?\s*/i, ''))}`}
                                   </div>
                                 )}
-                              </td>
-                              <td className="evt-cell-sub" data-label="Contact">
-                                {r.attendee_mobile ? (
-                                  <button
-                                    type="button"
-                                    className={`evt-copy-cell ${copiedContact === r.attendee_mobile ? 'copied' : ''}`}
-                                    onClick={() => copyContact(r.attendee_mobile)}
-                                    title="Copy number"
-                                  >
-                                    {r.attendee_mobile}
-                                    <i className={`fas ${copiedContact === r.attendee_mobile ? 'fa-check' : 'fa-copy'}`}></i>
-                                  </button>
-                                ) : '—'}
-                                {r.attendee_email && <div>{r.attendee_email}</div>}
                               </td>
                               {/* One mark per extra the event offers: ticked if
                                   they took it, dashed if they did not. */}
@@ -2869,94 +3479,24 @@ export default function CommitteeDashboardPage() {
                   </>
                 )}
 
-                {/* ---------- Attendance ---------- */}
+                {/* ---------- Attendance ----------
+                     The same component the Admin dashboard renders. It was two
+                     screens before this - the admin had the RFID door, the
+                     per-day columns and the counters, this had a single Mark
+                     Attended button - and keeping them level by maintaining
+                     both was never going to work. See
+                     src/components/eventDesk/EventAttendanceTab.jsx. */}
                 {manageTab === 'attendance' && (
-                  <>
-                    <div className="evt-viewbar">
-                      <div className="evt-filters">
-                        <div className="evt-search">
-                          <i className="fas fa-magnifying-glass"></i>
-                          <input
-                            type="search"
-                            value={attSearch}
-                            onChange={(e) => { setAttSearch(e.target.value); setAttPage(1); }}
-                            placeholder="Search attendees, church or contact"
-                            aria-label="Search attendees"
-                          />
-                          {attSearch && (
-                            <button type="button" onClick={() => setAttSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
-                          )}
-                        </div>
-                        <span className="evt-filter-count">
-                          {stats.attended} in · {confirmedRegs.length - confirmedRegs.filter((r) => r.attended).length} still to come
-                        </span>
-                      </div>
-                      <button className="btn-primary" onClick={() => { setQrScanResult(null); setShowQrScanner(true); }}>
-                        <i className="fas fa-qrcode"></i> Scan QR to Check In
-                      </button>
-                    </div>
-                    <div className="evt-table-wrapper">
-                      <table className="evt-table">
-                        <thead>
-                          <tr><th>Attendee</th><th>Contact</th><th>Status</th><th>Attendance</th></tr>
-                        </thead>
-                        <tbody>
-                          {eventRegsLoading ? (
-                            <tr><td colSpan={4}>Loading…</td></tr>
-                          ) : pagedAtt.length === 0 ? (
-                            <tr><td colSpan={4}>{confirmedRegs.length === 0 ? 'No confirmed registrations yet.' : 'Nobody matches that search.'}</td></tr>
-                          ) : pagedAtt.map((r) => (
-                            <tr key={r.id}>
-                              <td className="evt-cell-name evt-td-primary" data-label="Attendee">
-                                {formatPersonName(r.attendee_name)}
-                                {r.church_name && <div className="evt-cell-sub">{formatChurchName(r.church_name)}</div>}
-                              </td>
-                              <td className="evt-cell-sub" data-label="Contact">{r.attendee_email}{r.attendee_mobile ? ` · ${r.attendee_mobile}` : ''}</td>
-                              <td className="evt-nowrap" data-label="Status"><span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span></td>
-                              <td className="evt-nowrap evt-td-actions" data-label="Attendance">
-                                {r.attended ? (
-                                  <>
-                                    <span className="evt-attend-badge yes"><i className="fas fa-check-circle"></i> Attended{r.attended_at ? ` · ${formatDateTime(r.attended_at)}` : ''}</span>
-                                    <button
-                                      className="evt-mini-btn danger"
-                                      onClick={() => askConfirm(
-                                        `${formatPersonName(r.attendee_name)} will be marked as not attended / no-show. You can mark them attended again later.`,
-                                        () => markAttendance(r.id, false),
-                                        { title: 'Mark as Not Attended?', subtitle: eventRegsModal.title, confirmLabel: 'Mark Not Attended', icon: 'fa-user-xmark' },
-                                      )}
-                                    ><i className="fas fa-user-xmark"></i> Undo</button>
-                                  </>
-                                ) : (
-                                  <button className="evt-mini-btn ok" onClick={() => markAttendance(r.id, true)}>
-                                    <i className="fas fa-user-check"></i> Mark Attended
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {confirmedRegs.length > 0 && (
-                      <TablePager
-                        page={attPageSafe} pageSize={attPageSize} total={confirmedRegs.length}
-                        onPage={setAttPage} onSize={setAttPageSize} label="attendees"
-                      />
-                    )}
-
-                    {/* What this device has scanned, so a queue leaves a trail. */}
-                    {qrLog.length > 0 && (
-                      <div className="evt-inst-stats" style={{ marginTop: 18 }}>
-                        {qrLog.slice(0, 4).map((entry) => (
-                          <div className="evt-inst-stat paid" key={`${entry.id}-${entry.at.getTime()}`}>
-                            <span>Checked in</span>
-                            <b style={{ fontSize: '1rem' }}>{formatPersonName(entry.name)}</b>
-                            <em>{entry.at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</em>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
+                  <EventAttendanceTab
+                    event={eventRegsModal}
+                    regs={eventRegs}
+                    loading={eventRegsLoading}
+                    onRegsChange={setEventRegs}
+                    actorId={me?.id || null}
+                    showToast={showToast}
+                    askConfirm={askConfirm}
+                    Pager={TablePager}
+                  />
                 )}
 
                 {/* ---------- Flexible installments ---------- */}
@@ -3115,29 +3655,6 @@ export default function CommitteeDashboardPage() {
               </>
             )}
 
-            {/* ---- Attendance QR scanner ---- */}
-            {showQrScanner && (
-              <div className="evt-modal-overlay" onClick={() => setShowQrScanner(false)}>
-                <div className="evt-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
-                  <div className="evt-modal-head">
-                    <div><h3>Scan Attendance QR</h3><p>{eventRegsModal?.title}</p></div>
-                    <button className="evt-modal-close" onClick={() => setShowQrScanner(false)}><i className="fas fa-times"></i></button>
-                  </div>
-                  <div className="evt-modal-body">
-                    <div id="evt-qr-reader" className="evt-qr-reader"></div>
-                    {qrScanResult && (
-                      <div className={`evt-qr-result ${qrScanResult.status}`}>
-                        <i className={`fas ${qrScanResult.status === 'success' ? 'fa-check-circle' : qrScanResult.status === 'already' ? 'fa-info-circle' : 'fa-exclamation-triangle'}`}></i>
-                        <span>{qrScanResult.message}</span>
-                      </div>
-                    )}
-                    <p className="evt-muted" style={{ fontSize: '0.78rem', marginTop: 10 }}>
-                      Point the camera at an attendee&apos;s registration QR code. It will be marked as attended automatically once confirmed.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* ---- Proof of payment: the receipt beside the numbers it should match ---- */}
             {proofModal && (
@@ -3339,12 +3856,12 @@ export default function CommitteeDashboardPage() {
               </div>
             )}
 
-            {/* ---- Add a walk-in ---- */}
+            {/* ---- Add an attendee ---- */}
             {showAddReg && eventRegsModal && (
               <div className="evt-modal-overlay" onClick={() => !addSaving && setShowAddReg(false)}>
                 <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="evt-modal-head">
-                    <div><h3>Add Walk-in</h3><p>{eventRegsModal.title}</p></div>
+                    <div><h3>Add Attendee</h3><p>{eventRegsModal.title}</p></div>
                     <button className="evt-modal-close" onClick={() => setShowAddReg(false)}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
@@ -5110,6 +5627,236 @@ export default function CommitteeDashboardPage() {
             )}
           </section>
 
+          {/* ========== E-SIGNATURE ========== */}
+          <section className={`content-section ${activeSection === 'signature' ? 'active' : ''}`}>
+            <div className="um-hero">
+              <div className="um-hero-bg"></div>
+              <div className="um-hero-content">
+                <h2 className="um-hero-title">E-Signature</h2>
+                <p className="um-hero-sub">
+                  Your printed name and the mark that goes above it. Once both are set, every receipt you
+                  record is signed with them &mdash; nobody else&rsquo;s account can set or use your signature.
+                </p>
+              </div>
+            </div>
+
+            {sigError ? (
+              <p className="events-empty-msg">
+                <i className="fas fa-triangle-exclamation"></i> {sigError}
+              </p>
+            ) : sigLoading ? (
+              <p className="events-empty-msg">Loading…</p>
+            ) : (
+              <div className="sig-layout">
+                <div className="sig-steps">
+
+                  {/* ---- Step one: the printed name ---- */}
+                  <section className={`sig-step ${sigSaved.hasName ? 'done' : 'on'}`}>
+                    <header className="sig-step-head">
+                      <b>{sigSaved.hasName ? <i className="fas fa-check"></i> : 1}</b>
+                      <div>
+                        <h3>Full Name</h3>
+                        <p>The name printed under the line. Type it the way it should appear on a document.</p>
+                      </div>
+                    </header>
+                    <div className="sig-step-body">
+                      <div className="form-group" style={{ marginBottom: 10 }}>
+                        <label>Printed name *</label>
+                        <input
+                          className="form-control"
+                          value={sigName}
+                          onChange={(e) => setSigName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveSigName(); }}
+                          placeholder="e.g. Ptr. Juan D. Dela Cruz"
+                          maxLength={120}
+                        />
+                      </div>
+                      <button
+                        className="btn-primary"
+                        onClick={saveSigName}
+                        disabled={sigSaving || !sigName.trim() || sigName.trim() === sigSaved.signatureName}
+                      >
+                        <i className={`fas ${sigSaving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i>{' '}
+                        {sigSaved.hasName ? 'Update Name' : 'Save Name'}
+                      </button>
+                    </div>
+                  </section>
+
+                  {/* ---- Step two: the mark ----
+                       Locked until there is a name, which is the order the
+                       thing is actually assembled in: a mark with nothing
+                       printed under it tells a reader nothing. */}
+                  <section className={`sig-step ${!sigSaved.hasName ? 'locked' : sigSaved.signatureUrl ? 'done' : 'on'}`}>
+                    <header className="sig-step-head">
+                      <b>{sigSaved.signatureUrl ? <i className="fas fa-check"></i> : 2}</b>
+                      <div>
+                        <h3>Signature</h3>
+                        <p>
+                          {sigSaved.hasName
+                            ? 'Sign with a finger, a stylus or the mouse — or upload a photo of your signature.'
+                            : 'Save your printed name first.'}
+                        </p>
+                      </div>
+                    </header>
+
+                    {sigSaved.hasName && (
+                      <div className="sig-step-body">
+                        <div className="evt-view-toggle sig-modes">
+                          <button className={sigMode === 'draw' ? 'on' : ''} onClick={() => { setSigMode('draw'); setSigPreview(null); }}>
+                            <i className="fas fa-pen-nib"></i> Draw
+                          </button>
+                          <button className={sigMode === 'upload' ? 'on' : ''} onClick={() => { setSigMode('upload'); sigClear(); }}>
+                            <i className="fas fa-image"></i> Upload
+                          </button>
+                        </div>
+
+                        {sigMode === 'draw' ? (
+                          <>
+                            <div className="sig-pad">
+                              <canvas
+                                ref={sigCanvasRef}
+                                className="sig-canvas"
+                                onPointerDown={sigDown}
+                                onPointerMove={sigMove}
+                                onPointerUp={sigUp}
+                                onPointerCancel={sigUp}
+                              />
+                              {/* The rule you sign on, and the hint above it.
+                                  Both sit under the canvas so a stroke is never
+                                  drawn over its own instructions. */}
+                              <span className="sig-pad-rule"></span>
+                              {!sigHasInk && <span className="sig-pad-hint">Sign here</span>}
+                            </div>
+                            <div className="sig-pad-actions">
+                              <span className="sig-pad-note">
+                                <i className="fas fa-circle-info"></i> Saved as WebP on a transparent
+                                background, trimmed to your signature.
+                              </span>
+                              <span className="sig-pad-btns">
+                                <button className="evt-mini-btn" onClick={sigUndo} disabled={!sigHasInk}>
+                                  <i className="fas fa-rotate-left"></i> Undo
+                                </button>
+                                <button className="evt-mini-btn" onClick={sigClear} disabled={!sigHasInk}>
+                                  <i className="fas fa-eraser"></i> Clear
+                                </button>
+                                <button className="btn-primary" onClick={() => saveSignature()} disabled={!sigHasInk || sigSaving}>
+                                  <i className={`fas ${sigSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>{' '}
+                                  {sigSaving ? 'Saving…' : 'Save Signature'}
+                                </button>
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <label className="sig-drop">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => { pickSignatureFile(e.target.files?.[0]); e.target.value = ''; }}
+                              />
+                              {sigPreview ? (
+                                <img src={sigPreview.url} alt="Your signature" />
+                              ) : (
+                                <>
+                                  <i className="fas fa-cloud-arrow-up"></i>
+                                  <b>Choose a photo of your signature</b>
+                                  <em>Sign on white paper, photograph it square on, and pick it here.</em>
+                                </>
+                              )}
+                            </label>
+                            <label className="sig-knockout">
+                              <input
+                                type="checkbox"
+                                checked={sigKnockout}
+                                onChange={(e) => { setSigKnockout(e.target.checked); setSigPreview(null); }}
+                              />
+                              <span>
+                                <b>Remove the paper behind it</b>
+                                <em>Leaves only the ink, so the mark sits on the line instead of covering it. Turn off for a signature that already has a transparent background.</em>
+                              </span>
+                            </label>
+                            <div className="sig-pad-actions">
+                              <span className="sig-pad-note">
+                                {sigPreview
+                                  ? <><i className="fas fa-circle-check"></i> Converted to WebP &mdash; {Math.max(1, Math.round(sigPreview.bytes / 1024))}KB</>
+                                  : <><i className="fas fa-circle-info"></i> Converted to WebP when you pick it.</>}
+                              </span>
+                              <span className="sig-pad-btns">
+                                <button className="evt-mini-btn" onClick={() => setSigPreview(null)} disabled={!sigPreview}>
+                                  <i className="fas fa-xmark"></i> Discard
+                                </button>
+                                <button className="btn-primary" onClick={() => saveSignature(sigPreview.file)} disabled={!sigPreview || sigSaving}>
+                                  <i className={`fas ${sigSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>{' '}
+                                  {sigSaving ? 'Saving…' : 'Save Signature'}
+                                </button>
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                </div>
+
+                {/* ---- The overview ----
+                     The two halves put together, at the size a document prints
+                     them. This is the whole point of the screen: a name and a
+                     mark are each half of a signature block, and neither can be
+                     judged on its own. */}
+                <aside className="sig-overview">
+                  <h3 className="sig-overview-title">
+                    <i className="fas fa-file-signature"></i> Overview
+                  </h3>
+                  <p className="sig-overview-sub">How your signature block appears on a receipt.</p>
+
+                  <div className="sig-block-frame">
+                    <div className="sig-block">
+                      {sigSaved.signatureUrl ? (
+                        <img className="sig-block-mark" src={sigSaved.signatureUrl} alt="Your signature" />
+                      ) : (
+                        <span className="sig-block-empty">not signed yet</span>
+                      )}
+                      <span className="sig-block-rule"></span>
+                      <b className="sig-block-name">{sigSaved.signatureName || sigName.trim() || 'Your printed name'}</b>
+                      <em className="sig-block-label">SIGNATURE OVER PRINTED NAME</em>
+                    </div>
+                  </div>
+
+                  <dl className="sig-facts">
+                    <div>
+                      <dt>Status</dt>
+                      <dd className={sigSaved.signatureUrl ? 'ok' : 'wait'}>
+                        <i className={`fas ${sigSaved.signatureUrl ? 'fa-circle-check' : 'fa-circle-half-stroke'}`}></i>{' '}
+                        {sigSaved.signatureUrl ? 'Ready to sign' : sigSaved.hasName ? 'Name set, no mark yet' : 'Not set up'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Format</dt>
+                      <dd>WebP, transparent, trimmed</dd>
+                    </div>
+                    {sigSaved.updatedAt && (
+                      <div>
+                        <dt>Last changed</dt>
+                        <dd>{formatDateTime(sigSaved.updatedAt)}</dd>
+                      </div>
+                    )}
+                  </dl>
+
+                  {sigSaved.signatureUrl && (
+                    <button className="evt-mini-btn danger sig-remove" onClick={removeSignature}>
+                      <i className="fas fa-eraser"></i> Remove signature
+                    </button>
+                  )}
+
+                  <p className="sig-privacy">
+                    <i className="fas fa-lock"></i> Only you can set this. It is applied to receipts for
+                    payments <b>you</b> recorded &mdash; never to anybody else&rsquo;s.
+                  </p>
+                </aside>
+              </div>
+            )}
+          </section>
+
           {/* ========== MODE OF PAYMENT (Admins only) ========== */}
           {isManager && (
             <section className={`content-section ${activeSection === 'payment-methods' ? 'active' : ''}`}>
@@ -5518,6 +6265,33 @@ export default function CommitteeDashboardPage() {
                 <>
                   {teamLoading && <p className="events-empty-msg">Loading…</p>}
 
+                  {/* ---- The two halves of the committee ----
+                      Who is on it, and what they have put in. Both are "the
+                      committee" and neither is a sub-page of the other, so they
+                      are tabs of one screen rather than two sidebar entries -
+                      the sidebar answers what you are DOING, and this is one
+                      job seen two ways. */}
+                  <div className="evt-tabs">
+                    <button
+                      type="button"
+                      className={`evt-tab ${teamTab === 'members' ? 'active' : ''}`}
+                      onClick={() => setTeamTab('members')}
+                    >
+                      <i className="fas fa-users"></i> Committee members
+                      {team.members.length > 0 && <span className="evt-tab-count">{team.members.length}</span>}
+                    </button>
+                    <button
+                      type="button"
+                      className={`evt-tab ${teamTab === 'contributions' ? 'active' : ''}`}
+                      onClick={() => { setTeamTab('contributions'); setOpenContrib(null); }}
+                    >
+                      <i className="fas fa-hand-holding-dollar"></i> Committee Contribution
+                      {contribs.length > 0 && <span className="evt-tab-count">{contribs.length}</span>}
+                    </button>
+                  </div>
+
+                  {teamTab === 'members' && (
+                  <>
                   {/* Somebody signed up through the committee page and is
                       waiting. Worth saying on the page; the list of them is in
                       the Add Member modal with everybody else. */}
@@ -5642,6 +6416,773 @@ export default function CommitteeDashboardPage() {
                         </tbody>
                       </table>
                     </div>
+                  )}
+                  </>
+                  )}
+
+                  {/* ---- Committee contributions ----
+                      The other half of this screen. A drive collects money
+                      from the committee for a named purpose; a share is one
+                      person's part of it; an instalment is money actually
+                      handed over. Three levels, and the screen shows one at a
+                      time so it is always clear which one is being changed. */}
+                  {teamTab === 'contributions' && (
+                    contribsError ? (
+                      <p className="events-empty-msg">
+                        <i className="fas fa-triangle-exclamation"></i> {contribsError}
+                      </p>
+                    ) : currentContrib ? (
+                      <>
+                        <div className="ctr-detail-head">
+                          <button type="button" className="evt-mini-btn" onClick={() => { setOpenContrib(null); setOpenPayer(null); }}>
+                            <i className="fas fa-arrow-left"></i> All contributions
+                          </button>
+                          <div className="ctr-detail-title">
+                            <h3>{currentContrib.title}</h3>
+                            {currentContrib.description && <p>{currentContrib.description}</p>}
+                          </div>
+                          <button className="pm-add-btn" onClick={() => openPayerForm(currentContrib)}>
+                            <i className="fas fa-hand-holding-dollar"></i> Add Payment
+                          </button>
+                        </div>
+
+                        {/* The three figures the drive turns on. Outstanding is
+                            the headline because it is the only one that says
+                            what is left to do. */}
+                        <div className="evt-plan-summary big">
+                          <div>
+                            <span>To Collect</span>
+                            <b>{peso(currentContrib.totals.expected)}</b>
+                          </div>
+                          <div>
+                            <span>Collected</span>
+                            <b>{peso(currentContrib.totals.collected)}</b>
+                          </div>
+                          <div className="bal">
+                            <span>Outstanding</span>
+                            <b>{peso(currentContrib.totals.balance)}</b>
+                          </div>
+                        </div>
+
+                        {currentContrib.payers.length === 0 ? (
+                          <p className="events-empty-msg">
+                            Nobody is on this contribution yet. Use <b>Add Payment</b> above to put the first
+                            person on it and record what they are down for.
+                          </p>
+                        ) : (
+                          <div className="evt-table-wrapper">
+                            <table className="evt-table ctr-table">
+                              <thead>
+                                <tr>
+                                  <th>Member</th>
+                                  <th>Plan</th>
+                                  <th>Payment To Pay</th>
+                                  <th>Paid</th>
+                                  <th>Balance</th>
+                                  <th>Last Payment</th>
+                                  <th style={{ textAlign: 'right' }}>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {currentContrib.payers.map((payer) => {
+                                  const last = payer.payments[payer.payments.length - 1];
+                                  const open = openPayer === payer.id;
+                                  const pct = payer.amount_due > 0
+                                    ? Math.min(100, Math.round((payer.paid / payer.amount_due) * 100))
+                                    : 0;
+                                  return (
+                                    <Fragment key={payer.id}>
+                                    <tr className={open ? 'ctr-row-open' : ''}>
+                                      <td className="evt-cell-name evt-td-primary" data-label="Member">
+                                        {formatPersonName(payer.payer_name)}
+                                        {payer.payer_email && <div className="evt-cell-sub">{payer.payer_email}</div>}
+                                      </td>
+                                      <td data-label="Plan">
+                                        <span className={`ctr-plan ${payer.plan}`}>
+                                          <i className={`fas ${payer.plan === 'full' ? 'fa-money-bill-wave' : 'fa-calendar-day'}`}></i>
+                                          {payer.plan === 'full' ? 'Paid In Full' : 'Installment'}
+                                        </span>
+                                      </td>
+                                      <td className="evt-nowrap" data-label="Payment To Pay"><b>{peso(payer.amount_due)}</b></td>
+                                      <td className="evt-nowrap" data-label="Paid">
+                                        {peso(payer.paid)}
+                                        {/* How far along, at a glance. A list of
+                                            forty people is read by scanning this
+                                            column, not by reading the figures. */}
+                                        <div className="ctr-bar" title={`${pct}% paid`}>
+                                          <span style={{ width: `${pct}%` }} className={payer.settled ? 'done' : ''}></span>
+                                        </div>
+                                      </td>
+                                      <td className="evt-nowrap" data-label="Balance">
+                                        {payer.settled
+                                          ? <span className="ctr-settled"><i className="fas fa-circle-check"></i> Settled</span>
+                                          : <b className="ctr-owed">{peso(payer.balance)}</b>}
+                                      </td>
+                                      <td data-label="Last Payment">
+                                        {last ? (
+                                          <>
+                                            <div>{formatDateOnly(last.paid_on)}</div>
+                                            <div className="evt-cell-sub">{peso(last.amount)} · {last.method_name || 'Cash'}</div>
+                                          </>
+                                        ) : <span className="evt-cell-sub">Nothing yet</span>}
+                                      </td>
+                                      <td className="evt-td-actions" data-label="Actions">
+                                        {/* The history is only worth unfolding
+                                            when there is one. */}
+                                        {payer.payments.length > 0 && (
+                                          <button
+                                            type="button"
+                                            className="evt-mini-btn"
+                                            onClick={() => setOpenPayer(open ? null : payer.id)}
+                                          >
+                                            <i className={`fas fa-chevron-${open ? 'up' : 'down'}`}></i>{' '}
+                                            {payer.payments.length} payment{payer.payments.length === 1 ? '' : 's'}
+                                          </button>
+                                        )}
+                                        {!payer.settled && (
+                                          <button
+                                            type="button"
+                                            className="evt-mini-btn ok"
+                                            onClick={() => openPayerForm(currentContrib, payer)}
+                                          >
+                                            <i className="fas fa-plus"></i> Payment
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          className="evt-mini-btn danger"
+                                          title={`Remove ${formatPersonName(payer.payer_name)} from this contribution`}
+                                          aria-label={`Remove ${formatPersonName(payer.payer_name)} from this contribution`}
+                                          onClick={() => removePayer(payer)}
+                                        >
+                                          <i className="fas fa-user-minus"></i>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                      {/* ---- The instalments themselves ----
+                                          A row of its own, which is the only
+                                          place a full-width cell can go: a <td>
+                                          with colSpan inside the row above would
+                                          make that row fourteen columns wide.
+                                          Below 1024px the table is a stack of
+                                          cards and this becomes a card too, so
+                                          .ctr-history-tr joins it to the one
+                                          above rather than floating free of the
+                                          name it belongs to. */}
+                                      {open && (
+                                        <tr className="ctr-history-tr">
+                                        <td className="ctr-history-cell" colSpan={7}>
+                                          <div className="ctr-history">
+                                            <div className="ctr-history-head">
+                                              <span>Date</span>
+                                              <span>Amount</span>
+                                              <span>Mode of Payment</span>
+                                              <span></span>
+                                            </div>
+                                            {payer.payments.map((pmt) => (
+                                              <div className="ctr-history-row" key={pmt.id}>
+                                                <span className="ctr-history-date">{formatDateOnly(pmt.paid_on)}</span>
+                                                <span className="ctr-history-amt">{peso(pmt.amount)}</span>
+                                                <span className="ctr-history-mode">
+                                                  <i className={`fas ${isCashMethod(pmt.method_name) ? 'fa-money-bill-wave' : 'fa-building-columns'}`}></i>
+                                                  {pmt.method_name || 'Cash'}
+                                                  {pmt.reference && <em>Ref {pmt.reference}</em>}
+                                                </span>
+                                                <span className="ctr-history-act">
+                                                  {pmt.recorded_by_name && <em>by {formatPersonName(pmt.recorded_by_name)}</em>}
+                                                  <button
+                                                    type="button"
+                                                    className="evt-mini-btn ctr-receipt-btn"
+                                                    title={`Receipt No. ${pmt.receipt_no ? String(pmt.receipt_no).padStart(4, '0') : '—'}`}
+                                                    onClick={() => openReceipt(currentContrib, payer, pmt)}
+                                                  >
+                                                    <i className="fas fa-receipt"></i> Receipt
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    className="evt-mini-btn danger"
+                                                    title="Remove this payment"
+                                                    aria-label="Remove this payment"
+                                                    onClick={() => removePayment(pmt)}
+                                                  >
+                                                    <i className="fas fa-rotate-left"></i>
+                                                  </button>
+                                                </span>
+                                              </div>
+                                            ))}
+                                            {/* The sum, and what it leaves. Said
+                                                under the rows it is the sum of,
+                                                because that is the check anybody
+                                                reading a payment history is
+                                                actually doing. */}
+                                            <div className="ctr-history-foot">
+                                              <span>
+                                                Paid <b>{peso(payer.paid)}</b> of <b>{peso(payer.amount_due)}</b>
+                                              </span>
+                                              <span className={payer.settled ? 'ok' : 'owed'}>
+                                                {payer.settled
+                                                  ? 'Nothing left to pay'
+                                                  : <>Remaining balance <b>{peso(payer.balance)}</b></>}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </td>
+                                        </tr>
+                                      )}
+                                    </Fragment>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="pm-head" style={{ margin: '4px 0 12px' }}>
+                          <h2 className="section-title" style={{ margin: 0 }}>
+                            Contributions {contribs.length > 0 && <span className="evt-tab-count">{contribs.length}</span>}
+                          </h2>
+                          <button className="pm-add-btn" onClick={() => setContribForm({ ...CONTRIB_BLANK })}>
+                            <i className="fas fa-plus"></i> Add Contribution
+                          </button>
+                        </div>
+
+                        {contribs.length > 3 && (
+                          <div className="evt-viewbar">
+                            <div className="evt-search">
+                              <i className="fas fa-magnifying-glass"></i>
+                              <input
+                                type="search"
+                                value={contribSearch}
+                                onChange={(e) => setContribSearch(e.target.value)}
+                                placeholder="Search contributions"
+                                aria-label="Search contributions"
+                              />
+                              {contribSearch && (
+                                <button type="button" onClick={() => setContribSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {contribsLoading ? (
+                          <p className="events-empty-msg">Loading…</p>
+                        ) : visibleContribs.length === 0 ? (
+                          <p className="events-empty-msg">
+                            {contribSearch.trim()
+                              ? <>No contribution matches &ldquo;{contribSearch.trim()}&rdquo;.</>
+                              : <>Nothing is being collected yet. Use <b>Add Contribution</b> to start one &mdash; give it a
+                                title and say what it is for, then put people on it.</>}
+                          </p>
+                        ) : (
+                          <div className="ctr-grid">
+                            {visibleContribs.map((c) => {
+                              const pct = c.totals.expected > 0
+                                ? Math.min(100, Math.round((c.totals.collected / c.totals.expected) * 100))
+                                : 0;
+                              return (
+                                <article key={c.id} className="ctr-card">
+                                  <button
+                                    type="button"
+                                    className="ctr-card-open"
+                                    onClick={() => { setOpenContrib(c.id); setOpenPayer(null); }}
+                                  >
+                                    <h4>{c.title}</h4>
+                                    {c.description
+                                      ? <p>{c.description}</p>
+                                      : <p className="ctr-card-nodesc">No description</p>}
+
+                                    <div className="ctr-card-figures">
+                                      <div><span>Collected</span><b>{peso(c.totals.collected)}</b></div>
+                                      <div><span>To Collect</span><b>{peso(c.totals.expected)}</b></div>
+                                      <div className={c.totals.balance > 0 ? 'owed' : 'ok'}>
+                                        <span>Outstanding</span><b>{peso(c.totals.balance)}</b>
+                                      </div>
+                                    </div>
+
+                                    <div className="ctr-bar big" title={`${pct}% collected`}>
+                                      <span style={{ width: `${pct}%` }} className={c.totals.balance <= 0 && c.totals.expected > 0 ? 'done' : ''}></span>
+                                    </div>
+
+                                    <div className="ctr-card-meta">
+                                      <span>
+                                        <i className="fas fa-users"></i>{' '}
+                                        {c.totals.payers} {c.totals.payers === 1 ? 'person' : 'people'}
+                                      </span>
+                                      {c.totals.payers > 0 && (
+                                        <span>
+                                          <i className="fas fa-circle-check"></i>{' '}
+                                          {c.totals.settled} settled
+                                        </span>
+                                      )}
+                                    </div>
+                                  </button>
+
+                                  <div className="ctr-card-actions">
+                                    <button
+                                      type="button"
+                                      className="evt-mini-btn"
+                                      onClick={() => setContribForm({ id: c.id, title: c.title, description: c.description || '' })}
+                                    >
+                                      <i className="fas fa-pen"></i> Edit
+                                    </button>
+                                    <button type="button" className="evt-mini-btn danger" onClick={() => removeContrib(c)}>
+                                      <i className="fas fa-trash"></i> Delete
+                                    </button>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )
+                  )}
+
+                  {/* ---- What is being collected, and what for ---- */}
+                  {contribForm && (
+                    <div className="evt-modal-overlay" onClick={() => !contribSaving && setContribForm(null)}>
+                      <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="evt-modal-head">
+                          <div>
+                            <h3>{contribForm.id ? 'Edit Contribution' : 'New Contribution'}</h3>
+                            <p>Committee Contribution</p>
+                          </div>
+                          <button className="evt-modal-close" onClick={() => setContribForm(null)}><i className="fas fa-times"></i></button>
+                        </div>
+                        <div className="evt-modal-body">
+                          <div className="form-group">
+                            <label>Title *</label>
+                            <input
+                              className="form-control"
+                              value={contribForm.title}
+                              onChange={(e) => setContribForm({ ...contribForm, title: e.target.value })}
+                              placeholder="e.g. Christmas Outreach Fund"
+                              autoFocus
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Description</label>
+                            <textarea
+                              className="form-control"
+                              rows={3}
+                              value={contribForm.description}
+                              onChange={(e) => setContribForm({ ...contribForm, description: e.target.value })}
+                              placeholder="What the money is for, and anything the committee should know before they pay."
+                            />
+                          </div>
+                          <p className="evt-muted" style={{ fontSize: '0.8rem' }}>
+                            <i className="fas fa-circle-info"></i> Nobody is charged by creating this. You put people on
+                            it one at a time with <b>Add Payment</b>, which is where the amount and the plan are set.
+                          </p>
+                        </div>
+                        <div className="evt-modal-foot">
+                          <button className="btn-secondary" onClick={() => setContribForm(null)} disabled={contribSaving}>Cancel</button>
+                          <button className="btn-primary" onClick={saveContrib} disabled={contribSaving}>
+                            <i className={`fas ${contribSaving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i>{' '}
+                            {contribSaving ? 'Saving…' : (contribForm.id ? 'Save Changes' : 'Create Contribution')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ---- Add Payment ----
+                      Two jobs, one dialog. Opening somebody's share asks who,
+                      how much and on what plan; adding to a share that exists
+                      asks only for the money, because the rest was settled the
+                      first time. */}
+                  {payerForm && (
+                    <div className="evt-modal-overlay" onClick={() => !payerSaving && setPayerForm(null)}>
+                      <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="evt-modal-head">
+                          <div>
+                            <h3>{payerForm.payerId ? 'Add Installment' : 'Add Payment'}</h3>
+                            <p>{payerForm.payerId ? formatPersonName(payerForm.payerLabel) : (currentContrib?.title || 'Committee Contribution')}</p>
+                          </div>
+                          <button className="evt-modal-close" onClick={() => setPayerForm(null)}><i className="fas fa-times"></i></button>
+                        </div>
+
+                        <div className="evt-modal-body">
+                          {/* ---- Who ---- */}
+                          {!payerForm.payerId && (
+                            <div className="form-group evt-church-field">
+                              <label>User *</label>
+                              <input
+                                className="form-control"
+                                value={payerForm.userId
+                                  ? formatPersonName(payerForm.payerLabel)
+                                  : payerForm.userQuery}
+                                onChange={(e) => {
+                                  // Typing after somebody was picked starts the
+                                  // search again rather than editing the name
+                                  // of a person who is already chosen.
+                                  setPayerForm({ ...payerForm, userId: '', payerLabel: '', userQuery: e.target.value });
+                                  setPayerPickOpen(true);
+                                }}
+                                onFocus={() => setPayerPickOpen(true)}
+                                onBlur={() => setTimeout(() => setPayerPickOpen(false), 160)}
+                                placeholder="Search committee members by name or email"
+                              />
+                              {payerForm.userId && (
+                                <button
+                                  type="button"
+                                  className="ctr-clear-user"
+                                  title="Choose somebody else"
+                                  onClick={() => { setPayerForm({ ...payerForm, userId: '', payerLabel: '', userQuery: '' }); setPayerPickOpen(true); }}
+                                >
+                                  <i className="fas fa-xmark"></i>
+                                </button>
+                              )}
+                              {payerPickOpen && !payerForm.userId && (
+                                <ul className="evt-church-list">
+                                  {payerPool.length === 0 ? (
+                                    <li className="ctr-pick-empty">
+                                      {(team.members || []).length === 0
+                                        ? 'Nobody is on the committee yet — add members first.'
+                                        : 'Everybody on the committee is already on this contribution.'}
+                                    </li>
+                                  ) : payerPool.map((m) => (
+                                    <li key={m.id}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPayerForm((f) => ({
+                                            ...f,
+                                            userId: m.id,
+                                            payerLabel: `${m.firstname} ${m.lastname}`.trim(),
+                                            userQuery: '',
+                                          }));
+                                          setPayerPickOpen(false);
+                                        }}
+                                      >
+                                        <span>
+                                          {formatPersonName(`${m.firstname} ${m.lastname}`)}
+                                          <small>{m.email}</small>
+                                        </span>
+                                        {m.member_id && <em>{m.member_id}</em>}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ---- How much, and how ---- */}
+                          {payerForm.payerId ? (
+                            <div className="evt-plan-summary big">
+                              <div><span>Payment To Pay</span><b>{peso(payerPreview.due)}</b></div>
+                              <div><span>Paid So Far</span><b>{peso(payerPreview.paid)}</b></div>
+                              <div className="bal"><span>Balance</span><b>{peso(Math.max(0, payerPreview.due - payerPreview.paid))}</b></div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="form-group">
+                                <label>Payment to Pay *</label>
+                                <div className="evt-prefix-input">
+                                  <span>₱</span>
+                                  <input
+                                    inputMode="numeric"
+                                    value={payerForm.amountDue}
+                                    onChange={(e) => setPayerForm({ ...payerForm, amountDue: onlyDigits(e.target.value) })}
+                                    placeholder="0"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Settling it now, or over time. Two cards
+                                  rather than a dropdown: it changes what the
+                                  rest of the dialog asks for, and a change that
+                                  big should be visible without opening it. */}
+                              <div className="form-group">
+                                <label>How are they paying? *</label>
+                                <div className="evt-type-choice">
+                                  <button
+                                    type="button"
+                                    className={`ctr-plan-option ${payerForm.plan === 'full' ? 'on' : ''}`}
+                                    onClick={() => setPayerForm({ ...payerForm, plan: 'full' })}
+                                  >
+                                    <i className="fas fa-money-bill-wave"></i>
+                                    <b>Paid In Full</b>
+                                    <em>The whole amount, now</em>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`ctr-plan-option ${payerForm.plan === 'installment' ? 'on' : ''}`}
+                                    onClick={() => setPayerForm({ ...payerForm, plan: 'installment' })}
+                                  >
+                                    <i className="fas fa-calendar-day"></i>
+                                    <b>Installment</b>
+                                    <em>Part now, the rest later</em>
+                                  </button>
+                                </div>
+                              </div>
+                            </>
+                          )}
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div className="form-group">
+                              <label>
+                                {payerForm.payerId ? 'Payment *' : (payerForm.plan === 'full' ? 'Payment' : 'Payment now')}
+                              </label>
+                              <div className="evt-prefix-input">
+                                <span>₱</span>
+                                <input
+                                  inputMode="numeric"
+                                  value={payerForm.plan === 'full' && !payerForm.payerId ? payerForm.amountDue : payerForm.amount}
+                                  onChange={(e) => setPayerForm({ ...payerForm, amount: onlyDigits(e.target.value) })}
+                                  // Paid in full IS the whole amount. Letting
+                                  // the two differ is how a share ends up
+                                  // marked settled for less than it is worth.
+                                  disabled={payerForm.plan === 'full' && !payerForm.payerId}
+                                  placeholder="0"
+                                />
+                              </div>
+                            </div>
+                            <div className="form-group">
+                              <label>Date {payerForm.plan === 'installment' || payerForm.payerId ? 'of this payment' : 'paid'}</label>
+                              <input
+                                type="date"
+                                className="form-control"
+                                value={payerForm.paidOn}
+                                onChange={(e) => setPayerForm({ ...payerForm, paidOn: e.target.value })}
+                              />
+                            </div>
+                          </div>
+
+                          {/* ---- Through what ----
+                              The channels an Admin set up in Mode of Payment,
+                              plus Cash. Nothing is hard-coded: adding Maribank
+                              on that screen puts it in this list. */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div className="form-group">
+                              <label>Mode of Payment *</label>
+                              <select
+                                className="form-control"
+                                value={payerForm.methodId || `name:${payerForm.methodName}`}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v.startsWith('name:')) {
+                                    setPayerForm({ ...payerForm, methodId: '', methodName: v.slice(5) });
+                                  } else {
+                                    const picked = contribMethods.find((m) => m.id === v);
+                                    setPayerForm({ ...payerForm, methodId: v, methodName: picked?.name || '' });
+                                  }
+                                }}
+                              >
+                                {contribMethods.map((m) => (
+                                  <option key={m.id || `name:${m.name}`} value={m.id || `name:${m.name}`}>{m.name}</option>
+                                ))}
+                              </select>
+                              {pmList.length === 0 && (
+                                <div className="evt-cell-sub" style={{ marginTop: 6 }}>
+                                  Only Cash so far — add GCash, Maya or a bank under <b>Mode of Payment</b>.
+                                </div>
+                              )}
+                            </div>
+                            <div className="form-group">
+                              <label>Reference (optional)</label>
+                              <input
+                                className="form-control"
+                                value={payerForm.reference}
+                                onChange={(e) => setPayerForm({ ...payerForm, reference: e.target.value })}
+                                placeholder={isCashMethod(payerForm.methodName) ? 'Receipt no.' : 'Transaction ref'}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="form-group">
+                            <label>Note (optional)</label>
+                            <input
+                              className="form-control"
+                              value={payerForm.note}
+                              onChange={(e) => setPayerForm({ ...payerForm, note: e.target.value })}
+                              placeholder="e.g. handed over at the Sunday meeting"
+                            />
+                          </div>
+
+                          {/* The arithmetic, as it will be once this is saved.
+                              Live, because it is the number somebody is
+                              checking against the cash in their hand. */}
+                          <p className="evt-muted" style={{ fontSize: '0.82rem' }}>
+                            <i className="fas fa-circle-info"></i>{' '}
+                            {payerForm.plan === 'full' && !payerForm.payerId ? (
+                              <>Records <b>{peso(payerPreview.due)}</b> as paid in full — nothing left to collect.</>
+                            ) : (
+                              <>
+                                Remaining balance after this payment:{' '}
+                                <b>{peso(payerPreview.after)}</b>
+                                {payerPreview.after <= 0 && payerPreview.now > 0 && ' — this settles their share.'}
+                              </>
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="evt-modal-foot">
+                          <button className="btn-secondary" onClick={() => setPayerForm(null)} disabled={payerSaving}>Cancel</button>
+                          <button className="btn-primary" onClick={submitPayer} disabled={payerSaving}>
+                            <i className={`fas ${payerSaving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i>{' '}
+                            {payerSaving ? 'Saving…' : (payerForm.payerId ? 'Record Installment' : 'Add Payment')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+
+                  {/* ---- The receipt ----
+                       Rendered into document.body rather than where it sits in
+                       the tree, and for one reason: printing. The browser
+                       prints the PAGE, and this dialog lives six levels inside
+                       a dashboard with a sidebar, a hero and a table around it.
+                       Hiding all of that with `visibility: hidden` leaves the
+                       space it occupied, so the slip comes out on page four of
+                       a stack of blanks. As a direct child of <body> it is one
+                       rule - hide body's other children - and the receipt is
+                       the whole document. */}
+                  {receipt && typeof document !== 'undefined' && createPortal(
+                    <div className="rcpt-print-root">
+                      <div className="evt-modal-overlay" onClick={() => setReceipt(null)}>
+                        <div className="evt-modal rcpt-modal" onClick={(e) => e.stopPropagation()}>
+                          <div className="evt-modal-head">
+                            <div>
+                              <h3><i className="fas fa-receipt"></i> Receipt</h3>
+                              <p>{receipt.contribution.title}</p>
+                            </div>
+                            <button className="evt-modal-close" onClick={() => setReceipt(null)}><i className="fas fa-times"></i></button>
+                          </div>
+
+                          <div className="evt-modal-body rcpt-body">
+                            {/* Everything on this slip is filled in from the
+                                payment that was recorded. The one blank left is
+                                the signature, which is the only part a piece of
+                                software has no business writing. */}
+                            <div className="rcpt-sheet">
+                              <header className="rcpt-brand">
+                                <img src="/assets/LOGO.png" alt="" />
+                                <div>
+                                  <b>Joyful Sound Church</b>
+                                  <span>International</span>
+                                </div>
+                              </header>
+
+                              <h4 className="rcpt-title">RECEIPT</h4>
+
+                              <div className="rcpt-topline">
+                                <span className="rcpt-no">
+                                  NO.<b>{receipt.number}</b>
+                                </span>
+                                <span className="rcpt-dateline">
+                                  <em>DATE:</em>
+                                  <u>{formatDateOnly(receipt.payment.paid_on)}</u>
+                                </span>
+                              </div>
+
+                              <p className="rcpt-line rcpt-indent">
+                                <em>RECEIVED from</em>
+                                <u>{formatPersonName(receipt.payer.payer_name)}</u>
+                              </p>
+
+                              {/* Twice, as a receipt always says it: the words
+                                  are what counts if a figure is ever argued
+                                  over. */}
+                              <p className="rcpt-line">
+                                <em>the sum of pesos</em>
+                                <u>{amountInWords(receipt.payment.amount)}</u>
+                                <em className="rcpt-paren">(P</em>
+                                <u className="rcpt-figure">
+                                  {Number(receipt.payment.amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </u>
+                              </p>
+
+                              <p className="rcpt-line">
+                                <em>as payment for</em>
+                                <u>
+                                  {receipt.contribution.title}
+                                  {receipt.payment.method_name ? ` — paid through ${receipt.payment.method_name}` : ''}
+                                  {receipt.payment.reference ? ` (Ref ${receipt.payment.reference})` : ''}
+                                </u>
+                              </p>
+
+                              <div className="rcpt-foot">
+                                {/* PAID on its own line with PARTIAL and the
+                                    balance under it, which is how the printed
+                                    pad reads: the balance belongs to PARTIAL,
+                                    and putting all three on one row makes it
+                                    look like it belongs to both. */}
+                                <div className="rcpt-marks">
+                                  {/* Which box is ticked is not a choice
+                                      anybody makes at the desk - it is what the
+                                      arithmetic says. Settled by this payment
+                                      is PAID; anything left is PARTIAL, and the
+                                      balance beside it is the balance AS OF
+                                      this payment, not today's. An old slip
+                                      must still read the way it read when it
+                                      was handed over. */}
+                                  <span className={`rcpt-check ${receipt.settled ? 'on' : ''}`}>
+                                    <i className="rcpt-box">{receipt.settled && <b>&#10003;</b>}</i>
+                                    PAID
+                                  </span>
+                                  <span className="rcpt-marks-row">
+                                    <span className={`rcpt-check ${receipt.settled ? '' : 'on'}`}>
+                                      <i className="rcpt-box">{!receipt.settled && <b>&#10003;</b>}</i>
+                                      PARTIAL
+                                    </span>
+                                    <span className="rcpt-balance">
+                                      <em>BALANCE</em>
+                                      <u>{peso(receipt.balanceAfter)}</u>
+                                    </span>
+                                  </span>
+                                </div>
+                                {/* The signature of whoever TOOK the money,
+                                    not of whoever is printing the slip. It
+                                    arrives with the payment - see the signer
+                                    lookup in the contributions route - so a
+                                    receipt reprinted next year still carries
+                                    the mark of the person who received it.
+
+                                    No signature set means the line stays
+                                    blank, to be signed by hand. That is the
+                                    same receipt, not a broken one. */}
+                                <div className={`rcpt-sign ${receipt.payment.signature_url ? 'signed' : ''}`}>
+                                  {receipt.payment.signature_url && (
+                                    <img
+                                      className="rcpt-mark"
+                                      src={receipt.payment.signature_url}
+                                      alt=""
+                                    />
+                                  )}
+                                  <u></u>
+                                  {receipt.payment.signature_url && receipt.payment.signature_name && (
+                                    <b className="rcpt-printed">{receipt.payment.signature_name}</b>
+                                  )}
+                                  <em>SIGNATURE</em>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Not part of the slip - said on screen, for
+                                whoever is about to hand it over. */}
+                            <p className="rcpt-note">
+                              <i className="fas fa-circle-info"></i>{' '}
+                              Receipt <b>No. {receipt.number}</b> was issued when this payment was recorded
+                              {receipt.payment.recorded_by_name ? <> by <b>{formatPersonName(receipt.payment.recorded_by_name)}</b></> : null}.
+                              The number never changes and is never given to another payment.
+                            </p>
+                          </div>
+
+                          <div className="evt-modal-foot">
+                            <button className="btn-secondary" onClick={() => setReceipt(null)}>Close</button>
+                            <button className="btn-primary" onClick={() => window.print()}>
+                              <i className="fas fa-print"></i> Print Receipt
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>,
+                    document.body,
                   )}
 
                 </>

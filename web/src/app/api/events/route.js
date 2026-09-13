@@ -1,11 +1,34 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { SLOT_HOLDING_STATUSES } from '@/lib/eventSlots';
-import { cacheInvalidate } from '@/lib/serverCache';
+import { cacheInvalidate, cached } from '@/lib/serverCache';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 
 // Only these roles may create/edit/delete events.
 const EVENT_MANAGER_ROLES = ['Admin', 'Super Admin'];
+
+// ---- Caching the list ----
+//
+// The public home page reads this endpoint on every visit, and the read is not
+// cheap: the events themselves, their days and their add-ons, and then every
+// slot-holding registration across all of them so the cards can say how many
+// places are left. On a phone on mobile data that was the page's slowest
+// moment, and it was the same answer every time.
+//
+// A short TTL fixes it without anybody having to think about invalidation: the
+// list is stale for at most half a minute, which is well inside the time it
+// takes somebody to read a poster and decide. `cached` also collapses
+// concurrent misses, so twenty people opening a shared link at once cost one
+// query rather than twenty.
+//
+// listVersion is the safety catch for the other direction. An Admin who edits
+// an event must not be shown the old one, and waiting out a TTL to see your
+// own edit is the sort of thing that makes people press Save twice - so every
+// write bumps it and every cached key carries it, which retires the whole
+// previous generation at once.
+const LIST_TTL_MS = 30_000;
+let listVersion = 0;
+export const bumpEventsList = () => { listVersion += 1; };
 
 // Server-side RBAC: verify the acting user is an Admin or Super Admin.
 // Returns the user row on success, or null if unauthorized/unknown.
@@ -280,41 +303,63 @@ export async function GET(request) {
     // Public/member views pass published=true to hide drafts. Admin omits it.
     const publishedOnly = searchParams.get('published') === 'true';
 
-    let query = supabase.from('events').select('*, event_days(*), event_addons(*)').eq('is_active', true).order('event_date', { ascending: true }).limit(limit);
-    if (upcoming) {
-      query = query.gte('event_date', new Date().toISOString());
-    }
-    if (publishedOnly) {
-      query = query.eq('is_published', true);
-    }
+    const key = `events:list:v${listVersion}:${limit}:${upcoming ? 'u' : 'a'}:${publishedOnly ? 'p' : 'all'}`;
+    const events = await cached(key, LIST_TTL_MS, async () => {
+      let query = supabase.from('events').select('*, event_days(*), event_addons(*)').eq('is_active', true).order('event_date', { ascending: true }).limit(limit);
+      if (upcoming) {
+        query = query.gte('event_date', new Date().toISOString());
+      }
+      if (publishedOnly) {
+        query = query.eq('is_published', true);
+      }
 
-    const { data, error } = await query;
-    if (error) throw error;
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    });
+
+    // Shallow copies, because `events` above came out of the cache and is
+    // handed to every request that hits the same key. The counts and the sorted
+    // nested rows below are written onto each event, and writing them onto the
+    // cached objects would leave one request's answer sitting in the next
+    // request's data.
+    const out = events.map((e) => ({ ...e }));
 
     // Attach a live count of the registrations actually holding a seat, so the
     // UI can show remaining slots. Paid and on-a-plan hold one; a payment
     // nobody has checked yet does not. See lib/eventSlots.
-    const events = data || [];
     try {
-      const ids = events.map((e) => e.id);
+      const ids = out.map((e) => e.id);
       if (ids.length > 0) {
-        const { data: regs } = await supabase
-          .from('event_registrations')
-          .select('event_id, status')
-          .in('event_id', ids)
-          .in('status', SLOT_HOLDING_STATUSES)
-          // A registration in the Recycle Bin must not go on holding a slot.
-          .is('deleted_at', null);
+        // Cached on its own key, and for half as long as the list. This is the
+        // half that actually moves - somebody registering changes it - and it
+        // is also the expensive half, since it reads a row per held seat
+        // across every event in the list.
+        const regs = await cached(
+          `events:counts:v${listVersion}:${ids.join(',')}`,
+          LIST_TTL_MS / 2,
+          async () => {
+            const { data } = await supabase
+              .from('event_registrations')
+              .select('event_id, status')
+              .in('event_id', ids)
+              .in('status', SLOT_HOLDING_STATUSES)
+              // A registration in the Recycle Bin must not go on holding a slot.
+              .is('deleted_at', null);
+            return data || [];
+          },
+        );
+
         const counts = {};
         // One row, one seat - a registration on a plan is listed under both
         // Registrations and Flexible Installment, but it is the same person.
         // The split is carried alongside so the figure can explain itself.
-        (regs || []).forEach((r) => {
+        regs.forEach((r) => {
           const c = counts[r.event_id] || (counts[r.event_id] = { total: 0, paid: 0, installment: 0 });
           c.total += 1;
           if (r.status === 'installment') c.installment += 1; else c.paid += 1;
         });
-        events.forEach((e) => {
+        out.forEach((e) => {
           const c = counts[e.id] || { total: 0, paid: 0, installment: 0 };
           e.registered_count = c.total;
           e.paid_count = c.paid;
@@ -325,16 +370,26 @@ export async function GET(request) {
     } catch { /* count is best-effort */ }
 
     // Supabase returns the nested rows unordered; Day 1 must come first.
-    events.forEach((e) => {
+    // Sorted onto a copy of each array for the same reason as the events above.
+    out.forEach((e) => {
       if (Array.isArray(e.event_days)) {
-        e.event_days.sort((a, b) => (a.day_number || 0) - (b.day_number || 0));
+        e.event_days = [...e.event_days].sort((a, b) => (a.day_number || 0) - (b.day_number || 0));
       }
       if (Array.isArray(e.event_addons)) {
-        e.event_addons.sort((a, b) => (a.position || 0) - (b.position || 0));
+        e.event_addons = [...e.event_addons].sort((a, b) => (a.position || 0) - (b.position || 0));
       }
     });
 
-    return NextResponse.json({ success: true, data: events });
+    // The published list is the same answer for everybody, so the browser and
+    // any CDN in front of us are allowed to keep it for a moment - which is
+    // what stops a second component asking for the same list going out to the
+    // network again. The admin list is per-request by nature and is never
+    // stored: a draft must not sit in a shared cache.
+    return NextResponse.json({ success: true, data: out }, {
+      headers: publishedOnly
+        ? { 'Cache-Control': 'public, max-age=20, s-maxage=30, stale-while-revalidate=120' }
+        : { 'Cache-Control': 'no-store' },
+    });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
@@ -381,6 +436,10 @@ export async function POST(request) {
     if (error) throw error;
     if (dayRows && dayRows.length > 0) await syncEventDays(data.id, dayRows);
     if (addonRows && addonRows.length > 0) await syncEventAddons(data.id, addonRows);
+    // Retires every cached list - see bumpEventsList. AFTER the write, not
+    // before: a read arriving mid-write would otherwise re-cache the old rows
+    // under the new version and outlive the change by a full TTL.
+    bumpEventsList();
     await logEventAudit(actor, 'create_event', data.id, `Created event "${title}"`);
     return NextResponse.json({ success: true, data, message: 'Event created successfully' });
   } catch (error) {
@@ -427,6 +486,10 @@ export async function PUT(request) {
     if (addonRows !== null) await syncEventAddons(id, addonRows);
 
     const isArchive = updates.isActive === false || updates.isActive === 'false';
+    // Retires every cached list - see bumpEventsList. AFTER the write, not
+    // before: a read arriving mid-write would otherwise re-cache the old rows
+    // under the new version and outlive the change by a full TTL.
+    bumpEventsList();
     await logEventAudit(actor, isArchive ? 'archive_event' : 'update_event', id, isArchive ? 'Archived event' : `Updated event "${data.title}"`);
     return NextResponse.json({ success: true, data, message: 'Event updated successfully' });
   } catch (error) {
@@ -454,6 +517,8 @@ export async function DELETE(request) {
     cacheInvalidate('events:pending-registrations');
 
     await logEventAudit(actor, 'delete_event', id, 'Deleted event');
+    // Retires every cached list - see bumpEventsList.
+    bumpEventsList();
     return NextResponse.json({ success: true, message: 'Event deleted successfully' });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });

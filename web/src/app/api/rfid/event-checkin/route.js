@@ -259,6 +259,19 @@ export async function POST(request) {
 
     const uid = normalizeUid(raw);
 
+    // Which days this registration has turned up for, newest state every time
+    // it is asked. The desk draws the day buttons from this, so a Day 1 that
+    // says "attended" is the database's answer and not the screen's memory of
+    // what it did a moment ago.
+    const daysFor = async (registrationId) => {
+      const { data } = await supabaseAdmin
+        .from('event_day_attendance')
+        .select('day_number, attended_at')
+        .eq('registration_id', registrationId)
+        .order('day_number', { ascending: true });
+      return data || [];
+    };
+
     const logScan = async (result, registration) => {
       await supabaseAdmin.from('rfid_scans').insert([{
         uid,
@@ -317,6 +330,7 @@ export async function POST(request) {
         uid,
         dayNumber,
         registration,
+        days: await daysFor(registration.id),
         message: `${registration.attendee_name} is already checked in for Day ${dayNumber}.`,
       });
     }
@@ -334,15 +348,23 @@ export async function POST(request) {
     // The registration-wide flag still means "came on at least one day", for
     // the reports and screens that read it. Only set on the first arrival, so
     // a Day 2 tap cannot rewrite when they first got here.
-    const { data: updated, error: upErr } = await supabaseAdmin
-      .from('event_registrations')
-      .update(registration.attended
-        ? {}
-        : { attended: true, attended_at: new Date().toISOString(), attended_by: actorId || null })
-      .eq('id', registration.id)
-      .select(REG_FIELDS)
-      .single();
-    if (upErr) throw upErr;
+    //
+    // Skipped entirely rather than sent as an empty update. An update with no
+    // columns changes no rows, and .single() on no rows is the "Cannot coerce
+    // the result to a single JSON object" that used to meet anybody arriving
+    // on Day 2 - after their day row had already been written, so the door
+    // said "not recognised" about somebody it had just checked in.
+    let updated = registration;
+    if (!registration.attended) {
+      const { data: freshReg, error: upErr } = await supabaseAdmin
+        .from('event_registrations')
+        .update({ attended: true, attended_at: new Date().toISOString(), attended_by: actorId || null })
+        .eq('id', registration.id)
+        .select(REG_FIELDS)
+        .single();
+      if (upErr) throw upErr;
+      updated = freshReg;
+    }
 
     await logScan('matched', updated);
 
@@ -352,6 +374,7 @@ export async function POST(request) {
       uid,
       registration: updated,
       dayNumber,
+      days: await daysFor(registration.id),
       message: `${updated.attendee_name} checked in for Day ${dayNumber}`,
     });
   } catch (error) {

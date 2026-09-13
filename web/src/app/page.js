@@ -1111,7 +1111,23 @@ export default function HomePage() {
 
     const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
     if (userData && userData.firstname && userData.email) {
-      router.replace('/dashboard');
+      // Somebody already signed in never sees this page - they are sent to
+      // their dashboard. But an event link IS this page's address, and sending
+      // them to /dashboard threw the slug away: tapping a link to a specific
+      // event landed them on the dashboard home with no sign of the event they
+      // were invited to.
+      //
+      // The slug is handed over instead, and the dashboard opens that event on
+      // the Events section (see the pendingEventLink effect there). Session
+      // storage, not local: it belongs to this tab and this hop, and a slug
+      // left behind in localStorage would reopen an event weeks later.
+      const linkSlug = slugFromPath(window.location.pathname);
+      if (linkSlug) {
+        try { sessionStorage.setItem('pendingEventLink', linkSlug); } catch { /* ignore */ }
+        router.replace('/events');
+      } else {
+        router.replace('/dashboard');
+      }
       return;
     }
     const saved = localStorage.getItem('darkModeEnabled') === 'true';
@@ -1214,10 +1230,28 @@ export default function HomePage() {
     setLinkResolving(true);
     (async () => {
       try {
-        const res = await fetch('/api/events?limit=200&published=true');
-        const json = res.ok ? await res.json() : null;
-        const match = findEventBySlug(json?.success && Array.isArray(json.data) ? json.data : [], slug);
+        // The same URL the News section asks for, first.
+        //
+        // This used to go straight for limit=200, which is a second request for
+        // 200 events with all their days, add-ons and seat counts - on top of
+        // the 20 the page was already loading, and on the slowest moment of the
+        // visit. A link nearly always points at something current, so the 20
+        // already being fetched almost always has it: same URL means the server
+        // serves both from one cached read and the browser may not go out at
+        // all. Only a link to something further down the list pays for the
+        // bigger fetch, and it pays for it once.
+        const lookIn = async (url) => {
+          const res = await fetch(url);
+          const json = res.ok ? await res.json() : null;
+          return json?.success && Array.isArray(json.data) ? json.data : [];
+        };
+
+        let match = findEventBySlug(await lookIn('/api/events?limit=20&published=true'), slug);
         if (cancelled) return;
+        if (!match) {
+          match = findEventBySlug(await lookIn('/api/events?limit=200&published=true'), slug);
+          if (cancelled) return;
+        }
         if (!match) { setLinkMiss(slug); return; }
         linkOwnsUrlRef.current = true;
 

@@ -1,0 +1,817 @@
+
+/* ============================================================
+   COMMITTEE CONTRIBUTIONS
+   ============================================================
+   Money the committee collects from itself for a named purpose. Three levels,
+   and the screen shows one at a time so it is always clear which one a click
+   is about to change:
+
+     the drive    a card in .ctr-grid - what is being collected, and how far
+                  along it is
+     the share    a row of .ctr-table - one person's part of it, with what they
+                  owe and what they have paid
+     the money    .ctr-history under that row - each amount handed over, with
+                  the date and the channel
+
+   Built from the events screens' own pieces rather than beside them: the
+   summary strip is .evt-plan-summary, the rows are .evt-table, the dialogs are
+   .evt-modal. A contribution is the same arithmetic as an event installment,
+   so it should not look like a different product.
+   ============================================================ */
+
+/* ---- The drive, on the list ---- */
+.ctr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  gap: 18px;
+  align-content: start;
+}
+
+.ctr-card {
+  display: flex; flex-direction: column;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.ctr-card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.10); }
+
+/* The whole card opens the drive. A card whose only way in is a small link at
+   the bottom reads as a poster; this one is a door. */
+.ctr-card-open {
+  flex: 1; display: flex; flex-direction: column; gap: 10px;
+  padding: 18px 18px 14px;
+  border: none; background: transparent; cursor: pointer;
+  font: inherit; color: inherit; text-align: left;
+}
+.ctr-card-open h4 {
+  margin: 0; font-family: var(--font-heading);
+  font-size: 1.08rem; font-weight: 700; color: var(--primary, #926c15);
+}
+.ctr-card-open p {
+  margin: 0; font-size: 0.84rem; line-height: 1.5;
+  color: var(--text-secondary, #6c757d);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ctr-card-nodesc { font-style: italic; opacity: 0.6; }
+
+/* Collected, of what, and what is left. Three columns rather than a sentence:
+   the card is scanned down a grid of eight of them, not read. */
+.ctr-card-figures {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px; margin-top: 2px;
+}
+.ctr-card-figures > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ctr-card-figures span {
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted, #999);
+}
+.ctr-card-figures b {
+  font-size: 0.95rem; font-weight: 800; font-variant-numeric: tabular-nums;
+  color: var(--text-primary, #333); overflow-wrap: anywhere;
+}
+.ctr-card-figures .owed b { color: #b45309; }
+.ctr-card-figures .ok b { color: #16a34a; }
+
+.ctr-card-meta {
+  display: flex; flex-wrap: wrap; gap: 14px; margin-top: 2px;
+  font-size: 0.78rem; font-weight: 600; color: var(--text-muted, #999);
+}
+.ctr-card-meta i { opacity: 0.7; margin-right: 4px; }
+
+.ctr-card-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.07));
+  background: rgba(0, 0, 0, 0.015);
+}
+
+body.dark-mode .ctr-card { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .ctr-card-open h4 { color: var(--accent, #ffc300); }
+body.dark-mode .ctr-card-figures b { color: #eee; }
+body.dark-mode .ctr-card-actions { background: rgba(255, 255, 255, 0.03); border-top-color: rgba(255, 255, 255, 0.07); }
+
+/* ---- How far along ----
+   The same bar at two sizes: thin in a table cell where it sits under a
+   figure, thicker on a card where it is the figure. */
+.ctr-bar {
+  height: 4px; margin-top: 5px; border-radius: 4px; overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+}
+.ctr-bar.big { height: 7px; margin-top: 4px; }
+.ctr-bar > span {
+  display: block; height: 100%; border-radius: 4px;
+  background: linear-gradient(90deg, var(--primary, #926c15), var(--accent, #ffc300));
+  transition: width 0.3s ease;
+}
+/* Settled is green, not gold. Gold is "on its way"; nobody should have to read
+   the percentage to see that a row is finished with. */
+.ctr-bar > span.done { background: linear-gradient(90deg, #16a34a, #4ade80); }
+body.dark-mode .ctr-bar { background: rgba(255, 255, 255, 0.12); }
+
+/* ---- Inside one drive ---- */
+.ctr-detail-head {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 4px 0 16px;
+}
+.ctr-detail-title { flex: 1; min-width: 220px; }
+/* At the width where the table below becomes a stack of cards, the three parts
+   of this header stop competing for one line too: the title takes its own row
+   and the two buttons share the one under it. A title wrapping to three words
+   a line between two buttons reads as a mistake. 1024 is the same breakpoint
+   the events tables use - see "Events tables - responsive card layout" in
+   dashboard.css. */
+@media (max-width: 1024px) {
+  .ctr-detail-head { gap: 10px; }
+  .ctr-detail-title { order: -1; flex: 1 1 100%; min-width: 0; }
+  .ctr-detail-head > button { flex: 1 1 auto; justify-content: center; }
+}
+.ctr-detail-title h3 {
+  margin: 0; font-family: var(--font-heading);
+  font-size: 1.35rem; font-weight: 700; color: var(--primary, #926c15);
+}
+.ctr-detail-title p {
+  margin: 3px 0 0; font-size: 0.86rem; line-height: 1.5;
+  color: var(--text-secondary, #6c757d);
+}
+body.dark-mode .ctr-detail-title h3 { color: var(--accent, #ffc300); }
+
+/* ---- A share ---- */
+.ctr-plan {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 0.74rem; font-weight: 700;
+}
+.ctr-plan.full { background: rgba(22, 163, 74, 0.14); color: #16a34a; }
+.ctr-plan.installment { background: rgba(146, 108, 21, 0.14); color: var(--primary, #926c15); }
+body.dark-mode .ctr-plan.installment { background: rgba(255, 195, 0, 0.16); color: var(--accent, #ffc300); }
+
+.ctr-settled {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-size: 0.8rem; font-weight: 800; color: #16a34a;
+}
+.ctr-owed { font-variant-numeric: tabular-nums; color: #b45309; }
+body.dark-mode .ctr-owed { color: #fbbf24; }
+
+/* ---- The money against it ----
+   Four columns: the date, what was paid, what it came through, and who
+   recorded it. Not an .evt-table of its own - a table inside a table row is
+   two lots of borders saying the same thing - so it is a grid that lines up
+   the way a ledger does. */
+/* `.ctr-history-cell` on its own is (0,1,0) and loses to dashboard.css's
+   `.evt-table tbody td { padding: ... !important }` at (0,1,2) - among
+   !important declarations the more specific one wins, so the cell kept its
+   14px and the history inside it started 28px in while MEMBER above it
+   started at 14. Matching the shape of the rule it has to beat is what makes
+   the zero stick. */
+.ctr-table tbody td.ctr-history-cell {
+  padding: 0 !important;
+  background: rgba(146, 108, 21, 0.05);
+}
+/* 14px a side, which is what .evt-table's own body cells use - so DATE below
+   lines up under MEMBER above. */
+.ctr-history { padding: 12px 14px 14px; }
+.ctr-history-head,
+.ctr-history-row {
+  display: grid;
+  grid-template-columns: 130px 120px minmax(0, 1fr) auto;
+  align-items: center; gap: 12px;
+}
+.ctr-history-head {
+  padding-bottom: 7px; margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.10));
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted, #999);
+}
+.ctr-history-row {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border-color, rgba(0, 0, 0, 0.08));
+  font-size: 0.85rem;
+}
+.ctr-history-row:last-of-type { border-bottom: none; }
+.ctr-history-date { font-weight: 700; color: var(--text-primary, #333); }
+.ctr-history-amt { font-weight: 800; font-variant-numeric: tabular-nums; color: var(--primary, #926c15); }
+.ctr-history-mode {
+  display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0;
+  font-weight: 600; color: var(--text-secondary, #6c757d);
+}
+.ctr-history-mode > i { opacity: 0.6; }
+.ctr-history-mode em {
+  font-style: normal; font-size: 0.72rem; font-weight: 700;
+  padding: 1px 8px; border-radius: 20px;
+  background: rgba(0, 0, 0, 0.06); color: var(--text-muted, #888);
+}
+.ctr-history-act {
+  display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end;
+}
+.ctr-history-act em {
+  font-style: normal; font-size: 0.72rem; color: var(--text-muted, #999);
+}
+
+/* The sum, and what it leaves - directly under the rows it is the sum of,
+   because that is the check anybody reading a payment history is doing. */
+.ctr-history-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1.5px solid var(--border-color, rgba(0, 0, 0, 0.14));
+  font-size: 0.85rem; color: var(--text-secondary, #6c757d);
+}
+.ctr-history-foot b { font-variant-numeric: tabular-nums; color: var(--text-primary, #333); }
+.ctr-history-foot .owed { font-weight: 700; color: #b45309; }
+.ctr-history-foot .owed b { color: #b45309; }
+.ctr-history-foot .ok { font-weight: 700; color: #16a34a; }
+
+body.dark-mode .ctr-history-cell { background: rgba(255, 255, 255, 0.04); }
+body.dark-mode .ctr-history-date,
+body.dark-mode .ctr-history-foot b { color: #eee; }
+body.dark-mode .ctr-history-amt { color: var(--accent, #ffc300); }
+body.dark-mode .ctr-history-mode em { background: rgba(255, 255, 255, 0.10); color: #ccc; }
+body.dark-mode .ctr-history-foot .owed,
+body.dark-mode .ctr-history-foot .owed b { color: #fbbf24; }
+
+/* ---- The history, once the table is a stack of cards ----
+   Below 1024px every <tr> in .evt-table becomes its own card, this one
+   included - and a payment history floating as a separate card, under a card
+   with somebody's name on it, reads as a second person. Pulled up against the
+   row it belongs to, and the two share one outline. */
+@media (max-width: 1024px) {
+  .ctr-table tbody tr.ctr-row-open {
+    margin-bottom: 0;
+    border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+    border-bottom: none;
+  }
+  .ctr-table tbody tr.ctr-history-tr {
+    margin-top: 0;
+    border-top-left-radius: 0; border-top-right-radius: 0;
+    border-top: none; box-shadow: none;
+  }
+  /* The stacked-card rules turn every cell into a right-aligned flex row with
+     its label on the left - which is right for "BALANCE ₱1,500" and wrong for
+     a cell whose whole content is a ledger. This one goes back to being a
+     plain block, or the history lays itself out against the right-hand edge
+     of the card with the dates hanging in the middle. */
+  .ctr-table tbody tr.ctr-history-tr td {
+    display: block; width: 100%; text-align: left;
+    border-bottom: none; padding: 0 !important;
+    /* The row above stopped clipping its cells so the Manage menu could hang
+       out of it (see the note on .evt-table tbody tr in dashboard.css), and
+       the corners moved onto the cells instead. This cell is the only one in
+       its row, so it would take BOTH - and a rounded top here would notch the
+       seam where the history joins the member card above it. Square on top,
+       rounded at the bottom: the two cards read as one. */
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-bottom-left-radius: 15px;
+    border-bottom-right-radius: 15px;
+  }
+  .ctr-history { padding: 10px 14px 12px; }
+  /* Four columns of a ledger do not fit a phone. Each payment becomes two
+     lines: the date and the amount on one, what it came through underneath. */
+  .ctr-history-head { display: none; }
+  .ctr-history-row {
+    grid-template-columns: 1fr auto;
+    gap: 2px 10px; padding: 10px 0;
+  }
+  .ctr-history-date { grid-column: 1; grid-row: 1; }
+  .ctr-history-amt { grid-column: 2; grid-row: 1; text-align: right; }
+  .ctr-history-mode { grid-column: 1; grid-row: 2; font-size: 0.8rem; }
+  .ctr-history-act { grid-column: 2; grid-row: 2; }
+  .ctr-history-foot { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+
+/* ---- Paid in full, or over time ----
+   Two cards rather than a dropdown: the choice changes what the rest of the
+   dialog asks for, and a change that big should be visible without opening
+   anything. Shares .evt-type-choice's grid with the walk-in form. */
+.ctr-plan-option {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 13px 15px; cursor: pointer; text-align: left;
+  border: 2px solid var(--border-color, rgba(0, 0, 0, 0.12)); border-radius: 12px;
+  background: var(--bg-card, #fff); color: inherit; font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.ctr-plan-option > i { font-size: 1.05rem; color: var(--text-muted, #999); margin-bottom: 3px; }
+.ctr-plan-option b { font-size: 0.9rem; font-weight: 800; }
+.ctr-plan-option em {
+  font-style: normal; font-size: 0.76rem; color: var(--text-secondary, #6c757d);
+}
+.ctr-plan-option:hover { border-color: var(--secondary, #c9980b); }
+.ctr-plan-option.on {
+  border-color: var(--primary, #926c15); background: rgba(146, 108, 21, 0.08);
+}
+.ctr-plan-option.on > i, .ctr-plan-option.on b { color: var(--primary, #926c15); }
+body.dark-mode .ctr-plan-option { background: #2a2a3a; border-color: rgba(255, 255, 255, 0.14); }
+body.dark-mode .ctr-plan-option.on {
+  background: rgba(255, 195, 0, 0.12); border-color: var(--accent, #ffc300);
+}
+body.dark-mode .ctr-plan-option.on > i, body.dark-mode .ctr-plan-option.on b { color: var(--accent, #ffc300); }
+
+/* ---- Picking who is paying ----
+   The church autocomplete's list, carrying an email under each name: two
+   people called Frank Gomez is the normal case in a church directory, and the
+   name alone cannot tell them apart. */
+.evt-church-list button small {
+  display: block; font-size: 0.74rem; font-weight: 500;
+  color: var(--text-muted, #999);
+}
+.ctr-pick-empty {
+  padding: 12px 11px; font-size: 0.82rem; line-height: 1.5;
+  color: var(--text-muted, #999);
+}
+/* Clearing the person who was chosen, without clearing the rest of the form. */
+.ctr-clear-user {
+  position: absolute; right: 10px; bottom: 10px;
+  width: 24px; height: 24px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.08); color: inherit; font-size: 0.72rem;
+}
+.ctr-clear-user:hover { background: var(--primary, #926c15); color: #fff; }
+body.dark-mode .ctr-clear-user { background: rgba(255, 255, 255, 0.12); }
+
+/* ============================================================
+   THE RECEIPT
+   ============================================================
+   A copy of the pad of pre-printed slips this replaces, filled in from the
+   payment that was recorded. Deliberately not styled like the rest of the
+   dashboard: it is a document somebody signs and hands over, and it has to
+   read as one in a drawer full of the paper kind. Hence the serif, the heavy
+   rule around it, the perforation down the left and the red number - the same
+   things a printer puts on a receipt book.
+
+   Everything on it is automatic except the signature, which is the one part no
+   software has any business writing.
+   ============================================================ */
+
+.rcpt-modal { max-width: 660px; }
+.rcpt-body { background: rgba(0, 0, 0, 0.04); }
+body.dark-mode .rcpt-body { background: rgba(0, 0, 0, 0.28); }
+
+.rcpt-sheet {
+  position: relative;
+  /* Always a white slip with black ink, in either theme. A receipt printed off
+     a dark-mode screen still has to come out looking like a receipt. */
+  background: #fff;
+  color: #111;
+  border: 2.5px solid #1a1a1a;
+  border-radius: 3px;
+  padding: 16px 20px 18px 40px;
+  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-size: 0.92rem;
+  line-height: 1.9;
+}
+
+/* The tear-off edge. A receipt book's stub line, which is what tells the eye
+   this is a slip rather than a panel. */
+.rcpt-sheet::before {
+  content: '';
+  position: absolute; top: 7px; bottom: 7px; left: 22px;
+  border-left: 2px dashed #1a1a1a;
+}
+
+/* ---- The church it comes from ---- */
+.rcpt-brand {
+  display: flex; align-items: center; justify-content: center; gap: 11px;
+  padding-bottom: 9px; margin-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+}
+.rcpt-brand img { width: 44px; height: 44px; object-fit: contain; flex-shrink: 0; }
+.rcpt-brand > div { display: flex; flex-direction: column; line-height: 1.15; }
+.rcpt-brand b {
+  font-family: var(--font-body);
+  font-size: 0.95rem; font-weight: 700; letter-spacing: 0.02em;
+  text-transform: uppercase; color: #c9980b;
+}
+/* The tracked-out INTERNATIONAL of the church lockup. The negative margin
+   cancels the trailing letter-space so the line stays centred under the name
+   above it - the same trick the sidebar brand uses. */
+.rcpt-brand span {
+  font-family: var(--font-body);
+  font-size: 0.48rem; font-weight: 500; letter-spacing: 0.62em;
+  margin-right: -0.62em;
+  text-transform: uppercase; color: #c9980b;
+}
+
+.rcpt-title {
+  margin: 2px 0 6px;
+  font-family: var(--font-body);
+  font-size: 1.25rem; font-weight: 800; letter-spacing: 0.06em;
+  text-align: center; color: #111;
+}
+
+/* ---- Number and date ---- */
+.rcpt-topline {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+.rcpt-no { font-style: italic; font-weight: 700; font-size: 1.02rem; }
+/* Red, like the numbering a printer stamps into a receipt book - and the one
+   thing on the slip that identifies it. */
+.rcpt-no b { color: #d81f26; font-style: normal; letter-spacing: 0.02em; }
+.rcpt-dateline { display: inline-flex; align-items: baseline; gap: 7px; min-width: 190px; }
+
+/* ---- The filled-in lines ----
+   <em> is the printed wording, <u> is what was written on the rule. The rule
+   is a border rather than an underline so it runs the full width of the space
+   whether or not the value reaches the end of it - which is what a blank line
+   on a form does. */
+.rcpt-line {
+  display: flex; align-items: baseline; flex-wrap: wrap;
+  gap: 0 7px; margin: 0;
+}
+.rcpt-indent { padding-left: 34px; }
+.rcpt-line em, .rcpt-dateline em, .rcpt-balance em {
+  font-style: italic; white-space: nowrap; flex-shrink: 0;
+}
+.rcpt-line u, .rcpt-dateline u, .rcpt-balance u {
+  flex: 1; min-width: 90px;
+  text-decoration: none;
+  border-bottom: 1px solid #1a1a1a;
+  padding: 0 4px 1px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.rcpt-paren { margin-left: 4px; }
+.rcpt-figure {
+  flex: 0 1 132px; min-width: 96px;
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+
+/* ---- Paid or partial, the balance, and the one blank left ---- */
+.rcpt-foot {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+  margin-top: 14px;
+}
+/* Two lines, as the printed pad has them: PAID, then PARTIAL with the balance
+   that belongs to it. */
+.rcpt-marks {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  font-family: var(--font-body); font-size: 0.82rem; font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.rcpt-marks-row { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; }
+.rcpt-check { display: inline-flex; align-items: center; gap: 7px; }
+/* A real box, ticked or not. Both are drawn: a receipt carrying only the
+   ticked box is a different document from the one in the pad, and the empty
+   box is what makes the ticked one mean anything. */
+.rcpt-box {
+  width: 14px; height: 14px; flex-shrink: 0;
+  border: 1.5px solid #1a1a1a;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-style: normal; line-height: 1;
+}
+.rcpt-box b { font-size: 0.8rem; font-weight: 900; color: #111; margin-top: -2px; }
+.rcpt-check.on { font-weight: 800; }
+.rcpt-balance {
+  display: inline-flex; align-items: baseline; gap: 7px; min-width: 132px;
+  font-family: Georgia, 'Times New Roman', Times, serif; font-weight: 400;
+}
+.rcpt-balance em { font-size: 0.86rem; letter-spacing: 0.04em; }
+
+.rcpt-sign {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 150px; flex: 0 1 190px;
+}
+.rcpt-sign u {
+  display: block; width: 100%; height: 22px;
+  border-bottom: 1px solid #1a1a1a; text-decoration: none;
+}
+.rcpt-sign em {
+  font-style: italic; font-weight: 700; font-size: 0.86rem; letter-spacing: 0.04em;
+}
+
+/* Said on screen, never on the slip. */
+.rcpt-note {
+  margin: 14px 0 0; font-size: 0.79rem; line-height: 1.6;
+  color: var(--text-secondary, #6c757d);
+}
+.ctr-receipt-btn i { color: var(--primary, #926c15); }
+
+/* A phone is where somebody actually stands with the payer in front of them.
+   The slip keeps its proportions and gives up its padding. */
+@media (max-width: 560px) {
+  .rcpt-sheet { padding: 14px 14px 16px 30px; font-size: 0.86rem; line-height: 1.8; }
+  .rcpt-sheet::before { left: 16px; }
+  .rcpt-indent { padding-left: 0; }
+  .rcpt-figure { flex: 1 1 100%; text-align: left; }
+  .rcpt-foot { gap: 14px; }
+  .rcpt-sign { align-items: flex-start; flex: 1 1 100%; }
+}
+
+/* ============================================================
+   PRINTING IT
+   ============================================================
+   The dialog is portalled to <body> - see the note beside it in page.js - so
+   this is one rule rather than an argument with six levels of ancestors: hide
+   the other children of <body>, and the receipt IS the document.
+
+   `display: none` rather than `visibility: hidden` on purpose. A hidden
+   element still occupies its space, which is how a one-slip print job becomes
+   four pages with the slip on the last of them.
+   ============================================================ */
+@media print {
+  body > *:not(.rcpt-print-root) { display: none !important; }
+
+  .rcpt-print-root .evt-modal-overlay {
+    position: static !important;
+    display: block !important;
+    inset: auto !important;
+    padding: 0 !important;
+    background: none !important;
+    overflow: visible !important;
+  }
+  .rcpt-print-root .rcpt-modal {
+    max-width: none !important; max-height: none !important;
+    width: auto !important;
+    box-shadow: none !important; border-radius: 0 !important;
+    background: none !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+  /* The chrome around the slip is for the screen: the title bar, the buttons
+     and the note explaining the numbering are not part of what gets signed. */
+  .rcpt-print-root .evt-modal-head,
+  .rcpt-print-root .evt-modal-foot,
+  .rcpt-print-root .rcpt-note { display: none !important; }
+  .rcpt-print-root .evt-modal-body {
+    padding: 0 !important; background: none !important; overflow: visible !important;
+  }
+
+  .rcpt-sheet {
+    break-inside: avoid; page-break-inside: avoid;
+    box-shadow: none;
+  }
+  /* Backgrounds and borders are dropped by default in print. The box that says
+     PAID, the rules people write on and the red number ARE the receipt, so
+     they are asked for explicitly. */
+  .rcpt-sheet, .rcpt-sheet * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page { margin: 14mm; }
+}
+
+/* ============================================================
+   E-SIGNATURE
+   ============================================================
+   Two things put together in the order they are assembled: a printed name,
+   then the mark that goes over it. The steps are on the left and what they add
+   up to is on the right, always visible - a signature block cannot be judged
+   from either half on its own, and hiding the result behind a Preview button
+   would mean nobody ever looks at it.
+   ============================================================ */
+
+.sig-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.9fr);
+  gap: 22px;
+  align-items: start;
+}
+@media (max-width: 1024px) {
+  .sig-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+.sig-steps { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* ---- A step ---- */
+.sig-step {
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 16px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  transition: border-color 0.2s ease, opacity 0.2s ease;
+}
+/* Dimmed rather than hidden. Somebody on step one can see there IS a step two
+   and what it wants - hiding it would read as "there is nothing else to do". */
+.sig-step.locked { opacity: 0.55; }
+.sig-step.on { border-color: rgba(146, 108, 21, 0.45); }
+.sig-step.done { border-color: rgba(22, 163, 74, 0.42); }
+body.dark-mode .sig-step { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.08); }
+
+.sig-step-head {
+  display: flex; align-items: flex-start; gap: 13px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.07));
+  background: rgba(146, 108, 21, 0.04);
+}
+body.dark-mode .sig-step-head { background: rgba(255, 255, 255, 0.03); border-bottom-color: rgba(255, 255, 255, 0.07); }
+.sig-step-head > b {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.9rem; font-weight: 800;
+  background: rgba(0, 0, 0, 0.08); color: var(--text-muted, #999);
+}
+.sig-step.on .sig-step-head > b { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; }
+.sig-step.done .sig-step-head > b { background: #16a34a; color: #fff; }
+.sig-step-head h3 {
+  margin: 0; font-family: var(--font-heading);
+  font-size: 1.02rem; font-weight: 700; color: var(--primary, #926c15);
+}
+body.dark-mode .sig-step-head h3 { color: var(--accent, #ffc300); }
+.sig-step-head p {
+  margin: 2px 0 0; font-size: 0.82rem; line-height: 1.5;
+  color: var(--text-secondary, #6c757d);
+}
+.sig-step-body { padding: 16px 18px 18px; }
+
+.sig-modes { width: 100%; margin-bottom: 14px; }
+.sig-modes button { flex: 1; justify-content: center; }
+
+/* ---- The pad ----
+   A box with a rule across it, like the line on a form. The canvas sits over
+   the rule so a stroke can cross it, and `touch-action: none` is what stops a
+   finger scrolling the page instead of drawing. */
+.sig-pad {
+  position: relative;
+  height: 210px;
+  border: 2px dashed var(--border-color, rgba(0, 0, 0, 0.18));
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+body.dark-mode .sig-pad { background: #f7f7f4; border-color: rgba(255, 255, 255, 0.2); }
+.sig-canvas {
+  position: relative; z-index: 2;
+  display: block; width: 100%; height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+.sig-pad-rule {
+  position: absolute; z-index: 1; left: 26px; right: 26px; bottom: 52px;
+  border-bottom: 1.5px solid rgba(0, 0, 0, 0.22);
+}
+.sig-pad-hint {
+  position: absolute; z-index: 1; left: 32px; bottom: 22px;
+  font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.sig-pad-actions {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px; margin-top: 12px;
+}
+.sig-pad-note {
+  flex: 1 1 220px; min-width: 0;
+  font-size: 0.78rem; line-height: 1.5; color: var(--text-muted, #999);
+}
+.sig-pad-btns { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ---- Uploading one instead ---- */
+.sig-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 7px; min-height: 190px; padding: 20px;
+  border: 2px dashed var(--border-color, rgba(0, 0, 0, 0.18));
+  border-radius: 14px; cursor: pointer; text-align: center;
+  background: rgba(0, 0, 0, 0.015);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.sig-drop:hover { border-color: var(--primary, #926c15); background: rgba(146, 108, 21, 0.05); }
+.sig-drop input { display: none; }
+.sig-drop > i { font-size: 1.8rem; color: var(--primary, #926c15); opacity: 0.7; }
+.sig-drop b { font-size: 0.92rem; }
+.sig-drop em {
+  font-style: normal; font-size: 0.79rem; line-height: 1.5;
+  color: var(--text-muted, #999); max-width: 330px;
+}
+/* Checkerboard, so a transparent background reads as transparent rather than
+   as white - which is the one thing that matters about this image. */
+.sig-drop img {
+  max-width: 100%; max-height: 150px; object-fit: contain;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%),
+    linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 7px 7px;
+  border-radius: 8px;
+}
+body.dark-mode .sig-drop { background: rgba(255, 255, 255, 0.03); }
+
+.sig-knockout {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin-top: 12px; padding: 11px 13px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.10));
+  border-radius: 11px; cursor: pointer;
+  background: rgba(146, 108, 21, 0.04);
+}
+.sig-knockout input { width: 17px; height: 17px; margin-top: 2px; flex-shrink: 0; accent-color: #926c15; }
+.sig-knockout b { display: block; font-size: 0.85rem; }
+.sig-knockout em {
+  display: block; font-style: normal; font-size: 0.78rem; line-height: 1.5;
+  color: var(--text-muted, #999);
+}
+body.dark-mode .sig-knockout { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.1); }
+
+/* ---- The overview ---- */
+.sig-overview {
+  position: sticky; top: 18px;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 16px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
+  padding: 18px;
+}
+@media (max-width: 1024px) { .sig-overview { position: static; } }
+body.dark-mode .sig-overview { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.08); }
+.sig-overview-title {
+  margin: 0; display: flex; align-items: center; gap: 9px;
+  font-family: var(--font-heading); font-size: 1rem; font-weight: 700;
+  color: var(--primary, #926c15);
+}
+body.dark-mode .sig-overview-title { color: var(--accent, #ffc300); }
+.sig-overview-sub {
+  margin: 3px 0 14px; font-size: 0.8rem; line-height: 1.5;
+  color: var(--text-secondary, #6c757d);
+}
+
+/* The block itself, on paper. White in both themes for the same reason the
+   receipt is: this is what gets printed, and it has to be judged against the
+   colour it will be printed on. */
+.sig-block-frame {
+  padding: 22px 18px 18px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+.sig-block {
+  display: flex; flex-direction: column; align-items: center;
+  max-width: 300px; margin: 0 auto;
+}
+/* The mark sits ON the rule, overlapping it, the way a pen does - a signature
+   floating in the space above the line looks like a sticker. */
+.sig-block-mark {
+  max-width: 100%; max-height: 74px; object-fit: contain;
+  margin-bottom: -14px;
+}
+.sig-block-empty {
+  height: 60px; display: flex; align-items: flex-end; margin-bottom: 4px;
+  font-size: 0.78rem; font-style: italic; color: #b3b3b3;
+}
+.sig-block-rule { width: 100%; border-bottom: 1.5px solid #1a1a1a; }
+.sig-block-name {
+  margin-top: 6px; text-align: center;
+  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-size: 0.95rem; font-weight: 700; color: #111;
+  overflow-wrap: anywhere;
+}
+.sig-block-label {
+  margin-top: 3px; font-style: normal;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: #8a8a8a; text-align: center;
+}
+
+.sig-facts { margin: 16px 0 0; display: flex; flex-direction: column; gap: 9px; }
+.sig-facts > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sig-facts dt {
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-muted, #999);
+}
+.sig-facts dd { margin: 0; font-size: 0.83rem; font-weight: 600; text-align: right; }
+.sig-facts dd.ok { color: #16a34a; }
+.sig-facts dd.wait { color: #b45309; }
+body.dark-mode .sig-facts dd.wait { color: #fbbf24; }
+
+.sig-remove { width: 100%; justify-content: center; margin-top: 14px; }
+.sig-privacy {
+  margin: 14px 0 0; padding-top: 12px;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  font-size: 0.77rem; line-height: 1.55; color: var(--text-muted, #999);
+}
+
+/* ============================================================
+   THE SIGNATURE ON A RECEIPT
+   ============================================================
+   Same block as the overview, sized for the slip: the mark over the rule, the
+   printed name under it, and SIGNATURE under that. When nobody has set one the
+   markup is unchanged and the line is simply blank - a receipt signed by hand,
+   which is what it was before this existed.
+   ============================================================ */
+.rcpt-sign.signed { position: relative; }
+/* The blank line is 22px tall so there is room to sign it by hand. With a mark
+   already on it that height is what was pushing the rule clear of the ink -
+   the signature floated above its own line like a sticker. Signed, the line
+   gives that room back and the negative margin below drops the rule three
+   pixels INTO the strokes, which is where a pen leaves it. */
+.rcpt-sign.signed u { height: 6px; }
+.rcpt-mark {
+  display: block;
+  max-width: 100%; max-height: 46px;
+  object-fit: contain;
+  margin: 0 auto -9px;
+}
+.rcpt-printed {
+  margin-top: 3px;
+  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-size: 0.82rem; font-weight: 700; color: #111;
+  text-align: center; line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+/* With a name printed above it, SIGNATURE becomes the caption of the block
+   rather than the label of an empty line - so it steps back. */
+.rcpt-sign.signed em { font-size: 0.66rem; letter-spacing: 0.08em; color: #555; }

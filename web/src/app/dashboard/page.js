@@ -13,7 +13,7 @@ import { moderateMessage, detectInappropriateWords } from '@/lib/contentModerati
 import SmartImage from '@/components/SmartImage';
 import './dashboard.css';
 import { withTitleCase } from '@/lib/eventTitle';
-import { eventSlugFor } from '@/lib/eventSlug';
+import { eventSlugFor, findEventBySlug } from '@/lib/eventSlug';
 import ProofDrop from '@/components/ProofDrop';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 
@@ -517,7 +517,18 @@ export default function DashboardPage() {
   const [userRole, setUserRole] = useState('Guest');
   const [activeSection, setActiveSection] = useState(resolveSectionFromPath);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // A tablet starts on the icon rail. 280px of sidebar is a fifth of a
+  // 1280px screen and the events tables need every pixel of the rest - with
+  // the panel out, the Status and Actions columns had nowhere to go. The
+  // stylesheet used to force this with `.sidebar:not(.active)` below 1200px,
+  // which also meant the collapse arrow beside the logo did nothing at all on
+  // a tablet. Setting the class instead leaves the arrow working: this is the
+  // state it opens in, not the only state it has. The band matches the one in
+  // dashboard.css - change one and change the other.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => typeof window !== 'undefined'
+      && window.matchMedia('(min-width: 769px) and (max-width: 1366px)').matches,
+  );
   const [darkMode, setDarkMode] = useState(false);
 
   // Keep the active section in sync with browser back/forward navigation
@@ -625,6 +636,12 @@ export default function DashboardPage() {
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
   const [uploadingPic, setUploadingPic] = useState(false);
+  // Sharing the new picture to the Community Hub. Ticked by default - that is
+  // what "posts automatically" means - but visible and switchable before it
+  // happens, because publishing somebody's face to the whole church is not
+  // something to discover after the fact.
+  const [sharePicToCommunity, setSharePicToCommunity] = useState(true);
+  const [sharePicCaption, setSharePicCaption] = useState('');
   const profilePicInputRef = useRef(null);
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const [viewProfilePic, setViewProfilePic] = useState(false);
@@ -904,6 +921,16 @@ export default function DashboardPage() {
   const [photoViewerIndex, setPhotoViewerIndex] = useState(0);
   const [photoViewerScrollY, setPhotoViewerScrollY] = useState(0);
   const [communityImgLoaded, setCommunityImgLoaded] = useState({});
+  // The shape of each post's collage, keyed by post id: { shape, ratio }.
+  //
+  // Which arrangement a set of photos gets depends on whether they are
+  // portrait, square or landscape - two tall photos sit side by side, two wide
+  // ones stack, and the same three photos want a different grid depending on
+  // which. Nothing in community_post_images records the dimensions, so it is
+  // read off the first image as the browser decodes it. Until then the collage
+  // uses the square arrangement, which is the middle case and the one that
+  // looks least wrong if the guess has to change.
+  const [collageShape, setCollageShape] = useState({});
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') setPhotoViewerOpen(null); };
     if (photoViewerOpen) {
@@ -1923,6 +1950,15 @@ export default function DashboardPage() {
     }
     setActiveSection(sectionId);
     setSidebarOpen(false);
+    // On a tablet the expanded sidebar is a drawer, not furniture: it costs
+    // the page 200px, which on the events screens is the last two columns of
+    // the table. Picking something is the end of what it was opened for, so
+    // it goes back to the rail and the section gets the full width. A phone
+    // is handled by setSidebarOpen above; a desk has the room to leave it out.
+    if (typeof window !== 'undefined'
+      && window.matchMedia('(min-width: 769px) and (max-width: 1366px)').matches) {
+      setSidebarCollapsed(true);
+    }
     // Reflect the section as a clean top-level URL (e.g. /bible-reader). Home = /dashboard.
     if (typeof window !== 'undefined') {
       const targetPath = sectionId === 'home' ? '/dashboard' : `/${sectionId}`;
@@ -2236,6 +2272,20 @@ export default function DashboardPage() {
       const data = await res.json();
       if (data.success) setMeetings(data.data);
     } catch { /* silent */ }
+  };
+
+  // Sizes straight off the decoded image. Recorded once per post - the first
+  // photo sets the shape for the whole collage, the way a set of photos taken
+  // on one day is nearly always all portrait or all landscape.
+  const readCollageShape = (postId, el) => {
+    if (!el?.naturalWidth || !el?.naturalHeight) return;
+    const ratio = el.naturalWidth / el.naturalHeight;
+    // The thresholds are the recommended feed sizes: 4:5 (0.8) is the tallest
+    // portrait, 1.91:1 the widest landscape, and anything between reads as a
+    // square. A 3:4 snapshot is portrait; a 5:4 one is close enough to square
+    // that giving it the portrait grid would only make it taller than it is.
+    const shape = ratio < 0.95 ? 'portrait' : ratio > 1.15 ? 'landscape' : 'square';
+    setCollageShape((prev) => (prev[postId]?.shape === shape ? prev : { ...prev, [postId]: { shape, ratio } }));
   };
 
   const loadCommunityPosts = async () => {
@@ -6442,6 +6492,39 @@ export default function DashboardPage() {
     return cards;
   }, [myRegistrations, userData?.id]);
 
+  // ---- Arriving on an event link while already signed in ----
+  //
+  // The public page is what /miracle-working-god-cebu-event resolves to, and
+  // it sends anybody with a session straight here - handing the slug over in
+  // session storage rather than dropping it (see page.js). This is the other
+  // half: put that event on screen instead of leaving them on a dashboard with
+  // no sign of what they tapped.
+  //
+  // Waits for `events`, because the slug can only be matched against a loaded
+  // list. Landing on /events has already asked for one.
+  useEffect(() => {
+    if (!events.length) return;
+    let slug = null;
+    try { slug = sessionStorage.getItem('pendingEventLink'); } catch { slug = null; }
+    if (!slug) return;
+    // Read once. Closing the modal must not reopen it, and neither must the
+    // next render that adds an event to the list.
+    try { sessionStorage.removeItem('pendingEventLink'); } catch { /* ignore */ }
+
+    const match = findEventBySlug(events, slug);
+    if (match) {
+      showSection('events');
+      setEventDetail(match);
+    } else {
+      // The link was real enough to be followed but names nothing we have -
+      // an event since deleted, or a typo off a poster. Said plainly, on the
+      // Events screen, which is where they were trying to get to anyway.
+      showSection('events');
+      showToast('That event link no longer points to an event. It may have been removed.', 'warning');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
+
   // After a public sign-up, auto-open the register modal for the pending event.
   // Consumed once (removed from storage immediately) so it never reappears on later logins —
   // e.g. if the user closes the modal without registering, or logs in directly without
@@ -8824,27 +8907,64 @@ Examples:
     e.target.value = '';
   };
 
+  // Exactly the gate the compose box uses. A picture change must not be a side
+  // door into a feed somebody is not allowed to post to, and the option should
+  // not be offered to a person it would be refused for.
+  //
+  // hasPermission rather than the canManage() wrapper: that wrapper is declared
+  // further down this file, and a const initialised up here that calls it reads
+  // it before it exists - which is a build-breaking temporal dead zone, not a
+  // runtime maybe. This is the same call canManage makes.
+  const canShareProfilePic = hasPermission(userRole, MODULES.CREATE_POSTS)
+    && featureOn('community.create_post');
+
   // Handle cropped image upload
   const handleCropComplete = async () => {
     if (!croppedAreaPixels || !cropImage) return;
     setUploadingPic(true);
     try {
       let blob = await getCroppedImg(cropImage, croppedAreaPixels);
-      // Compress if larger than 2MB
-      if (blob.size > 2 * 1024 * 1024) {
+      // Only if it is genuinely huge, and 1600px rather than 1024.
+      //
+      // The same bytes become the photo in the community post, which the feed
+      // serves at 1400px wide - so squeezing to 1024 here was upscaling
+      // somebody's face on every screen wider than a phone. 1600 keeps the
+      // post sharp and still cuts a 12MP camera file down to something worth
+      // uploading.
+      if (blob.size > 3 * 1024 * 1024) {
         const imageCompression = (await import('browser-image-compression')).default;
         const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
-        blob = await imageCompression(file, { maxSizeMB: 2, maxWidthOrHeight: 1024, useWebWorker: true });
+        blob = await imageCompression(file, { maxSizeMB: 3, maxWidthOrHeight: 1600, useWebWorker: true });
       }
       const formData = new FormData();
       formData.append('file', blob, 'avatar.jpg');
       formData.append('email', userData.email);
+      if (canShareProfilePic && sharePicToCommunity) {
+        formData.append('shareToCommunity', '1');
+        if (sharePicCaption.trim()) formData.append('caption', sharePicCaption.trim());
+      }
       const res = await fetch('/api/profile/upload-picture', { method: 'POST', body: formData });
       const data = await res.json();
       if (data.success) {
-        const updated = { ...userData, profile_picture: data.url + '?t=' + Date.now() };
+        // No cache-buster needed any more - the file is stamped, so the URL is
+        // new. Appending one anyway would only defeat the caching of a picture
+        // that genuinely has not changed.
+        const updated = { ...userData, profile_picture: data.url };
         setUserData(updated); sessionStorage.setItem('userData', JSON.stringify(updated)); localStorage.setItem('userData', JSON.stringify(updated));
-        showToast('Profile picture updated!', 'success');
+        if (data.post) {
+          // Straight into the feed the viewer already has, so somebody sitting
+          // on the Community Hub sees it without a reload. loadCommunityPosts
+          // will replace it with the server's copy on the next read.
+          setCommunityPosts((prev) => [{ ...data.post, author_picture: data.url, reactionCounts: { heart: 0, fire: 0, praise: 0, total: 0 }, liked: false, myReaction: null }, ...prev]);
+          showToast('Profile picture updated and shared to the Community Hub!', 'success');
+        } else if (data.postSkipped === 'failed') {
+          showToast('Profile picture updated — but sharing it to the Hub did not go through.', 'warning');
+        } else if (data.postSkipped === 'not-allowed') {
+          showToast('Profile picture updated. Your role cannot post to the Community Hub.', 'info');
+        } else {
+          showToast('Profile picture updated!', 'success');
+        }
+        setSharePicCaption('');
         closeCropModal();
       } else showToast(data.message, 'danger');
     } catch (e) { showToast('Error uploading: ' + e.message, 'danger'); }
@@ -10096,27 +10216,44 @@ Examples:
   // thing to the system and only one of them is the thing on the poster.
   //
   // A single-day event has nothing to choose, so nothing is shown.
+  // opts.attendedDays - the day map of the person whose card was just read,
+  // { '1': {...} }. Days they have already been through are greyed and ticked.
+  //
+  // Greyed, NOT disabled. This picker is the desk's setting, not the
+  // attendee's: it says which day this door is working on. Disabling Day 1
+  // because the person at the front of the queue already came on Day 1 would
+  // stop the desk checking the NEXT person into Day 1, which is most of what
+  // a door does. So it marks, and stays pressable - and the marks clear with
+  // the result when Next attendee is pressed.
   const renderDayPicker = (opts = {}) => {
     if (evtEventDays.length < 2) return null;
+    const attended = opts.attendedDays || null;
     return (
       <div className="evt-daypick">
         <span className="evt-daypick-label">
           <i className="fas fa-calendar-day"></i> {opts.label || 'Checking in for'}
         </span>
         <div className="evt-daypick-row">
-          {evtEventDays.map((d) => (
-            <button
-              type="button"
-              key={d.number}
-              className={`evt-daypick-btn ${evtCheckinDay === d.number ? 'on' : ''} ${d.started ? '' : 'ahead'}`}
-              onClick={() => setEvtCheckinDay(d.number)}
-              title={d.started ? d.when : `${d.when} — has not started yet`}
-            >
-              <b>Day {d.number}</b>
-              <em>{d.label === `Day ${d.number}` ? (d.when || 'No date') : d.label}</em>
-              {!d.started && <span className="evt-daypick-ahead">upcoming</span>}
-            </button>
-          ))}
+          {evtEventDays.map((d) => {
+            const wasHere = !!attended?.[String(d.number)];
+            return (
+              <button
+                type="button"
+                key={d.number}
+                className={`evt-daypick-btn ${evtCheckinDay === d.number ? 'on' : ''} ${d.started ? '' : 'ahead'} ${wasHere ? 'done' : ''}`}
+                onClick={() => setEvtCheckinDay(d.number)}
+                title={wasHere
+                  ? `${d.when} — already checked in`
+                  : (d.started ? d.when : `${d.when} — has not started yet`)}
+              >
+                <b>Day {d.number}</b>
+                <em>{d.label === `Day ${d.number}` ? (d.when || 'No date') : d.label}</em>
+                {wasHere ? (
+                  <span className="evt-daypick-done"><i className="fas fa-check"></i> attended</span>
+                ) : (!d.started && <span className="evt-daypick-ahead">upcoming</span>)}
+              </button>
+            );
+          })}
         </div>
       </div>
     );
@@ -10239,35 +10376,44 @@ Examples:
                 box, and that is what the second wording is about. */}
             <span className="rfid-stat ok" title="A USB reader types the card number. It lands here on its own unless the caret is inside a text box.">
               <i className="fas fa-keyboard"></i>
-              USB reader
-              <b>{evtRfidFocus ? 'Ready \u2014 tap now' : 'Listening'}</b>
+              <span className="rfid-stat-label">USB reader</span>
+              <b>{evtRfidFocus ? 'Ready' : 'Listening'}</b>
             </span>
 
-            <span className={`rfid-stat ${
-              rfidSerialStatus === 'open' ? 'ok'
-                : rfidSerialStatus === 'opening' ? 'warn'
-                  : rfidSerialStatus === 'error' ? 'bad' : 'off'}`}>
+            <span
+              className={`rfid-stat ${
+                rfidSerialStatus === 'open' ? 'ok'
+                  : rfidSerialStatus === 'opening' ? 'warn'
+                    : rfidSerialStatus === 'error' ? 'bad' : 'off'}`}
+              title="Arduino + RC522, read over the USB cable. It connects by itself once this browser has been shown the board once."
+            >
               <i className="fas fa-microchip"></i>
-              Arduino
+              <span className="rfid-stat-label">Arduino</span>
               <b>
                 {rfidSerialStatus === 'open' ? 'Connected'
-                  : rfidSerialStatus === 'opening' ? 'Connecting\u2026'
+                  : rfidSerialStatus === 'opening' ? 'Opening\u2026'
                     : rfidSerialStatus === 'error' ? 'Failed'
-                      : !rfidWebSerialSupported ? 'Not supported here'
-                        : rfidPaired ? 'Not plugged in'
-                          : 'Needs allowing once'}
+                      : !rfidWebSerialSupported ? 'No support'
+                        : rfidPaired ? 'Unplugged'
+                          : 'Not set up'}
               </b>
               {/* Only shown when it is actually needed: a board this browser
                   has already been shown connects itself, and a button
                   offering to do what just happened by itself is noise. */}
               {rfidWebSerialSupported && rfidSerialStatus !== 'open' && rfidSerialStatus !== 'opening' && (
                 <button type="button" className="rfid-stat-btn" onClick={connectRfidSerial}>
-                  {rfidPaired ? 'Connect' : 'Allow board'}
+                  {rfidPaired ? 'Connect' : 'Allow'}
                 </button>
               )}
               {rfidSerialStatus === 'open' && (
-                <button type="button" className="rfid-stat-btn ghost" onClick={disconnectRfidSerial}>
-                  Disconnect
+                <button
+                  type="button"
+                  className="rfid-stat-btn ghost icon-only"
+                  onClick={disconnectRfidSerial}
+                  title="Disconnect the board"
+                  aria-label="Disconnect the board"
+                >
+                  <i className="fas fa-xmark"></i>
                 </button>
               )}
             </span>
@@ -10277,13 +10423,21 @@ Examples:
                 "connected" and reads nothing, which is the most confusing
                 state of all. */}
             {rfidSerialStatus === 'open' && rfidChip && (
-              <span className={`rfid-stat ${rfidChip.ok ? 'ok' : 'bad'}`}>
+              <span
+                className={`rfid-stat ${rfidChip.ok ? 'ok' : 'bad'}`}
+                title={rfidChip.ok
+                  ? `The RC522 chip is answering the board${rfidChip.version ? ` (${rfidChip.version})` : ''}.`
+                  : `The RC522 chip is not answering the board (${rfidChip.version}). This is wiring or power, not the card.`}
+              >
                 <i className="fas fa-wave-square"></i>
-                RC522
+                <span className="rfid-stat-label">RC522</span>
                 <b>
-                  {rfidChip.ok
-                    ? (rfidChip.version ? `Responding (${rfidChip.version})` : 'Responding')
-                    : `No reply (${rfidChip.version})`}
+                  {rfidChip.ok ? 'Responding' : 'No reply'}
+                  {/* The version is the detail, not the state. First to go
+                      when the row has to fit a phone. */}
+                  {rfidChip.version && (
+                    <span className="rfid-stat-extra">{` (${rfidChip.version})`}</span>
+                  )}
                 </b>
               </span>
             )}
@@ -12564,6 +12718,9 @@ Examples:
                             <i className="fas fa-magnifying-glass"></i>
                             <input
                               type="search"
+                              autoComplete="new-password"
+                              data-lpignore="true"
+                              data-form-type="other"
                               value={regSearch}
                               onChange={(e) => setRegSearch(e.target.value)}
                               placeholder="Search attendees, church, contact or reference"
@@ -12601,7 +12758,7 @@ Examples:
                       </div>
                       {/* the wrapper scrolls sideways, which would clip an open
                           row menu - so it stops clipping while one is open */}
-                      <div className={`evt-table-wrapper ${openRowMenu ? 'menu-open' : ''}`}>
+                      <div className={`evt-table-wrapper evt-table-steady ${openRowMenu ? 'menu-open' : ''}`}>
                       <table className="evt-table evt-table-regs">
                         <thead>
                           {/* Contact is searched for, not read down: the
@@ -12930,6 +13087,9 @@ Examples:
                           <i className="fas fa-magnifying-glass"></i>
                           <input
                             type="search"
+                            autoComplete="new-password"
+                            data-lpignore="true"
+                            data-form-type="other"
                             value={attSearch}
                             onChange={(e) => { setAttSearch(e.target.value); setAttPage(1); }}
                             placeholder="Search attendees, church, contact"
@@ -12994,7 +13154,7 @@ Examples:
                           </button>
                         </p>
                       )}
-                      <div className="evt-table-wrapper">
+                      <div className="evt-table-wrapper evt-table-steady">
                         <table className="evt-table">
                           <thead>
                             <tr>
@@ -14062,7 +14222,14 @@ Examples:
                         scan pad, because getting it wrong records a whole
                         morning against the wrong session and nobody notices
                         until the reports are run. */}
-                    {renderDayPicker()}
+                    {/* The day map of whoever was just read, so the days they
+                        have already been through show as attended. Null until
+                        a card is read, and null again on Next attendee. */}
+                    {renderDayPicker({
+                      attendedDays: evtRfidResult?.registration?.id
+                        ? evtDayAttend[evtRfidResult.registration.id]
+                        : null,
+                    })}
                     {rfidError && (
                       <p className="evt-rfid-hint bad">
                         <i className="fas fa-triangle-exclamation"></i>
@@ -14971,8 +15138,18 @@ Examples:
                 <div className="evt-filters">
                   <div className="evt-search">
                     <i className="fas fa-magnifying-glass"></i>
+                    {/* A browser offers a saved email to any box it cannot place,
+                        and an unnamed one it can never place. Naming it and
+                        turning autofill off is what stops the address book
+                        appearing over a list that is only being filtered. The
+                        two data- attributes say the same thing to LastPass and
+                        Dashlane, which ignore autoComplete. */}
                     <input
                       type="search"
+                      name="event-search"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-form-type="other"
                       value={eventSearch}
                       onChange={(e) => setEventSearch(e.target.value)}
                       placeholder="Search events, venue or location"
@@ -15710,6 +15887,9 @@ Examples:
                       <i className="fas fa-magnifying-glass"></i>
                       <input
                         type="search"
+                        autoComplete="new-password"
+                        data-lpignore="true"
+                        data-form-type="other"
                         value={instSearch}
                         onChange={(e) => setInstSearch(e.target.value)}
                         placeholder="Search attendees, church, contact or reference"
@@ -15756,7 +15936,7 @@ Examples:
                     )}
                   </div>
                 </div>
-                <div className="evt-table-wrapper">
+                <div className="evt-table-wrapper evt-table-steady">
                   <table className="evt-table">
                     <thead>
                       <tr>
@@ -18676,7 +18856,7 @@ Examples:
                     setTimeout(() => markPostViewed(post.id), 1500);
                   }
                   return (
-                  <div key={post.id} className={`community-post-card${post.is_pinned ? ' pinned' : ''}${deletingPost === post.id ? ' deleting' : ''}${!viewedPosts.includes(post.id) ? ' unseen' : ''}`} style={{ animationDelay: `${idx * 0.05}s` }}>
+                  <div key={post.id} className={`community-post-card${post.is_pinned ? ' pinned' : ''}${deletingPost === post.id ? ' deleting' : ''}${!viewedPosts.includes(post.id) ? ' unseen' : ''}${postMenuOpen === post.id ? ' menu-open' : ''}`} style={{ animationDelay: `${idx * 0.05}s` }}>
                     {post.is_pinned && <div className="community-pin-badge"><i className="fas fa-thumbtack"></i> Pinned</div>}
                     <div className="community-post-header">
                       <div className="community-post-author-avatar" onClick={() => handleViewProfile(post.author_id, post.author_name, post.author_picture)} style={{ cursor: 'pointer' }} title="View profile">
@@ -18759,7 +18939,19 @@ Examples:
                         {post.content && <div className="community-post-content" style={{ whiteSpace: 'pre-wrap' }}>{post.content}</div>}
                         {/* Photo collage display */}
                         {post.images && post.images.length > 0 && (
-                          <div className={`community-photo-collage collage-${Math.min(post.images.length, 5)}`} onClick={() => handleOpenImageViewer(post, 0)}>
+                          <div
+                            className={`community-photo-collage collage-${Math.min(post.images.length, 5)} shape-${collageShape[post.id]?.shape || 'square'}`}
+                            onClick={() => handleOpenImageViewer(post, 0)}
+                            // A single photo keeps its OWN proportions rather than
+                            // being cropped to a slot - one picture is the post, and
+                            // cropping it is editing somebody's photo for them. Held
+                            // between the two recommended extremes so a panorama
+                            // cannot become a letterbox sliver and a phone screenshot
+                            // cannot take over the whole feed.
+                            style={post.images.length === 1 && collageShape[post.id]
+                              ? { '--collage-ar': Math.min(1.91, Math.max(0.8, collageShape[post.id].ratio)) }
+                              : undefined}
+                          >
                             {post.images.slice(0, 5).map((img, imgIdx) => (
                               <div key={img.id} className={`collage-item collage-item-${imgIdx}`} onClick={(e) => { e.stopPropagation(); handleOpenImageViewer(post, imgIdx); }}>
                                 {!communityImgLoaded[img.id] && (
@@ -18774,7 +18966,11 @@ Examples:
                                   height={800}
                                   sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                                   className={`collage-img${communityImgLoaded[img.id] ? ' loaded' : ''}`}
-                                  onLoadingComplete={() => setCommunityImgLoaded(prev => ({ ...prev, [img.id]: true }))}
+                                  onLoadingComplete={(el) => {
+                                    setCommunityImgLoaded(prev => ({ ...prev, [img.id]: true }));
+                                    // Only the first one decides the shape.
+                                    if (imgIdx === 0) readCollageShape(post.id, el);
+                                  }}
                                   onError={() => setCommunityImgLoaded(prev => ({ ...prev, [img.id]: true }))}
                                 />
                                 {imgIdx === 4 && post.images.length > 5 && (
@@ -20019,6 +20215,9 @@ Examples:
                     <i className="fas fa-magnifying-glass"></i>
                     <input
                       type="search"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-form-type="other"
                       value={rfidEventSearch}
                       onChange={(e) => setRfidEventSearch(e.target.value)}
                       placeholder="Search events"
@@ -20646,6 +20845,9 @@ Examples:
                       <i className="fas fa-magnifying-glass"></i>
                       <input
                         type="search"
+                        autoComplete="new-password"
+                        data-lpignore="true"
+                        data-form-type="other"
                         value={rfidRegSearch}
                         onChange={(e) => setRfidRegSearch(e.target.value)}
                         placeholder="Search attendees"
@@ -20660,7 +20862,7 @@ Examples:
                       given a card &mdash; verify them under Events first.
                     </p>
                   ) : (
-                    <div className="evt-table-wrapper">
+                    <div className="evt-table-wrapper evt-table-steady">
                       <table className="evt-table">
                         <thead>
                           <tr>
@@ -20735,6 +20937,9 @@ Examples:
                 <i className="fas fa-magnifying-glass"></i>
                 <input
                   type="search"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-form-type="other"
                   value={rfidCardSearch}
                   onChange={(e) => setRfidCardSearch(e.target.value)}
                   placeholder="Search by name or card"
@@ -20755,7 +20960,7 @@ Examples:
                   : 'No cards match that search.'}
               </p>
             ) : (
-              <div className="evt-table-wrapper">
+              <div className="evt-table-wrapper evt-table-steady">
                 <table className="evt-table">
                   <thead>
                     <tr>
@@ -20820,6 +21025,9 @@ Examples:
                         <i className="fas fa-magnifying-glass"></i>
                         <input
                           type="search"
+                          autoComplete="new-password"
+                          data-lpignore="true"
+                          data-form-type="other"
                           value={rfidAssignSearch}
                           onChange={(e) => setRfidAssignSearch(e.target.value)}
                           placeholder="Search members"
@@ -20958,7 +21166,7 @@ Examples:
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
                       <div className="form-group"><label>Email Address *</label><input className="form-control" type="email" style={{ padding: '10px 15px' }} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} /></div>
-                      <div className="form-group"><label>Password *</label><input className="form-control" type="password" style={{ padding: '10px 15px' }} value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} /></div>
+                      <div className="form-group"><label>Password *</label><input className="form-control" type="password" autoComplete="new-password" style={{ padding: '10px 15px' }} value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} /></div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
                       <div className="form-group"><label>Ministry</label>
@@ -21147,7 +21355,11 @@ Examples:
             </div>
 
             {/* User Table */}
-            <div className="um-table-wrapper">
+            {/* menu-open lifts the wrapper's clipping while a row menu is out.
+                The wrapper scrolls sideways, and a scroll container clips on
+                BOTH axes - so the dropdown on the last few rows was cut off at
+                the bottom edge of the table with no way to reach the rest. */}
+            <div className={`um-table-wrapper ${userActionMenu ? 'menu-open' : ''}`}>
               <table className="um-table">
                 <thead>
                   <tr>
@@ -21426,6 +21638,13 @@ Examples:
                       <div className="perm-gate-input-wrap">
                         <input
                           type="password"
+                          /* Named as a new password although it is an existing
+                             one. A password field Chrome reads as a LOGIN makes
+                             it hunt the page for the username that must go with
+                             it, and the nearest text box it finds is a search
+                             bar - which is how a table filter ends up offering
+                             somebody's saved gmail. */
+                          autoComplete="new-password"
                           className="perm-gate-input"
                           placeholder="Enter access password"
                           value={permCtrlPasswordInput}
@@ -21975,6 +22194,9 @@ Examples:
                     <i className="fas fa-magnifying-glass"></i>
                     <input
                       type="search"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-form-type="other"
                       value={accEventSearch}
                       onChange={(e) => setAccEventSearch(e.target.value)}
                       placeholder="Search events"
@@ -22185,7 +22407,7 @@ Examples:
                               <i className="fas fa-table-list"></i>
                               All {accRooms.length} {accRooms.length === 1 ? 'room' : 'rooms'} in one table
                             </summary>
-                            <div className="evt-table-wrapper">
+                            <div className="evt-table-wrapper evt-table-steady">
                               <table className="evt-table acc-table">
                                 <thead>
                                   <tr>
@@ -23273,6 +23495,36 @@ Examples:
                       <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="profile-crop-slider" />
                       <i className="fas fa-search-plus"></i>
                     </div>
+
+                    {/* Shared by default, and said plainly before it happens.
+                        The alternative - publishing somebody's face to the
+                        whole church and letting them find out from the
+                        reactions - is not a feature, it is an ambush. */}
+                    {canShareProfilePic && (
+                      <div className={`profile-crop-share ${sharePicToCommunity ? 'on' : ''}`}>
+                        <label className="profile-crop-share-row">
+                          <input
+                            type="checkbox"
+                            checked={sharePicToCommunity}
+                            onChange={(e) => setSharePicToCommunity(e.target.checked)}
+                          />
+                          <span>
+                            <b><i className="fas fa-users"></i> Share to the Community Hub</b>
+                            <em>Posts the full photo so the church can react and comment. You can delete the post any time.</em>
+                          </span>
+                        </label>
+                        {sharePicToCommunity && (
+                          <input
+                            className="profile-crop-share-caption"
+                            value={sharePicCaption}
+                            onChange={(e) => setSharePicCaption(e.target.value)}
+                            placeholder="Say something about it (optional)"
+                            maxLength={280}
+                          />
+                        )}
+                      </div>
+                    )}
+
                     <div className="profile-crop-actions">
                       <button className="btn-secondary" onClick={closeCropModal}>Cancel</button>
                       <button className="btn-primary" onClick={handleCropComplete} disabled={uploadingPic}>

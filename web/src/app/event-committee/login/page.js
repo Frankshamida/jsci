@@ -164,7 +164,7 @@ function CommitteeLoginContent() {
               <ul className="ec-panel-points">
                 <li><i className="fas fa-qrcode"></i> Scan QR codes to check people in</li>
                 <li><i className="fas fa-peso-sign"></i> Verify payments and record installments</li>
-                <li><i className="fas fa-user-plus"></i> Add walk-ins on the spot</li>
+                <li><i className="fas fa-user-plus"></i> Add attendees on the spot</li>
               </ul>
             </div>
 

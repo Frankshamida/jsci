@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import './login.css';
 
@@ -38,6 +38,14 @@ function LoginContent() {
   const [splashName, setSplashName] = useState('');
 
   const searchParams = useSearchParams();
+
+  // The dashboard is the heaviest page in the app and it is where all but a
+  // handful of visits to this one are going. Asking for it now means the code
+  // is already in the browser by the time somebody finishes typing a password,
+  // so the push after login is a render rather than a download. Without this,
+  // the splash ended and the screen sat blank while the bundle came over the
+  // wire - which reads as "the login did not work".
+  useEffect(() => { router.prefetch('/dashboard'); }, [router]);
 
   useEffect(() => {
     // Safety net: catch OAuth hash tokens that land on this page
@@ -116,6 +124,21 @@ function LoginContent() {
     }
   };
 
+  // One way through, whether the timer got there first or somebody tapped.
+  // Guarded, because both can happen and a double push flashes the route.
+  const splashTimer = useRef(null);
+  const leavingRef = useRef(false);
+  const goToDashboard = useCallback(() => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    if (splashTimer.current) clearTimeout(splashTimer.current);
+    router.push('/dashboard');
+  }, [router]);
+
+  // A timer that outlives the page would push a route onto a component that is
+  // no longer there.
+  useEffect(() => () => { if (splashTimer.current) clearTimeout(splashTimer.current); }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -147,7 +170,12 @@ function LoginContent() {
         setSplashName(result.data.firstname || 'Friend');
         setSplashVerse(LOGIN_VERSES[Math.floor(Math.random() * LOGIN_VERSES.length)]);
         setShowLoginSplash(true);
-        setTimeout(() => router.push('/dashboard'), 3000);
+        // 1.6s, not 3. Three seconds of held screen is a long time when you
+        // have already done the only thing you came to do, and it was three
+        // seconds BEFORE the dashboard started loading - so the real wait was
+        // longer again. The greeting still lands; it just stops outstaying it.
+        // Tapping the splash skips the rest (see onClick below).
+        splashTimer.current = setTimeout(goToDashboard, 1600);
       } else {
         showAlert(result.message || 'Invalid username or password', 'danger');
         setLoading(false);
@@ -163,7 +191,14 @@ function LoginContent() {
     <>
       {/* Login Success Splash */}
       {showLoginSplash && (
-        <div className="login-splash-overlay">
+        <div
+          className="login-splash-overlay"
+          onClick={goToDashboard}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') goToDashboard(); }}
+          title="Continue"
+        >
           <div className="login-splash-particles">
             {Array.from({ length: 20 }).map((_, i) => (
               <div key={i} className="login-splash-particle" style={{
