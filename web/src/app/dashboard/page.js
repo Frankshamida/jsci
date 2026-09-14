@@ -470,6 +470,169 @@ const CLOUDINARY_FREE_STORAGE_BYTES = 25 * 1024 * 1024 * 1024; // 25 GB
 const CLOUDINARY_FREE_BANDWIDTH_BYTES = 25 * 1024 * 1024 * 1024; // 25 GB
 const CLOUDINARY_FREE_CREDITS = 25; // free plan credits
 
+// Circle-logo fallback for a payment channel: initials of the bank name
+// ("BDO" -> "BDO", "Bank of the Phil. Islands" -> "BP").
+const getPaymentInitials = (name) => {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return '$';
+  if (trimmed.length <= 3 && !trimmed.includes(' ')) return trimmed.toUpperCase();
+  const words = trimmed.split(/\s+/).filter((w) => !['of', 'the', 'and'].includes(w.toLowerCase()));
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return words.slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+};
+
+// Money handed over at a desk belongs to no channel - there is no logo to show
+// and no reference to type. It is drawn as itself rather than as a bank with a
+// missing picture.
+const isCashMethod = (name) => /^cash$/i.test(String(name || '').trim());
+
+// The channel row behind a method name. The registration tables store the
+// method as TEXT ("MariBank"), not as a channel id, so the logo has to be found
+// by name - and the name on an old row may no longer be listed at all, which is
+// why every caller has to cope with null.
+const findPayChannel = (channels, name) => {
+  const wanted = String(name || '').trim().toLowerCase();
+  if (!wanted) return null;
+  return (channels || []).find((c) => String(c.name || '').trim().toLowerCase() === wanted) || null;
+};
+
+// The circle in front of a method's name: its uploaded logo, the initials drawn
+// on the colour it was given, or a banknote for cash.
+function PayMethodMark({ name, channel }) {
+  if (isCashMethod(name)) {
+    return (
+      // the inner span is what lifts the icon above the marble sheen the
+      // circle draws over itself - see .pm-logo > span in dashboard.css
+      <span className="pm-logo pm-logo-sm pm-logo-cash"><span><i className="fas fa-money-bill-wave"></i></span></span>
+    );
+  }
+  return (
+    <span className="pm-logo pm-logo-sm" style={{ background: channel?.logo_url ? 'transparent' : (channel?.logo_color || '#1e3a8a') }}>
+      {channel?.logo_url
+        ? <img src={channel.logo_url} alt={name || channel.name} />
+        : <span>{getPaymentInitials(name || channel?.name)}</span>}
+    </span>
+  );
+}
+
+// ---- "How was this paid?", with the channel's own logo on it ----
+//
+// A native <select> can only hold text, so every one of these used to read
+// "MariBank" in the same font as "BPI" - and at a desk, under pressure, the
+// thing that tells two banks apart at a glance is the logo, not the spelling.
+// This is that dropdown with the picture put back: the same list of names the
+// event offers, each one resolved to its channel so the mark in front of it is
+// the logo the payer just looked at on their phone.
+//
+// Deliberately still keyed on the NAME. `event_registrations.payment_method` is
+// text, so a picker that returned channel ids would quietly change what gets
+// written on every row that uses it.
+function PayMethodSelect({ methods, channels, value, onChange, placeholder = 'Select…', invalid = false, disabled = false, ariaLabel }) {
+  const [open, setOpen] = useState(false);
+  // Several of these sit near the bottom of a modal, where a menu dropping
+  // downwards opens into a region the body has to be scrolled to reach - it
+  // reads as a dropdown that did nothing. Measured against the box that
+  // actually clips it, which is the modal's scrolling body, not the window.
+  const [dropUp, setDropUp] = useState(false);
+  const boxRef = useRef(null);
+
+  const toggle = () => {
+    if (!open && boxRef.current) {
+      const here = boxRef.current.getBoundingClientRect();
+      const clip = boxRef.current.closest('.evt-modal-body');
+      const box = clip ? clip.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const MENU = 250;
+      // Only flip when going up is genuinely better - at the bottom of a short
+      // modal neither direction fits, and downwards is the one people expect.
+      setDropUp(box.bottom - here.bottom < MENU && here.top - box.top > MENU);
+    }
+    setOpen((v) => !v);
+  };
+
+  // A menu left open behind a click elsewhere is the thing that makes a custom
+  // dropdown feel broken next to a real <select>.
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+
+  const list = (methods || []).filter(Boolean);
+  const picked = list.find((m) => String(m).toLowerCase() === String(value || '').toLowerCase()) || (value || '');
+  const pickedChannel = findPayChannel(channels, picked);
+
+  return (
+    <div className={`evt-pay-picker evt-pay-picker-sm ${open ? 'open' : ''} ${dropUp ? 'drop-up' : ''}`} ref={boxRef}>
+      <button
+        type="button"
+        className={`evt-pay-picker-trigger ${invalid ? 'evt-field-error' : ''}`}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={ariaLabel}
+        disabled={disabled}
+        onClick={toggle}
+      >
+        {picked ? (
+          <>
+            <PayMethodMark name={picked} channel={pickedChannel} />
+            <span className="evt-pay-picker-name">
+              {picked}
+              {isCashMethod(picked)
+                ? <span className="pm-badge cash">At the desk</span>
+                : pickedChannel && <span className={`pm-badge ${pickedChannel.category}`}>{pickedChannel.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="evt-pay-picker-ph"><i className="fas fa-hand-pointer"></i></span>
+            <span className="evt-pay-picker-name evt-pay-picker-empty">{placeholder}</span>
+          </>
+        )}
+        <i className="fas fa-chevron-down evt-pay-picker-caret"></i>
+      </button>
+
+      {open && (
+        <ul className="evt-pay-picker-menu" role="listbox">
+          {list.length === 0 && (
+            <li><span className="evt-pay-picker-none">This event has no payment methods set.</span></li>
+          )}
+          {list.map((m) => {
+            const channel = findPayChannel(channels, m);
+            const on = String(m).toLowerCase() === String(value || '').toLowerCase();
+            return (
+              <li key={m}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={on}
+                  className={`evt-pay-picker-option ${on ? 'on' : ''}`}
+                  onClick={() => { onChange(m); setOpen(false); }}
+                >
+                  <PayMethodMark name={m} channel={channel} />
+                  <span className="evt-pay-picker-name">
+                    {m}
+                    {isCashMethod(m)
+                      ? <span className="pm-badge cash">At the desk</span>
+                      : channel
+                        ? <span className={`pm-badge ${channel.category}`}>{channel.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                        // Listed on the event but no longer a live channel -
+                        // still offered, because old rows were paid through it.
+                        : <span className="pm-badge hidden-badge">Not listed</span>}
+                  </span>
+                  {on && <i className="fas fa-check evt-pay-picker-tick"></i>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ============================================
 // DASHBOARD COMPONENT
 // ============================================
@@ -9407,16 +9570,6 @@ Examples:
   const extractYouTubeId = (url) => { if (!url) return null; const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m ? m[1] : null; };
   const getChatUserName = (u) => `${u?.firstname || ''} ${u?.lastname || ''}`.trim() || 'Unknown User';
   const getNameInitials = (name) => (name || '').split(' ').filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U';
-  // Circle-logo fallback for a payment channel: initials of the bank name
-  // ("BDO" -> "BDO", "Bank of the Phil. Islands" -> "BP").
-  const getPaymentInitials = (name) => {
-    const trimmed = (name || '').trim();
-    if (!trimmed) return '$';
-    if (trimmed.length <= 3 && !trimmed.includes(' ')) return trimmed.toUpperCase();
-    const words = trimmed.split(/\s+/).filter((w) => !['of', 'the', 'and'].includes(w.toLowerCase()));
-    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-    return words.slice(0, 2).map((w) => w[0]).join('').toUpperCase();
-  };
 
   const getTodaysBirthdays = () => {
     const today = new Date(); const m = today.getMonth() + 1; const d = today.getDate();
@@ -16582,10 +16735,14 @@ Examples:
 
                     <div className="evt-form-grid">
                       <div className="form-group"><label>Paid Through</label>
-                        <select className="form-control" value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
-                          <option value="">Select…</option>
-                          {adminPaymentMethods().map((m) => <option key={m} value={m}>{m}</option>)}
-                        </select>
+                        <PayMethodSelect
+                          methods={adminPaymentMethods()}
+                          channels={activePaymentMethods}
+                          value={payForm.method}
+                          onChange={(m) => setPayForm({ ...payForm, method: m })}
+                          placeholder="How was it paid?"
+                          ariaLabel="Paid through"
+                        />
                       </div>
                       <div className="form-group"><label>Reference (optional)</label>
                         <input className="form-control" value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} />
@@ -17122,10 +17279,14 @@ Examples:
                             {adminAddRegForm.paymentPlan === 'full' && (
                               <>
                                 <div className="form-group"><label>Payment Method</label>
-                                  <select className="form-control" value={adminAddRegForm.paymentMethod} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentMethod: e.target.value })}>
-                                    <option value="">Select…</option>
-                                    {adminPaymentMethods().map(m => <option key={m} value={m}>{m}</option>)}
-                                  </select>
+                                  <PayMethodSelect
+                                    methods={adminPaymentMethods()}
+                                    channels={activePaymentMethods}
+                                    value={adminAddRegForm.paymentMethod}
+                                    onChange={(m) => setAdminAddRegForm({ ...adminAddRegForm, paymentMethod: m })}
+                                    placeholder="How did they pay?"
+                                    ariaLabel="Payment method"
+                                  />
                                 </div>
                                 <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={adminAddRegForm.paymentReference} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentReference: e.target.value })} placeholder={/^cash$/i.test(adminAddRegForm.paymentMethod) ? 'Not needed for cash' : ''} /></div>
                                 <label className="evt-toggle-row" style={{ marginTop: 4 }}>
@@ -17154,10 +17315,14 @@ Examples:
                                     />
                                   </div>
                                   <div className="form-group"><label>Paid Through</label>
-                                    <select className="form-control" value={adminAddRegForm.paymentMethod} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentMethod: e.target.value })}>
-                                      <option value="">Select…</option>
-                                      {adminPaymentMethods().map(m => <option key={m} value={m}>{m}</option>)}
-                                    </select>
+                                    <PayMethodSelect
+                                      methods={adminPaymentMethods()}
+                                      channels={activePaymentMethods}
+                                      value={adminAddRegForm.paymentMethod}
+                                      onChange={(m) => setAdminAddRegForm({ ...adminAddRegForm, paymentMethod: m })}
+                                      placeholder="How was it paid?"
+                                      ariaLabel="Paid through"
+                                    />
                                   </div>
                                 </div>
                                 <p className="evt-muted" style={{ fontSize: '0.8rem', margin: 0 }}>
@@ -17316,17 +17481,16 @@ Examples:
                         <div className="evt-form-grid" style={{ marginTop: 8 }}>
                           <div className="form-group">
                             <label>Payment Method</label>
-                            <select
-                              className="form-control"
+                            <PayMethodSelect
+                              // Whatever is already on the row stays offered, even
+                              // if the event's list of methods has since changed.
+                              methods={[...new Set([...adminPaymentMethods(), editRegForm.paymentMethod].filter(Boolean))]}
+                              channels={activePaymentMethods}
                               value={editRegForm.paymentMethod}
-                              onChange={(e) => setEditRegForm({ ...editRegForm, paymentMethod: e.target.value })}
-                            >
-                              <option value="">Select…</option>
-                              {/* Whatever is already on the row stays offered, even
-                                  if the event's list of methods has since changed. */}
-                              {[...new Set([...adminPaymentMethods(), editRegForm.paymentMethod].filter(Boolean))]
-                                .map((m) => <option key={m} value={m}>{m}</option>)}
-                            </select>
+                              onChange={(m) => setEditRegForm({ ...editRegForm, paymentMethod: m })}
+                              placeholder="How did they pay?"
+                              ariaLabel="Payment method"
+                            />
                           </div>
                           <div className="form-group">
                             <label>Reference / Txn Number</label>
@@ -17510,18 +17674,17 @@ Examples:
                                     <div className="evt-form-grid">
                                       <div className="form-group">
                                         <label>Payment Method *</label>
-                                        <select
-                                          className="form-control"
+                                        <PayMethodSelect
+                                          // However they paid the first time is offered
+                                          // as the default, even if the event's list of
+                                          // methods has changed since.
+                                          methods={[...new Set([...adminPaymentMethods(), extrasForm.paymentMethod].filter(Boolean))]}
+                                          channels={activePaymentMethods}
                                           value={extrasForm.paymentMethod}
-                                          onChange={(e) => setExtrasForm({ ...extrasForm, paymentMethod: e.target.value })}
-                                        >
-                                          <option value="">Select…</option>
-                                          {/* However they paid the first time is offered
-                                              as the default, even if the event's list of
-                                              methods has changed since. */}
-                                          {[...new Set([...adminPaymentMethods(), extrasForm.paymentMethod].filter(Boolean))]
-                                            .map((m) => <option key={m} value={m}>{m}</option>)}
-                                        </select>
+                                          onChange={(m) => setExtrasForm({ ...extrasForm, paymentMethod: m })}
+                                          placeholder="How was the extra paid?"
+                                          ariaLabel="Payment method for the extra"
+                                        />
                                       </div>
                                       <div className="form-group">
                                         <label>Reference / Txn Number</label>

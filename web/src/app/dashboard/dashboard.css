@@ -28084,6 +28084,40 @@ body.dark-mode .evt-steps-center .evt-step-line.done { background: var(--accent,
 body.dark-mode .evt-pay-picker-trigger,
 body.dark-mode .evt-pay-picker-menu { background: #23232f; border-color: rgba(255,255,255,0.14); }
 
+/* ---- The same picker where a form field used to be ----
+   The staff-side forms ask "how was this paid?" in a two-column grid, beside a
+   reference box. A native <select> could only ever say "MariBank" in the same
+   font as "BPI"; at a desk what tells two banks apart in one glance is the
+   logo. This is the picker above, sized to sit in that grid instead. */
+.evt-pay-picker-sm { margin-bottom: 0; }
+.evt-pay-picker-sm .evt-pay-picker-trigger { padding: 6px 10px; gap: 9px; border-radius: 10px; }
+.evt-pay-picker-sm .pm-logo-sm,
+.evt-pay-picker-sm .evt-pay-picker-ph { width: 28px; height: 28px; flex: 0 0 28px; font-size: 0.62rem; }
+.evt-pay-picker-sm .evt-pay-picker-name { font-size: 0.86rem; gap: 6px; }
+.evt-pay-picker-sm .pm-badge { font-size: 0.62rem; padding: 2px 7px; }
+.evt-pay-picker-sm .evt-pay-picker-option { padding: 7px 9px; gap: 9px; }
+.evt-pay-picker-sm .evt-pay-picker-menu { max-height: 232px; }
+/* Half a modal's width is not enough for a name AND its badge without the
+   trigger growing a second line and standing taller than the reference box
+   beside it. The badge stays in the open menu, where the rows may breathe; at
+   rest the logo is the identifier, which is the whole point of it being there. */
+.evt-pay-picker-sm .evt-pay-picker-trigger .pm-badge { display: none; }
+.evt-pay-picker-trigger:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Opened upwards, when downwards would open into the part of a modal that has
+   to be scrolled to. */
+.evt-pay-picker.drop-up .evt-pay-picker-menu { top: auto; bottom: calc(100% + 6px); }
+.evt-pay-picker-none {
+  display: block; padding: 12px 10px; font-size: 0.82rem; color: var(--text-secondary, #6b7280);
+}
+
+/* Money handed over at a desk belongs to no channel, so it is drawn as itself
+   rather than as a bank with a missing picture. */
+.pm-logo-cash { background: #16a34a; color: #fff; }
+/* Specific enough to beat the compact picker's own font-size, which is sized
+   for two or three letters of initials rather than for an icon. */
+.pm-logo.pm-logo-cash i { font-size: 0.86rem; }
+.pm-badge.cash { background: rgba(22,163,74,0.12); color: #15803d; }
+
 /* ============================================================
    ALL EVENTS: poster-first cards
    The artwork is the event's own invitation, so the card is the poster at its
