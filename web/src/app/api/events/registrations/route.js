@@ -886,7 +886,10 @@ export async function POST(request) {
 // PUT /api/events/registrations  { id, actorId, status }            -> staff verifies/updates a registration
 //                                { id, actorId, attended: true|false } -> staff marks/clears attendance (QR check-in)
 //   "staff" = an Admin/Super Admin, or an Event Committee member assigned to
-//   that registration's event. The two bin actions below stay Admin-only.
+//   that registration's event. The bin actions and the edit below stay Admin-only.
+//                                { id, actorId, action: 'add_addons', addonIds, paymentMethod, paymentReference, collectNow }
+//                                                                     -> staff add an extra the attendee forgot to avail, and take the money for it
+//                                { id, actorId, action: 'edit_details', details } -> admin corrects who the attendee is
 //                                { id, actorId, action: 'soft_delete', reason } -> admin moves it to the Recycle Bin
 //                                { id, actorId, action: 'restore' }   -> admin brings it back out of the bin
 // DELETE /api/events/registrations?id=..&userId=..  -> a member cancels their OWN registration
@@ -970,22 +973,30 @@ export async function DELETE(request) {
 
 export async function PUT(request) {
   try {
-    const { id, ids, actorId, status, attended, action, reason } = await request.json();
+    const body = await request.json();
+    const { id, ids, actorId, status, attended, action, reason } = body;
     if (!id && !(Array.isArray(ids) && ids.length > 0)) {
       return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
     }
     if (!status && attended === undefined && !action) return NextResponse.json({ success: false, message: 'status, attended or action required' }, { status: 400 });
 
     // Two different gates, because these are two different kinds of change.
-    // Binning a registration destroys work and is an Admin's call; checking
-    // someone in at the door and confirming the money they handed over is the
-    // committee's whole job. So the bin keeps the Admin-only check, and
-    // everything else asks whether this person may work THIS event.
-    const binning = action === 'soft_delete' || action === 'restore';
+    // Binning a registration destroys work, and rewriting an attendee's details
+    // rewrites the record itself - both are an Admin's call. Checking someone in
+    // at the door, confirming the money they handed over, and taking payment for
+    // an extra they forgot to avail are the committee's whole job. So those
+    // three keep the Admin-only check, and everything else asks whether this
+    // person may work THIS event.
+    const adminOnly = action === 'soft_delete' || action === 'restore' || action === 'edit_details';
     let actor;
-    if (binning) {
+    if (adminOnly) {
       actor = await verifyEventManager(actorId);
       if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
+      // Only the bin actions work on a batch - everything else is one row, and
+      // the branch below has nothing to look up without an id.
+      if (action === 'edit_details' && !id) {
+        return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
+      }
     } else {
       // Only the bin actions work on a batch; a status or attendance change is
       // always one registration. Said out loud rather than left to fail later
@@ -1067,6 +1078,275 @@ export async function PUT(request) {
         message: removing
           ? (n === 1 ? 'Moved to Recycle Bin' : `${n} registrations moved to the Recycle Bin`)
           : (n === 1 ? 'Registration restored' : `${n} registrations restored`),
+      });
+    }
+
+    // Correcting what a registration SAYS about someone: their name, their
+    // church, how to reach them, and the payment details typed off a receipt.
+    // Nothing about the money owed changes here - only the record of who this
+    // is. Admin-only, because a row is read by the door, the room list and the
+    // receipt, and rewriting it rewrites all three.
+    if (action === 'edit_details') {
+      const d = body.details || {};
+      const { data: reg } = await supabase
+        .from('event_registrations')
+        .select('id, event_id, group_ref, attendee_name, attendee_email, attendee_mobile, church_name, church_pastor, representative, payment_method, payment_reference, status, deleted_at')
+        .eq('id', id).single();
+      if (!reg) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+      if (reg.deleted_at) {
+        return NextResponse.json({
+          success: false,
+          message: 'This registration is in the Recycle Bin. Restore it first, then edit it.',
+        }, { status: 400 });
+      }
+
+      // Stored the way every other entry point stores it, so an edited row and
+      // a freshly registered one are spelled the same.
+      const first = titleCaseName(d.attendeeFirstName);
+      const last = titleCaseName(d.attendeeLastName);
+      const name = `${first} ${last}`.trim();
+      const church = titleCaseChurch(d.churchName);
+      const pastorBare = titleCaseName(String(d.churchPastor || '').replace(/^ptr\.?\s*/i, ''));
+      const mobile = String(d.attendeeMobile || '').replace(/\D/g, '');
+      const email = String(d.attendeeEmail || '').trim();
+
+      // The same fields the entry forms insist on, so an edit cannot leave a row
+      // in a state the form would have refused to create.
+      const errors = {};
+      if (!first) errors.firstName = 'First name is required.';
+      if (!last) errors.lastName = 'Last name is required.';
+      if (!church) errors.churchName = 'Church name is required.';
+      if (!pastorBare) errors.churchPastor = 'Church pastor is required.';
+      if (mobile && !/^09\d{9}$/.test(mobile)) errors.mobile = 'Contact number must be 11 digits starting with 09.';
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'That email address does not look right.';
+      if (Object.keys(errors).length > 0) {
+        return NextResponse.json({ success: false, errors, message: 'Please correct the highlighted fields.' }, { status: 400 });
+      }
+
+      // Renaming somebody onto a name that already holds a slot would put two
+      // registrations on one person - the rule the entry forms follow, applied
+      // here too. Only asked when the name actually changed, or every save
+      // would collide with the row being saved.
+      if (normName(name) !== normName(reg.attendee_name)) {
+        const clash = await findRegistrationsByName(reg.event_id, [name]);
+        if (clash.length > 0) {
+          return NextResponse.json({
+            success: false,
+            errors: { firstName: 'This person already has a registration for this event.' },
+            message: `${name} is already registered for this event.`,
+          }, { status: 409 });
+        }
+      }
+
+      const patch = {
+        attendee_firstname: first || null,
+        attendee_lastname: last || null,
+        attendee_name: name,
+        attendee_email: email || null,
+        attendee_mobile: mobile || null,
+        church_name: church || null,
+        church_pastor: pastorBare ? `Ptr. ${pastorBare}` : null,
+      };
+      // The payment's own details are correctable here as well: a reference read
+      // off a screenshot is the field most often wrong on a row, and it is what
+      // the money is matched against. Only touched when the caller sent them, so
+      // a form that does not offer these cannot blank them.
+      if (d.paymentMethod !== undefined) patch.payment_method = String(d.paymentMethod || '').trim() || null;
+      if (d.paymentReference !== undefined) patch.payment_reference = String(d.paymentReference || '').trim() || null;
+
+      // Every row of a group carries the representative's name. Renaming the
+      // representative's own row has to carry through to the rest, or the group
+      // is left pointing at somebody who no longer exists under that name.
+      const wasRep = !!reg.representative && normName(reg.representative) === normName(reg.attendee_name);
+      if (wasRep) patch.representative = name;
+
+      const { data: saved, error: editErr } = await supabase
+        .from('event_registrations').update(patch).eq('id', id).select().single();
+      if (editErr) throw editErr;
+
+      if (wasRep && reg.group_ref) {
+        await supabase.from('event_registrations')
+          .update({ representative: name })
+          .eq('group_ref', reg.group_ref)
+          .neq('id', id);
+      }
+
+      // What actually changed, in the words the admin used - an audit line that
+      // says "Edited a registration" is no use to whoever reads it next week.
+      const changed = [];
+      const say = (label, before, after) => {
+        if (String(before ?? '') !== String(after ?? '')) changed.push(`${label}: "${before || '—'}" → "${after || '—'}"`);
+      };
+      say('Name', reg.attendee_name, patch.attendee_name);
+      say('Church', reg.church_name, patch.church_name);
+      say('Pastor', reg.church_pastor, patch.church_pastor);
+      say('Contact', reg.attendee_mobile, patch.attendee_mobile);
+      say('Email', reg.attendee_email, patch.attendee_email);
+      if ('payment_method' in patch) say('Payment method', reg.payment_method, patch.payment_method);
+      if ('payment_reference' in patch) say('Reference', reg.payment_reference, patch.payment_reference);
+
+      await logAudit(actor, 'event_registration_edit', id, changed.length > 0
+        ? `Edited ${name}'s registration — ${changed.join('; ')}`
+        : `Opened ${name}'s registration and saved it unchanged`);
+      cacheInvalidate(PENDING_ALERTS_KEY);
+      return NextResponse.json({
+        success: true,
+        data: saved,
+        changed: changed.length,
+        message: changed.length > 0 ? 'Attendee details updated' : 'Nothing was changed',
+      });
+    }
+
+    // An extra somebody forgot to avail - accommodation, most often - added to a
+    // registration that already exists. No new slot: the same person owes more
+    // than they did, and the money for it is usually being handed over at the
+    // desk as this is recorded.
+    if (action === 'add_addons') {
+      const wantedIds = (Array.isArray(body.addonIds) ? body.addonIds : []).filter(Boolean);
+      if (wantedIds.length === 0) {
+        return NextResponse.json({ success: false, message: 'Tick at least one extra to add.' }, { status: 400 });
+      }
+
+      const { data: reg } = await supabase
+        .from('event_registrations')
+        .select('id, event_id, attendee_name, addons, amount, base_amount, amount_paid, payment_plan, status, deleted_at, payment_method, payment_reference')
+        .eq('id', id).single();
+      if (!reg) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+      if (reg.deleted_at) {
+        return NextResponse.json({
+          success: false,
+          message: 'This registration is in the Recycle Bin. Restore it first, then add the extra.',
+        }, { status: 400 });
+      }
+      if (reg.status === 'cancelled') {
+        return NextResponse.json({
+          success: false,
+          message: 'This registration was cancelled — there is nothing to add an extra to.',
+        }, { status: 400 });
+      }
+
+      // The prices come from the database, never from the form, so a tampered
+      // request cannot add accommodation for nothing. The chosen ones are
+      // snapshotted onto the registration the same way the entry forms do it,
+      // so a later rename or reprice leaves this receipt reading correctly.
+      const { data: addonRows } = await supabase
+        .from('event_addons').select('id, question, fee').eq('event_id', reg.event_id);
+      const held = Array.isArray(reg.addons) ? reg.addons : [];
+      const sameQuestion = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+      // An id on a registration can be stale (the extra was renamed or
+      // re-created), so what they already hold is matched on the wording too -
+      // otherwise somebody gets charged twice for the same bed.
+      const alreadyHeld = (x) => held.some((h) => h.id === x.id || sameQuestion(h.question, x.question));
+      const added = (addonRows || [])
+        .filter((a) => wantedIds.includes(a.id) && !alreadyHeld(a))
+        .map((a) => ({ id: a.id, question: a.question, fee: Number(a.fee) || 0 }));
+      if (added.length === 0) {
+        return NextResponse.json({
+          success: false,
+          message: 'Those extras are already on this registration — nothing was charged again.',
+        }, { status: 400 });
+      }
+
+      const extra = added.reduce((sum, a) => sum + a.fee, 0);
+      const owedAfter = (Number(reg.amount) || 0) + extra;
+      // Staff at a desk have the money in hand; unticking it is how they say it
+      // has not arrived yet.
+      const collected = body.collectNow !== false;
+      const method = String(body.paymentMethod || '').trim();
+      const reference = String(body.paymentReference || '').trim();
+      if (collected && extra > 0 && !method) {
+        return NextResponse.json({ success: false, message: 'Choose how the extra was paid.' }, { status: 400 });
+      }
+
+      const patch = { addons: [...held, ...added], amount: owedAfter };
+      let note = '';
+
+      if (reg.payment_plan === 'flexible') {
+        // A plan simply owes more now, and the money for the extra is one more
+        // payment against it - recorded as its own row, with its own method and
+        // reference, exactly like every other installment.
+        let paid = Number(reg.amount_paid) || 0;
+        if (collected && extra > 0) {
+          const { error: payErr } = await supabase.from('event_registration_payments').insert({
+            registration_id: id,
+            amount: extra,
+            paid_on: new Date().toISOString().slice(0, 10),
+            method: method || null,
+            reference: reference || null,
+            note: `Extras added: ${added.map((a) => a.question).join(', ')}`,
+            recorded_by: actor.id,
+            recorded_by_name: `${actor.firstname} ${actor.lastname}`.trim(),
+          });
+          if (payErr) throw payErr;
+          paid += extra;
+        }
+        patch.amount_paid = paid;
+        // Fully settled means the slot is confirmed; anything short of it is
+        // still a plan being paid down. The same rule the installments route
+        // applies, so the two can never disagree about one registration.
+        //
+        // An extra that costs nothing moves no money, so it settles nothing and
+        // unsettles nothing - the status the registration already has is still
+        // the right one, and a ₱0 add must not push somebody onto a plan or off
+        // one.
+        if (extra > 0 && owedAfter > 0) {
+          patch.status = paid >= owedAfter ? 'payment_verified' : 'installment';
+          if (patch.status === 'payment_verified') {
+            patch.verified_by = actor.id;
+            patch.verified_at = new Date().toISOString();
+          } else {
+            patch.verified_by = null;
+            patch.verified_at = null;
+          }
+        }
+      } else {
+        // Pay-in-full. The row carries one method and one reference for the
+        // whole total, so the extra's payment details replace them - the form
+        // arrives pre-filled with what is already there, so leaving them alone
+        // changes nothing. What they were is written into the audit line below,
+        // which is what makes the replacement safe to do.
+        if (method && method !== reg.payment_method) note += `; method was "${reg.payment_method || '—'}"`;
+        if (reference && reference !== reg.payment_reference) note += `; reference was "${reg.payment_reference || '—'}"`;
+        if (method) patch.payment_method = method;
+        if (reference) patch.payment_reference = reference;
+        // Again, only money moves a status. An extra that costs nothing leaves
+        // the registration exactly as it was.
+        if (extra > 0 && collected) {
+          // Staff took the money at the desk, so there is nobody left to check
+          // it - the same rule as any other walk-in entry.
+          patch.status = 'payment_verified';
+          patch.verified_by = actor.id;
+          patch.verified_at = new Date().toISOString();
+        } else if (extra > 0) {
+          // Fresh money is due and has not arrived, so the row goes back to
+          // waiting for it rather than sitting there as verified.
+          patch.status = 'payment_submitted';
+          patch.verified_by = null;
+          patch.verified_at = null;
+        }
+      }
+
+      const { data: saved, error: addErr } = await supabase
+        .from('event_registrations').update(patch).eq('id', id).select().single();
+      if (addErr) throw addErr;
+
+      cacheInvalidate(PENDING_ALERTS_KEY);
+      await logAudit(actor, 'event_registration_addons', id,
+        `Added ${added.map((a) => `${a.question} (+P${a.fee})`).join(', ')} to ${reg.attendee_name} — total now P${owedAfter}`
+        + (collected
+          ? ` (P${extra} collected${method ? ` by ${method}` : ''}${reference ? `, ref ${reference}` : ''})`
+          : ` (P${extra} not yet collected)`)
+        + note);
+
+      return NextResponse.json({
+        success: true,
+        data: saved,
+        added,
+        extra,
+        amount: owedAfter,
+        message: collected
+          ? `${added.map((a) => a.question).join(', ')} added — ₱${extra} collected, total now ₱${owedAfter}`
+          : `${added.map((a) => a.question).join(', ')} added — ₱${extra} still to collect`,
       });
     }
 

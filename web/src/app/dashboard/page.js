@@ -4844,6 +4844,10 @@ export default function DashboardPage() {
     setPayModal(null);
     setDeletedRegs([]);
     setDeleteRegModal(null);
+    // Both of these are dialogs over a row of THIS event's table. Left open,
+    // they would be editing a registration nobody can see any more.
+    setEditRegModal(null);
+    setExtrasModal(null);
     setBinPage(1);
     setBinSelected([]);
   };
@@ -4990,6 +4994,28 @@ export default function DashboardPage() {
   // Set once the representative's saved church/contact has been copied in, so
   // the panel can say so instead of offering it a second time.
   const [adminRepUsedSaved, setAdminRepUsedSaved] = useState(false);
+
+  // ---- Correcting an attendee's details ----
+  // Names are typed at a desk, often from someone speaking them out loud, and a
+  // church gets written three ways by three people. The row is what the door,
+  // the room list and the receipt all read, so it has to be correctable without
+  // deleting somebody and adding them back - which would lose their payments.
+  const [editRegModal, setEditRegModal] = useState(null);   // the registration row being edited
+  const [editRegForm, setEditRegForm] = useState(null);
+  const [editRegErrors, setEditRegErrors] = useState({});
+  const [editRegSaving, setEditRegSaving] = useState(false);
+  const [editChurchOptions, setEditChurchOptions] = useState([]);
+  const [editChurchOpen, setEditChurchOpen] = useState(false);
+
+  // ---- Adding an extra to a registration that already exists ----
+  // Somebody registers, then remembers at the desk that they need a bed. No new
+  // slot - the same person owes more than they did - so this walks the same way
+  // the entry form does: who they are, what they are adding, then the money.
+  const [extrasModal, setExtrasModal] = useState(null);     // the registration row
+  const [extrasStep, setExtrasStep] = useState(0);          // 0 = pick the extras, 1 = take the payment
+  const [extrasPicked, setExtrasPicked] = useState([]);     // addon ids being added
+  const [extrasForm, setExtrasForm] = useState({ paymentMethod: '', paymentReference: '', collectNow: true });
+  const [extrasSaving, setExtrasSaving] = useState(false);
 
   // ---- Flexible installment plans for the event being managed ----
   const [installments, setInstallments] = useState([]);
@@ -5808,6 +5834,169 @@ export default function DashboardPage() {
     } finally {
       setAdminAddRegSubmitting(false);
     }
+  };
+
+  // ---- Editing an attendee's details ----
+  // Rewriting the record itself, rather than anything about the money owed. The
+  // server holds the same gate; this one only decides what the menu offers.
+  const canEditRegistrations = userRole === 'Admin' || userRole === 'Super Admin';
+
+  const openEditReg = (reg) => {
+    // Older rows were saved before first/last name were split out, so the two
+    // fields are recovered from the combined name rather than left blank.
+    const whole = String(reg.attendee_name || '').trim().replace(/\s+/g, ' ');
+    const first = reg.attendee_firstname || whole.split(' ').slice(0, -1).join(' ') || whole;
+    const last = reg.attendee_lastname || (whole.includes(' ') ? whole.split(' ').slice(-1)[0] : '');
+    setEditRegForm({
+      attendeeFirstName: first,
+      attendeeLastName: last,
+      churchName: reg.church_name || '',
+      // stored as "Ptr. Juan Cruz"; the prefix is the field's own label here
+      churchPastor: String(reg.church_pastor || '').replace(/^ptr\.?\s*/i, ''),
+      attendeeEmail: reg.attendee_email || '',
+      attendeeMobile: reg.attendee_mobile || '',
+      paymentMethod: reg.payment_method || '',
+      paymentReference: reg.payment_reference || '',
+    });
+    setEditRegErrors({});
+    setEditChurchOptions([]);
+    setEditChurchOpen(false);
+    setEditRegModal(reg);
+  };
+
+  // The same church list the entry form offers, so a correction lands on the
+  // spelling everyone else at this event is already registered under.
+  useEffect(() => {
+    if (!editRegModal || !editChurchOpen || !eventRegsModal) return undefined;
+    const q = (editRegForm?.churchName || '').trim();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?churches=1&eventId=${eventRegsModal.id}&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setEditChurchOptions(data.success ? data.data || [] : []);
+      } catch { setEditChurchOptions([]); }
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [editRegModal, editChurchOpen, editRegForm?.churchName, eventRegsModal]);
+
+  // Checked here as a courtesy so the fields light up before the round trip;
+  // the server checks the same things again, and its answer is the one that counts.
+  const editRegFieldErrors = () => {
+    const f = editRegForm || {};
+    const errs = {};
+    if (!f.attendeeFirstName?.trim()) errs.firstName = 'First name is required.';
+    if (!f.attendeeLastName?.trim()) errs.lastName = 'Last name is required.';
+    if (!f.churchName?.trim()) errs.churchName = 'Church name is required.';
+    if (!f.churchPastor?.trim()) errs.churchPastor = 'Church pastor is required.';
+    if (f.attendeeMobile && !isValidPhMobile(f.attendeeMobile)) errs.mobile = 'Contact number must be 11 digits starting with 09.';
+    if (f.attendeeEmail?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.attendeeEmail.trim())) errs.email = 'That email address does not look right.';
+    return errs;
+  };
+
+  const submitEditReg = async () => {
+    if (!editRegModal || !editRegForm) return;
+    const errs = editRegFieldErrors();
+    setEditRegErrors(errs);
+    if (Object.keys(errs).length > 0) { showToast('Please correct the highlighted fields', 'danger'); return; }
+    if (!userData?.id) {
+      showToast('Could not tell which account is signed in. Please sign out and sign in again.', 'danger');
+      return;
+    }
+    setEditRegSaving(true);
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editRegModal.id, actorId: userData.id, action: 'edit_details', details: editRegForm,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        // The server names the fields it refused, so the form can point at them
+        // instead of showing one line of red at the bottom.
+        if (data.errors) setEditRegErrors(data.errors);
+        showToast(data.message, 'danger');
+        return;
+      }
+      showToast(data.message, 'success');
+      setEditRegModal(null);
+      // A name or a church changing moves this row in the table's sort, its
+      // filters and its church list, so the rows are re-read rather than patched.
+      await refreshEventRegs();
+      if (eventRegsModal?.id) loadInstallments(eventRegsModal.id);
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setEditRegSaving(false); }
+  };
+
+  // ---- Adding an extra to a registration that already exists ----
+  // What this event offers that this person has not taken. Matched on the
+  // wording as well as the id, because the extras on a registration are a
+  // snapshot and an id can be stale after a rename.
+  const regHeldAddons = (reg) => (Array.isArray(reg?.addons) ? reg.addons : []);
+  const regHasAddon = (reg, addon) => regHeldAddons(reg).some((h) => h.id === addon.id
+    || String(h.question || '').trim().toLowerCase() === String(addon.question || '').trim().toLowerCase());
+  const regAddableAddons = (reg) => (eventRegsModal?.event_addons || []).filter((a) => !regHasAddon(reg, a));
+
+  const openExtrasModal = (reg) => {
+    setExtrasPicked([]);
+    setExtrasStep(0);
+    setExtrasForm({
+      // Cash is what a desk takes, and it is first in the list below.
+      paymentMethod: reg.payment_method || '',
+      paymentReference: '',
+      collectNow: true,
+    });
+    setExtrasModal(reg);
+  };
+
+  const toggleExtraPick = (addon) => setExtrasPicked((ids) => (ids.includes(addon.id)
+    ? ids.filter((v) => v !== addon.id)
+    : [...ids, addon.id]));
+
+  // What is being added, and what it comes to. Read off the event's own extras
+  // so the figures on screen are the ones the server will charge.
+  const extrasChosen = () => (eventRegsModal?.event_addons || []).filter((a) => extrasPicked.includes(a.id));
+  const extrasTotal = () => extrasChosen().reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+  const extrasNewAmount = () => (Number(extrasModal?.amount) || 0) + extrasTotal();
+
+  const submitExtras = async () => {
+    if (!extrasModal) return;
+    if (extrasPicked.length === 0) { showToast('Tick at least one extra to add', 'danger'); return; }
+    if (extrasForm.collectNow && extrasTotal() > 0 && !extrasForm.paymentMethod) {
+      showToast('Choose how the extra was paid', 'danger');
+      return;
+    }
+    if (!userData?.id) {
+      showToast('Could not tell which account is signed in. Please sign out and sign in again.', 'danger');
+      return;
+    }
+    setExtrasSaving(true);
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: extrasModal.id, actorId: userData.id, action: 'add_addons',
+          addonIds: extrasPicked,
+          paymentMethod: extrasForm.paymentMethod,
+          paymentReference: extrasForm.paymentReference,
+          collectNow: extrasForm.collectNow,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      showToast(data.message, 'success');
+      setExtrasModal(null);
+      // The extra changes what is owed and, on a plan, what has been paid - so
+      // the installment tab is re-read alongside the registrations table.
+      // Accommodation reads its eligibility off these same rows and reloads
+      // itself when its tab is opened, so it needs nothing here.
+      await refreshEventRegs();
+      if (eventRegsModal?.id) loadInstallments(eventRegsModal.id);
+      loadPendingRegAlerts();
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setExtrasSaving(false); }
   };
 
   // Register opens on the choice, not on the form: one person, or a group. Which
@@ -13020,6 +13209,28 @@ Examples:
                                               This table only reports whether one has
                                               been given; the column does that. */}
 
+                                          {/* Somebody who forgot to avail accommodation
+                                              does not need deleting and re-adding - that
+                                              would take their payments with them. The
+                                              extra is added to the slot they have, and
+                                              the money for it taken here. */}
+                                          {r.status !== 'cancelled' && regAddableAddons(r).length > 0 && (
+                                            <button role="menuitem" onClick={() => { setOpenRowMenu(null); openExtrasModal(r); }}>
+                                              <i className="fas fa-circle-plus"></i> Add Extras
+                                              <em>{regAddableAddons(r).length} not availed</em>
+                                            </button>
+                                          )}
+
+                                          {/* Names are taken down at a desk from somebody
+                                              speaking them out loud, so the row is
+                                              correctable. Admins only: this is the record
+                                              the door, the room list and the receipt read. */}
+                                          {canEditRegistrations && r.status !== 'cancelled' && (
+                                            <button role="menuitem" onClick={() => { setOpenRowMenu(null); openEditReg(r); }}>
+                                              <i className="fas fa-pen"></i> Edit Details
+                                            </button>
+                                          )}
+
                                           {/* A verified payment can be put back - the
                                               reference sometimes turns out not to match. */}
                                           {r.status === 'payment_verified' && r.payment_plan !== 'flexible' && (
@@ -16972,6 +17183,418 @@ Examples:
                 </div>
               </div>
             )}
+
+            {/* ---- Correcting an attendee's details ---- */}
+            {/* A row taken down at a desk, from somebody speaking their name out
+                loud, is wrong often enough that it has to be fixable in place.
+                Deleting and re-adding would work, and would take their payments
+                and their check-ins with it - so this edits the row instead. */}
+            {editRegModal && editRegForm && (
+              <div className="evt-modal-overlay" onClick={() => !editRegSaving && setEditRegModal(null)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                  <div className="evt-modal-head">
+                    <div><h3>Edit Attendee Details</h3><p>{eventRegsModal?.title}</p></div>
+                    <button className="evt-modal-close" onClick={() => setEditRegModal(null)} disabled={editRegSaving}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                  <div className="evt-modal-body">
+                    {/* Who is being edited, as the row reads right now - so a
+                        mistyped name is visible next to the box correcting it. */}
+                    <div className="evt-editing-who">
+                      <span className="evt-editing-avatar"><i className="fas fa-user-pen"></i></span>
+                      <div>
+                        <b>{formatPersonName(editRegModal.attendee_name)}</b>
+                        <div className="evt-cell-sub">
+                          {formatChurchName(editRegModal.church_name) || 'No church recorded'}
+                          {' · '}
+                          <span className={`evt-status evt-status-${editRegModal.status}`}>{statusLabel(editRegModal.status)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="evt-muted" style={{ margin: '0 0 12px', fontSize: '0.82rem' }}>
+                      <i className="fas fa-circle-info"></i> This changes who the registration says
+                      this is. It does <b>not</b> change what they owe, the extras they availed, or
+                      their attendance &mdash; use <b>Add Extras</b> for the first two.
+                    </p>
+
+                    <div className="evt-form-grid">
+                      <div className="form-group">
+                        <label>First Name *</label>
+                        <input
+                          className={`form-control ${editRegErrors.firstName ? 'evt-field-error' : ''}`}
+                          value={editRegForm.attendeeFirstName}
+                          onChange={(e) => { setEditRegForm({ ...editRegForm, attendeeFirstName: e.target.value }); setEditRegErrors({}); }}
+                        />
+                        {editRegErrors.firstName && <div className="evt-field-error-msg">{editRegErrors.firstName}</div>}
+                      </div>
+                      <div className="form-group">
+                        <label>Last Name *</label>
+                        <input
+                          className={`form-control ${editRegErrors.lastName ? 'evt-field-error' : ''}`}
+                          value={editRegForm.attendeeLastName}
+                          onChange={(e) => { setEditRegForm({ ...editRegForm, attendeeLastName: e.target.value }); setEditRegErrors({}); }}
+                        />
+                        {editRegErrors.lastName && <div className="evt-field-error-msg">{editRegErrors.lastName}</div>}
+                      </div>
+                    </div>
+
+                    {/* The same suggestions the entry form offers, so a
+                        correction lands on the spelling everyone else at this
+                        event is already registered under. */}
+                    <div className="form-group evt-church-field">
+                      <label>Church Name * <em style={{ fontStyle: 'normal', fontWeight: 500, color: 'var(--text-muted, #999)' }}>(complete name)</em></label>
+                      <input
+                        className={`form-control ${editRegErrors.churchName ? 'evt-field-error' : ''}`}
+                        value={editRegForm.churchName}
+                        onChange={(e) => { setEditRegForm({ ...editRegForm, churchName: e.target.value }); setEditChurchOpen(true); setEditRegErrors({}); }}
+                        onFocus={() => setEditChurchOpen(true)}
+                        onBlur={() => setTimeout(() => setEditChurchOpen(false), 160)}
+                        placeholder="e.g. Joyful Sound Church - International"
+                        autoComplete="off"
+                      />
+                      {editChurchOpen && editChurchOptions.length > 0 && (
+                        <ul className="evt-church-list">
+                          {editChurchOptions.map((c) => (
+                            <li key={c.name}>
+                              <button type="button" onMouseDown={() => { setEditRegForm((f) => ({ ...f, churchName: c.name })); setEditChurchOpen(false); }}>
+                                <span>{c.name}</span><em>{c.count} registered</em>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {editRegErrors.churchName && <div className="evt-field-error-msg">{editRegErrors.churchName}</div>}
+                    </div>
+
+                    <div className="evt-form-grid">
+                      <div className="form-group">
+                        <label>Church Pastor *</label>
+                        <div className={`evt-prefix-input ${editRegErrors.churchPastor ? 'evt-field-error' : ''}`}>
+                          <span>Ptr.</span>
+                          <input
+                            value={editRegForm.churchPastor}
+                            onChange={(e) => { setEditRegForm({ ...editRegForm, churchPastor: e.target.value }); setEditRegErrors({}); }}
+                            placeholder="Juan Cruz"
+                          />
+                        </div>
+                        {editRegErrors.churchPastor && <div className="evt-field-error-msg">{editRegErrors.churchPastor}</div>}
+                      </div>
+                      <div className="form-group">
+                        <label>Contact Number</label>
+                        <input
+                          className={`form-control ${editRegErrors.mobile ? 'evt-field-error' : ''}`}
+                          inputMode="numeric"
+                          maxLength={11}
+                          value={editRegForm.attendeeMobile}
+                          onChange={(e) => { setEditRegForm({ ...editRegForm, attendeeMobile: onlyDigits(e.target.value) }); setEditRegErrors({}); }}
+                          placeholder="09XXXXXXXXX"
+                        />
+                        {editRegErrors.mobile && <div className="evt-field-error-msg">{editRegErrors.mobile}</div>}
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Email <em style={{ fontStyle: 'normal', fontWeight: 500, color: 'var(--text-muted, #999)' }}>(optional)</em></label>
+                      <input
+                        className={`form-control ${editRegErrors.email ? 'evt-field-error' : ''}`}
+                        type="email"
+                        value={editRegForm.attendeeEmail}
+                        onChange={(e) => { setEditRegForm({ ...editRegForm, attendeeEmail: e.target.value }); setEditRegErrors({}); }}
+                        placeholder="name@example.com"
+                      />
+                      {editRegErrors.email && <div className="evt-field-error-msg">{editRegErrors.email}</div>}
+                    </div>
+
+                    {/* A reference copied off a screenshot is the field most
+                        often wrong on a row, and it is what the money is matched
+                        against - so it is correctable here too. */}
+                    {(Number(editRegModal.amount) || 0) > 0 && (
+                      <div className="evt-addon-pick" style={{ marginTop: 2 }}>
+                        <div className="evt-addon-pick-head"><i className="fas fa-receipt"></i> Payment Details</div>
+                        <div className="evt-form-grid" style={{ marginTop: 8 }}>
+                          <div className="form-group">
+                            <label>Payment Method</label>
+                            <select
+                              className="form-control"
+                              value={editRegForm.paymentMethod}
+                              onChange={(e) => setEditRegForm({ ...editRegForm, paymentMethod: e.target.value })}
+                            >
+                              <option value="">Select…</option>
+                              {/* Whatever is already on the row stays offered, even
+                                  if the event's list of methods has since changed. */}
+                              {[...new Set([...adminPaymentMethods(), editRegForm.paymentMethod].filter(Boolean))]
+                                .map((m) => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div className="form-group">
+                            <label>Reference / Txn Number</label>
+                            <input
+                              className="form-control"
+                              value={editRegForm.paymentReference}
+                              onChange={(e) => setEditRegForm({ ...editRegForm, paymentReference: e.target.value })}
+                              placeholder={/^cash$/i.test(editRegForm.paymentMethod) ? 'Not needed for cash' : ''}
+                            />
+                          </div>
+                        </div>
+                        <p className="evt-muted" style={{ margin: '2px 0 0', fontSize: '0.78rem' }}>
+                          <i className="fas fa-lock"></i> The ₱{Number(editRegModal.amount) || 0} owed is
+                          not editable here &mdash; it is worked out from the fee and the extras availed.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="evt-modal-foot">
+                    <button className="btn-secondary" onClick={() => setEditRegModal(null)} disabled={editRegSaving}>Cancel</button>
+                    <button className="btn-primary" onClick={submitEditReg} disabled={editRegSaving}>
+                      <i className={`fas ${editRegSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>
+                      {editRegSaving ? ' Saving…' : ' Save Changes'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- Adding an extra to a registration that already exists ---- */}
+            {/* "I forgot to tick accommodation." No new slot, no second row -
+                the same person owes more than they did. So it walks the way the
+                entry form walks: who they are and what they are adding, then the
+                new total and the money for it. */}
+            {extrasModal && eventRegsModal && (() => {
+              const held = regHeldAddons(extrasModal);
+              const offered = eventRegsModal.event_addons || [];
+              const chosen = extrasChosen();
+              const addTotal = extrasTotal();
+              const newTotal = extrasNewAmount();
+              const onPlan = extrasModal.payment_plan === 'flexible';
+              const paidSoFar = Number(extrasModal.amount_paid) || 0;
+              // Where the plan lands once this extra is on it, and paid or not.
+              const paidAfter = onPlan && extrasForm.collectNow ? paidSoFar + addTotal : paidSoFar;
+              return (
+                <div className="evt-modal-overlay" onClick={() => !extrasSaving && setExtrasModal(null)}>
+                  <div className="evt-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                    <div className="evt-modal-head">
+                      <div><h3>Add Extras</h3><p>{eventRegsModal.title}</p></div>
+                      <button className="evt-modal-close" onClick={() => setExtrasModal(null)} disabled={extrasSaving}>
+                        <i className="fas fa-times"></i>
+                      </button>
+                    </div>
+                    <div className="evt-modal-body">
+                      <div className="evt-steps">
+                        {['Extras', 'Payment'].map((label, i) => (
+                          <span className="evt-step-wrap" key={label}>
+                            {i > 0 && <span className="evt-step-line"></span>}
+                            <button
+                              type="button"
+                              className={`evt-step ${extrasStep === i ? 'on' : ''} ${extrasStep > i ? 'done' : ''}`}
+                              onClick={() => {
+                                if (i < extrasStep) { setExtrasStep(i); return; }
+                                if (extrasPicked.length === 0) { showToast('Tick at least one extra to add', 'danger'); return; }
+                                setExtrasStep(i);
+                              }}
+                            >
+                              <b>{extrasStep > i ? <i className="fas fa-check"></i> : i + 1}</b> {label}
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Whose registration this is, on both steps. The point of
+                          the modal is that it is being added to somebody who is
+                          already on the list, so they stay on screen throughout. */}
+                      <div className="evt-rep-known">
+                        <div className="evt-rep-known-head">
+                          <i className="fas fa-user-check"></i>
+                          <b>{formatPersonName(extrasModal.attendee_name)}</b>
+                          <span className={`evt-status evt-status-${extrasModal.status}`}>{statusLabel(extrasModal.status)}</span>
+                        </div>
+                        <dl className="evt-rep-known-list">
+                          {extrasModal.church_name && <div><dt>Church</dt><dd>{formatChurchName(extrasModal.church_name)}</dd></div>}
+                          {extrasModal.church_pastor && (
+                            <div><dt>Pastor</dt><dd>{`Ptr. ${formatPersonName(String(extrasModal.church_pastor).replace(/^ptr\.?\s*/i, ''))}`}</dd></div>
+                          )}
+                          {extrasModal.attendee_mobile && <div><dt>Contact</dt><dd>{extrasModal.attendee_mobile}</dd></div>}
+                          <div>
+                            <dt>Paying Now</dt>
+                            <dd>
+                              ₱{Number(extrasModal.amount) || 0}
+                              {onPlan && <> &middot; ₱{paidSoFar} paid, ₱{Math.max(0, (Number(extrasModal.amount) || 0) - paidSoFar)} left</>}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Already Availed</dt>
+                            <dd>{held.length > 0 ? held.map((a) => a.question).join(', ') : 'Nothing'}</dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      {extrasStep === 0 && (
+                        <>
+                          <div className="evt-addon-pick">
+                            <div className="evt-addon-pick-head"><i className="fas fa-circle-plus"></i> Extras For This Event</div>
+                            {offered.length === 0 ? (
+                              <p className="evt-bulk-empty"><i className="fas fa-inbox"></i> This event does not offer any extras.</p>
+                            ) : offered.map((a) => {
+                              // What they already paid for is shown ticked and
+                              // locked. Leaving it off the list would read as
+                              // "not availed"; charging for it again is worse.
+                              const settled = regHasAddon(extrasModal, a);
+                              return (
+                                <label
+                                  key={a.id}
+                                  className={`evt-addon-option ${settled || extrasPicked.includes(a.id) ? 'on' : ''} ${settled ? 'locked settled' : ''}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={settled || extrasPicked.includes(a.id)}
+                                    disabled={settled}
+                                    onChange={() => toggleExtraPick(a)}
+                                  />
+                                  <span className="evt-addon-option-text">
+                                    <strong>{a.question}</strong>
+                                    {settled && <small>Already availed on this registration &mdash; not charged again.</small>}
+                                  </span>
+                                  <span className="evt-addon-option-fee">{settled ? 'Paid' : `+₱${Number(a.fee) || 0}`}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          <div className="evt-modal-foot" style={{ padding: '10px 0 0', border: 'none', background: 'transparent' }}>
+                            <button className="btn-secondary" onClick={() => setExtrasModal(null)}>Cancel</button>
+                            <button
+                              className="btn-primary"
+                              disabled={extrasPicked.length === 0}
+                              onClick={() => setExtrasStep(1)}
+                            >
+                              Continue to Payment <i className="fas fa-arrow-right"></i>
+                            </button>
+                          </div>
+                        </>
+                      )}
+
+                      {extrasStep === 1 && (
+                        <>
+                          <div className="evt-pay-box">
+                            {/* What they owed, what is being added, and what it
+                                comes to - in that order, because the last figure
+                                is the one being collected against. */}
+                            <div className="evt-receipt">
+                              <div className="evt-receipt-line">
+                                <span>Already on this registration</span>
+                                <b>₱{Number(extrasModal.amount) || 0}</b>
+                              </div>
+                              {chosen.map((a) => (
+                                <div className="evt-receipt-line" key={a.id}>
+                                  <span>Extras ({a.question})</span>
+                                  <b>₱{Number(a.fee) || 0}</b>
+                                </div>
+                              ))}
+                              <div className="evt-receipt-total"><span>New Total</span><b>₱{newTotal}</b></div>
+                            </div>
+
+                            {addTotal > 0 && (
+                              <>
+                                <label className="evt-toggle-row">
+                                  <input
+                                    type="checkbox"
+                                    checked={extrasForm.collectNow}
+                                    onChange={(e) => setExtrasForm({ ...extrasForm, collectNow: e.target.checked })}
+                                  />
+                                  <span>The ₱{addTotal} has been collected (paid at the desk now)</span>
+                                </label>
+
+                                {extrasForm.collectNow ? (
+                                  <>
+                                    <div className="evt-form-grid">
+                                      <div className="form-group">
+                                        <label>Payment Method *</label>
+                                        <select
+                                          className="form-control"
+                                          value={extrasForm.paymentMethod}
+                                          onChange={(e) => setExtrasForm({ ...extrasForm, paymentMethod: e.target.value })}
+                                        >
+                                          <option value="">Select…</option>
+                                          {/* However they paid the first time is offered
+                                              as the default, even if the event's list of
+                                              methods has changed since. */}
+                                          {[...new Set([...adminPaymentMethods(), extrasForm.paymentMethod].filter(Boolean))]
+                                            .map((m) => <option key={m} value={m}>{m}</option>)}
+                                        </select>
+                                      </div>
+                                      <div className="form-group">
+                                        <label>Reference / Txn Number</label>
+                                        <input
+                                          className="form-control"
+                                          value={extrasForm.paymentReference}
+                                          onChange={(e) => setExtrasForm({ ...extrasForm, paymentReference: e.target.value })}
+                                          placeholder={/^cash$/i.test(extrasForm.paymentMethod) ? 'Not needed for cash' : ''}
+                                        />
+                                      </div>
+                                    </div>
+
+                                    {/* The two plans settle this differently, and
+                                        the difference is worth saying before the
+                                        button is pressed rather than after. */}
+                                    {onPlan ? (
+                                      <div className="evt-plan-detail">
+                                        <div className="evt-plan-summary">
+                                          <div><span>New total</span><b>₱{newTotal}</b></div>
+                                          <div><span>Paid after this</span><b>₱{paidAfter}</b></div>
+                                          <div className="bal"><span>Remaining balance</span><b>₱{Math.max(0, newTotal - paidAfter)}</b></div>
+                                        </div>
+                                        <p className="evt-muted" style={{ fontSize: '0.8rem', margin: 0 }}>
+                                          <i className="fas fa-circle-info"></i> They are on a <b>flexible plan</b>, so the
+                                          ₱{addTotal} is recorded as another payment under <b>Flexible Installment</b>.
+                                          {paidAfter >= newTotal
+                                            ? ' That settles the balance, so the registration is confirmed.'
+                                            : ' The rest stays on the plan.'}
+                                        </p>
+                                      </div>
+                                    ) : (
+                                      <p className="evt-muted" style={{ fontSize: '0.8rem', margin: '2px 0 0' }}>
+                                        <i className="fas fa-circle-check"></i> You took the money, so there is nobody left
+                                        to verify it &mdash; the registration is saved as <b>paid</b> for the new ₱{newTotal} total.
+                                        {(extrasModal.payment_method || extrasModal.payment_reference) && (
+                                          <> This replaces the method and reference on the row
+                                            {extrasModal.payment_method ? ` (${extrasModal.payment_method}` : ' ('}
+                                            {extrasModal.payment_reference ? `, ref ${extrasModal.payment_reference})` : ')'};
+                                            the old ones are kept in the audit log.
+                                          </>
+                                        )}
+                                      </p>
+                                    )}
+                                  </>
+                                ) : (
+                                  <p className="evt-muted" style={{ fontSize: '0.8rem', margin: '2px 0 0' }}>
+                                    <i className="fas fa-hourglass-half"></i> The extra is added and ₱{addTotal} goes on
+                                    what they owe, but nothing is recorded as collected
+                                    {onPlan
+                                      ? ' — it stays on their plan until a payment is entered.'
+                                      : ' — the registration goes back to waiting for payment.'}
+                                  </p>
+                                )}
+                              </>
+                            )}
+                          </div>
+
+                          <div className="evt-modal-foot" style={{ padding: '10px 0 0', border: 'none', background: 'transparent' }}>
+                            <button className="btn-secondary" onClick={() => setExtrasStep(0)} disabled={extrasSaving}>
+                              <i className="fas fa-arrow-left"></i> Back
+                            </button>
+                            <button className="btn-primary" onClick={submitExtras} disabled={extrasSaving}>
+                              <i className={`fas ${extrasSaving ? 'fa-spinner fa-spin' : 'fa-circle-plus'}`}></i>
+                              {extrasSaving ? ' Saving…' : ` Add Extras${addTotal > 0 ? ` · ₱${addTotal}` : ''}`}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ---- Event Details modal ---- */}
             {eventDetail && (() => {
