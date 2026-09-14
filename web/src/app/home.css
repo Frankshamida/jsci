@@ -1271,9 +1271,14 @@ body.dark-mode .hp-footer {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 360px;
+  /* Joy's opening message is a greeting plus four things she can help with,
+     and at 360x440 it arrived already scrolled - the list was cut off at the
+     bottom of the very first thing anyone sees. Sized so that message lands
+     whole, with the two max- rules below still handing the space back on a
+     small screen. */
+  width: 420px;
   max-width: calc(100vw - 40px);
-  height: 440px;
+  height: 560px;
   max-height: calc(100vh - 120px);
   background: #fff;
   border-radius: 20px;
@@ -1571,7 +1576,9 @@ body.dark-mode .hp-chat-input input {
 @media (max-width: 480px) {
   .hp-chat { bottom: 12px; right: 12px; }
   .hp-chat-launcher img { width: 92px; height: 92px; }
-  .hp-chat-window { height: 66vh; }
+  /* On a phone the width is already the screen, so height is the only room
+     there is to give - and it is the axis that was short. */
+  .hp-chat-window { height: 72vh; }
 }
 
 /* ---- ANIMATIONS ---- */
@@ -3782,3 +3789,118 @@ body.dark-mode .hp-proof-actions button { background: #262626; border-color: rgb
   width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
   font-size: 1.7rem; color: #16a34a; background: rgba(22,163,74,0.08);
 }
+
+
+/* ============================================================
+   DARK MODE — the event registration flow
+   ============================================================
+   This whole flow was built light-first: its panels paint themselves
+   #fff and leave the text colour to be inherited. In dark mode the
+   page hands down a near-white text colour, so every one of those
+   panels came out white-on-white - the choice screen, the church
+   suggestions, the review card and the payment account were all
+   legible only by selecting the text.
+
+   Fixed by giving each panel the surface it is missing, using the
+   same values the rest of this file already uses for dark mode:
+   #1e1e1e for a modal, #2a2a2a for anything you type into, #444 for
+   a border, #eee for text and #aaa for a label.
+
+   One thing deliberately stays light, at the end: a QR code.
+   ============================================================ */
+
+/* ---- "Who are you registering?" ---- */
+body.dark-mode .hp-reg-choice { background: #1e1e1e; color: #eee; }
+body.dark-mode .hp-reg-choice-sub { color: #aaa; }
+body.dark-mode .hp-reg-option {
+  background: #262626; border-color: #3d3d3d; color: #eee;
+}
+body.dark-mode .hp-reg-option:hover { border-color: var(--accent); }
+body.dark-mode .hp-reg-option-text small { color: #a8a8a8; }
+body.dark-mode .hp-reg-option-text strong em { color: var(--accent); }
+body.dark-mode .hp-reg-option-icon.alt { background: rgba(255,195,0,0.16); color: var(--accent); }
+body.dark-mode .hp-reg-choice-back { color: #aaa; }
+
+/* ---- Your details ---- */
+/* The "Ptr." box is one control made of two elements, so the frame and
+   the field inside it have to be darkened together or it reads as a
+   white patch among dark inputs. */
+body.dark-mode .hp-prefix-input { background: #2a2a2a; border-color: #444; }
+body.dark-mode .hp-prefix-input input { color: #eee; }
+body.dark-mode .hp-prefix-input span { background: rgba(255,195,0,0.12); color: var(--accent); }
+
+body.dark-mode .hp-church-list {
+  background: #262626; border-color: #3d3d3d;
+  box-shadow: 0 14px 34px rgba(0,0,0,0.5);
+}
+body.dark-mode .hp-church-list button { color: #eee; }
+body.dark-mode .hp-church-list button:hover { background: rgba(255,195,0,0.12); }
+body.dark-mode .hp-church-list button em { background: rgba(255,195,0,0.16); color: var(--accent); }
+
+body.dark-mode .hp-bulk-entry .hp-form-control { background: #2a2a2a; }
+body.dark-mode .hp-bulk-addon { background: #2a2a2a; border-color: #444; color: #eee; }
+body.dark-mode .hp-field-hint { color: #999; }
+
+/* A skipped required field: a red wash that belongs on a dark surface,
+   rather than the near-white #fef2f2 that lit the box up instead. */
+body.dark-mode .hp-form-control.invalid,
+body.dark-mode .hp-prefix-input.invalid,
+body.dark-mode .hp-pay-inline-input.invalid { background: rgba(220,38,38,0.14); }
+body.dark-mode .hp-field-error,
+body.dark-mode .hp-pay-line-error { color: #f87171; }
+
+/* ---- Review ---- */
+body.dark-mode .hp-review { background: #262626; border-color: #3d3d3d; }
+body.dark-mode .hp-review-row { border-bottom-color: rgba(255,255,255,0.08); }
+body.dark-mode .hp-review-row span { color: #9a9a9a; }
+body.dark-mode .hp-review-row b { color: #eee; }
+
+body.dark-mode .hp-receipt-line { color: #b4b4b4; }
+body.dark-mode .hp-receipt-line b { color: #eee; }
+body.dark-mode .hp-receipt-sub { color: #999; }
+body.dark-mode .hp-receipt-total b { color: var(--accent); }
+body.dark-mode .hp-receipt-person + .hp-receipt-person { border-top-color: rgba(255,255,255,0.12); }
+
+/* ---- Payment ---- */
+body.dark-mode .hp-paytotal span { color: #c9b071; }
+body.dark-mode .hp-paytotal strong { color: var(--accent); }
+
+body.dark-mode .hp-pay-card { background: #262626; border-color: rgba(255,195,0,0.24); }
+body.dark-mode .hp-pay-card-head,
+body.dark-mode .hp-pay-card-name { color: var(--accent); }
+body.dark-mode .hp-pay-line { border-top-color: rgba(255,255,255,0.08); }
+body.dark-mode .hp-pay-line-label { color: #9a9a9a; }
+body.dark-mode .hp-pay-line-value { color: #eee; }
+body.dark-mode .hp-pay-card-note { color: #b4b4b4; }
+body.dark-mode .hp-pay-card-type.bank { background: rgba(147,197,253,0.16); color: #93c5fd; }
+body.dark-mode .hp-pay-card-type.online { background: rgba(134,239,172,0.16); color: #86efac; }
+
+body.dark-mode .hp-pay-inline-input { background: #2a2a2a; border-color: #444; color: #eee; }
+body.dark-mode .hp-pay-file { background: rgba(255,195,0,0.10); border-color: rgba(255,195,0,0.30); color: var(--accent); }
+body.dark-mode .hp-pay-file:hover { background: rgba(255,195,0,0.18); }
+body.dark-mode .hp-pay-file em { color: #c9b071; }
+body.dark-mode .hp-pay-qr-dl { border-color: var(--accent); color: var(--accent); }
+body.dark-mode .hp-pay-qr-dl:hover { background: var(--accent); color: #1e1e1e; }
+body.dark-mode .hp-pay-copy { background: rgba(255,195,0,0.10); border-color: rgba(255,195,0,0.32); color: var(--accent); }
+body.dark-mode .hp-pay-copy:hover { background: var(--accent); color: #1e1e1e; }
+body.dark-mode .hp-pay-reupload:hover { background: var(--accent); color: #1e1e1e; border-color: var(--accent); }
+
+/* A QR code is read by a camera that expects dark-on-light, so both of them
+   keep their white background on purpose. This is the one place in the flow
+   where white is the right answer in dark mode - do not "fix" these to match
+   the panels around them. */
+body.dark-mode .hp-pay-qr img,
+body.dark-mode .hp-reg-paydetail img { background: #fff; border-color: rgba(255,255,255,0.18); }
+
+/* "Why is this extra here?" - its own dialog, and light-first like the rest. */
+body.dark-mode .hp-addon-modal { background: #1e1e1e; color: #eee; }
+body.dark-mode .hp-addon-modal h3 { color: var(--accent); }
+body.dark-mode .hp-addon-modal-fee { background: rgba(255,195,0,0.16); color: var(--accent); }
+body.dark-mode .hp-addon-modal-lead { color: #d0d0d0; }
+body.dark-mode .hp-addon-modal-body { color: #adadad; }
+
+/* A roster row whose name is incomplete. Same red wash as the fields above,
+   weighted for a dark table instead of a white one. */
+body.dark-mode .hp-bulk-table tbody tr.invalid { background: rgba(220,38,38,0.16); }
+
+body.dark-mode .hp-reg-paydetail { color: #b4b4b4; }

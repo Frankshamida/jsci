@@ -1,15 +1,12 @@
 import { NextResponse } from 'next/server';
+import { groqChat, groqConfigured } from '@/lib/groq';
 import { rateLimit } from '@/lib/serverCache';
 
 export const dynamic = 'force-dynamic';
 
-// Prefer the server-only key. NEXT_PUBLIC_* is kept only as a fallback so existing
-// deployments keep working — it should be removed, since anything NEXT_PUBLIC_ is
-// inlined into the browser bundle where the key can be lifted and your quota drained.
-const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+// The key and the model both live in src/lib/groq.js now.
 
-// This is the heaviest Groq call in the app (70B model, up to 4000 output tokens), so
+// This is the heaviest AI call in the app (up to 4000 output tokens), so
 // it needs a hard ceiling — a stuck client retrying could otherwise exhaust the daily
 // token budget on its own.
 const LYRICS_PER_MIN = 5;
@@ -26,7 +23,7 @@ export async function GET(request) {
       return NextResponse.json({ success: false, message: 'Song title is required' }, { status: 400 });
     }
 
-    if (!GROQ_API_KEY) {
+    if (!groqConfigured()) {
       return NextResponse.json({ success: false, message: 'AI service not configured' }, { status: 500 });
     }
 
@@ -74,15 +71,12 @@ export async function GET(request) {
     if (ytChannel) userMessage += `YouTube Channel: "${ytChannel}"\n`;
     userMessage += `\nPlease output the full lyrics for this exact song.`;
 
-    // Step 4: Call Groq AI with maximum context
-    const res = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+    // Step 4: Call the AI with maximum context. Through the shared helper, so
+    // the model name, the retired-model fallback and the reasoning-token budget
+    // are handled in one place rather than restated here.
+    let lyrics;
+    try {
+      const out = await groqChat({
         messages: [
           {
             role: 'system',
@@ -112,12 +106,15 @@ OUTPUT RULES:
           }
         ],
         temperature: 0.05,
-        max_tokens: 4000,
-      }),
-    });
-
-    const data = await res.json();
-    let lyrics = data?.choices?.[0]?.message?.content?.trim();
+        maxTokens: 4000,
+      });
+      lyrics = out.text;
+    } catch (error) {
+      // The reason is reported rather than swallowed into "could not generate":
+      // a retired model and a song nobody knows look identical otherwise.
+      console.error('[Lyrics]', error.message);
+      return NextResponse.json({ success: false, message: error.message }, { status: 502 });
+    }
 
     if (!lyrics) {
       return NextResponse.json({

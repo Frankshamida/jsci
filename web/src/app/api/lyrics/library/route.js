@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
+import { groqChat, groqConfigured } from '@/lib/groq';
 import { supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // Religious words auto-capitalization map (English, Tagalog, Bisaya)
 const SACRED_WORDS = {
@@ -153,7 +152,7 @@ export async function POST(request) {
     if (action === 'ai-autofill') {
       const { youtubeLink } = body;
       if (!youtubeLink) return NextResponse.json({ success: false, message: 'YouTube link required' }, { status: 400 });
-      if (!GROQ_API_KEY) return NextResponse.json({ success: false, message: 'AI service not configured' }, { status: 500 });
+      if (!groqConfigured()) return NextResponse.json({ success: false, message: 'AI service not configured' }, { status: 500 });
 
       // Extract YouTube video metadata
       let ytVideoTitle = '';
@@ -169,11 +168,7 @@ export async function POST(request) {
       }
 
       // Use AI to extract structured info
-      const aiRes = await fetch(GROQ_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+      const aiRes = await groqChat({
           messages: [
             {
               role: 'system',
@@ -198,12 +193,10 @@ Rules:
             }
           ],
           temperature: 0.1,
-          max_tokens: 4000,
-        }),
-      });
+          maxTokens: 4000,
+          });
 
-      const aiData = await aiRes.json();
-      let aiContent = aiData?.choices?.[0]?.message?.content?.trim() || '';
+      let aiContent = aiRes.text;
 
       // Parse JSON from AI response
       try {
@@ -253,17 +246,13 @@ Rules:
       }
 
       // Use AI to add section labels
-      if (!GROQ_API_KEY) {
+      if (!groqConfigured()) {
         // Fallback: just auto-format without AI
         const formatted = autoFormatLyrics(rawLyrics);
         return NextResponse.json({ success: true, data: { sections: formatted.sections, lyrics_html: formatted.html, lyrics_plain: formatted.plain } });
       }
 
-      const aiRes = await fetch(GROQ_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+      const aiRes = await groqChat({
           messages: [
             {
               role: 'system',
@@ -283,12 +272,10 @@ Rules:
             }
           ],
           temperature: 0.05,
-          max_tokens: 4000,
-        }),
-      });
+          maxTokens: 4000,
+          });
 
-      const aiData = await aiRes.json();
-      const aiLyrics = aiData?.choices?.[0]?.message?.content?.trim() || rawLyrics;
+      const aiLyrics = aiRes.text || rawLyrics;
       const formatted = autoFormatLyrics(aiLyrics);
       return NextResponse.json({ success: true, data: { sections: formatted.sections, lyrics_html: formatted.html, lyrics_plain: formatted.plain } });
     }

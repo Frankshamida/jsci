@@ -187,8 +187,12 @@ const PH_PROVINCES = [
 // ============================================
 // CONSTANTS
 // ============================================
-const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+// The AI is reached through our own server (src/app/api/ai/chat), never
+// straight from the browser: the API key stays on the server, where it
+// cannot be read out of this page's JavaScript and spent by a stranger.
+// The route answers in Groq's own shape, so the 'data.choices[0].message
+// .content' reads below still find the reply.
+const AI_CHAT_URL = '/api/ai/chat';
 
 // Known dashboard sections reachable via clean URLs (e.g. /bible-reader).
 // Any other/unknown path resolves to 'home' so the content is never blank.
@@ -2178,11 +2182,10 @@ export default function DashboardPage() {
       const today = new Date().toDateString();
       if (cached) { const c = JSON.parse(cached); if (c.date === today && c.verse?.verse) { setDailyVerse(c.verse); return; } }
 
-      const response = await fetch(GROQ_API_URL, {
+      const response = await fetch(AI_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: `You provide daily Bible verses for church ministry members (${ministry || 'general'} ministry). Return ONLY a JSON object: {"verse":"...", "reference":"Book Chapter:Verse", "explanation":"brief 1-2 sentence explanation"}` },
             { role: 'user', content: `Provide an encouraging Bible verse for ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.` },
@@ -2272,11 +2275,10 @@ export default function DashboardPage() {
   const fetchLifeVerseFeedback = async (verse) => {
     setPendingLifeVerseFeedbackLoading(true);
     try {
-      const res = await fetch(GROQ_API_URL, {
+      const res = await fetch(AI_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: 'You are a warm, loving church elder who gives heartfelt, encouraging feedback when someone shares their life verse. Be personal, warm, and uplifting. Keep it to 3-4 sentences. Use emojis sparingly but meaningfully.' },
             { role: 'user', content: `Someone just chose "${verse}" as their life verse. Give them a heartwarming, encouraging response about what a beautiful choice that is and what it means for their spiritual journey.` },
@@ -4464,11 +4466,10 @@ export default function DashboardPage() {
     if (pawBibleVerse && pawBibleVerse.role === roleLabel) return; // Already fetched for this role
     setPawBibleVerseLoading(true);
     try {
-      const response = await fetch(GROQ_API_URL, {
+      const response = await fetch(AI_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: `You provide encouraging Bible verses specifically for church ministry members serving as "${roleLabel}" in Praise and Worship ministry. The verse should relate to their role and encourage them in their service. Return ONLY a JSON object: {"verse":"the actual verse text", "reference":"Book Chapter:Verse", "encouragement":"a brief 1-2 sentence encouragement specifically for this role"}` },
             { role: 'user', content: `Provide an encouraging Bible verse for a ${roleLabel} in the Praise and Worship ministry for today, ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.` },
@@ -7275,11 +7276,10 @@ export default function DashboardPage() {
     setVerseShareLoading(true);
     setVerseShareText('');
     try {
-      const res = await fetch(GROQ_API_URL, {
+      const res = await fetch(AI_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: 'You are a Bible verse provider. Given a Bible reference, return ONLY the verse text in NIV translation. No commentary, no headings — just the verse text. If the reference is invalid, say "Verse not found. Please check the reference."' },
             { role: 'user', content: `Provide the full text of ${verseShareRef.trim()} in NIV.` }
@@ -8075,11 +8075,10 @@ export default function DashboardPage() {
       if (videoChannel) songContext += `YouTube channel: "${videoChannel}"\n`;
       if (link) songContext += `YouTube link: ${link}\n`;
 
-      const res = await fetch(GROQ_API_URL, {
+      const res = await fetch(AI_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
           messages: [
             {
               role: 'system',
@@ -8164,11 +8163,10 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
       }
 
       // Use Groq AI to extract clean "SONG TITLE - ARTIST" from the YouTube title
-      const aiRes = await fetch(GROQ_API_URL, {
+      const aiRes = await fetch(AI_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
           messages: [
             {
               role: 'system',
@@ -8844,9 +8842,9 @@ Examples:
     const verseReq = v ? ` verse ${v}` : '';
     const versionLabel = BIBLE_VERSIONS.find(bv => bv.value === ver)?.fullName || ver;
     try {
-      const res = await fetch(GROQ_API_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: `You are a Bible text provider. Provide the full text of the requested Bible chapter or verse. Use the ${versionLabel} translation. Include verse numbers. If the translation is Cebuano, provide the Cebuano version (Ang Pulong Sa Dios or similar). If Tagalog, provide the Tagalog version (Ang Salita ng Dios or similar). Be accurate to the requested translation.` }, { role: 'user', content: `Provide the full text of ${b} chapter ${c}${verseReq} in the ${versionLabel} translation.` }], temperature: 0.1, max_tokens: 4000 }),
+      const res = await fetch(AI_CHAT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'system', content: `You are a Bible text provider. Provide the full text of the requested Bible chapter or verse. Use the ${versionLabel} translation. Include verse numbers. If the translation is Cebuano, provide the Cebuano version (Ang Pulong Sa Dios or similar). If Tagalog, provide the Tagalog version (Ang Salita ng Dios or similar). Be accurate to the requested translation.` }, { role: 'user', content: `Provide the full text of ${b} chapter ${c}${verseReq} in the ${versionLabel} translation.` }], temperature: 0.1, max_tokens: 4000 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
@@ -8884,9 +8882,9 @@ Examples:
     setAnswerCopied(false);
     const versionLabel = BIBLE_VERSIONS.find(bv => bv.value === bibleVersion)?.fullName || bibleVersion;
     try {
-      const res = await fetch(GROQ_API_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: bibleQuestion }], temperature: 0.7, max_tokens: 1000 }),
+      const res = await fetch(AI_CHAT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: bibleQuestion }], temperature: 0.7, max_tokens: 1000 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
@@ -8946,9 +8944,9 @@ Examples:
     setAnswerCopied(false);
     setBibleAnswer('Thinking...');
     const versionLabel = BIBLE_VERSIONS.find(bv => bv.value === bibleVersion)?.fullName || bibleVersion;
-    fetch(GROQ_API_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: question }], temperature: 0.7, max_tokens: 1000 }),
+    fetch(AI_CHAT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'system', content: `Answer questions about ${bibleBook} ${bibleChapter} (${versionLabel} translation). Be biblical and insightful. Use markdown headings (**Context:**, **Meaning:**, **Application:**). Keep it well structured.` }, { role: 'user', content: question }], temperature: 0.7, max_tokens: 1000 }),
     }).then(r => r.json()).then(data => {
       setBibleAnswer(data?.choices?.[0]?.message?.content || 'Error. Please try again.');
     }).catch(() => setBibleAnswer('Error. Please try again.'));
@@ -8956,9 +8954,9 @@ Examples:
 
   const fetchDailyQuote = async () => {
     try {
-      const res = await fetch(GROQ_API_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: 'Generate an inspiring Christian quote. Format: QUOTE|AUTHOR' }, { role: 'user', content: 'Give me one inspiring Christian quote for today.' }], temperature: 0.9, max_tokens: 200 }),
+      const res = await fetch(AI_CHAT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'system', content: 'Generate an inspiring Christian quote. Format: QUOTE|AUTHOR' }, { role: 'user', content: 'Give me one inspiring Christian quote for today.' }], temperature: 0.9, max_tokens: 200 }),
       });
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
@@ -8983,9 +8981,9 @@ Examples:
     try {
       // Build conversation history from memory (last 20 messages for context)
       const historyMessages = chatMessages.slice(-20).map((m) => ({ role: m.role, content: m.content }));
-      const res = await fetch(GROQ_API_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [
+      const res = await fetch(AI_CHAT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [
           { role: 'system', content: `You are a compassionate Christian spiritual AI advisor for ${userData?.firstname || 'a believer'} who serves in ${userData?.ministry || 'ministry'}. Speak and write like a real caring person in live conversation: warm, friendly, relatable, and natural. Avoid robotic or overly formal phrasing. Use simple everyday language and slightly varied sentence lengths. Occasionally use natural conversational fillers when they fit (for example: "well," "you know," "let me think") but do not overuse them. Add subtle emotional tone based on context: friendly, empathetic, or excited when appropriate. Keep a smooth conversational flow and avoid sounding scripted. Keep replies concise by default unless the user asks for depth. Provide biblical guidance, prayer support, and encouragement, with Scripture references when appropriate. You have memory of previous conversations with this user — use that context to personalize responses. Be transparent that you are an AI assistant, and gently encourage the user to also seek God directly through prayer and His Word.` },
           ...historyMessages,
           { role: 'user', content: msg }
@@ -9395,9 +9393,9 @@ Examples:
     const cached = localStorage.getItem(cacheKey);
     if (cached) { setLifeVerseFullText(cached); setLifeVerseLoading(false); return; }
     try {
-      const res = await fetch(GROQ_API_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: `You are a Bible text provider. Provide ONLY the verse text, nothing else. No verse numbers, no book name, no quotes. Just the pure verse text in the ${versionLabel} translation. If Cebuano, use Ang Pulong Sa Dios. If Tagalog, use Ang Salita ng Dios.` }, { role: 'user', content: `Provide the text of ${verseInput.trim()} in ${versionLabel}.` }], temperature: 0.1, max_tokens: 300 }),
+      const res = await fetch(AI_CHAT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'system', content: `You are a Bible text provider. Provide ONLY the verse text, nothing else. No verse numbers, no book name, no quotes. Just the pure verse text in the ${versionLabel} translation. If Cebuano, use Ang Pulong Sa Dios. If Tagalog, use Ang Salita ng Dios.` }, { role: 'user', content: `Provide the text of ${verseInput.trim()} in ${versionLabel}.` }], temperature: 0.1, max_tokens: 300 }),
       });
       const data = await res.json();
       const text = data?.choices?.[0]?.message?.content?.trim().replace(/^"|"$/g, '').replace(/^\u201c|\u201d$/g, '');

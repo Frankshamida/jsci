@@ -212,8 +212,12 @@ const evtWhen = (startStr, endStr) => {
   return startTxt + ' \u2013 ' + endTxt;
 };
 
-const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+// The AI is reached through our own server (src/app/api/ai/chat), never
+// straight from the browser: the API key stays on the server, where it
+// cannot be read out of this page's JavaScript and spent by a stranger.
+// The route answers in Groq's own shape, so the 'data.choices[0].message
+// .content' reads below still find the reply.
+const AI_CHAT_URL = '/api/ai/chat';
 
 // ============================================
 // COMPONENT
@@ -1343,18 +1347,16 @@ export default function HomePage() {
       }
     } catch { /* ignore corrupt cache */ }
 
-    if (!GROQ_API_KEY) {
-      setDailyVerse(FALLBACK);
-      return;
-    }
+    // No "is the AI configured?" check here any more - the browser cannot know,
+    // now that the key lives on the server. A server without one answers 503,
+    // which lands in the same FALLBACK as any other failure below.
 
-    // 2) Otherwise fetch a fresh verse from Groq and cache it for the day
+    // 2) Otherwise fetch a fresh verse and cache it for the day
     try {
-      const res = await fetch(GROQ_API_URL, {
+      const res = await fetch(AI_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: 'You are a Bible verse provider. Respond ONLY with valid JSON in the exact form {"verse":"...","reference":"Book Chapter:Verse (NIV)"} and nothing else.' },
             { role: 'user', content: `Provide a single inspiring, uplifting Bible verse for today (${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}). Vary the book and choose an encouraging verse. Return JSON only.` },
@@ -1469,19 +1471,15 @@ If you don't know something specific, professionally encourage the user to conta
     setChatInput('');
     setChatLoading(true);
 
-    if (!GROQ_API_KEY) {
-      const fallback = "I'm not fully connected right now, but here's what I can share: our Worship Service is Sunday 9 AM, and ISOM classes begin August 2026. You can sign up or sign in anytime below. 🙏";
-      setChatMessages([...newMessages, { role: 'assistant', content: fallback, actions: buildChatActions(fallback + ' sign up sign in') }]);
-      setChatLoading(false);
-      return;
-    }
+    // Something useful to say when Joy cannot reach the AI at all, so a visitor
+    // still leaves with the two things they most often came to ask.
+    const offline = "I'm not fully connected right now, but here's what I can share: our **Worship Service** is **Sunday 9:00 AM**, and **ISOM** classes begin **August 2026**. You can sign up or sign in anytime. 🙏";
 
     try {
-      const res = await fetch(GROQ_API_URL, {
+      const res = await fetch(AI_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: CHAT_SYSTEM_PROMPT },
             ...newMessages.slice(-8).map(m => ({ role: m.role, content: m.content })),
@@ -1490,9 +1488,25 @@ If you don't know something specific, professionally encourage the user to conta
         }),
       });
       const data = await res.json();
-      const reply = data.choices?.[0]?.message?.content?.trim() || "Sorry, I didn't quite catch that. Could you rephrase? 😊";
+      const reply = data.choices?.[0]?.message?.content?.trim();
+
+      if (!reply) {
+        // NOT "Sorry, I didn't quite catch that". That line is what hid a dead
+        // model for months: every request was failing, and Joy answered as
+        // though she simply had not understood anyone. A failure on our side
+        // says so, and the reason goes to the console for whoever is looking.
+        console.error('[Joy]', data.message || 'The AI returned no reply.');
+        setChatMessages([...newMessages, {
+          role: 'assistant',
+          content: offline,
+          actions: buildChatActions(`${offline} sign up sign in`),
+        }]);
+        return;
+      }
+
       setChatMessages([...newMessages, { role: 'assistant', content: reply, actions: buildChatActions(reply) }]);
-    } catch {
+    } catch (error) {
+      console.error('[Joy]', error.message);
       setChatMessages([...newMessages, { role: 'assistant', content: "I'm having trouble connecting right now. Please try again in a moment, or contact the church office. 🙏" }]);
     } finally {
       setChatLoading(false);

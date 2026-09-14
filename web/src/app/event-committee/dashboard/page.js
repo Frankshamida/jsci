@@ -683,10 +683,16 @@ export default function CommitteeDashboardPage() {
     setManageTab(tab);
     setEventRegs([]);
     setEventRegsLoading(true);
-    setRegPage(1); setAttPage(1); setInstPage(1);
-    setRegSearch(''); setRegMoneyFilter('all'); setRegChurchFilter('all'); setRegTypeFilter('all');
-    setActiveSection('events');
+    // Everything from here down is inside the try, so that anything throwing
+    // on the way to the fetch still clears the spinner. Thrown out here it
+    // leaves the table reading "Loading…" for ever, with no request ever sent
+    // and nothing on screen to say why.
     try {
+      // The attendance tab is its own component and owns its paging, so there
+      // is nothing to reset for it here.
+      setRegPage(1); setInstPage(1);
+      setRegSearch(''); setRegMoneyFilter('all'); setRegChurchFilter('all'); setRegTypeFilter('all');
+      setActiveSection('events');
       const res = await fetch(`/api/events/registrations?eventId=${evt.id}`);
       const data = await res.json();
       setEventRegs(data.success ? data.data || [] : []);
@@ -2958,11 +2964,12 @@ export default function CommitteeDashboardPage() {
                             <i className="fas fa-user-plus"></i> Add Attendee
                           </button>
                         )}
-                        {manageTab === 'attendance' && (
-                          <button className="evt-hero-action" onClick={() => { setQrScanResult(null); setShowQrScanner(true); }}>
-                            <i className="fas fa-qrcode"></i> Scan QR
-                          </button>
-                        )}
+                        {/* No scan button here: the attendance tab carries its own
+                            ("Scan RFID to Check In"), next to the table it acts on.
+                            The one that used to sit here was left behind when that
+                            tab moved into EventAttendanceTab, and reached for two
+                            state setters this page no longer has - so pressing it
+                            threw instead of opening anything. */}
                       </div>
                     </div>
 

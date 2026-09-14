@@ -1,16 +1,13 @@
 import { NextResponse } from 'next/server';
+import { GROQ_FAST_MODEL, groqChat, groqConfigured } from '@/lib/groq';
 import { cached, rateLimit } from '@/lib/serverCache';
 
 export const dynamic = 'force-dynamic';
 
-// Prefer the server-only key. NEXT_PUBLIC_* is only a temporary fallback so this
-// keeps working before the env var is renamed — it should be removed, because anything
-// NEXT_PUBLIC_ is inlined into the browser bundle where the key can be lifted.
-const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // Small/fast model — moderation is a short classification, so the large model is waste.
-const MODEL = 'llama-3.1-8b-instant';
+// Named in src/lib/groq.js, which is the one place a retired model gets replaced.
+const MODEL = GROQ_FAST_MODEL;
 
 // Identical text gets one upstream call; repeats are served from cache.
 const RESULT_TTL_MS = 10 * 60 * 1000;
@@ -34,34 +31,28 @@ Respond ONLY with JSON: {"isSafe": boolean, "reason": "brief reason if unsafe", 
 If the message is fine, respond exactly: {"isSafe": true, "reason": null, "suggestion": null}`;
 
 async function callGroq(content) {
-  const res = await fetch(GROQ_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
+  let raw;
+  try {
+    // Through the shared helper, so the reasoning-token budget and the
+    // retired-model fallback are handled the same way here as everywhere else.
+    const out = await groqChat({
       model: MODEL,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: `Check this message: "${content}"` },
       ],
       temperature: 0.3,
-      max_tokens: 120,
-      response_format: { type: 'json_object' },
-    }),
-    cache: 'no-store',
-  });
-
-  if (!res.ok) {
+      maxTokens: 120,
+      responseFormat: { type: 'json_object' },
+    });
+    raw = out.text;
+  } catch (error) {
     // Fail open: moderation is a best-effort assist on top of the word-list check,
     // so an upstream outage must not block users from posting.
-    console.warn('Groq moderation call failed:', res.status);
+    console.warn('Groq moderation call failed:', error.message);
     return SAFE;
   }
 
-  const data = await res.json();
-  const raw = data?.choices?.[0]?.message?.content?.trim();
   if (!raw) return SAFE;
 
   try {
@@ -83,7 +74,7 @@ export async function POST(request) {
     if (!content || typeof content !== 'string' || !content.trim()) {
       return NextResponse.json({ success: true, data: SAFE });
     }
-    if (!GROQ_API_KEY) {
+    if (!groqConfigured()) {
       // Not configured — the client-side word list still applies.
       return NextResponse.json({ success: true, data: SAFE, skipped: 'not-configured' });
     }
