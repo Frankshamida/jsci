@@ -66,6 +66,9 @@ export const STATUS_LABELS = {
   payment_verified: 'paid',
   payment_submitted: 'for verification',
   pending_payment: 'awaiting payment',
+  // Not "awaiting payment": the money is expected at the desk by arrangement,
+  // so the word staff need is what they must DO about it.
+  pending_cash: 'cash to collect',
   installment: 'installment',
 };
 

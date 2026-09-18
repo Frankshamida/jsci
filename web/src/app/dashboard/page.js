@@ -16,6 +16,11 @@ import { withTitleCase } from '@/lib/eventTitle';
 import { eventSlugFor, findEventBySlug } from '@/lib/eventSlug';
 import ProofDrop from '@/components/ProofDrop';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
+import {
+  PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
+  channelHasAccount, channelNeedsProof, channelNameLabel, channelNamePlaceholder,
+  channelNotesLabel, channelNotesPlaceholder, defaultChannelColor, eventTakesCash,
+} from '@/lib/paymentChannels';
 
 const Cropper = dynamic(() => import('react-easy-crop'), { ssr: false });
 
@@ -488,7 +493,12 @@ const getPaymentInitials = (name) => {
 // Money handed over at a desk belongs to no channel - there is no logo to show
 // and no reference to type. It is drawn as itself rather than as a bank with a
 // missing picture.
-const isCashMethod = (name) => /^cash$/i.test(String(name || '').trim());
+//
+// Cash used to be recognised by /^cash$/i, which matched the free-text "Cash"
+// chip and nothing else. Now that an Admin can save a cash CHANNEL and call it
+// "Cash on the day", the channel's category is the answer whenever the row is
+// to hand, and the name is only read when it is not - see lib/paymentChannels.
+const isCashMethod = (name, channel) => isCashPayment(channel, name);
 
 // The channel row behind a method name. The registration tables store the
 // method as TEXT ("MariBank"), not as a channel id, so the logo has to be found
@@ -503,7 +513,9 @@ const findPayChannel = (channels, name) => {
 // The circle in front of a method's name: its uploaded logo, the initials drawn
 // on the colour it was given, or a banknote for cash.
 function PayMethodMark({ name, channel }) {
-  if (isCashMethod(name)) {
+  // A cash channel may carry its own uploaded logo; only fall back to the
+  // banknote when it has none, so an Admin who set a picture still gets it.
+  if (isCashMethod(name, channel) && !channel?.logo_url) {
     return (
       // the inner span is what lifts the icon above the marble sheen the
       // circle draws over itself - see .pm-logo > span in dashboard.css
@@ -584,9 +596,9 @@ function PayMethodSelect({ methods, channels, value, onChange, placeholder = 'Se
             <PayMethodMark name={picked} channel={pickedChannel} />
             <span className="evt-pay-picker-name">
               {picked}
-              {isCashMethod(picked)
+              {isCashMethod(picked, pickedChannel)
                 ? <span className="pm-badge cash">At the desk</span>
-                : pickedChannel && <span className={`pm-badge ${pickedChannel.category}`}>{pickedChannel.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>}
+                : pickedChannel && <span className={`pm-badge ${pickedChannel.category}`}>{channelTypeLabel(pickedChannel)}</span>}
             </span>
           </>
         ) : (
@@ -618,10 +630,10 @@ function PayMethodSelect({ methods, channels, value, onChange, placeholder = 'Se
                   <PayMethodMark name={m} channel={channel} />
                   <span className="evt-pay-picker-name">
                     {m}
-                    {isCashMethod(m)
+                    {isCashMethod(m, channel)
                       ? <span className="pm-badge cash">At the desk</span>
                       : channel
-                        ? <span className={`pm-badge ${channel.category}`}>{channel.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                        ? <span className={`pm-badge ${channel.category}`}>{channelTypeLabel(channel)}</span>
                         // Listed on the event but no longer a live channel -
                         // still offered, because old rows were paid through it.
                         : <span className="pm-badge hidden-badge">Not listed</span>}
@@ -3388,7 +3400,16 @@ export default function DashboardPage() {
 
   const savePaymentMethod = async () => {
     if (!paymentMethodForm.name.trim()) {
-      showToast('Bank / channel name is required', 'warning');
+      showToast(paymentMethodForm.category === 'cash'
+        ? 'Give this cash option a name, e.g. "Cash on the day"'
+        : 'Bank / channel name is required', 'warning');
+      return;
+    }
+    // A cash entry with no instructions tells the payer nothing at all - not
+    // where to go, not when, not who to hand it to. It is the one field that
+    // carries the whole entry, so it is asked for rather than assumed.
+    if (paymentMethodForm.category === 'cash' && !paymentMethodForm.notes.trim()) {
+      showToast('Say where and when to pay, e.g. "At the registration desk on the day of the event"', 'warning');
       return;
     }
     setPaymentMethodSaving(true);
@@ -4929,9 +4950,14 @@ export default function DashboardPage() {
     const on = ids.includes(method.id);
     const nextIds = on ? ids.filter((x) => x !== method.id) : [...ids, method.id];
     const labels = f.paymentMethods || [];
-    const nextLabels = on
+    let nextLabels = on
       ? labels.filter((l) => l !== method.name)
       : (labels.includes(method.name) ? labels : [...labels, method.name]);
+    // A cash CHANNEL says where and when to pay; the bare "Cash" chip says
+    // nothing. Offering both would put two cash options in front of the payer,
+    // and the chip is hidden while a cash channel is ticked - so a stale one
+    // would be stuck on the event with no way left to untick it.
+    if (!on && isCashChannel(method)) nextLabels = nextLabels.filter((l) => l !== 'Cash');
     return { ...f, paymentMethodIds: nextIds, paymentMethods: nextLabels };
   });
 
@@ -5285,12 +5311,11 @@ export default function DashboardPage() {
   // What this event has actually taken in, and what is still owed. Money only
   // counts as collected once it is verified (or actually handed over, for a
   // plan) - a "payment submitted" nobody has checked is not cash in hand.
-  const isCashMethod = (method) => {
-    // Compared as words, not as a substring: "GCash" is an online wallet
-    // that happens to contain the letters of "cash".
-    const m = String(method || '').trim().toLowerCase();
-    return m === 'cash' || m.startsWith('cash ') || m.endsWith(' cash');
-  };
+  // Registrations store the method as TEXT, so the channel row behind it is
+  // found by name first - a row saved against a cash CHANNEL is cash however
+  // the Admin chose to name it, and only unmatched labels fall back to reading
+  // the words. "GCash" is an online wallet and never counts, whichever path.
+  const isCashMethod = (method) => isCashPayment(findPayChannel(activePaymentMethods, method), method);
 
   // An installment is settled one payment at a time, and each of those has its
   // own method - somebody can pay part in cash and part through GCash. So a plan
@@ -5343,6 +5368,9 @@ export default function DashboardPage() {
     payment_verified: 'paid',
     payment_submitted: 'for verification',
     pending_payment: 'awaiting payment',
+    // Not "awaiting payment": the money is expected at the desk by
+    // arrangement, so the word staff need is what they must DO about it.
+    pending_cash: 'cash to collect',
     installment: 'installment',
   };
   const statusLabel = (status) => STATUS_LABELS[status] || String(status || '').replace(/_/g, ' ');
@@ -5411,8 +5439,9 @@ export default function DashboardPage() {
         const counted = r.status === 'payment_verified' || r.status === 'registered';
         if (regMoneyFilter === 'cash') return counted && isCash;
         if (regMoneyFilter === 'online') return counted && !isCash;
-        // still waiting on somebody to check it
-        return r.payment_plan !== 'flexible' && (r.status === 'payment_submitted' || r.status === 'pending_payment');
+        // still waiting on somebody - to check a payment, or to take one
+        return r.payment_plan !== 'flexible'
+          && (r.status === 'payment_submitted' || r.status === 'pending_payment' || r.status === 'pending_cash');
       });
     }
     if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
@@ -6509,6 +6538,11 @@ export default function DashboardPage() {
     // The channel picker sets paymentMethod, so an empty one means nothing was picked.
     if (eventPaymentChannels(registerModal).length > 0 && !regPayChannel) errs.paymentMethod = 'Please choose where you sent the payment.';
     else if (!registerForm.paymentMethod && (registerModal.payment_methods || []).length > 1) errs.paymentMethod = 'Please choose how you paid.';
+    // Paying at the desk produces no reference and no receipt, so asking for
+    // either would make the form impossible to finish. Everything else still
+    // has to be traceable back to this registration.
+    const picked = eventPaymentChannels(registerModal).find((c) => c.id === regPayChannel);
+    if (isCashPayment(picked, registerForm.paymentMethod)) return errs;
     if (!registerForm.paymentReference.trim()) errs.paymentReference = 'Reference number is required.';
     if (!registerProofFile) errs.proof = 'Proof of payment is required.';
     return errs;
@@ -6803,6 +6837,9 @@ export default function DashboardPage() {
     payment_verified: { label: 'Confirmed', cls: 'ok' },
     payment_submitted: { label: 'Payment Under Review', cls: 'pending' },
     pending_payment: { label: 'Awaiting Payment', cls: 'warn' },
+    // The attendee's own view: their place is booked, they just owe the money
+    // on the day. Saying "awaiting payment" would read as "not registered".
+    pending_cash: { label: 'Pay Cash at the Desk', cls: 'warn' },
     installment: { label: 'Paying In Installments', cls: 'pending' },
   };
   // Registered while the event was free, and the admin has since put a fee on
@@ -12369,13 +12406,18 @@ Examples:
                 Only shown to accounts the server says may open it. */}
             {committeeSession && (
               <button
-                className="sidebar-notif-bell"
+                className="sidebar-role-switch"
                 onClick={openCommitteeDashboard}
                 title="Open the Event Committee dashboard"
                 aria-label="Switch to the Event Committee dashboard"
               >
-                <i className="fas fa-clipboard-user"></i>
-                <span>Event Committee</span>
+                <span className="sidebar-role-switch-icon">
+                  <i className="fas fa-right-left"></i>
+                </span>
+                <span className="sidebar-role-switch-text">
+                  <span className="sidebar-role-switch-title">Event Committee</span>
+                  <span className="sidebar-role-switch-sub">Switch Role</span>
+                </span>
               </button>
             )}
 
@@ -13347,6 +13389,23 @@ Examples:
                                                 <i className="fas fa-peso-sign"></i> Collect <em>₱{Math.max(0, owed - paid)} left</em>
                                               </button>
                                             )
+                                          ) : r.status === 'pending_cash' ? (
+                                            // Cash is collected and verified in one motion: the
+                                            // money arriving IS the verification, and the person
+                                            // handing it over is standing at the desk waiting to
+                                            // be scanned in. Splitting it into "record payment"
+                                            // then "verify" would be two taps for one event.
+                                            <button role="menuitem" className="ok" onClick={() => {
+                                              setOpenRowMenu(null);
+                                              askConfirm(
+                                                `Collect ₱${Math.max(0, owed - paid)} in cash from ${name} and confirm their registration? Their attendance QR and RFID card unlock straight away.`,
+                                                () => verifyRegistration(r.id, 'payment_verified'),
+                                                { title: 'Collect Cash?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Collect & Verify', icon: 'fa-money-bill-wave' },
+                                              );
+                                            }}>
+                                              <i className="fas fa-money-bill-wave"></i> Collect Cash &amp; Verify
+                                              <em>₱{Math.max(0, owed - paid)} due</em>
+                                            </button>
                                           ) : (r.status === 'payment_submitted' || r.status === 'pending_payment') && (
                                             <button role="menuitem" className="ok" onClick={() => { setOpenRowMenu(null); verifyRegistration(r.id, 'payment_verified'); }}>
                                               <i className="fas fa-check"></i> Verify
@@ -15202,6 +15261,8 @@ Examples:
                             <p className="evt-pick-hint">
                               Tick the saved channels this event accepts. Their name, account number, account name
                               and QR code are shown to attendees automatically &mdash; nothing to retype here.
+                              Nothing is ticked by default: an event that takes only online payment simply leaves
+                              the cash entry unticked, and one that takes both ticks both.
                             </p>
 
                             {activePaymentMethods.length === 0 ? (
@@ -15216,23 +15277,35 @@ Examples:
                                   return (
                                     <label key={m.id} className={`evt-pick-card ${on ? 'on' : ''}`}>
                                       <input type="checkbox" checked={on} onChange={() => toggleEventPaymentChannel(m)} />
-                                      <span className="pm-logo pm-logo-sm" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
-                                        {m.logo_url ? <img src={m.logo_url} alt={m.name} /> : <span>{getPaymentInitials(m.name)}</span>}
+                                      <span className={`pm-logo pm-logo-sm ${isCashChannel(m) && !m.logo_url ? 'pm-logo-cash' : ''}`} style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
+                                        {m.logo_url
+                                          ? <img src={m.logo_url} alt={m.name} />
+                                          : isCashChannel(m)
+                                            ? <span><i className="fas fa-money-bill-wave"></i></span>
+                                            : <span>{getPaymentInitials(m.name)}</span>}
                                       </span>
                                       <span className="evt-pick-info">
                                         <strong>{m.name}</strong>
                                         <span className={`evt-pick-type ${m.category}`}>
-                                          <i className={m.category === 'bank' ? 'fas fa-building-columns' : 'fas fa-mobile-screen-button'}></i>
-                                          {m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}
+                                          <i className={channelTypeIcon(m)}></i>
+                                          {channelTypeLabel(m)}
                                         </span>
-                                        {m.account_number && (
-                                          <span className="evt-pick-line"><span className="k">Account</span><span className="v num">{m.account_number}</span></span>
-                                        )}
-                                        {m.account_name && (
-                                          <span className="evt-pick-line"><span className="k">Name</span><span className="v">{m.account_name}</span></span>
-                                        )}
-                                        {m.qr_url && (
-                                          <span className="evt-pick-qr"><i className="fas fa-qrcode"></i> QR code included</span>
+                                        {/* Cash shows its instructions where the others
+                                            show an account - that IS its detail. */}
+                                        {isCashChannel(m) ? (
+                                          m.notes && <span className="evt-pick-line evt-pick-cash"><span className="v">{m.notes}</span></span>
+                                        ) : (
+                                          <>
+                                            {m.account_number && (
+                                              <span className="evt-pick-line"><span className="k">Account</span><span className="v num">{m.account_number}</span></span>
+                                            )}
+                                            {m.account_name && (
+                                              <span className="evt-pick-line"><span className="k">Name</span><span className="v">{m.account_name}</span></span>
+                                            )}
+                                            {m.qr_url && (
+                                              <span className="evt-pick-qr"><i className="fas fa-qrcode"></i> QR code included</span>
+                                            )}
+                                          </>
                                         )}
                                       </span>
                                       <i className={`evt-pick-tick fas ${on ? 'fa-circle-check' : 'fa-circle'}`}></i>
@@ -15254,12 +15327,22 @@ Examples:
                               on the attendee&apos;s payment form.
                             </p>
                             <div className="evt-methods">
-                              {['Cash', 'Pay at Church', 'Credit/Debit Card', 'Other'].map(m => (
-                                <label key={m} className={`evt-method-chip ${eventForm.paymentMethods.includes(m) ? 'on' : ''}`}>
-                                  <input type="checkbox" checked={eventForm.paymentMethods.includes(m)} onChange={() => togglePaymentMethod(m)} />
-                                  {m}
-                                </label>
-                              ))}
+                              {(() => {
+                                // A saved Cash channel already offers cash, and carries the
+                                // instructions this bare chip cannot. Offering both would put
+                                // two cash options in the payer's list, one of which explains
+                                // nothing - so the chip steps aside when a channel covers it.
+                                const cashChannelPicked = (eventForm.paymentMethodIds || [])
+                                  .some((id) => isCashChannel(activePaymentMethods.find((m) => m.id === id)));
+                                return ['Cash', 'Pay at Church', 'Credit/Debit Card', 'Other']
+                                  .filter((m) => !(cashChannelPicked && m === 'Cash'))
+                                  .map(m => (
+                                    <label key={m} className={`evt-method-chip ${eventForm.paymentMethods.includes(m) ? 'on' : ''}`}>
+                                      <input type="checkbox" checked={eventForm.paymentMethods.includes(m)} onChange={() => togglePaymentMethod(m)} />
+                                      {m}
+                                    </label>
+                                  ));
+                              })()}
                             </div>
                           </div>
 
@@ -15950,7 +16033,11 @@ Examples:
                             ) : (
                               <div className="myreg-qr-locked">
                                 <i className="fas fa-lock"></i>
-                                <span>{r.status === 'pending_payment' ? 'Complete payment to unlock your attendance QR' : 'Your QR unlocks once your registration is confirmed'}</span>
+                                <span>{r.status === 'pending_cash'
+                                  ? 'Pay at the registration desk on the day — your QR unlocks the moment the money is received'
+                                  : r.status === 'pending_payment'
+                                    ? 'Complete payment to unlock your attendance QR'
+                                    : 'Your QR unlocks once your registration is confirmed'}</span>
                               </div>
                             )}
                           </div>
@@ -18507,12 +18594,10 @@ Examples:
                                 >
                                   {picked ? (
                                     <>
-                                      <span className="pm-logo pm-logo-sm" style={{ background: picked.logo_url ? 'transparent' : (picked.logo_color || '#1e3a8a') }}>
-                                        {picked.logo_url ? <img src={picked.logo_url} alt={picked.name} /> : <span>{getPaymentInitials(picked.name)}</span>}
-                                      </span>
+                                      <PayMethodMark name={picked.name} channel={picked} />
                                       <span className="evt-pay-picker-name">
                                         {picked.name}
-                                        <span className={`pm-badge ${picked.category}`}>{picked.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                        <span className={`pm-badge ${picked.category}`}>{channelTypeLabel(picked)}</span>
                                       </span>
                                     </>
                                   ) : (
@@ -18533,12 +18618,10 @@ Examples:
                                           className={`evt-pay-picker-option ${regPayChannel === m.id ? 'on' : ''}`}
                                           onClick={() => pickChannel(m)}
                                         >
-                                          <span className="pm-logo pm-logo-sm" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
-                                            {m.logo_url ? <img src={m.logo_url} alt={m.name} /> : <span>{getPaymentInitials(m.name)}</span>}
-                                          </span>
+                                          <PayMethodMark name={m.name} channel={m} />
                                           <span className="evt-pay-picker-name">
                                             {m.name}
-                                            <span className={`pm-badge ${m.category}`}>{m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                            <span className={`pm-badge ${m.category}`}>{channelTypeLabel(m)}</span>
                                           </span>
                                           {regPayChannel === m.id && <i className="fas fa-check evt-pay-picker-tick"></i>}
                                         </button>
@@ -18575,9 +18658,19 @@ Examples:
                                         <span><strong>Scan this QR to pay</strong><small>Tap to enlarge</small></span>
                                       </button>
                                     )}
-                                    {picked.notes && <p className="evt-pay-channel-note"><i className="fas fa-circle-info"></i> {picked.notes}</p>}
-                                    {/* Proof of THIS payment, asked in the same box as the
-                                        account it was sent to. */}
+                                    {picked.notes && <p className={`evt-pay-channel-note ${isCashChannel(picked) ? 'cash' : ''}`}><i className="fas fa-circle-info"></i> {picked.notes}</p>}
+                                    {/* Cash is settled in person, so there is nothing to
+                                        confirm here - no reference, no receipt. What the
+                                        payer needs instead is to know they are done. */}
+                                    {isCashChannel(picked) ? (
+                                      <p className="evt-pay-cash-note">
+                                        <i className="fas fa-money-bill-wave"></i>
+                                        <span>
+                                          <strong>Nothing to upload.</strong> You settle this in person &mdash; an
+                                          admin marks you paid once the money is handed over.
+                                        </span>
+                                      </p>
+                                    ) : (
                                     <div className="evt-pay-confirm">
                                       <div className="evt-pay-confirm-head"><i className="fas fa-receipt"></i> Confirm your payment</div>
                                       <div className="form-group">
@@ -18600,6 +18693,7 @@ Examples:
                                         {registerErrors.proof && <div className="evt-field-error-msg">{registerErrors.proof}</div>}
                                       </div>
                                     </div>
+                                    )}
                                   </div>
                                 </div>
                               ) : (
@@ -18786,13 +18880,11 @@ Examples:
                             <div className="evt-pay-channels-head"><i className="fas fa-wallet"></i> Send your payment to</div>
                             {eventPaymentChannels(evt).map((m) => (
                               <div key={m.id} className="evt-pay-channel">
-                                <span className="pm-logo pm-logo-sm" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
-                                  {m.logo_url ? <img src={m.logo_url} alt={m.name} /> : <span>{getPaymentInitials(m.name)}</span>}
-                                </span>
+                                <PayMethodMark name={m.name} channel={m} />
                                 <div className="evt-pay-channel-info">
                                   <div className="evt-pay-channel-name">
                                     {m.name}
-                                    <span className={`pm-badge ${m.category}`}>{m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                    <span className={`pm-badge ${m.category}`}>{channelTypeLabel(m)}</span>
                                   </div>
                                   {m.account_number && (
                                     <div className="evt-pay-channel-row">
@@ -18840,10 +18932,21 @@ Examples:
                               {(evt.payment_methods || []).map(m => <option key={m} value={m}>{m}</option>)}
                             </select>
                           </div>
-                          <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" placeholder="e.g. 0123456789" value={payNowForm.paymentReference} onChange={(e) => setPayNowForm({ ...payNowForm, paymentReference: e.target.value })} /></div>
-                          <div className="form-group"><label>Payment Receipt</label>
-                            <ProofDrop id="paynow-proof" file={payNowProofFile} onPick={setPayNowProofFile} />
-                          </div>
+                          {/* Choosing cash here means the money has not moved yet, so
+                              there is no number to quote and no receipt to attach. */}
+                          {isCashMethod(payNowForm.paymentMethod) ? (
+                            <p className="evt-pay-cash-note">
+                              <i className="fas fa-money-bill-wave"></i>
+                              <span><strong>Nothing to upload.</strong> Hand the money over in person and an admin will mark you paid.</span>
+                            </p>
+                          ) : (
+                            <>
+                              <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" placeholder="e.g. 0123456789" value={payNowForm.paymentReference} onChange={(e) => setPayNowForm({ ...payNowForm, paymentReference: e.target.value })} /></div>
+                              <div className="form-group"><label>Payment Receipt</label>
+                                <ProofDrop id="paynow-proof" file={payNowProofFile} onPick={setPayNowProofFile} />
+                              </div>
+                            </>
+                          )}
                         </div>
                         <p className="evt-pay-note">
                           <i className="fas fa-shield-halved"></i>
@@ -23835,8 +23938,7 @@ Examples:
             <div className="evt-tabs pm-tabs">
               {[
                 { key: 'all', label: 'All', icon: 'fas fa-list' },
-                { key: 'bank', label: 'Bank Transfers', icon: 'fas fa-building-columns' },
-                { key: 'online', label: 'Online Payments', icon: 'fas fa-mobile-screen-button' },
+                ...PAYMENT_CATEGORIES.map((c) => ({ key: c.key, label: c.plural, icon: c.icon })),
               ].map((t) => (
                 <button
                   key={t.key}
@@ -23910,26 +24012,53 @@ Examples:
                           <span>Type</span>
                           <select
                             value={paymentMethodForm.category}
-                            onChange={(e) => setPaymentMethodForm((f) => ({ ...f, category: e.target.value }))}
+                            onChange={(e) => setPaymentMethodForm((f) => {
+                              const category = e.target.value;
+                              // Switching TO cash throws the account away rather than
+                              // hiding it: those boxes are about to disappear, and a
+                              // number nobody can see is a number nobody can correct.
+                              // The circle colour follows too, unless it was chosen.
+                              const wasDefault = !f.logoColor || f.logoColor === defaultChannelColor(f.category);
+                              return {
+                                ...f,
+                                category,
+                                logoColor: wasDefault ? defaultChannelColor(category) : f.logoColor,
+                                ...(category === 'cash' ? { accountNumber: '', accountName: '', qrUrl: '' } : {}),
+                              };
+                            })}
                           >
-                            <option value="bank">Bank Transfer</option>
-                            <option value="online">Online Payment</option>
+                            {PAYMENT_CATEGORIES.map((c) => (
+                              <option key={c.key} value={c.key}>{c.label}</option>
+                            ))}
                           </select>
                         </label>
                         <label className="pm-field">
-                          <span>{paymentMethodForm.category === 'bank' ? 'Bank Name *' : 'Channel Name *'}</span>
+                          <span>{channelNameLabel(paymentMethodForm.category)}</span>
                           <input
                             type="text"
                             value={paymentMethodForm.name}
-                            placeholder={paymentMethodForm.category === 'bank' ? 'e.g. BDO, BPI, Maribank' : 'e.g. GCash, Maya, PayPal'}
+                            placeholder={channelNamePlaceholder(paymentMethodForm.category)}
                             onChange={(e) => setPaymentMethodForm((f) => ({ ...f, name: e.target.value }))}
                           />
                         </label>
                       </div>
                     </fieldset>
 
+                    {/* Cash has no account to pay into, so the whole account half
+                        of the form is not drawn for it - only the instructions,
+                        which for cash are the entire point of the entry. */}
                     <fieldset className="pm-fieldset">
-                      <legend>Account Details</legend>
+                      <legend>{channelHasAccount(paymentMethodForm) ? 'Account Details' : 'How to Pay'}</legend>
+                      {!channelHasAccount(paymentMethodForm) && (
+                        <p className="pm-cash-hint">
+                          <i className="fas fa-money-bill-wave"></i>
+                          <span>
+                            No account number, account name or QR code &mdash; the money is handed over in
+                            person. Tell attendees <strong>where</strong> and <strong>when</strong> below.
+                          </span>
+                        </p>
+                      )}
+                      {channelHasAccount(paymentMethodForm) && (
                       <div className="pm-row pm-row-2">
                         <label className="pm-field">
                           <span>Account Number</span>
@@ -23950,6 +24079,8 @@ Examples:
                           />
                         </label>
                       </div>
+                      )}
+                      {channelHasAccount(paymentMethodForm) && (
                       <div className="pm-row pm-row-qr">
                         <div className="pm-field">
                           <span>QR Code (optional)</span>
@@ -23979,13 +24110,14 @@ Examples:
                           </div>
                         </div>
                       </div>
+                      )}
 
                       <label className="pm-field">
-                        <span>Notes / Instructions (optional)</span>
+                        <span>{channelNotesLabel(paymentMethodForm.category)}</span>
                         <textarea
-                          rows={2}
+                          rows={channelHasAccount(paymentMethodForm) ? 2 : 3}
                           value={paymentMethodForm.notes}
-                          placeholder="e.g. Please send the deposit slip to the church office."
+                          placeholder={channelNotesPlaceholder(paymentMethodForm.category)}
                           onChange={(e) => setPaymentMethodForm((f) => ({ ...f, notes: e.target.value }))}
                         />
                       </label>
@@ -24081,44 +24213,55 @@ Examples:
                       </span>
 
                       <div className="pm-card-top">
-                        <div className="pm-logo" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
+                        <div className={`pm-logo ${isCashChannel(m) && !m.logo_url ? 'pm-logo-cash' : ''}`} style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
                           {m.logo_url
                             ? <img src={m.logo_url} alt={m.name} />
-                            : <span>{getPaymentInitials(m.name)}</span>}
+                            : isCashChannel(m)
+                              ? <span><i className="fas fa-money-bill-wave"></i></span>
+                              : <span>{getPaymentInitials(m.name)}</span>}
                         </div>
                         <div className="pm-card-title">
                           <h3>{m.name}</h3>
                           <span className={`pm-badge ${m.category}`}>
-                            <i className={m.category === 'bank' ? 'fas fa-building-columns' : 'fas fa-mobile-screen-button'}></i>
-                            {m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}
+                            <i className={channelTypeIcon(m)}></i>
+                            {channelTypeLabel(m)}
                           </span>
                         </div>
                       </div>
 
-                      <dl className="pm-card-details">
-                        <div className="pm-detail">
-                          <dt>Account Number</dt>
-                          <dd>
-                            <span className="pm-detail-text">{m.account_number || '—'}</span>
-                            {m.account_number && (
-                              <button className="pm-icon-btn" title="Copy account number" onClick={() => copyPaymentDetail('Account number', m.account_number)}>
-                                <i className="fas fa-copy"></i>
-                              </button>
-                            )}
-                          </dd>
-                        </div>
-                        <div className="pm-detail">
-                          <dt>Account Name</dt>
-                          <dd>
-                            <span className="pm-detail-text">{m.account_name || '—'}</span>
-                            {m.account_name && (
-                              <button className="pm-icon-btn" title="Copy account name" onClick={() => copyPaymentDetail('Account name', m.account_name)}>
-                                <i className="fas fa-copy"></i>
-                              </button>
-                            )}
-                          </dd>
-                        </div>
-                      </dl>
+                      {/* Cash has no account, so the two rows that would both read
+                          "—" are left out and the instructions carry the card. */}
+                      {channelHasAccount(m) ? (
+                        <dl className="pm-card-details">
+                          <div className="pm-detail">
+                            <dt>Account Number</dt>
+                            <dd>
+                              <span className="pm-detail-text">{m.account_number || '—'}</span>
+                              {m.account_number && (
+                                <button className="pm-icon-btn" title="Copy account number" onClick={() => copyPaymentDetail('Account number', m.account_number)}>
+                                  <i className="fas fa-copy"></i>
+                                </button>
+                              )}
+                            </dd>
+                          </div>
+                          <div className="pm-detail">
+                            <dt>Account Name</dt>
+                            <dd>
+                              <span className="pm-detail-text">{m.account_name || '—'}</span>
+                              {m.account_name && (
+                                <button className="pm-icon-btn" title="Copy account name" onClick={() => copyPaymentDetail('Account name', m.account_name)}>
+                                  <i className="fas fa-copy"></i>
+                                </button>
+                              )}
+                            </dd>
+                          </div>
+                        </dl>
+                      ) : (
+                        <p className="pm-cash-line">
+                          <i className="fas fa-hand-holding-dollar"></i>
+                          <span>Handed over in person &mdash; no account, no receipt to upload.</span>
+                        </p>
+                      )}
 
                       {m.qr_url && (
                         <button type="button" className="pm-qr-card" onClick={() => setQrLightbox({ url: m.qr_url, name: m.name })}>

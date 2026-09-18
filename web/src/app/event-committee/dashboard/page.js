@@ -19,6 +19,11 @@ import './contributions.css';
 // a receipt can be a photo, a PDF from a bank, or another file entirely.
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import ProofDrop from '@/components/ProofDrop';
+import {
+  PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
+  channelHasAccount, channelNameLabel, channelNamePlaceholder, channelNotesLabel,
+  channelNotesPlaceholder, defaultChannelColor,
+} from '@/lib/paymentChannels';
 // The figures on a receipt, said again in words. A receipt carries the amount
 // twice because a pen stroke can turn 100 into 1000 and cannot do that to
 // "One Hundred Pesos Only".
@@ -95,6 +100,9 @@ const STATUS_LABELS = {
   payment_verified: 'paid',
   payment_submitted: 'for verification',
   pending_payment: 'awaiting payment',
+  // Not "awaiting payment": the money is expected at the desk by arrangement,
+  // so the word staff need is what they must DO about it.
+  pending_cash: 'cash to collect',
   installment: 'installment',
 };
 const statusLabel = (status) => STATUS_LABELS[status] || String(status || '').replace(/_/g, ' ');
@@ -103,7 +111,7 @@ const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
 
 // A registration holding a seat. Mirrors lib/eventSlots, so the counters here
 // agree with the ones on the admin dashboard.
-const SLOT_HOLDING = ['registered', 'payment_verified', 'payment_submitted', 'installment'];
+const SLOT_HOLDING = ['registered', 'payment_verified', 'payment_submitted', 'installment', 'pending_cash'];
 
 // Event datetimes are WALL-CLOCK: the column holds "the time the admin typed"
 // and Postgres stamps it +00:00 on the way in. Reading one with `new Date()`
@@ -161,10 +169,10 @@ const formatDateOnly = (dateStr) => {
 
 // Compared as words, not as a substring: "GCash" is an online wallet that
 // happens to contain the letters of "cash".
-const isCashMethod = (method) => {
-  const m = String(method || '').trim().toLowerCase();
-  return m === 'cash' || m.startsWith('cash ') || m.endsWith(' cash');
-};
+// Registrations and contribution payments both store the method as TEXT, so
+// this reads the words when there is no channel row to hand. A saved cash
+// CHANNEL is recognised by its category instead - see lib/paymentChannels.
+const isCashMethod = (method, channel) => isCashPayment(channel, method);
 
 // Older rows predate registration_type, so fall back to what the row implies.
 const regTypeOf = (r) => {
@@ -764,6 +772,8 @@ export default function CommitteeDashboardPage() {
       attended: live.filter((r) => r.attended).length,
       toVerify: live.filter((r) => r.status === 'payment_submitted').length,
       unpaid: live.filter((r) => r.status === 'pending_payment').length,
+      // Booked to pay at the desk - the queue the cashier works through.
+      cashToCollect: live.filter((r) => r.status === 'pending_cash').length,
       plans: live.filter((r) => r.payment_plan === 'flexible').length,
     };
   }, [eventRegs]);
@@ -800,7 +810,7 @@ export default function CommitteeDashboardPage() {
         const settledRow = r.status === 'payment_verified' || r.status === 'registered' || r.payment_plan === 'flexible';
         if (regMoneyFilter === 'cash' && !(settledRow && isCashMethod(r.payment_method))) return false;
         if (regMoneyFilter === 'online' && !(settledRow && !isCashMethod(r.payment_method))) return false;
-        if (regMoneyFilter === 'pending' && r.status !== 'payment_submitted') return false;
+        if (regMoneyFilter === 'pending' && !['payment_submitted', 'pending_cash'].includes(r.status)) return false;
       }
       if (!q) return true;
       return [r.attendee_name, r.attendee_email, r.attendee_mobile, r.church_name, r.church_pastor, r.payment_reference, r.added_by]
@@ -1276,7 +1286,12 @@ export default function CommitteeDashboardPage() {
     if (cartTotal > 0 && !payPick) { showToast('Choose how you are paying', 'warning'); return; }
     // Paying into an account without showing the receipt leaves an Admin
     // nothing to check, so it is asked for here as well as on the server.
-    if (cartTotal > 0 && payPick !== 'cash' && !proofFile) {
+    // A cash CHANNEL is not an account - the money is handed over at a desk and
+    // there is no screenshot to take - so it is exempt alongside the older
+    // 'cash' switch, matching the same test on the server.
+    const pickedChannel = (basketPayments.channels || []).find((c) => String(c.id) === String(payPick));
+    const payingCash = payPick === 'cash' || isCashChannel(pickedChannel);
+    if (cartTotal > 0 && !payingCash && !proofFile) {
       showToast('Upload a screenshot of your payment receipt', 'warning');
       return;
     }
@@ -1693,7 +1708,18 @@ export default function CommitteeDashboardPage() {
   };
 
   const savePaymentMethod = async () => {
-    if (!pmForm.name.trim()) { showToast('Bank / channel name is required', 'warning'); return; }
+    if (!pmForm.name.trim()) {
+      showToast(pmForm.category === 'cash'
+        ? 'Give this cash option a name, e.g. "Cash on the day"'
+        : 'Bank / channel name is required', 'warning');
+      return;
+    }
+    // Cash with no instructions tells the payer nothing - not where, not when,
+    // not who to hand it to. It is the field the whole entry rests on.
+    if (pmForm.category === 'cash' && !pmForm.notes.trim()) {
+      showToast('Say where and when to pay, e.g. "At the registration desk on the day of the event"', 'warning');
+      return;
+    }
     setPmSaving(true);
     try {
       const editing = !!pmEditingId;
@@ -2808,13 +2834,18 @@ export default function CommitteeDashboardPage() {
                 the one that brought them here. */}
             {hasMainSession && (
               <button
-                className="sidebar-notif-bell"
+                className="sidebar-role-switch"
                 onClick={() => router.push('/dashboard')}
                 title="Back to the member dashboard"
                 aria-label="Switch to the member dashboard"
               >
-                <i className="fas fa-house"></i>
-                <span>Member Dashboard</span>
+                <span className="sidebar-role-switch-icon">
+                  <i className="fas fa-right-left"></i>
+                </span>
+                <span className="sidebar-role-switch-text">
+                  <span className="sidebar-role-switch-title">Member Dashboard</span>
+                  <span className="sidebar-role-switch-sub">Switch Role</span>
+                </span>
               </button>
             )}
 
@@ -3421,6 +3452,21 @@ export default function CommitteeDashboardPage() {
                                                 <i className="fas fa-peso-sign"></i> Collect <em>{peso(Math.max(0, owed - paid))} left</em>
                                               </button>
                                             )
+                                          ) : r.status === 'pending_cash' ? (
+                                            // The money arriving IS the verification, and the
+                                            // person handing it over is at the desk waiting to
+                                            // be scanned in - so it is one tap, not two.
+                                            <button role="menuitem" className="ok" onClick={() => {
+                                              setOpenRowMenu(null);
+                                              askConfirm(
+                                                `Collect ${peso(Math.max(0, owed - paid))} in cash from ${name} and confirm their registration? Their attendance QR and RFID card unlock straight away.`,
+                                                () => verifyRegistration(r.id, 'payment_verified'),
+                                                { title: 'Collect Cash?', subtitle: eventRegsModal.title, confirmLabel: 'Collect & Verify', icon: 'fa-money-bill-wave' },
+                                              );
+                                            }}>
+                                              <i className="fas fa-money-bill-wave"></i> Collect Cash &amp; Verify
+                                              <em>{peso(Math.max(0, owed - paid))} due</em>
+                                            </button>
                                           ) : (r.status === 'payment_submitted' || r.status === 'pending_payment') && (
                                             <button role="menuitem" className="ok" onClick={() => { setOpenRowMenu(null); verifyRegistration(r.id, 'payment_verified'); }}>
                                               <i className="fas fa-check"></i> Verify
@@ -4955,7 +5001,7 @@ export default function CommitteeDashboardPage() {
                                     </span>
                                     <span className="evt-pay-picker-name">
                                       {picked.name}
-                                      <span className={`pm-badge ${picked.category}`}>{picked.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                      <span className={`pm-badge ${picked.category}`}>{channelTypeLabel(picked)}</span>
                                     </span>
                                   </>
                                 ) : (
@@ -4999,7 +5045,7 @@ export default function CommitteeDashboardPage() {
                                         </span>
                                         <span className="evt-pay-picker-name">
                                           {m.name}
-                                          <span className={`pm-badge ${m.category}`}>{m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                          <span className={`pm-badge ${m.category}`}>{channelTypeLabel(m)}</span>
                                         </span>
                                         {String(payPick) === String(m.id) && <i className="fas fa-check evt-pay-picker-tick"></i>}
                                       </button>
@@ -5882,8 +5928,7 @@ export default function CommitteeDashboardPage() {
               <div className="evt-tabs pm-tabs">
                 {[
                   { key: 'all', label: 'All', icon: 'fas fa-list' },
-                  { key: 'bank', label: 'Bank Transfers', icon: 'fas fa-building-columns' },
-                  { key: 'online', label: 'Online Payments', icon: 'fas fa-mobile-screen-button' },
+                  ...PAYMENT_CATEGORIES.map((c) => ({ key: c.key, label: c.plural, icon: c.icon })),
                 ].map((t) => (
                   <button
                     key={t.key}
@@ -5923,20 +5968,25 @@ export default function CommitteeDashboardPage() {
                         </span>
 
                         <div className="pm-card-top">
-                          <div className="pm-logo" style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
+                          <div className={`pm-logo ${isCashChannel(m) && !m.logo_url ? 'pm-logo-cash' : ''}`} style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
                             {m.logo_url
                               ? <img src={m.logo_url} alt={m.name} />
-                              : <span>{getPaymentInitials(m.name)}</span>}
+                              : isCashChannel(m)
+                                ? <span><i className="fas fa-money-bill-wave"></i></span>
+                                : <span>{getPaymentInitials(m.name)}</span>}
                           </div>
                           <div className="pm-card-title">
                             <h3>{m.name}</h3>
                             <span className={`pm-badge ${m.category}`}>
-                              <i className={m.category === 'bank' ? 'fas fa-building-columns' : 'fas fa-mobile-screen-button'}></i>
-                              {m.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}
+                              <i className={channelTypeIcon(m)}></i>
+                              {channelTypeLabel(m)}
                             </span>
                           </div>
                         </div>
 
+                        {/* Cash has no account, so the two rows that would both
+                            read "—" are left out and the instructions carry it. */}
+                        {channelHasAccount(m) ? (
                         <dl className="pm-card-details">
                           <div className="pm-detail">
                             <dt>Account Number</dt>
@@ -5961,6 +6011,12 @@ export default function CommitteeDashboardPage() {
                             </dd>
                           </div>
                         </dl>
+                        ) : (
+                          <p className="pm-cash-line">
+                            <i className="fas fa-hand-holding-dollar"></i>
+                            <span>Handed over in person &mdash; no account, no receipt to upload.</span>
+                          </p>
+                        )}
 
                         {m.qr_url && (
                           <button type="button" className="pm-qr-card" onClick={() => setQrLightbox({ url: m.qr_url, name: m.name })}>
@@ -6090,25 +6146,53 @@ export default function CommitteeDashboardPage() {
                           <div className="pm-row pm-row-2">
                             <label className="pm-field">
                               <span>Type</span>
-                              <select value={pmForm.category} onChange={(e) => setPmForm((f) => ({ ...f, category: e.target.value }))}>
-                                <option value="bank">Bank Transfer</option>
-                                <option value="online">Online Payment</option>
+                              <select
+                                value={pmForm.category}
+                                onChange={(e) => setPmForm((f) => {
+                                  // Switching to cash clears the account it can no longer
+                                  // show, so nothing stale is left behind the hidden boxes.
+                                  const category = e.target.value;
+                                  const wasDefault = !f.logoColor || f.logoColor === defaultChannelColor(f.category);
+                                  return {
+                                    ...f,
+                                    category,
+                                    logoColor: wasDefault ? defaultChannelColor(category) : f.logoColor,
+                                    ...(category === 'cash' ? { accountNumber: '', accountName: '', qrUrl: '' } : {}),
+                                  };
+                                })}
+                              >
+                                {PAYMENT_CATEGORIES.map((c) => (
+                                  <option key={c.key} value={c.key}>{c.label}</option>
+                                ))}
                               </select>
                             </label>
                             <label className="pm-field">
-                              <span>{pmForm.category === 'bank' ? 'Bank Name *' : 'Channel Name *'}</span>
+                              <span>{channelNameLabel(pmForm.category)}</span>
                               <input
                                 type="text"
                                 value={pmForm.name}
-                                placeholder={pmForm.category === 'bank' ? 'e.g. BDO, BPI, Maribank' : 'e.g. GCash, Maya, PayPal'}
+                                placeholder={channelNamePlaceholder(pmForm.category)}
                                 onChange={(e) => setPmForm((f) => ({ ...f, name: e.target.value }))}
                               />
                             </label>
                           </div>
                         </fieldset>
 
+                        {/* Cash has no account to pay into, so that whole half of the
+                            form is not drawn for it - only the instructions, which
+                            for cash are the entire point of the entry. */}
                         <fieldset className="pm-fieldset">
-                          <legend>Account Details</legend>
+                          <legend>{channelHasAccount(pmForm) ? 'Account Details' : 'How to Pay'}</legend>
+                          {!channelHasAccount(pmForm) && (
+                            <p className="pm-cash-hint">
+                              <i className="fas fa-money-bill-wave"></i>
+                              <span>
+                                No account number, account name or QR code &mdash; the money is handed over
+                                in person. Tell attendees <strong>where</strong> and <strong>when</strong> below.
+                              </span>
+                            </p>
+                          )}
+                          {channelHasAccount(pmForm) && (
                           <div className="pm-row pm-row-2">
                             <label className="pm-field">
                               <span>Account Number</span>
@@ -6129,7 +6213,9 @@ export default function CommitteeDashboardPage() {
                               />
                             </label>
                           </div>
+                          )}
 
+                          {channelHasAccount(pmForm) && (
                           <div className="pm-row pm-row-qr">
                             <div className="pm-field">
                               <span>QR Code (optional)</span>
@@ -6164,13 +6250,14 @@ export default function CommitteeDashboardPage() {
                               </div>
                             </div>
                           </div>
+                          )}
 
                           <label className="pm-field">
-                            <span>Notes / Instructions (optional)</span>
+                            <span>{channelNotesLabel(pmForm.category)}</span>
                             <textarea
-                              rows={2}
+                              rows={channelHasAccount(pmForm) ? 2 : 3}
                               value={pmForm.notes}
-                              placeholder="e.g. Please send the deposit slip to the church office."
+                              placeholder={channelNotesPlaceholder(pmForm.category)}
                               onChange={(e) => setPmForm((f) => ({ ...f, notes: e.target.value }))}
                             />
                           </label>

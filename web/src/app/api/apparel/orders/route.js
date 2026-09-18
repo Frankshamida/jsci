@@ -7,6 +7,7 @@ import {
 } from '@/lib/apparel';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 import { listVisibleChannels, paymentsForBasket, cashLabelForItem } from '@/lib/apparelPayments';
+import { isCashChannel } from '@/lib/paymentChannels';
 
 // The apparel order desk.
 //
@@ -249,11 +250,15 @@ export async function POST(request) {
             : 'That payment channel is not accepted for everything in your basket.');
         }
         // Paying into an account means proving it arrived, exactly as
-        // registering for a paid event does.
-        if (!proofUrl) return fail('Upload a screenshot of your payment receipt.');
+        // registering for a paid event does. A cash CHANNEL is not an account -
+        // the money is handed over at a desk and there is no screenshot to take -
+        // so it is exempt, the same way the older `payCash` switch above is.
+        if (!isCashChannel(channel) && !proofUrl) {
+          return fail('Upload a screenshot of your payment receipt.');
+        }
         paymentMethod = channel.name;
         paymentChannelId = channel.id;
-        paymentProof = proofUrl;
+        paymentProof = isCashChannel(channel) ? null : proofUrl;
       } else {
         return fail('Choose how you are paying');
       }

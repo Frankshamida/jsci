@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 import { cached, cacheInvalidate } from '@/lib/serverCache';
-import { SLOT_HOLDING_STATUSES } from '@/lib/eventSlots';
+import { SLOT_HOLDING_STATUSES, CASH_PENDING_STATUS } from '@/lib/eventSlots';
 import { findEventActor, canWorkEvent, actorRoleLabel, staffDeniedMessage } from '@/lib/eventCommittee';
+import { resolveCashPayment } from '@/lib/cashPayment';
 
 // Churches are typed by hand, so the same church arrives as "joyful sound church"
 // and "Joyful Sound Church". Stored in Title Case so the list stays one entry.
@@ -180,7 +181,10 @@ export async function GET(request) {
         const { data: rows, error } = await supabase
           .from('event_registrations')
           .select('id, attendee_name, status, created_at, cancel_status, cancel_requested_at, refund_due_at, event:events(id, title, is_active)')
-          .in('status', ['payment_submitted', 'pending_payment', 'registered'])
+          // pending_cash belongs here too: it is money the desk still has to
+          // collect, and leaving it out would hide every cash registration
+          // from the one place staff look for outstanding payments.
+          .in('status', ['payment_submitted', 'pending_payment', 'pending_cash', 'registered'])
           .is('deleted_at', null)
           .order('created_at', { ascending: false })
           .limit(100);
@@ -279,7 +283,10 @@ export async function GET(request) {
     // The second only exists once event_group_owner.sql has been run, so a
     // database without it falls back to the slots and simply shows no groups.
     if (!eventId && userId) {
-      const withEvent = '*, event:events(id, title, description, image_url, event_date, end_date, location, loc_city, loc_province, latitude, longitude, has_fee, registration_fee)';
+      // payment_* come back too: the Pay Now dialog is built from exactly this
+      // row, so without them it has no channels to offer and no instructions
+      // to show - a cash entry would be invisible there.
+      const withEvent = '*, event:events(id, title, description, image_url, event_date, end_date, location, loc_city, loc_province, latitude, longitude, has_fee, registration_fee, payment_method_ids, payment_methods, payment_instructions)';
       const mine = () => supabase
         .from('event_registrations')
         .select(withEvent)
@@ -421,7 +428,7 @@ export async function POST(request) {
 
     // Load the event to apply free/paid + capacity + deadline + audience rules
     const { data: event, error: evErr } = await supabase.from('events')
-      .select('id, title, has_fee, registration_fee, early_bird_price, early_bird_deadline, max_participants, registration_deadline, is_active, is_published, allowed_roles')
+      .select('id, title, has_fee, registration_fee, early_bird_price, early_bird_deadline, max_participants, registration_deadline, is_active, is_published, allowed_roles, payment_method_ids, payment_methods')
       .eq('id', eventId).single();
     if (evErr || !event) return NextResponse.json({ success: false, message: 'Event not found' }, { status: 404 });
     if (event.is_active === false) return NextResponse.json({ success: false, message: 'This event is no longer available' }, { status: 400 });
@@ -579,7 +586,17 @@ export async function POST(request) {
       .filter((a) => topUpIds.includes(a.id))
       .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
     const dueNow = isBulk ? groupTotal + topUpTotal : amount;
-    if (dueNow > 0) status = (proofUrl || paymentReference) ? 'payment_submitted' : 'pending_payment';
+    // Cash is decided by the METHOD, not by whether a receipt turned up: there
+    // is never going to be one. It holds the seat (see lib/eventSlots) but is
+    // not 'payment_submitted' - there is nothing submitted for an admin to
+    // check, and telling the verification queue otherwise would fill it with
+    // rows that have no proof to look at.
+    const cashPay = dueNow > 0 ? await resolveCashPayment(event, paymentMethod) : { isCash: false, name: null };
+    if (dueNow > 0) {
+      status = cashPay.isCash
+        ? CASH_PENDING_STATUS
+        : ((proofUrl || paymentReference) ? 'payment_submitted' : 'pending_payment');
+    }
 
     // One id shared by every row of the same group, so the admin can see the
     // five people who arrived on one payment as one booking.
@@ -666,9 +683,14 @@ export async function POST(request) {
       // 'flexible' means this will be settled over several payments, recorded
       // against the registration in event_registration_payments.
       payment_plan: fields.paymentPlan === 'flexible' ? 'flexible' : 'full',
-      payment_method: paymentMethod || null,
-      payment_reference: paymentReference || null,
-      payment_proof_url: proofUrl,
+      // The channel's own spelling of its name, so renaming it later cannot
+      // leave two spellings of one account across the registration list.
+      payment_method: (cashPay.isCash ? cashPay.name : paymentMethod) || null,
+      // A cash row must never carry these. Someone who typed a reference and
+      // then switched the picker to Cash would otherwise save a row that reads
+      // as an online payment to every screen and every cash/online total.
+      payment_reference: cashPay.isCash ? null : (paymentReference || null),
+      payment_proof_url: cashPay.isCash ? null : proofUrl,
       status,
       ...(status === 'payment_verified' && adminActor
         ? { verified_by: adminActor.id, verified_at: new Date().toISOString() }
@@ -812,14 +834,29 @@ export async function POST(request) {
             patch.status = 'payment_verified';
             patch.verified_by = adminActor.id;
             patch.verified_at = new Date().toISOString();
+          } else if (cashPay.isCash) {
+            // Topping up in cash: still nothing submitted to check, still a
+            // seat held, still money owed at the desk.
+            patch.status = CASH_PENDING_STATUS;
+            patch.verified_by = null;
+            patch.verified_at = null;
           } else {
             // A guest adding an extra owes fresh money that has to be checked.
             patch.status = 'payment_submitted';
             patch.verified_by = null;
             patch.verified_at = null;
           }
-          if (paymentReference) patch.payment_reference = paymentReference;
-          if (proofUrl) patch.payment_proof_url = proofUrl;
+          // Cleared rather than merely left alone: a row now being settled in
+          // cash must not keep the reference and receipt of the bank payment
+          // that came before it.
+          if (cashPay.isCash) {
+            patch.payment_method = cashPay.name;
+            patch.payment_reference = null;
+            patch.payment_proof_url = null;
+          } else {
+            if (paymentReference) patch.payment_reference = paymentReference;
+            if (proofUrl) patch.payment_proof_url = proofUrl;
+          }
           await supabase.from('event_registrations').update(patch).eq('id', target.id);
           await logAudit(adminActor, 'event_registration_update', target.id,
             `${fields.representative || attendeeName} added ${added.map((a) => a.question).join(', ')} (+P${extra}) to their registration for "${event.title}"`);
@@ -1352,13 +1389,13 @@ export async function PUT(request) {
 
     const update = {};
     if (status) {
-      const valid = ['pending_payment', 'payment_submitted', 'installment', 'payment_verified', 'registered', 'cancelled'];
+      const valid = ['pending_payment', 'payment_submitted', 'pending_cash', 'installment', 'payment_verified', 'registered', 'cancelled'];
       if (!valid.includes(status)) return NextResponse.json({ success: false, message: 'Invalid status' }, { status: 400 });
       update.status = status;
       if (status === 'payment_verified' || status === 'registered') { update.verified_by = actor.id; update.verified_at = new Date().toISOString(); }
       // Going back to unverified must drop the old signature, or the row still
       // reads as "checked by X" while it waits to be checked again.
-      if (status === 'payment_submitted' || status === 'pending_payment' || status === 'installment') { update.verified_by = null; update.verified_at = null; }
+      if (status === 'payment_submitted' || status === 'pending_payment' || status === 'pending_cash' || status === 'installment') { update.verified_by = null; update.verified_at = null; }
     }
     if (attended === true) { update.attended = true; update.attended_at = new Date().toISOString(); update.attended_by = actor.id; }
     else if (attended === false) { update.attended = false; update.attended_at = null; update.attended_by = null; }

@@ -6,7 +6,21 @@ export const dynamic = 'force-dynamic';
 // Only these roles may add / edit / remove payment channels.
 const MANAGER_ROLES = ['Admin', 'Super Admin', 'Pastor'];
 
-const CATEGORIES = ['bank', 'online'];
+// 'bank' and 'online' are accounts you send money TO. 'cash' is money handed to
+// a person at a desk, so it carries a name and instructions and nothing else -
+// see CASH_BLANKS below.
+const CATEGORIES = ['bank', 'online', 'cash'];
+
+// Cash has no account to pay into and no QR to scan. Rather than trust the form
+// to send empty strings, the columns are blanked here, so switching an existing
+// bank channel over to cash cannot leave a stale account number behind for a
+// payer to copy.
+const CASH_BLANKS = { account_number: null, account_name: null, qr_url: null };
+
+// Cash is drawn in amber everywhere it appears (.pm-logo-cash) - green already
+// means "online payment" - so a cash row with no logo defaults to amber rather
+// than to the bank blue.
+const DEFAULT_COLOR = (category) => (category === 'cash' ? '#d97706' : '#1e3a8a');
 
 async function verifyManager(actorId) {
   if (!actorId) return null;
@@ -54,6 +68,12 @@ async function usageByMethod() {
 // Trim to null so empty inputs don't store empty strings.
 const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
+// "Bank name" is wrong for the other two - a cash entry is named for where the
+// money is handed over, not for a bank.
+const nameRequired = (category) => (category === 'cash'
+  ? 'Give this cash option a name, e.g. "Cash on the day"'
+  : 'Bank / channel name is required');
+
 // GET                 -> active payment methods (public, for payers)
 // GET ?actorId=..     -> all payment methods incl. inactive (managers only)
 export async function GET(request) {
@@ -95,10 +115,10 @@ export async function POST(request) {
     const actor = await verifyManager(body.actorId);
     if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
 
-    if (!clean(body.name)) {
-      return NextResponse.json({ success: false, message: 'Bank / channel name is required' }, { status: 400 });
-    }
     const category = CATEGORIES.includes(body.category) ? body.category : 'bank';
+    if (!clean(body.name)) {
+      return NextResponse.json({ success: false, message: nameRequired(category) }, { status: 400 });
+    }
 
     const { data, error } = await supabase.from('payment_methods').insert({
       category,
@@ -107,8 +127,9 @@ export async function POST(request) {
       account_name: clean(body.accountName),
       logo_url: clean(body.logoUrl),
       qr_url: clean(body.qrUrl),
-      logo_color: clean(body.logoColor) || '#1e3a8a',
+      logo_color: clean(body.logoColor) || DEFAULT_COLOR(category),
       notes: clean(body.notes),
+      ...(category === 'cash' ? CASH_BLANKS : {}),
       is_active: body.isActive !== false,
       sort_order: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
       created_by: actor.id,
@@ -131,6 +152,12 @@ export async function PATCH(request) {
     const actor = await verifyManager(body.actorId);
     if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
 
+    // The row as it stands, so an edit that does not mention the category is
+    // still judged against the category the row HAS. Without this, a PATCH that
+    // sent only an accountNumber could write a bank account onto a cash row.
+    const { data: existing } = await supabase
+      .from('payment_methods').select('category').eq('id', body.id).single();
+
     const update = { updated_at: new Date().toISOString() };
     if (body.category !== undefined) {
       if (!CATEGORIES.includes(body.category)) {
@@ -139,17 +166,27 @@ export async function PATCH(request) {
       update.category = body.category;
     }
     if (body.name !== undefined) {
-      if (!clean(body.name)) return NextResponse.json({ success: false, message: 'Bank / channel name is required' }, { status: 400 });
+      if (!clean(body.name)) {
+        return NextResponse.json({ success: false, message: nameRequired(update.category || existing?.category) }, { status: 400 });
+      }
       update.name = clean(body.name);
     }
     if (body.accountNumber !== undefined) update.account_number = clean(body.accountNumber);
     if (body.accountName !== undefined) update.account_name = clean(body.accountName);
     if (body.logoUrl !== undefined) update.logo_url = clean(body.logoUrl);
     if (body.qrUrl !== undefined) update.qr_url = clean(body.qrUrl);
-    if (body.logoColor !== undefined) update.logo_color = clean(body.logoColor) || '#1e3a8a';
+    if (body.logoColor !== undefined) update.logo_color = clean(body.logoColor) || DEFAULT_COLOR(update.category || existing?.category);
     if (body.notes !== undefined) update.notes = clean(body.notes);
     if (body.isActive !== undefined) update.is_active = !!body.isActive;
     if (body.sortOrder !== undefined && Number.isFinite(Number(body.sortOrder))) update.sort_order = Number(body.sortOrder);
+
+    // Turning an existing bank or online channel into cash has to take the
+    // account away with it, and an edit to a row that is ALREADY cash must not
+    // be able to put one back. The form hides those fields once cash is chosen,
+    // so without this the old number would stay in the row - invisible to the
+    // Admin who changed it, and still shown to everyone asked to pay.
+    const nextCategory = update.category || existing?.category;
+    if (nextCategory === 'cash') Object.assign(update, CASH_BLANKS);
 
     const { data, error } = await supabase.from('payment_methods').update(update).eq('id', body.id).select().single();
     if (error) throw error;

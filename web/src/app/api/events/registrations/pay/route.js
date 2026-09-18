@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 import { cacheInvalidate } from '@/lib/serverCache';
+import { CASH_PENDING_STATUS } from '@/lib/eventSlots';
+import { resolveCashPayment } from '@/lib/cashPayment';
 
 async function logAudit(userId, action, resourceId, details) {
   try {
@@ -67,7 +69,9 @@ export async function POST(request) {
 
     const { data: event, error: evErr } = await supabase
       .from('events')
-      .select('id, has_fee, registration_fee, early_bird_price, early_bird_deadline')
+      // payment_method_ids so a cash channel can be recognised from the label
+      // the payer picked - cash settles at the desk, not here.
+      .select('id, has_fee, registration_fee, early_bird_price, early_bird_deadline, payment_method_ids')
       .eq('id', reg.event_id).single();
     if (evErr || !event) return NextResponse.json({ success: false, message: 'Event not found' }, { status: 404 });
     if (!event.has_fee) return NextResponse.json({ success: false, message: 'This event no longer requires payment' }, { status: 400 });
@@ -77,13 +81,20 @@ export async function POST(request) {
       amount = Number(event.early_bird_price);
     }
 
+    // Choosing cash here is a promise to pay at the desk, not a payment: it
+    // holds the seat but has nothing for an admin to verify, so it must not
+    // land in the verification queue with an empty receipt.
+    const cashPay = await resolveCashPayment(event, paymentMethod);
     const update = {
       amount,
-      payment_method: paymentMethod || null,
-      payment_reference: paymentReference || null,
-      status: (proofUrl || paymentReference) ? 'payment_submitted' : 'pending_payment',
+      payment_method: (cashPay.isCash ? cashPay.name : paymentMethod) || null,
+      payment_reference: cashPay.isCash ? null : (paymentReference || null),
+      status: cashPay.isCash
+        ? CASH_PENDING_STATUS
+        : ((proofUrl || paymentReference) ? 'payment_submitted' : 'pending_payment'),
     };
-    if (proofUrl) update.payment_proof_url = proofUrl;
+    if (cashPay.isCash) update.payment_proof_url = null;
+    else if (proofUrl) update.payment_proof_url = proofUrl;
 
     const { data, error } = await supabase.from('event_registrations').update(update).eq('id', registrationId).select().single();
     if (error) throw error;
@@ -91,7 +102,13 @@ export async function POST(request) {
     // Payment moves this into the admin's "needs verification" set — refresh the bell.
     cacheInvalidate('events:pending-registrations');
     await logAudit(userId, 'event_payment_submit', registrationId, `Payment submitted for registration ${registrationId} (₱${amount})`);
-    return NextResponse.json({ success: true, data, message: 'Payment submitted. Your registration will be confirmed once verified.' });
+    return NextResponse.json({
+      success: true,
+      data,
+      message: cashPay.isCash
+        ? 'Noted — your place is held. Pay at the desk and an admin will confirm it.'
+        : 'Payment submitted. Your registration will be confirmed once verified.',
+    });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }

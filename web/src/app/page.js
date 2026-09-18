@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import './home.css';
 import { withTitleCase } from '@/lib/eventTitle';
 import { eventSlug, findEventBySlug, slugFromPath } from '@/lib/eventSlug';
+import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
+import { buildEventsDigest, eventsMentionedIn, evtPlaceLabel } from '@/lib/eventDigest';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
+import { isCashChannel, channelTypeLabel, channelTypeIcon, eventTakesCash } from '@/lib/paymentChannels';
 
 // ============================================
 // DATA
@@ -63,40 +66,9 @@ const ISOM_SLIDES = [
 const ISOM_BULLET_ICONS = ['fa-bible', 'fa-dove', 'fa-people-group', 'fa-earth-americas'];
 
 // ---- Event date helpers -------------------------------------------------
-// Event datetimes are stored as WALL-CLOCK time: the form posts what the admin
-// typed ("2026-09-08T10:00") and Postgres stamps it +00:00, so Supabase hands
-// back "2026-09-08T10:00:00+00:00" meaning "10:00 on the day", not an instant
-// in UTC. Passing that to `new Date()` shifts it by the viewer's offset - in
-// Manila a 10:00 AM - 6:00 PM event rendered as 6:00 PM - 2:00 AM and so looked
-// like it spanned two days. So the components are read off the string and
-// rebuilt as a local Date, which is what every display below expects.
-const evtDate = (str) => {
-  if (!str) return null;
-  if (str instanceof Date) return Number.isNaN(str.getTime()) ? null : str;
-  const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) {
-    const fallback = new Date(str);
-    return Number.isNaN(fallback.getTime()) ? null : fallback;
-  }
-  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
-  return Number.isNaN(d.getTime()) ? null : d;
-};
-// Same value as a millisecond stamp, or null. Handy for the many
-// `? ... .getTime() : null` comparisons against Date.now().
-const evtMs = (str) => { const d = evtDate(str); return d ? d.getTime() : null; };
-
-// How many CALENDAR days an event covers: Fri 9am -> Sun 5pm is 3 days to a
-// person even though it is 56 hours, so both ends are normalised to midnight.
-const evtDayCount = (startStr, endStr) => {
-  if (!startStr || !endStr) return 1;
-  const s = evtDate(startStr);
-  const e = evtDate(endStr);
-  if (!s || !e) return 1;
-  const s0 = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const e0 = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-  const days = Math.round((e0.getTime() - s0.getTime()) / 86400000) + 1;
-  return days < 1 ? 1 : days;
-};
+// evtDate / evtMs / evtDayCount / evtStatus / evtWhen now live in
+// src/lib/eventWhen.js, because Joy's event briefing (lib/eventDigest) has to
+// read an event's dates exactly the way these cards do.
 
 // "Cebu Event" - the place people know the event by. Uses the city, falling
 // back to the province or region, and drops a redundant "City" suffix so it
@@ -147,19 +119,6 @@ const evtSessions = (evt) => {
   return rows.slice().sort((a, b) => (a.day_number || 0) - (b.day_number || 0));
 };
 
-// Where the event sits relative to now. Used for the status pill.
-// An event with no end date is treated as over once its start has passed.
-const evtStatus = (startStr, endStr) => {
-  if (!startStr) return null;
-  const s = evtDate(startStr);
-  if (!s) return null;
-  const now = Date.now();
-  const endMs = evtMs(endStr) ?? s.getTime();
-  if (now < s.getTime()) return 'upcoming';
-  if (now <= endMs) return 'ongoing';
-  return 'ended';
-};
-
 // Whether registration is actually open for an event, and when it is not, why.
 // The details modal reads this to decide what its button says; the magic-link
 // handler reads the same thing to decide between opening the form and opening
@@ -188,28 +147,6 @@ const evtRegGate = (evt) => {
 const evtRegOpen = (evt) => {
   const gate = evtRegGate(evt);
   return gate.required && !gate.full && !gate.notOpenYet && !gate.closed;
-};
-
-// "Saturday, September 26, 2025 at 9:00 AM - Monday, September 28 at 5:00 PM"
-// The old version formatted end_date with hour+minute ONLY, so a multi-day
-// event read as "September 26 at 9:00 AM - 5:00 PM" and silently lost the
-// end date entirely. Same-day events still collapse to just the end time.
-const evtWhen = (startStr, endStr) => {
-  if (!startStr) return 'TBA';
-  const s = evtDate(startStr);
-  if (!s) return 'TBA';
-  const full = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' };
-  const startTxt = s.toLocaleString('en-US', full);
-  if (!endStr) return startTxt;
-  const e = evtDate(endStr);
-  if (!e) return startTxt;
-  const sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
-  if (sameDay) return startTxt + ' \u2013 ' + e.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' });
-  const sameYear = s.getFullYear() === e.getFullYear();
-  const endTxt = e.toLocaleString('en-US', sameYear
-    ? { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }
-    : full);
-  return startTxt + ' \u2013 ' + endTxt;
 };
 
 // The AI is reached through our own server (src/app/api/ai/chat), never
@@ -243,6 +180,10 @@ export default function HomePage() {
     slides: ISOM_SLIDES.map((url) => ({ url })),
   });
   const [newsEvents, setNewsEvents] = useState([]);
+  // The same published events as `newsEvents`, but the whole list rather than
+  // the eight the News section shows. Joy answers out of this, so a visitor
+  // asking about the ninth event still gets a real answer.
+  const [liveEvents, setLiveEvents] = useState([]);
   const [eventsVersion, setEventsVersion] = useState(0); // bumped after a registration so the slot counts refresh
   const [detailEvent, setDetailEvent] = useState(null);
 
@@ -733,6 +674,8 @@ export default function HomePage() {
     registered: { label: 'REGISTERED', cls: 'paid' },
     payment_submitted: { label: 'FOR VERIFICATION', cls: 'pending' },
     pending_payment: { label: 'UNPAID', cls: 'unpaid' },
+    // Booked, owing cash at the desk - not the same as simply unpaid.
+    pending_cash: { label: 'PAY AT DESK', cls: 'cash' },
     // Being paid down over several visits - not something waiting on an admin.
     installment: { label: 'INSTALLMENT', cls: 'pending' },
   };
@@ -926,6 +869,11 @@ export default function HomePage() {
     // The picker sets paymentMethod, so nothing picked means nothing to check against.
     if (eventChannels(guestRegEvent).length > 0 && !guestPayChannel) errs.paymentMethod = 'Please choose where you sent the payment.';
     else if ((guestRegEvent?.payment_methods || []).length > 1 && !guestRegForm.paymentMethod) errs.paymentMethod = 'Please choose how you paid.';
+    // Cash is handed over at the desk, so there is no number to quote and no
+    // receipt to photograph. Asking for either would make the form impossible
+    // to finish for the one method that has neither.
+    const pickedChannel = eventChannels(guestRegEvent).find((c) => c.id === guestPayChannel);
+    if (pickedChannel ? isCashChannel(pickedChannel) : eventTakesCash([], [guestRegForm.paymentMethod])) return errs;
     if (!guestRegForm.paymentReference.trim()) errs.paymentReference = 'Reference number is required.';
     if (!guestRegProof) errs.proof = 'Proof of payment is required.';
     return errs;
@@ -1201,7 +1149,12 @@ export default function HomePage() {
               if (bUpcoming) return 1;
               return db - da;
             });
-            setNewsEvents(sorted.slice(0, 8).map(withTitleCase));
+            const titled = sorted.map(withTitleCase);
+            setNewsEvents(titled.slice(0, 8));
+            // Joy reads the full list, not the eight on the cards - and the
+            // title-cased copy, so the name she says back matches the name on
+            // the poster the visitor is looking at.
+            setLiveEvents(titled);
           }
         }
       } catch { /* fall back to defaults */ }
@@ -1390,6 +1343,40 @@ export default function HomePage() {
     }
   }, [chatMessages, chatLoading, chatOpen]);
 
+  // ---- Chatbot: freshen the events before she is asked about them ----
+  // A tab left open for an hour would otherwise have Joy quoting the slot count
+  // from whenever the page was loaded. Opening the chat re-reads the list; the
+  // route is cached for half a minute on the server and twenty seconds in the
+  // browser, so this costs nothing when the chat is opened and closed again.
+  useEffect(() => {
+    if (chatOpen) setEventsVersion((v) => v + 1);
+  }, [chatOpen]);
+
+  // The events briefing Joy answers out of. Rebuilt whenever the event list
+  // changes (a registration comes in, an admin edits a date), so what she says
+  // is the row as it stands in Supabase - not a fact typed into a prompt once.
+  const eventsDigest = useMemo(() => buildEventsDigest(liveEvents), [liveEvents]);
+
+  // Starter chips under the greeting. The first one names the next event by its
+  // real name, so a visitor who has never heard of it can ask about it without
+  // having to know it exists - which is the whole difficulty with a chatbot on
+  // a church page: people do not know what to ask it.
+  const chatSuggestions = useMemo(() => {
+    const next = liveEvents[0];
+    const chips = [];
+    if (next) {
+      // With the town, because the next two events can be the same conference
+      // in two cities - "Tell me about Miracle Working God" would be a question
+      // Joy has to answer with another question.
+      const place = evtPlaceLabel(next);
+      chips.push(`Tell me about ${next.title}${place ? ` in ${place}` : ''}`);
+    }
+    if (liveEvents.length > 1) chips.push('What events are coming up?');
+    chips.push('What time is Sunday service?');
+    if (chips.length < 3) chips.push('How do I enroll in ISOM?');
+    return chips;
+  }, [liveEvents]);
+
   const CHAT_SYSTEM_PROMPT = `You are "Joy", the professional AI assistant for SanctuaryHub — the online ministry portal of Jesus Sanctuary Christian International (JSCI).
 
 TONE & STYLE:
@@ -1406,7 +1393,20 @@ KEY FACTS:
 - ISOM (International School of Ministries) is a ministry-training program. Classes begin **August 2026**. People enroll by signing up / clicking "Enroll Now".
 - Users can sign up or log in from the navbar buttons, and watch live streams when a service is live.
 
-If you don't know something specific, professionally encourage the user to contact the church office or visit in person. Keep answers focused (usually 2-4 short paragraphs or a short list). Never invent doctrine; refer spiritual counsel to a pastor.`;
+If you don't know something specific, professionally encourage the user to contact the church office or visit in person. Keep answers focused (usually 2-4 short paragraphs or a short list). Never invent doctrine; refer spiritual counsel to a pastor.
+
+ANSWERING ABOUT EVENTS:
+- The EVENT DATA below is live from the church's own database. It is the ONLY source you may use for events. Never invent an event, a date, a venue, a price or a slot count, and never repeat an event from an earlier conversation that is not in the list below.
+- Use the event's name EXACTLY as written below (in **bold**), so the visitor can match it to the poster on the page.
+- Two events can share the same name and be held in different cities on different dates. When that happens, NEVER merge them into one answer — list them separately and always say which city each one is in, e.g. **Miracle Working God** in **Cebu City** and **Miracle Working God** in **Ormoc**. If the visitor asks about that name, ask which city they mean, or give both.
+- When asked "what events are coming up", list them shortest-notice first, ONE bullet per event: the name in **bold**, then the date, the city and how long it runs, separated by em dashes on that same line. Never nest bullets under a bullet — the chat window only renders one level. Then offer to give full details on any of them.
+- When asked about ONE event, give the useful specifics: **when** (with the day of the week), **where** (the full venue), **how many days** it runs, the daily start and end times when it has a multi-day schedule, the **cost**, how many **slots are left**, and whether registration is open, closing soon, or already full.
+- If registration is not open yet, closed, or fully booked, say so plainly and say why — never invite someone to register for an event they cannot join.
+- If an event is free, say **Free**. If it has a fee, always give the peso amount. Mention early-bird pricing and its deadline when one is still running.
+- If there are no events in the data below, say so honestly and invite them to check back or join the weekly services. Do NOT guess.
+- Do not paste URLs and do not name a specific button. After you name an event, a button for it appears under your message automatically, so you may end with something like "tap the button below to see the full details or to register".
+
+${eventsDigest}`;
 
   // Render a single line, converting **bold** markdown into <strong> spans
   const renderInline = (text, keyPrefix) => {
@@ -1449,11 +1449,63 @@ If you don't know something specific, professionally encourage the user to conta
     return blocks;
   };
 
-  // Detect sign-up / sign-in intent in a reply and attach clickable buttons
-  const buildChatActions = (reply) => {
+  // Turn a reply into the buttons that go under it.
+  //
+  // An answer about an event is only half an answer while the visitor still has
+  // to scroll back up and hunt for the card. So any event Joy actually named
+  // gets its own button: one tap opens that event's details, and a second one
+  // opens the registration form when registration is genuinely open - the same
+  // gate the card's own button obeys, so she never offers a form that would
+  // turn the person away.
+  const buildChatActions = (reply, events = []) => {
     const t = reply.toLowerCase();
     const actions = [];
-    if (/(sign\s?up|signup|register|enroll|create an account|join)/.test(t)) {
+
+    const mentioned = eventsMentionedIn(reply, events).slice(0, 3);
+    const shorten = (text) => (text.length > 24 ? `${text.slice(0, 23).trimEnd()}…` : text);
+    // The same conference is run in several cities under one name, so a button
+    // labelled with the title would give the visitor two identical buttons and
+    // no way to tell which is which. Where the names collide, the town is the
+    // label instead - it is the only part that differs.
+    const sameName = new Set(mentioned.map((e) => e.title.toLowerCase())).size < mentioned.length;
+    mentioned.forEach((evt) => {
+      const place = evtPlaceLabel(evt);
+      const label = mentioned.length === 1
+        ? 'View Details'
+        : shorten(sameName && place ? place : evt.title);
+      actions.push({
+        label,
+        icon: 'fa-circle-info',
+        onClick: () => { setChatOpen(false); setDetailEvent(evt); },
+      });
+    });
+    // Only when she is talking about ONE event - two Register buttons side by
+    // side is a question, not a shortcut.
+    if (mentioned.length === 1 && evtRegOpen(mentioned[0])) {
+      actions.push({
+        label: 'Register',
+        icon: 'fa-user-plus',
+        onClick: () => { setChatOpen(false); handlePublicRegister(mentioned[0]); },
+      });
+    }
+    // She spoke about events but did not name all of them - send them to the
+    // section that has the rest. Pointless when the ones she named ARE all of
+    // them, which is why this counts rather than just checking for a mention.
+    if (/\bevent/.test(t) && liveEvents.length > 0 && mentioned.length < liveEvents.length) {
+      actions.push({
+        label: 'See All Events',
+        icon: 'fa-calendar-days',
+        onClick: () => { setChatOpen(false); scrollToSection('news'); },
+      });
+    }
+
+    // "Register" in an answer about an event means that event's form, not a
+    // SanctuaryHub account - so the generic Sign Up button stands down unless
+    // the reply is really about creating an account.
+    const accountTalk = mentioned.length === 0
+      ? /(sign\s?up|signup|register|enroll|create an account|join)/.test(t)
+      : /(create an account|sign\s?up for an account|free account)/.test(t);
+    if (accountTalk) {
       actions.push({ label: 'Sign Up', href: '/signup', icon: 'fa-user-plus' });
     }
     if (/(sign\s?in|signin|log\s?in|login|log in to)/.test(t)) {
@@ -1462,8 +1514,10 @@ If you don't know something specific, professionally encourage the user to conta
     return actions;
   };
 
-  const sendChatMessage = async () => {
-    const text = chatInput.trim();
+  // `preset` is what the starter chips send - the same path as typing it, so a
+  // tapped suggestion and a typed question are one code path.
+  const sendChatMessage = async (preset) => {
+    const text = (typeof preset === 'string' ? preset : chatInput).trim();
     if (!text || chatLoading) return;
 
     const newMessages = [...chatMessages, { role: 'user', content: text }];
@@ -1472,8 +1526,20 @@ If you don't know something specific, professionally encourage the user to conta
     setChatLoading(true);
 
     // Something useful to say when Joy cannot reach the AI at all, so a visitor
-    // still leaves with the two things they most often came to ask.
-    const offline = "I'm not fully connected right now, but here's what I can share: our **Worship Service** is **Sunday 9:00 AM**, and **ISOM** classes begin **August 2026**. You can sign up or sign in anytime. 🙏";
+    // still leaves with the things they most often came to ask. The events are
+    // read straight off the list this page already loaded, so even with the AI
+    // down the next event's name, date and venue are still correct.
+    const offline = (() => {
+      const base = "I'm not fully connected right now, but here's what I can share: our **Worship Service** is **Sunday 9:00 AM**, and **ISOM** classes begin **August 2026**.";
+      const next = liveEvents.filter((e) => evtStatus(e.event_date, e.end_date) !== 'ended').slice(0, 3);
+      if (next.length === 0) return `${base} You can sign up or sign in anytime. 🙏`;
+      const lines = next.map((e) => {
+        const where = [e.location, e.loc_city].filter(Boolean).join(', ');
+        const days = evtDayCount(e.event_date, e.end_date);
+        return `- **${e.title}** — ${evtWhen(e.event_date, e.end_date)}${where ? ` at ${where}` : ''}${days > 1 ? ` (runs ${days} days)` : ''}`;
+      });
+      return `${base}\n\nComing up:\n\n${lines.join('\n')}`;
+    })();
 
     try {
       const res = await fetch(AI_CHAT_URL, {
@@ -1484,7 +1550,9 @@ If you don't know something specific, professionally encourage the user to conta
             { role: 'system', content: CHAT_SYSTEM_PROMPT },
             ...newMessages.slice(-8).map(m => ({ role: m.role, content: m.content })),
           ],
-          temperature: 0.7, max_tokens: 400,
+          // Room for a short list of events with their dates and venues - 400
+          // cut the third event off mid-sentence.
+          temperature: 0.6, max_tokens: 700,
         }),
       });
       const data = await res.json();
@@ -1499,12 +1567,12 @@ If you don't know something specific, professionally encourage the user to conta
         setChatMessages([...newMessages, {
           role: 'assistant',
           content: offline,
-          actions: buildChatActions(`${offline} sign up sign in`),
+          actions: buildChatActions(`${offline} sign up sign in`, liveEvents),
         }]);
         return;
       }
 
-      setChatMessages([...newMessages, { role: 'assistant', content: reply, actions: buildChatActions(reply) }]);
+      setChatMessages([...newMessages, { role: 'assistant', content: reply, actions: buildChatActions(reply, liveEvents) }]);
     } catch (error) {
       console.error('[Joy]', error.message);
       setChatMessages([...newMessages, { role: 'assistant', content: "I'm having trouble connecting right now. Please try again in a moment, or contact the church office. 🙏" }]);
@@ -2675,8 +2743,13 @@ If you don't know something specific, professionally encourage the user to conta
 
                       {/* Nobody can hand over cash for this one, so say it plainly
                           before they arrive expecting to pay at the door. */}
-                      {(guestRegEvent.payment_methods || []).length > 0
-                        && !(guestRegEvent.payment_methods || []).some((m) => /cash|church|walk/i.test(m) && !/gcash/i.test(m)) && (
+                      {/* Read the CHANNELS first: an event with a saved cash entry
+                          takes cash whatever that entry happens to be called, and
+                          telling the payer otherwise would contradict the card
+                          printed directly underneath this line. The label regex is
+                          kept only for events too old to have any saved channel. */}
+                      {((guestRegEvent.payment_methods || []).length > 0 || eventChannels(guestRegEvent).length > 0)
+                        && !eventTakesCash(eventChannels(guestRegEvent), guestRegEvent.payment_methods) && (
                         <p className="hp-pay-online-only">
                           <i className="fas fa-circle-exclamation"></i>
                           <span><strong>Online payment only.</strong> We do not accept cash for this event &mdash; please pay through the account below and upload your receipt.</span>
@@ -2703,12 +2776,16 @@ If you don't know something specific, professionally encourage the user to conta
                               >
                                 {picked ? (
                                   <>
-                                    <span className="hp-pay-logo" style={{ background: picked.logo_url ? 'transparent' : (picked.logo_color || '#1e3a8a') }}>
-                                      {picked.logo_url ? <img src={picked.logo_url} alt={picked.name} /> : <span>{channelInitials(picked.name)}</span>}
+                                    <span className={`hp-pay-logo ${isCashChannel(picked) && !picked.logo_url ? 'cash' : ''}`} style={{ background: picked.logo_url ? 'transparent' : (picked.logo_color || '#1e3a8a') }}>
+                                      {picked.logo_url
+                                        ? <img src={picked.logo_url} alt={picked.name} />
+                                        : isCashChannel(picked)
+                                          ? <span><i className="fas fa-money-bill-wave"></i></span>
+                                          : <span>{channelInitials(picked.name)}</span>}
                                     </span>
                                     <span className="hp-pay-picker-name">
                                       {picked.name}
-                                      <span className={`hp-pay-card-type ${picked.category}`}>{picked.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                      <span className={`hp-pay-card-type ${picked.category}`}>{channelTypeLabel(picked)}</span>
                                     </span>
                                   </>
                                 ) : (
@@ -2735,12 +2812,16 @@ If you don't know something specific, professionally encourage the user to conta
                                           clearGuestFieldError('paymentMethod');
                                         }}
                                       >
-                                        <span className="hp-pay-logo" style={{ background: c.logo_url ? 'transparent' : (c.logo_color || '#1e3a8a') }}>
-                                          {c.logo_url ? <img src={c.logo_url} alt={c.name} /> : <span>{channelInitials(c.name)}</span>}
+                                        <span className={`hp-pay-logo ${isCashChannel(c) && !c.logo_url ? 'cash' : ''}`} style={{ background: c.logo_url ? 'transparent' : (c.logo_color || '#1e3a8a') }}>
+                                          {c.logo_url
+                                            ? <img src={c.logo_url} alt={c.name} />
+                                            : isCashChannel(c)
+                                              ? <span><i className="fas fa-money-bill-wave"></i></span>
+                                              : <span>{channelInitials(c.name)}</span>}
                                         </span>
                                         <span className="hp-pay-picker-name">
                                           {c.name}
-                                          <span className={`hp-pay-card-type ${c.category}`}>{c.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}</span>
+                                          <span className={`hp-pay-card-type ${c.category}`}>{channelTypeLabel(c)}</span>
                                         </span>
                                         {guestPayChannel === c.id && <i className="fas fa-check hp-pay-picker-tick"></i>}
                                       </button>
@@ -2763,12 +2844,16 @@ If you don't know something specific, professionally encourage the user to conta
                         .map((c) => (
                           <div className="hp-pay-card" key={c.id}>
                             <div className="hp-pay-card-head">
-                              <span className="hp-pay-logo" style={{ background: c.logo_url ? 'transparent' : (c.logo_color || '#1e3a8a') }}>
-                                {c.logo_url ? <img src={c.logo_url} alt={c.name} /> : <span>{channelInitials(c.name)}</span>}
+                              <span className={`hp-pay-logo ${isCashChannel(c) && !c.logo_url ? 'cash' : ''}`} style={{ background: c.logo_url ? 'transparent' : (c.logo_color || '#1e3a8a') }}>
+                                {c.logo_url
+                                  ? <img src={c.logo_url} alt={c.name} />
+                                  : isCashChannel(c)
+                                    ? <span><i className="fas fa-money-bill-wave"></i></span>
+                                    : <span>{channelInitials(c.name)}</span>}
                               </span>
                               <span className="hp-pay-card-name">{c.name}</span>
                               <span className={`hp-pay-card-type ${c.category}`}>
-                                {c.category === 'bank' ? 'Bank Transfer' : 'Online Payment'}
+                                {channelTypeLabel(c)}
                               </span>
                             </div>
 
@@ -2793,15 +2878,26 @@ If you don't know something specific, professionally encourage the user to conta
                             {c.account_number && (
                               <div className="hp-pay-line">
                                 <span className="hp-pay-line-label">{c.category === 'bank' ? 'Account Number' : 'Mobile Number'}</span>
+                                {/* cash never reaches here - it has no account_number */}
                                 <span className="hp-pay-line-value mono">{c.account_number}</span>
                                 <button type="button" className="hp-pay-copy" onClick={() => copyToClipboard(c.account_number, `num-${c.id}`)}>
                                   <i className={`fas ${copiedField === `num-${c.id}` ? 'fa-check' : 'fa-copy'}`}></i> {copiedField === `num-${c.id}` ? 'Copied' : 'Copy'}
                                 </button>
                               </div>
                             )}
-                            {c.notes && <p className="hp-pay-card-note"><i className="fas fa-circle-info"></i> {c.notes}</p>}
+                            {c.notes && <p className={`hp-pay-card-note ${isCashChannel(c) ? 'cash' : ''}`}><i className="fas fa-circle-info"></i> {c.notes}</p>}
 
-                            {payFieldsCard() === `channel:${c.id}` && payFieldRows()}
+                            {/* Cash asks for nothing back: no reference exists yet and
+                                there is no receipt to photograph. The payer is told
+                                they are done rather than left looking for a field. */}
+                            {isCashChannel(c)
+                              ? (
+                                <p className="hp-pay-cash-done">
+                                  <i className="fas fa-money-bill-wave"></i>
+                                  <span><strong>Nothing to upload.</strong> Pay in person as described above &mdash; an admin marks you paid once the money is handed over.</span>
+                                </p>
+                              )
+                              : payFieldsCard() === `channel:${c.id}` && payFieldRows()}
                           </div>
                         ))}
 
@@ -2863,8 +2959,22 @@ If you don't know something specific, professionally encourage the user to conta
                           the reference and the receipt. */}
                       {payFieldsCard() === 'none' && (
                         <div className="hp-pay-card">
-                          <div className="hp-pay-card-head"><i className="fas fa-receipt"></i> Payment Details</div>
-                          {payFieldRows()}
+                          {/* An older event with no saved channel, where "Cash" is
+                              just a label on the list. Still nothing to upload. */}
+                          {eventTakesCash([], [guestRegForm.paymentMethod]) ? (
+                            <>
+                              <div className="hp-pay-card-head"><i className="fas fa-money-bill-wave"></i> Paying in cash</div>
+                              <p className="hp-pay-cash-done">
+                                <i className="fas fa-money-bill-wave"></i>
+                                <span><strong>Nothing to upload.</strong> Settle it in person &mdash; an admin marks you paid once the money is handed over.</span>
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <div className="hp-pay-card-head"><i className="fas fa-receipt"></i> Payment Details</div>
+                              {payFieldRows()}
+                            </>
+                          )}
                         </div>
                       )}
 
@@ -3349,11 +3459,18 @@ If you don't know something specific, professionally encourage the user to conta
                 </div>
                 {m.actions && m.actions.length > 0 && (
                   <div className="hp-chat-actions">
-                    {m.actions.map((a, j) => (
+                    {/* An event button opens a dialog on this very page, so it
+                        is a button - a link would have to navigate somewhere to
+                        get back to where the visitor already is. */}
+                    {m.actions.map((a, j) => (a.onClick ? (
+                      <button key={j} type="button" className="hp-chat-action-btn" onClick={a.onClick}>
+                        <i className={`fas ${a.icon}`}></i> {a.label}
+                      </button>
+                    ) : (
                       <a key={j} href={a.href} className="hp-chat-action-btn">
                         <i className={`fas ${a.icon}`}></i> {a.label}
                       </a>
-                    ))}
+                    )))}
                   </div>
                 )}
               </div>
@@ -3363,6 +3480,18 @@ If you don't know something specific, professionally encourage the user to conta
                 <div className="hp-chat-bubble hp-chat-typing">
                   <span></span><span></span><span></span>
                 </div>
+              </div>
+            )}
+
+            {/* Only under the opening greeting. Once there is a conversation
+                these would be answering a question nobody asked. */}
+            {chatMessages.length === 1 && !chatLoading && (
+              <div className="hp-chat-suggestions">
+                {chatSuggestions.map((s) => (
+                  <button key={s} type="button" className="hp-chat-suggestion" onClick={() => sendChatMessage(s)}>
+                    {s}
+                  </button>
+                ))}
               </div>
             )}
           </div>

@@ -1469,6 +1469,13 @@ body.dark-mode .hp-chat-em {
   background: linear-gradient(135deg, var(--primary), var(--secondary));
   box-shadow: 0 4px 14px rgba(146, 108, 21, 0.3);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  /* Some of these are <button> (they open an event dialog on this page) and
+     some are <a>. A button carries the browser's own chrome — its border, its
+     system font, a default background — so it is stripped back to match the
+     link exactly, or the two would not look like one row of buttons. */
+  border: none;
+  cursor: pointer;
+  line-height: 1.2;
 }
 
 .hp-chat-action-btn:hover {
@@ -1477,6 +1484,48 @@ body.dark-mode .hp-chat-em {
 }
 
 .hp-chat-action-btn i { font-size: 0.85rem; }
+
+/* Starter chips under Joy's greeting: things worth asking, so a first-time
+   visitor does not have to guess what she knows. Outlined rather than filled,
+   so they read as prompts and not as the primary action buttons above. */
+.hp-chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  padding-left: 4px;
+}
+
+.hp-chat-suggestion {
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: left;
+  padding: 8px 14px;
+  border-radius: 18px;
+  border: 1.5px solid var(--primary);
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.hp-chat-suggestion:hover {
+  background: var(--primary);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+body.dark-mode .hp-chat-suggestion {
+  border-color: var(--secondary);
+  color: #e6c766;
+}
+
+body.dark-mode .hp-chat-suggestion:hover {
+  background: var(--secondary);
+  color: #1a1a1a;
+}
 
 .hp-chat-msg.assistant .hp-chat-bubble {
   background: #fff;
@@ -2946,6 +2995,9 @@ body.dark-mode .hp-rep-join { background: rgba(255,255,255,0.03); border-color: 
 .hp-status-chip.paid { background: rgba(22,163,74,0.16); color: #15803d; }
 .hp-status-chip.pending { background: rgba(37,99,235,0.14); color: #2563eb; }
 .hp-status-chip.unpaid { background: rgba(220,38,38,0.14); color: #b91c1c; }
+/* Booked and holding a seat, money owed at the desk - amber like cash
+   everywhere else, and pointedly not the red of "unpaid". */
+.hp-status-chip.cash { background: rgba(217,119,6,0.16); color: #b45309; }
 .hp-dup-name { font-weight: 800; }
 
 /* The representative's own line in the roster table / receipt. */
@@ -3612,6 +3664,8 @@ body.dark-mode .hp-reg-top { background: #1e1e1e; }
 }
 .hp-pay-card-type.bank { background: rgba(30,58,138,0.10); color: #1e3a8a; }
 .hp-pay-card-type.online { background: rgba(22,163,74,0.12); color: #15803d; }
+/* Amber: green already means "online payment" a few pixels away. */
+.hp-pay-card-type.cash { background: rgba(217,119,6,0.14); color: #b45309; }
 .hp-pay-card-note {
   margin: 10px 0 0; padding: 9px 11px; border-radius: 9px;
   background: rgba(212,164,55,0.10); border-left: 3px solid rgba(212,164,55,0.7);
@@ -3904,3 +3958,39 @@ body.dark-mode .hp-addon-modal-body { color: #adadad; }
 body.dark-mode .hp-bulk-table tbody tr.invalid { background: rgba(220,38,38,0.16); }
 
 body.dark-mode .hp-reg-paydetail { color: #b4b4b4; }
+
+/* ============================================================
+   CASH ON THE PUBLIC REGISTRATION FORM
+   A cash channel has no QR, no account number and no receipt to upload, so its
+   card is instructions plus a plain statement that the payer is already done.
+   ============================================================ */
+.hp-pay-logo.cash { background: #d97706 !important; color: #fff; }
+.hp-pay-logo.cash i { font-size: 0.95rem; }
+
+/* The instructions ARE the channel for cash, so they get the amber rule rather
+   than the quiet gold of an afterthought note. */
+.hp-pay-card-note.cash {
+  background: rgba(217,119,6,0.09); border-left-color: #d97706;
+  color: #4b5563; font-weight: 600;
+}
+
+/* Replaces the reference + receipt rows. Its job is to stop the payer hunting
+   for a field that is deliberately not there. */
+.hp-pay-cash-done {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin: 12px 0 0; padding: 12px 13px; border-radius: 10px;
+  background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.22);
+  font-size: 0.85rem; line-height: 1.5; color: #555;
+}
+.hp-pay-cash-done i { color: #d97706; margin-top: 2px; flex: 0 0 auto; }
+.hp-pay-cash-done strong { color: #1f2937; }
+
+body.dark-mode .hp-pay-card-type.cash { background: rgba(251,191,36,0.16); color: #fbbf24; }
+body.dark-mode .hp-pay-card-note.cash {
+  background: rgba(251,191,36,0.09); border-left-color: #fbbf24; color: #d1d5db;
+}
+body.dark-mode .hp-pay-cash-done {
+  background: rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.24); color: #d1d5db;
+}
+body.dark-mode .hp-pay-cash-done i { color: #fbbf24; }
+body.dark-mode .hp-pay-cash-done strong { color: #f3f4f6; }
