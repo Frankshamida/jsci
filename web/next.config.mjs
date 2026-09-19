@@ -53,18 +53,16 @@ const nextConfig = {
           source: `/${section}`,
           destination: '/dashboard',
         })),
-        // Event "magic links": /miracle-working-god-cebu-event and the like.
-        // The home page reads the slug back off the address bar and opens that
-        // event's registration (see lib/eventSlug.js).
+        // Event "magic links" (/miracle-working-god-cebu-event) used to be
+        // rewritten to "/" here as well. They are a real route now -
+        // src/app/[eventSlug]/page.js - because a rewrite cannot give a link
+        // its own <title> and preview image, and so every event shared into a
+        // group chat came back looking like the home page. That route renders
+        // exactly this same home page, so the behaviour for a person opening
+        // the link is unchanged.
         //
-        // Deliberately LAST: rewrites are matched in order, so every dashboard
-        // section above still wins, and afterFiles itself only runs once real
-        // pages and /public files have had their chance. The pattern is one
-        // segment of letters, digits and hyphens with no dot in it, which
-        // keeps /_next, /api, /assets and files like /favicon.ico well clear.
-        // Capitals are allowed through because links get retyped by hand off
-        // posters and chat apps; the page lower-cases before matching.
-        { source: '/:eventSlug([A-Za-z0-9][A-Za-z0-9-]*)', destination: '/' },
+        // The dashboard sections above still win over it: Next checks
+        // `afterFiles` rewrites BEFORE dynamic routes.
       ],
     };
   },

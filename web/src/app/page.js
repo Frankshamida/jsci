@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import './home.css';
 import { withTitleCase } from '@/lib/eventTitle';
 import { eventSlug, findEventBySlug, slugFromPath } from '@/lib/eventSlug';
+import { eventCardTitle } from '@/lib/socialCard';
 import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
 import { buildEventsDigest, eventsMentionedIn, evtPlaceLabel } from '@/lib/eventDigest';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
@@ -447,7 +448,12 @@ export default function HomePage() {
     const url = `${window.location.origin}/${slug}`;
     if (navigator.share) {
       try {
-        await navigator.share({ title: evt.title, text: `Register for ${evt.title}`, url });
+        // The same wording the link's own preview card carries ("Cebu -
+        // Miracle Working God"), so a share sheet and the card that lands in
+        // the chat say the same thing. The URL is passed on its own - apps
+        // that build a preview want a bare link to scrape, and a link buried
+        // in `text` is often not unfurled at all.
+        await navigator.share({ title: eventCardTitle(evt), text: eventCardTitle(evt), url });
         return;
       } catch (err) {
         // Dismissing the share sheet is a decision, not a failure - only a
