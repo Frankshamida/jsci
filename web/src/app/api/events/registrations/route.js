@@ -5,11 +5,32 @@ import { cached, cacheInvalidate } from '@/lib/serverCache';
 import { SLOT_HOLDING_STATUSES, CASH_PENDING_STATUS } from '@/lib/eventSlots';
 import { findEventActor, canWorkEvent, actorRoleLabel, staffDeniedMessage } from '@/lib/eventCommittee';
 import { resolveCashPayment } from '@/lib/cashPayment';
+import {
+  addonFeeFor, baseAmountFor, defaultTier, findTier, hasPriceTiers, isNameOnlyTier,
+  registerableTiers, representativeTiers,
+} from '@/lib/eventPricing';
 
 // Churches are typed by hand, so the same church arrives as "joyful sound church"
 // and "Joyful Sound Church". Stored in Title Case so the list stays one entry.
 const CHURCH_MINOR_WORDS = new Set(['of', 'the', 'and', 'in', 'for', 'a', 'an', 'at', 'on', 'to']);
+
+// Someone with no church to name writes "N/A", "none", "wala" or a dash, and
+// the church list ends up with a handful of entries that all mean "no church"
+// and each count as one. They are all stored as the same word instead, so the
+// list, its counts and the attendance sheet stay about actual churches.
+const OTHER_CHURCH = 'Others';
+const CHURCH_PLACEHOLDERS = new Set([
+  'n/a', 'na', 'n.a', 'n.a.', 'nil', 'none', 'no', 'no church', 'not applicable',
+  'not available', 'wala', 'wala pa', 'nothing', 'unknown', 'other', 'others', '-', '--', '.',
+]);
+function isPlaceholderChurch(name) {
+  const t = String(name || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+  if (!t) return false;
+  return CHURCH_PLACEHOLDERS.has(t) || /^[-_/\.]+$/.test(t);
+}
+
 function titleCaseChurch(name) {
+  if (isPlaceholderChurch(name)) return OTHER_CHURCH;
   const raw = String(name || '').trim().replace(/\s+/g, ' ');
   if (!raw) return '';
   const out = raw.split(' ').map((chunk) => chunk.split('-').map((word, i) => {
@@ -101,7 +122,8 @@ const PENDING_ALERTS_KEY = 'events:pending-registrations';
 const OPTIONAL_COLUMNS = [
   'group_ref', 'group_size', 'representative', 'registration_type',
   'added_by', 'added_by_role', 'payment_plan', 'amount_paid',
-  'church_name', 'church_pastor', 'base_amount', 'addons',
+  'church_name', 'church_pastor', 'base_amount', 'addons', 'price_tier',
+  'guardian_registration_id', 'guardian_name',
   'registered_by_user_id',
   'deleted_at', 'deleted_by', 'deleted_by_name', 'deleted_reason',
 ];
@@ -231,6 +253,51 @@ export async function GET(request) {
       // `data` stays a list of names for anything that only needs the yes/no;
       // `details` carries what the form offers to reuse.
       return NextResponse.json({ success: true, data: found.map((r) => r.name), details: found });
+    }
+
+    // ?guardians=1&eventId=..&q=..  -> who a child can be registered under.
+    //
+    // A parent who forgot to add their toddler has to be able to find their own
+    // registration, so this answers by name. It is deliberately narrow: at
+    // least three characters, at most six answers, and nothing but the name,
+    // the church and whether the slot is settled. No contact number, no email,
+    // no way to page through the attendee list - enough to recognise the person
+    // you already are, and not enough to harvest.
+    if (searchParams.get('guardians')) {
+      const evId = searchParams.get('eventId');
+      if (!evId) return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
+      const q = (searchParams.get('q') || '').trim();
+      if (q.length < 3) return NextResponse.json({ success: true, data: [] });
+
+      // The children's groups, so a child is never offered as somebody's parent.
+      let kidLabels = [];
+      try {
+        const { data: tierRows } = await supabase
+          .from('event_price_tiers').select('label, name_only').eq('event_id', evId);
+        kidLabels = (tierRows || []).filter((t) => t.name_only)
+          .map((t) => String(t.label || '').trim().toLowerCase());
+      } catch { /* no age groups - nobody is a child */ }
+
+      const { data: rows } = await supabase
+        .from('event_registrations')
+        .select('id, attendee_name, church_name, status, price_tier, created_at')
+        .eq('event_id', evId)
+        .neq('status', 'cancelled')
+        .is('deleted_at', null)
+        .ilike('attendee_name', `%${q.replace(/[%_]/g, '')}%`)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      const out = (rows || [])
+        .filter((r) => !kidLabels.includes(String(r.price_tier || '').trim().toLowerCase()))
+        .slice(0, 6)
+        .map((r) => ({
+          id: r.id,
+          name: r.attendee_name,
+          churchName: r.church_name || '',
+          status: r.status,
+        }));
+      return NextResponse.json({ success: true, data: out });
     }
 
     // ?churches=1&eventId=..&q=..  -> the churches already registered FOR THAT
@@ -406,6 +473,9 @@ export async function POST(request) {
           firstName: titleCaseName(a?.firstName),
           lastName: titleCaseName(a?.lastName),
           addonIds: Array.isArray(a?.addonIds) ? a.addonIds.filter(Boolean) : [],
+          // Which age group they were booked under. The price itself is read
+          // from the database below - never from what the form sent.
+          priceTier: a?.priceTier ? String(a.priceTier) : null,
           // The representative's own place on the roster. A signed-in member's
           // slot has to be theirs - their QR, their cancellation, their
           // "already registered" - so that one row keeps their user_id.
@@ -433,6 +503,16 @@ export async function POST(request) {
     if (evErr || !event) return NextResponse.json({ success: false, message: 'Event not found' }, { status: 404 });
     if (event.is_active === false) return NextResponse.json({ success: false, message: 'This event is no longer available' }, { status: 400 });
     if (event.is_published === false) return NextResponse.json({ success: false, message: 'This event is not open for registration yet' }, { status: 400 });
+
+    // The event's age groups, when it has any. Read here rather than trusted
+    // from the form: the price a person is charged must come from the database,
+    // whatever the browser sent. A database without the table simply has none,
+    // and the event keeps its single registration_fee.
+    try {
+      const { data: tierRows, error: tierErr } = await supabase
+        .from('event_price_tiers').select('*').eq('event_id', eventId).order('position');
+      if (!tierErr) event.event_price_tiers = tierRows || [];
+    } catch { /* no age groups - the event has one price */ }
 
     // The account behind the registration, when there is one. Read once: the
     // role decides whether a restricted event is open to them, and the
@@ -536,14 +616,57 @@ export async function POST(request) {
       }
     }
 
-    // Determine amount (early bird if applicable) & status
-    let baseAmount = 0;
+    // ---- What each person pays ----
+    // An event with age groups prices everybody by the group they were booked
+    // under ("Adults ₱300, 6-10 yrs ₱100"); an event without them charges its
+    // one registration_fee, exactly as before. Either way the figure is read
+    // here, from the database, so a tampered form cannot lower a total.
     let status = 'registered';
-    if (event.has_fee) {
-      baseAmount = Number(event.registration_fee) || 0;
-      if (event.early_bird_price != null && event.early_bird_deadline && new Date() <= new Date(event.early_bird_deadline)) {
-        baseAmount = Number(event.early_bird_price);
+    const tiered = hasPriceTiers(event);
+    // A group that does not need to register (free toddlers) is not a booking
+    // anyone can be put under, so it is never a valid answer from the form.
+    const fallbackTier = tiered ? defaultTier(event) : null;
+    const resolveTier = (wanted) => {
+      if (!tiered) return null;
+      const found = findTier(event, wanted);
+      return found && found.requiresRegistration ? found : fallbackTier;
+    };
+    if (tiered && registerableTiers(event).length === 0) {
+      return NextResponse.json({
+        success: false,
+        message: 'This event has no age group open for registration.',
+      }, { status: 400 });
+    }
+    const soloTier = resolveTier(fields.priceTier);
+    const baseAmount = event.has_fee || tiered ? baseAmountFor(event, soloTier) : 0;
+
+    // ---- A child, registered under whoever brought them ----
+    // A children's group asks for a name and nothing else, so the church, the
+    // pastor and the number to ring all come from the parent's own registration
+    // for this event. Read from the database rather than the form: the point of
+    // picking a parent is that their details are already right.
+    let guardian = null;
+    if (fields.guardianRegistrationId) {
+      const { data: g } = await supabase
+        .from('event_registrations')
+        .select('id, event_id, attendee_name, church_name, church_pastor, attendee_mobile, status, deleted_at')
+        .eq('id', String(fields.guardianRegistrationId))
+        .maybeSingle();
+      if (!g || g.event_id !== eventId || g.deleted_at || g.status === 'cancelled') {
+        return NextResponse.json({
+          success: false,
+          message: 'That parent or guardian is not registered for this event. Please search for them again.',
+        }, { status: 400 });
       }
+      guardian = g;
+    }
+    // Registering a child on their own without saying whose they are would put
+    // a name on the attendance sheet that nobody at the desk can place.
+    if (!isBulk && isNameOnlyTier(soloTier) && !guardian) {
+      return NextResponse.json({
+        success: false,
+        message: `A ${soloTier.label} registration has to be under a parent or guardian. Please search for the person who is bringing them.`,
+      }, { status: 400 });
     }
 
     // Paid add-ons. The client sends only the IDs it ticked; the prices are read
@@ -551,11 +674,13 @@ export async function POST(request) {
     // chosen ones are snapshotted onto the registration so the receipt still
     // reads correctly if the admin later renames or reprices a question.
     const { data: addonRows } = await supabase
-      .from('event_addons').select('id, question, fee, is_required').eq('event_id', eventId);
-    // Required add-ons are always charged, whether or not they were sent.
-    const pickAddons = (ids) => (addonRows || [])
+      .from('event_addons').select('*').eq('event_id', eventId);
+    // Required add-ons are always charged, whether or not they were sent. The
+    // fee is the one for THEIR age group where the add-on has one - a child's
+    // accommodation can cost less than an adult's on the same event.
+    const pickAddons = (ids, tier) => (addonRows || [])
       .filter((a) => a.is_required || (ids || []).includes(a.id))
-      .map((a) => ({ id: a.id, question: a.question, fee: Number(a.fee) || 0 }));
+      .map((a) => ({ id: a.id, question: a.question, fee: addonFeeFor(a, tier) }));
 
     let singleIds = fields.addonIds;
     if (typeof singleIds === 'string') {
@@ -563,18 +688,26 @@ export async function POST(request) {
     }
     singleIds = Array.isArray(singleIds) ? singleIds.filter(Boolean) : [];
 
-    const chosenAddons = pickAddons(singleIds);
+    const chosenAddons = pickAddons(singleIds, soloTier);
     const addonTotal = chosenAddons.reduce((sum, a) => sum + a.fee, 0);
     const amount = baseAmount + addonTotal;
 
-    // In a group the extras are ticked per person, so everyone is priced on their
-    // own line and the payment covers the sum of them.
+    // In a group the extras AND the age group are per person, so everyone is
+    // priced on their own line and the payment covers the sum of them.
+    // A 7-year-old cannot hold a booking for eleven people, so the
+    // representative's own line is priced as an adult whatever the form sent.
+    const repTierFallback = tiered ? (representativeTiers(event)[0] || fallbackTier) : null;
     const priced = people.map((a) => {
-      const addons = pickAddons(a.addonIds);
+      const wanted = resolveTier(a.priceTier);
+      const tier = a.isRep && isNameOnlyTier(wanted) ? repTierFallback : wanted;
+      const addons = pickAddons(a.addonIds, tier);
+      const personBase = event.has_fee || tiered ? baseAmountFor(event, tier) : 0;
       return {
         ...a,
+        tier,
         addons,
-        amount: baseAmount + addons.reduce((sum, x) => sum + x.fee, 0),
+        baseAmount: personBase,
+        amount: personBase + addons.reduce((sum, x) => sum + x.fee, 0),
       };
     });
     const groupTotal = priced.reduce((sum, a) => sum + a.amount, 0);
@@ -584,7 +717,7 @@ export async function POST(request) {
     // is availing on the slot they already hold.
     const topUpTotal = (addonRows || [])
       .filter((a) => topUpIds.includes(a.id))
-      .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+      .reduce((sum, a) => sum + addonFeeFor(a, soloTier), 0);
     const dueNow = isBulk ? groupTotal + topUpTotal : amount;
     // Cash is decided by the METHOD, not by whether a receipt turned up: there
     // is never going to be one. It holds the seat (see lib/eventSlots) but is
@@ -667,16 +800,16 @@ export async function POST(request) {
     const shared = {
       event_id: eventId,
       attendee_email: attendeeEmail || null,
-      attendee_mobile: attendeeMobile || null,
+      attendee_mobile: (guardian ? guardian.attendee_mobile : attendeeMobile) || null,
       // who to call about this booking - the person who filled in the form
       representative: isBulk ? (titleCaseName(fields.representative || attendeeName) || null) : null,
-      church_name: titleCaseChurch(fields.churchName) || null,
+      church_name: titleCaseChurch(guardian ? guardian.church_name : fields.churchName) || null,
       // stored as "Ptr. Juan Dela Cruz" however it was typed
       church_pastor: (() => {
-        const bare = titleCaseName(String(fields.churchPastor || '').replace(/^ptr\.?\s*/i, ''));
+        const source = guardian ? guardian.church_pastor : fields.churchPastor;
+        const bare = titleCaseName(String(source || '').replace(/^ptr\.?\s*/i, ''));
         return bare ? `Ptr. ${bare}` : null;
       })(),
-      base_amount: baseAmount,
       registration_type: registrationType,
       added_by: addedByName,
       added_by_role: addedByRole,
@@ -718,6 +851,15 @@ export async function POST(request) {
           attendee_firstname: a.firstName || null,
           attendee_lastname: a.lastName || null,
           attendee_name: `${a.firstName} ${a.lastName}`.trim(),
+          // Each person on their own price: in a family booking the adult and
+          // the 8-year-old are on one payment but not on one fee.
+          base_amount: a.baseAmount,
+          price_tier: a.tier ? a.tier.label : null,
+          // A child on a group booking belongs to the person who made it -
+          // there is no separate parent to look for.
+          guardian_name: isNameOnlyTier(a.tier)
+            ? (titleCaseName(fields.representative || attendeeName) || null)
+            : null,
           amount: a.amount,
           addons: a.addons,
           group_ref: groupRef,
@@ -729,6 +871,10 @@ export async function POST(request) {
           attendee_firstname: firstName || null,
           attendee_lastname: lastName || null,
           attendee_name: attendeeName,
+          base_amount: baseAmount,
+          price_tier: soloTier ? soloTier.label : null,
+          guardian_registration_id: guardian ? guardian.id : null,
+          guardian_name: guardian ? guardian.attendee_name : null,
           amount,
           addons: chosenAddons,
         }];
@@ -1127,7 +1273,7 @@ export async function PUT(request) {
       const d = body.details || {};
       const { data: reg } = await supabase
         .from('event_registrations')
-        .select('id, event_id, group_ref, attendee_name, attendee_email, attendee_mobile, church_name, church_pastor, representative, payment_method, payment_reference, status, deleted_at')
+        .select('id, event_id, group_ref, attendee_name, attendee_email, attendee_mobile, church_name, church_pastor, representative, payment_method, payment_reference, price_tier, status, deleted_at')
         .eq('id', id).single();
       if (!reg) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
       if (reg.deleted_at) {
@@ -1191,6 +1337,36 @@ export async function PUT(request) {
       if (d.paymentMethod !== undefined) patch.payment_method = String(d.paymentMethod || '').trim() || null;
       if (d.paymentReference !== undefined) patch.payment_reference = String(d.paymentReference || '').trim() || null;
 
+      // The age group is a LABEL here, not a price. A registration saved before
+      // the event had age groups carries none, and the desk needs to be able to
+      // say "that one is a child" without deleting somebody who has paid.
+      //
+      // What they owe was agreed at registration and may already be settled, or
+      // part-paid on a plan, so `amount` and `base_amount` are left exactly as
+      // they are: a relabelling must never silently move money.
+      if (d.priceTier !== undefined) {
+        const wanted = String(d.priceTier || '').trim();
+        if (!wanted) {
+          patch.price_tier = null;
+        } else {
+          let tiers = [];
+          try {
+            const { data: tierRows } = await supabase
+              .from('event_price_tiers').select('*').eq('event_id', reg.event_id).order('position');
+            tiers = tierRows || [];
+          } catch { /* this event has no age groups */ }
+          const found = findTier({ event_price_tiers: tiers }, wanted);
+          if (!found) {
+            return NextResponse.json({
+              success: false,
+              errors: { priceTier: 'That is not one of this event’s age groups.' },
+              message: 'Please pick one of this event’s age groups.',
+            }, { status: 400 });
+          }
+          patch.price_tier = found.label;
+        }
+      }
+
       // Every row of a group carries the representative's name. Renaming the
       // representative's own row has to carry through to the rest, or the group
       // is left pointing at somebody who no longer exists under that name.
@@ -1219,6 +1395,7 @@ export async function PUT(request) {
       say('Pastor', reg.church_pastor, patch.church_pastor);
       say('Contact', reg.attendee_mobile, patch.attendee_mobile);
       say('Email', reg.attendee_email, patch.attendee_email);
+      if ('price_tier' in patch) say('Age group', reg.price_tier, patch.price_tier);
       if ('payment_method' in patch) say('Payment method', reg.payment_method, patch.payment_method);
       if ('payment_reference' in patch) say('Reference', reg.payment_reference, patch.payment_reference);
 
@@ -1246,7 +1423,7 @@ export async function PUT(request) {
 
       const { data: reg } = await supabase
         .from('event_registrations')
-        .select('id, event_id, attendee_name, addons, amount, base_amount, amount_paid, payment_plan, status, deleted_at, payment_method, payment_reference')
+        .select('id, event_id, attendee_name, addons, amount, base_amount, price_tier, amount_paid, payment_plan, status, deleted_at, payment_method, payment_reference')
         .eq('id', id).single();
       if (!reg) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
       if (reg.deleted_at) {
@@ -1267,7 +1444,17 @@ export async function PUT(request) {
       // snapshotted onto the registration the same way the entry forms do it,
       // so a later rename or reprice leaves this receipt reading correctly.
       const { data: addonRows } = await supabase
-        .from('event_addons').select('id, question, fee').eq('event_id', reg.event_id);
+        .from('event_addons').select('*').eq('event_id', reg.event_id);
+      // An extra added later is priced for the age group this person was booked
+      // under, so a child's late accommodation costs a child's price.
+      let regTier = null;
+      if (reg.price_tier) {
+        try {
+          const { data: tierRows } = await supabase
+            .from('event_price_tiers').select('*').eq('event_id', reg.event_id).order('position');
+          regTier = findTier({ event_price_tiers: tierRows || [] }, reg.price_tier);
+        } catch { /* no age groups - everyone pays the add-on's own fee */ }
+      }
       const held = Array.isArray(reg.addons) ? reg.addons : [];
       const sameQuestion = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
       // An id on a registration can be stale (the extra was renamed or
@@ -1276,7 +1463,7 @@ export async function PUT(request) {
       const alreadyHeld = (x) => held.some((h) => h.id === x.id || sameQuestion(h.question, x.question));
       const added = (addonRows || [])
         .filter((a) => wantedIds.includes(a.id) && !alreadyHeld(a))
-        .map((a) => ({ id: a.id, question: a.question, fee: Number(a.fee) || 0 }));
+        .map((a) => ({ id: a.id, question: a.question, fee: addonFeeFor(a, regTier) }));
       if (added.length === 0) {
         return NextResponse.json({
           success: false,

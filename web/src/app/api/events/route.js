@@ -279,9 +279,117 @@ function parseEventAddons(raw) {
       details: a.details ? String(a.details).slice(0, 2000) : null,
       fee: Number.isFinite(fee) && fee > 0 ? fee : 0,
       is_required: a.isRequired === true || a.isRequired === 'true',
+      // What this add-on costs each age group, when it is not the same for
+      // everybody: accommodation is ₱200 for an adult and ₱100 for a child.
+      tier_fees: parseTierFees(a.tierFees),
     });
   });
   return rows;
+}
+
+// { "Adults": "200", "6-10 Yrs Old": 100, "Kids (5 Below)": "" } ->
+// { "adults": 200, "6-10 yrs old": 100 }. Keyed by the lower-cased group name,
+// because tier ids are re-made on every save and names are not. A blank entry
+// is dropped, which is how "this group pays the add-on's normal fee" is said.
+function parseTierFees(raw) {
+  let parsed = raw;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return {}; }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  const out = {};
+  Object.entries(parsed).forEach(([label, value]) => {
+    const key = String(label || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!key) return;
+    if (value === '' || value === null || value === undefined) return;
+    const fee = Number(value);
+    if (!Number.isFinite(fee) || fee < 0) return;
+    out[key] = fee;
+  });
+  return out;
+}
+
+// ---- Age-based price groups (event_price_tiers) ---------------------------
+// The client sends `priceTiers` as a JSON array of
+//   { label, minAge, maxAge, fee, earlyFee, requiresRegistration, note }
+// An event with none of these keeps its single registration_fee, which is how
+// every event worked before this existed.
+function parseEventPriceTiers(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  let parsed;
+  try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
+  if (!Array.isArray(parsed)) return null;
+  const age = (v) => {
+    if (v === '' || v === null || v === undefined) return null;
+    const n = Math.trunc(Number(v));
+    return Number.isFinite(n) && n >= 0 && n <= 120 ? n : null;
+  };
+  const rows = [];
+  parsed.forEach((t) => {
+    const label = (t && t.label ? String(t.label) : '').trim();
+    if (!label) return;                          // skip half-typed rows
+    const fee = Number(t.fee);
+    const earlyFee = t.earlyFee === '' || t.earlyFee === null || t.earlyFee === undefined
+      ? null
+      : Number(t.earlyFee);
+    let minAge = age(t.minAge);
+    let maxAge = age(t.maxAge);
+    // Typed the wrong way round ("10 to 6") - read as the range they meant
+    // rather than refused at the database's check constraint.
+    if (minAge != null && maxAge != null && maxAge < minAge) [minAge, maxAge] = [maxAge, minAge];
+    rows.push({
+      position: rows.length + 1,
+      label: label.slice(0, 120),
+      min_age: minAge,
+      max_age: maxAge,
+      fee: Number.isFinite(fee) && fee > 0 ? fee : 0,
+      early_fee: Number.isFinite(earlyFee) && earlyFee >= 0 ? earlyFee : null,
+      requires_registration: !(t.requiresRegistration === false || t.requiresRegistration === 'false'),
+      // A children's group: registered and counted like everyone else, but the
+      // form asks for a name and a guardian and nothing else.
+      name_only: t.nameOnly === true || t.nameOnly === 'true',
+      note: t.note ? String(t.note).slice(0, 300) : null,
+    });
+  });
+  return rows;
+}
+
+// Replaced wholesale like the day rows and the add-ons, and for the same
+// reason: an upsert would leave a deleted age group still priced on the form.
+//
+// Returns a message instead of throwing when the table is not there yet, so an
+// admin on a database that has not run event_price_tiers.sql still saves their
+// event and is told what is missing rather than losing the whole edit.
+async function syncEventPriceTiers(eventId, rows) {
+  try {
+    await supabase.from('event_price_tiers').delete().eq('event_id', eventId);
+    if (!rows || rows.length === 0) return null;
+    const payload = rows.map((r, i) => ({ ...r, position: i + 1, event_id: eventId }));
+    const { error } = await supabase.from('event_price_tiers').insert(payload);
+    if (!error) return null;
+    // The children's flag came after the table did. Saved without it rather
+    // than not saved at all, and the gap is reported.
+    if (isMissingColumn(error, 'name_only')) {
+      const { error: retryErr } = await supabase.from('event_price_tiers')
+        .insert(payload.map(({ name_only: _drop, ...rest }) => rest));
+      if (retryErr) throw retryErr;
+      return 'Saved, but this database is missing the "name_only" column, so the children\u2019s age groups will ask for a church and a contact number like everyone else. '
+        + 'Run supabase/migrations/event_price_tiers.sql again to add it.';
+    }
+    throw error;
+  } catch (err) {
+    if (isMissingPriceTierTable(err)) {
+      return 'Saved, but the age-based prices were not: this database has no event_price_tiers table. '
+        + 'Run supabase/migrations/event_price_tiers.sql, then save the event again.';
+    }
+    throw err;
+  }
+}
+
+// PostgREST answers a missing table or a missing relationship in a few shapes.
+function isMissingPriceTierTable(err) {
+  const text = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
+  return text.includes('event_price_tiers') || err?.code === '42P01' || err?.code === 'PGRST200';
 }
 
 // Replace an event's add-ons wholesale, for the same reason as the day rows:
@@ -291,7 +399,24 @@ async function syncEventAddons(eventId, rows) {
   if (!rows || rows.length === 0) return;
   const payload = rows.map((r, i) => ({ ...r, position: i + 1, event_id: eventId }));
   const { error } = await supabase.from('event_addons').insert(payload);
-  if (error) throw error;
+  if (!error) return;
+  // Per-age-group prices came later than this table. On a database that has not
+  // run event_price_tiers.sql the add-ons themselves must still save - losing a
+  // price override is a gap, losing the question is a broken event.
+  if (isMissingColumn(error, 'tier_fees')) {
+    const { error: retryErr } = await supabase.from('event_addons')
+      .insert(payload.map(({ tier_fees: _drop, ...rest }) => rest));
+    if (retryErr) throw retryErr;
+    return;
+  }
+  throw error;
+}
+
+// Postgres and PostgREST name a missing column in a few different shapes.
+function isMissingColumn(err, column) {
+  const text = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
+  return text.includes(column.toLowerCase())
+    && (text.includes('column') || err?.code === 'PGRST204' || err?.code === '42703');
 }
 
 // GET - Fetch events
@@ -305,15 +430,24 @@ export async function GET(request) {
 
     const key = `events:list:v${listVersion}:${limit}:${upcoming ? 'u' : 'a'}:${publishedOnly ? 'p' : 'all'}`;
     const events = await cached(key, LIST_TTL_MS, async () => {
-      let query = supabase.from('events').select('*, event_days(*), event_addons(*)').eq('is_active', true).order('event_date', { ascending: true }).limit(limit);
-      if (upcoming) {
-        query = query.gte('event_date', new Date().toISOString());
-      }
-      if (publishedOnly) {
-        query = query.eq('is_published', true);
-      }
+      // The age groups are asked for, but a database that has not run
+      // event_price_tiers.sql must still be able to list its events - so the
+      // same query is run again without them rather than failing the page.
+      const run = async (select) => {
+        let query = supabase.from('events').select(select).eq('is_active', true).order('event_date', { ascending: true }).limit(limit);
+        if (upcoming) {
+          query = query.gte('event_date', new Date().toISOString());
+        }
+        if (publishedOnly) {
+          query = query.eq('is_published', true);
+        }
+        return query;
+      };
 
-      const { data, error } = await query;
+      let { data, error } = await run('*, event_days(*), event_addons(*), event_price_tiers(*)');
+      if (error && isMissingPriceTierTable(error)) {
+        ({ data, error } = await run('*, event_days(*), event_addons(*)'));
+      }
       if (error) throw error;
       return data || [];
     });
@@ -378,6 +512,10 @@ export async function GET(request) {
       if (Array.isArray(e.event_addons)) {
         e.event_addons = [...e.event_addons].sort((a, b) => (a.position || 0) - (b.position || 0));
       }
+      // Adults first, toddlers last - the order they were written in.
+      if (Array.isArray(e.event_price_tiers)) {
+        e.event_price_tiers = [...e.event_price_tiers].sort((a, b) => (a.position || 0) - (b.position || 0));
+      }
     });
 
     // The published list is the same answer for everybody, so the browser and
@@ -421,6 +559,7 @@ export async function POST(request) {
     const dayRows = parseEventDays(fields.days);
     const span = spanFromDays(dayRows);
     const addonRows = parseEventAddons(fields.addons);
+    const tierRows = parseEventPriceTiers(fields.priceTiers);
 
     const insertData = mapEventConfig(fields, {
       title, description,
@@ -436,12 +575,13 @@ export async function POST(request) {
     if (error) throw error;
     if (dayRows && dayRows.length > 0) await syncEventDays(data.id, dayRows);
     if (addonRows && addonRows.length > 0) await syncEventAddons(data.id, addonRows);
+    const tierWarning = tierRows && tierRows.length > 0 ? await syncEventPriceTiers(data.id, tierRows) : null;
     // Retires every cached list - see bumpEventsList. AFTER the write, not
     // before: a read arriving mid-write would otherwise re-cache the old rows
     // under the new version and outlive the change by a full TTL.
     bumpEventsList();
     await logEventAudit(actor, 'create_event', data.id, `Created event "${title}"`);
-    return NextResponse.json({ success: true, data, message: 'Event created successfully' });
+    return NextResponse.json({ success: true, data, warning: tierWarning, message: 'Event created successfully' });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
@@ -462,6 +602,7 @@ export async function PUT(request) {
     const dayRows = parseEventDays(updates.days);
     const span = spanFromDays(dayRows);
     const addonRows = parseEventAddons(updates.addons);
+    const tierRows = parseEventPriceTiers(updates.priceTiers);
 
     const updateData = {};
     if (updates.title) updateData.title = updates.title;
@@ -484,6 +625,8 @@ export async function PUT(request) {
     // null (field absent) leaves existing days alone; [] clears them.
     if (dayRows !== null) await syncEventDays(id, dayRows);
     if (addonRows !== null) await syncEventAddons(id, addonRows);
+    // null (field absent) leaves the age groups alone; [] clears them.
+    const tierWarning = tierRows !== null ? await syncEventPriceTiers(id, tierRows) : null;
 
     const isArchive = updates.isActive === false || updates.isActive === 'false';
     // Retires every cached list - see bumpEventsList. AFTER the write, not
@@ -491,7 +634,7 @@ export async function PUT(request) {
     // under the new version and outlive the change by a full TTL.
     bumpEventsList();
     await logEventAudit(actor, isArchive ? 'archive_event' : 'update_event', id, isArchive ? 'Archived event' : `Updated event "${data.title}"`);
-    return NextResponse.json({ success: true, data, message: 'Event updated successfully' });
+    return NextResponse.json({ success: true, data, warning: tierWarning, message: 'Event updated successfully' });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }

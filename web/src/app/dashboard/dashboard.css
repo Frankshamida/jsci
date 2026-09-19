@@ -25082,6 +25082,26 @@ body.dark-mode .evt-copy-cell:hover { background: rgba(255,255,255,0.08); }
 .evt-table-regs th, .evt-table-regs td { padding: 13px 12px; }
 .evt-table-regs th:first-child, .evt-table-regs td:first-child { padding-left: 18px; }
 .evt-table-regs th:last-child, .evt-table-regs td:last-child { padding-right: 18px; }
+/* ---- With the Age Group column ----
+   It only exists on an event priced by age, so the nine-column proportions
+   live here rather than being carried by every event. The extra column is paid
+   for out of Attendee, Added By and Church, which have the most slack; the
+   nth-child rules above still apply, so each one below is a correction to the
+   column that has shifted one place right. */
+.evt-table-regs.has-tier th:nth-child(1), .evt-table-regs.has-tier td:nth-child(1) { width: 16%; }  /* Attendee */
+.evt-table-regs.has-tier th:nth-child(2), .evt-table-regs.has-tier td:nth-child(2) { width: 10%; text-align: left; }   /* Age Group */
+.evt-table-regs.has-tier th:nth-child(3), .evt-table-regs.has-tier td:nth-child(3) { width: 9%; }   /* Type */
+.evt-table-regs.has-tier th:nth-child(4), .evt-table-regs.has-tier td:nth-child(4) { width: 13%; }  /* Added By */
+.evt-table-regs.has-tier th:nth-child(5), .evt-table-regs.has-tier td:nth-child(5) { width: 17%; text-align: left; }  /* Church */
+.evt-table-regs.has-tier th:nth-child(6), .evt-table-regs.has-tier td:nth-child(6) { width: 7%; text-align: center; } /* Extras */
+.evt-table-regs.has-tier th:nth-child(7), .evt-table-regs.has-tier td:nth-child(7) { width: 14%; text-align: left; }  /* Payment */
+.evt-table-regs.has-tier th:nth-child(8), .evt-table-regs.has-tier td:nth-child(8) {
+  width: 10%; text-align: left; padding-right: 12px; padding-left: 12px;         /* Status */
+}
+.evt-table-regs.has-tier th:nth-child(9), .evt-table-regs.has-tier td:nth-child(9) {
+  width: 132px; text-align: right; padding-right: 18px; padding-left: 18px;      /* Actions */
+}
+
 /* Between a tablet and a desk this table scrolls rather than squeezes: a
    registration row carries a church name and a payment reference, and neither
    reads at 60px. Below 1366px it is the tablet band at the end of this file
@@ -26686,7 +26706,14 @@ body.dark-mode .evt-admin-card { background: #1e1e2e; }
   .evt-table-regs th:nth-child(n), .evt-table-regs td:nth-child(n) {
     width: 100%; padding-left: 16px; padding-right: 16px; text-align: right;
   }
+  /* And again for the nine-column variant. Its widths carry a third class, so
+     they outrank the rule above wherever it is written - the same trap, one
+     column further along. */
+  .evt-table-regs.has-tier th:nth-child(n), .evt-table-regs.has-tier td:nth-child(n) {
+    width: 100%; padding-left: 16px; padding-right: 16px; text-align: right;
+  }
   .evt-table-regs td:nth-child(n).evt-td-primary { text-align: left; }
+  .evt-table-regs.has-tier td:nth-child(n).evt-td-primary { text-align: left; }
   body.dark-mode .evt-table tbody td.evt-td-primary { background: rgba(255,255,255,0.04); }
   .evt-cell-title { align-items: flex-start; }
   .evt-cell-banner { width: 58px; height: 74px; }
@@ -26829,6 +26856,142 @@ body.dark-mode .evt-session-list li strong { color: var(--accent); }
 }
 body.dark-mode .evt-addon-row { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
 body.dark-mode .evt-addon-total { background: rgba(255,255,255,0.06); color: var(--accent); }
+
+/* ============================================================
+   AGE-BASED PRICE GROUPS
+   Admin builder (Pricing step) + the chips an attendee picks from.
+   ============================================================ */
+.evt-tier-block {
+  margin: 4px 0 18px; padding: 13px; border-radius: 12px;
+  background: rgba(146,108,21,0.05);
+  border: 1px solid var(--border-color, rgba(146,108,21,0.18));
+}
+.evt-tier-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 8px;
+}
+.evt-tier-head-title { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 800; color: var(--primary); }
+.evt-tier-head-title em {
+  font-style: normal; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; padding: 2px 8px; border-radius: 20px;
+  background: rgba(146,108,21,0.14); color: var(--primary);
+}
+/* One tap fills in Adults / 6-10 / 5-and-below, which is what nearly every
+   poster says - the admin then types three prices instead of a whole table. */
+.evt-tier-starter {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  padding: 7px 13px; border-radius: 20px; border: none;
+  background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff;
+  font: inherit; font-size: 0.78rem; font-weight: 800;
+}
+.evt-tier-starter:hover { filter: brightness(1.06); }
+.evt-tier-empty { font-size: 0.82rem; line-height: 1.55; margin: 0 0 10px; }
+.evt-tier-empty strong { white-space: nowrap; }
+
+.evt-tier-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.evt-tier-row {
+  padding: 11px; border-radius: 10px; background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+  display: flex; flex-direction: column; gap: 8px;
+}
+/* A group that is free and does not register reads differently on purpose:
+   it is information for parents, not a thing to be booked. */
+.evt-tier-row.kid { background: rgba(22,163,74,0.06); border-color: rgba(22,163,74,0.24); }
+/* Flex rather than a fixed grid: the early-bird column only exists on an event
+   with an early-bird deadline, and a grid would leave a hole where it isn't. */
+.evt-tier-grid { display: flex; flex-wrap: wrap; gap: 9px; align-items: flex-end; }
+.evt-tier-grid .form-control { padding: 8px 10px !important; font-size: 0.85rem; }
+.evt-tier-grid .evt-tier-label { flex: 1 1 100%; min-width: 150px; }
+.evt-tier-grid .evt-tier-age { flex: 1 1 84px; max-width: 110px; }
+.evt-tier-grid .evt-tier-fee { flex: 1 1 96px; max-width: 130px; }
+.evt-tier-grid .evt-session-remove { margin-bottom: 2px; }
+.evt-tier-foot { display: flex; flex-direction: column; gap: 7px; }
+.evt-tier-noreg { font-size: 0.76rem; }
+.evt-tier-note { font-size: 0.8rem !important; }
+.evt-tier-reads {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-size: 0.76rem; color: var(--text-muted, #777);
+}
+.evt-tier-reads strong { color: var(--primary); }
+@media (min-width: 760px) {
+  .evt-tier-grid .evt-tier-label { flex: 2 1 180px; }
+}
+body.dark-mode .evt-tier-block { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); }
+body.dark-mode .evt-tier-row { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
+body.dark-mode .evt-tier-row.kid { background: rgba(22,163,74,0.12); border-color: rgba(22,163,74,0.3); }
+body.dark-mode .evt-tier-head-title, body.dark-mode .evt-tier-reads strong { color: var(--accent); }
+body.dark-mode .evt-tier-head-title em { background: rgba(255,255,255,0.10); color: var(--accent); }
+
+/* Per-group prices inside an add-on row: accommodation 200 for an adult,
+   100 for a child. Blank means that group pays the add-on's own fee. */
+.evt-addon-tiers {
+  padding: 9px 10px; border-radius: 9px;
+  background: rgba(146,108,21,0.07); display: flex; flex-direction: column; gap: 7px;
+}
+.evt-addon-tiers-label {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  font-size: 0.76rem; font-weight: 800; color: var(--primary);
+}
+.evt-addon-tiers-label em { font-style: normal; font-weight: 600; color: var(--text-muted, #888); }
+.evt-addon-tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+.evt-addon-tier-grid .form-control { padding: 7px 9px !important; font-size: 0.82rem; }
+body.dark-mode .evt-addon-tiers { background: rgba(255,255,255,0.06); }
+body.dark-mode .evt-addon-tiers-label { color: var(--accent); }
+
+/* ---- The picker: which age group is this person? ----
+   Used on the member register modal, the admin desk and the committee desk. */
+.evt-tier-pick { margin: 4px 0 14px; }
+.evt-tier-pick-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px;
+  font-size: 0.85rem; font-weight: 700; color: var(--primary);
+}
+/* The aside next to the heading - "the ₱500 already recorded does not change". */
+.evt-tier-pick-hint { font-style: normal; font-weight: 600; font-size: 0.76rem; color: var(--text-muted, #999); }
+.evt-tier-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.evt-tier-chip {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 9px 13px; border-radius: 12px; flex: 1 1 165px;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.10)); background: transparent;
+  font: inherit; text-align: left; color: inherit; transition: all 0.18s ease;
+}
+.evt-tier-chip:hover { border-color: var(--primary); }
+.evt-tier-chip.on { border-color: var(--primary); background: rgba(146,108,21,0.09); }
+.evt-tier-chip-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.evt-tier-chip-text strong { font-size: 0.86rem; }
+.evt-tier-chip-text small { font-size: 0.72rem; color: var(--text-muted, #888); }
+.evt-tier-chip-fee { flex-shrink: 0; font-weight: 800; font-size: 0.88rem; color: var(--primary); }
+.evt-tier-chip-fee.free { color: #16a34a; }
+body.dark-mode .evt-tier-chip { border-color: rgba(255,255,255,0.14); }
+body.dark-mode .evt-tier-chip.on { background: rgba(255,255,255,0.08); }
+body.dark-mode .evt-tier-chip-fee, body.dark-mode .evt-tier-pick-head { color: var(--accent); }
+/* The "name only" mark on a children's group, in the editor's preview line
+   and on the chip an attendee picks. */
+.evt-tier-kid-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.3px;
+  padding: 2px 8px; border-radius: 20px;
+  background: rgba(22,163,74,0.14); color: #15803d;
+}
+.evt-tier-chip.kid.on { border-color: #16a34a; background: rgba(22,163,74,0.10); }
+.evt-tier-chip.kid .evt-tier-chip-text small { color: #15803d; }
+body.dark-mode .evt-tier-kid-tag { background: rgba(22,163,74,0.22); color: #86efac; }
+
+/* The age group on a registration row / summary line. */
+.evt-tier-tag {
+  display: inline-flex; align-items: center; gap: 5px; vertical-align: middle;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.3px;
+  padding: 2px 8px; border-radius: 20px;
+  background: rgba(146,108,21,0.13); color: var(--primary);
+}
+/* A child reads as a child down the column, rather than as one more label. */
+.evt-tier-tag.kid { background: rgba(22,163,74,0.14); color: #15803d; }
+body.dark-mode .evt-tier-tag { background: rgba(255,255,255,0.10); color: var(--accent); }
+body.dark-mode .evt-tier-tag.kid { background: rgba(22,163,74,0.22); color: #86efac; }
+
+/* Its own column in the registrations table: narrow, and never the thing that
+   squeezes the attendee's name. */
+.evt-table-regs .evt-cell-tier { white-space: nowrap; }
+.evt-table-regs .evt-cell-tier .evt-cell-sub { margin-top: 3px; white-space: normal; }
 
 /* ---- Attendee side: pick the extras you want ---- */
 .evt-addon-pick { margin: 4px 0 14px; }
@@ -30457,6 +30620,14 @@ body.dark-mode .rmn-ok { color: #4ade80; }
   .evt-table-regs th, .evt-table-regs td { padding: 12px 8px; }
   .evt-table-regs th:first-child, .evt-table-regs td:first-child { padding-left: 15px; }
   .evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) {
+    width: 112px; padding-left: 10px; padding-right: 15px;
+  }
+  /* With the Age Group column, Actions has moved one place right and the
+     eighth is Status - which must go back to being an ordinary column. */
+  .evt-table-regs.has-tier th:nth-child(8), .evt-table-regs.has-tier td:nth-child(8) {
+    width: auto; padding-left: 8px; padding-right: 8px;
+  }
+  .evt-table-regs.has-tier th:nth-child(9), .evt-table-regs.has-tier td:nth-child(9) {
     width: 112px; padding-left: 10px; padding-right: 15px;
   }
 

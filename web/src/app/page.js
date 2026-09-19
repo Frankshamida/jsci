@@ -10,6 +10,14 @@ import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen
 import { buildEventsDigest, eventsMentionedIn, evtPlaceLabel } from '@/lib/eventDigest';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
 import { isCashChannel, channelTypeLabel, channelTypeIcon, eventTakesCash } from '@/lib/paymentChannels';
+import { OTHER_CHURCH, isPlaceholderChurch, normalizeChurchName } from '@/lib/eventFormat';
+import AgeGroupPicker from '@/components/AgeGroupPicker';
+import GuardianPicker from '@/components/GuardianPicker';
+import {
+  addonFeeFor, addonShortLabel, baseAmountFor, defaultTier, eventFeeLabel, eventTiers,
+  findTier, hasPriceTiers, isNameOnlyTier, nameOnlyTiers, representativeTiers,
+  tierAgeLabel, tierFee,
+} from '@/lib/eventPricing';
 
 // ============================================
 // DATA
@@ -26,6 +34,9 @@ const HERO_SLIDES = [
 // to pay, how they paid it.
 const EMPTY_GUEST_REG_FORM = {
   firstName: '', lastName: '', churchName: '', churchPastor: '', mobile: '', email: '',
+  // Which age group they are in, on an event that prices by age. Empty on an
+  // event with one price, which is most of them.
+  priceTier: '',
   paymentMethod: '', paymentReference: '',
 };
 
@@ -295,6 +306,18 @@ export default function HomePage() {
   const [attendeeDraft, setAttendeeDraft] = useState(null);       // the person being typed in above the table
   const [editingAttendee, setEditingAttendee] = useState(null);   // index being edited, or null while adding
   const [draftError, setDraftError] = useState('');
+  const [checkingAttendee, setCheckingAttendee] = useState(false);  // asking the server whether this name is already registered
+  // The parent or guardian a child is being registered under, when the age
+  // group picked is a children's one.
+  const [guestGuardian, setGuestGuardian] = useState(null);
+
+  // ---- The event description: a few lines, then "See more" ----
+  // Some of these run to several paragraphs. On a phone that pushed the date,
+  // the venue, the price and the Register button below two screens of scrolling,
+  // so what somebody came to find was the last thing they could reach.
+  const [descOpen, setDescOpen] = useState(false);
+  const [descOverflows, setDescOverflows] = useState(false);
+  const descRef = useRef(null);
 
   // An event limited to specific roles can only be joined from an account - the
   // server rejects a guest registration for one - so those still have to be
@@ -327,6 +350,9 @@ export default function HomePage() {
   const emptyAttendee = (evt) => ({
     firstName: '', lastName: '',
     addonIds: (evt?.event_addons || []).filter((a) => a.is_required).map((a) => a.id),
+    // Everyone starts in the first group - the adults on a poster written the
+    // usual way - and changes it if they are not one.
+    priceTier: defaultTier(evt)?.label || '',
   });
 
   const openGuestRegistration = (evt, mode = 'individual') => {
@@ -335,7 +361,12 @@ export default function HomePage() {
     setGuestRegMode(mode);
     setGuestRegEvent(evt);
     const methods = evt.payment_methods || [];
-    setGuestRegForm({ ...EMPTY_GUEST_REG_FORM, paymentMethod: methods.length === 1 ? methods[0] : '' });
+    setGuestRegForm({
+      ...EMPTY_GUEST_REG_FORM,
+      priceTier: defaultTier(evt)?.label || '',
+      paymentMethod: methods.length === 1 ? methods[0] : '',
+    });
+    setGuestGuardian(null);
     setGuestFieldErrors({});
     // The roster starts empty and is built one person at a time, above the table.
     setBulkAttendees([]);
@@ -536,6 +567,51 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [guestRegForm.churchName, churchOpen, guestRegEvent]);
 
+  // "Others" is always on the list. Without it, somebody with no church to name
+  // types N/A, n/a, none or wala, and the church list grows five entries that
+  // all mean the same thing. Picking it writes one word that every screen and
+  // every count already understands.
+  const churchChoices = (() => {
+    const real = churchOptions.filter((c) => !isPlaceholderChurch(c.name));
+    const othersCount = churchOptions
+      .filter((c) => isPlaceholderChurch(c.name))
+      .reduce((sum, c) => sum + (Number(c.count) || 0), 0);
+    const typed = guestRegForm.churchName.trim().toLowerCase();
+    // Offered while the box is empty, while it reads like a placeholder ("n/a"),
+    // or while what they are typing is part of the word itself.
+    const wantsOthers = !typed || isPlaceholderChurch(typed) || OTHER_CHURCH.toLowerCase().includes(typed);
+    return wantsOthers ? [...real, { name: OTHER_CHURCH, count: othersCount, isOther: true }] : real;
+  })();
+
+  // Whatever spelling of "no church" was typed becomes the one word as soon as
+  // the field is left, so what they see is what will be saved.
+  const settleChurchName = () => {
+    setGuestRegForm((f) => (isPlaceholderChurch(f.churchName) ? { ...f, churchName: OTHER_CHURCH } : f));
+  };
+
+  // Whether there is anything hidden to see more OF. Measured rather than
+  // guessed from the length: four lines is a different number of characters on
+  // a phone and on a desk, and a button that opens nothing is worse than no
+  // button. Re-measured when the window is resized for the same reason.
+  useEffect(() => {
+    setDescOpen(false);
+    if (!detailEvent?.description) { setDescOverflows(false); return undefined; }
+    const measure = () => {
+      const el = descRef.current;
+      if (el) setDescOverflows(el.scrollHeight > el.clientHeight + 2);
+    };
+    const frame = requestAnimationFrame(measure);
+    // Again once the dialog has finished arriving: measured mid-animation the
+    // paragraph can still be zero-height, and the button would never appear.
+    const settled = setTimeout(measure, 200);
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(settled);
+      window.removeEventListener('resize', measure);
+    };
+  }, [detailEvent]);
+
   // A Philippine mobile number: 11 digits starting 09. Anything typed that
   // isn't a digit is dropped as it is entered, so the field can't drift.
   const onlyDigits = (v) => (v || '').replace(/\D/g, '').slice(0, 11);
@@ -711,7 +787,8 @@ export default function HomePage() {
   // are the ones they had NOT availed before, charged on top of what they hold.
   const repNewAddonIds = repAddonIds.filter((id) => !repLockedAddonIds.includes(id));
   const repTopUpAddons = () => (guestRegEvent?.event_addons || []).filter((x) => repNewAddonIds.includes(x.id));
-  const repTopUpTotal = () => repTopUpAddons().reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+  const repTopUpTotal = () => repTopUpAddons()
+    .reduce((sum, x) => sum + addonFeeFor(x, findTier(guestRegEvent, guestRegForm.priceTier) || defaultTier(guestRegEvent)), 0);
 
   // Copy across what the earlier registration already recorded, so a returning
   // representative does not retype their church, pastor and number.
@@ -731,7 +808,11 @@ export default function HomePage() {
   // has to go - and with it everything typed under that name.
   const clearRepDetails = () => {
     const methods = guestRegEvent?.payment_methods || [];
-    setGuestRegForm({ ...EMPTY_GUEST_REG_FORM, paymentMethod: methods.length === 1 ? methods[0] : '' });
+    setGuestRegForm({
+      ...EMPTY_GUEST_REG_FORM,
+      priceTier: defaultTier(guestRegEvent)?.label || '',
+      paymentMethod: methods.length === 1 ? methods[0] : '',
+    });
     setRepAddonIds((guestRegEvent?.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
     setRepAgreed(false);
     setRepUsedSaved(false);
@@ -751,7 +832,13 @@ export default function HomePage() {
   // The representative is one of the people being registered - unless they
   // already have a slot for this event, in which case they only top up extras.
   const repAsAttendee = () => ((isBulk && !repLocked && guestRegForm.firstName.trim() && guestRegForm.lastName.trim())
-    ? { firstName: guestRegForm.firstName.trim(), lastName: guestRegForm.lastName.trim(), addonIds: repAddonIds, isRep: true }
+    ? {
+        firstName: guestRegForm.firstName.trim(),
+        lastName: guestRegForm.lastName.trim(),
+        addonIds: repAddonIds,
+        priceTier: guestRegForm.priceTier,
+        isRep: true,
+      }
     : null);
 
   // Everyone being registered by this submission: the representative first when
@@ -772,7 +859,8 @@ export default function HomePage() {
 
   // Add, or save the row that is being edited. The same button does both, so
   // there is only ever one place a name is typed.
-  const commitAttendee = () => {
+  const commitAttendee = async () => {
+    if (checkingAttendee) return;
     const first = draft.firstName.trim();
     const last = draft.lastName.trim();
     if (!first || !last) { setDraftError('Enter both the first and last name.'); return; }
@@ -790,7 +878,36 @@ export default function HomePage() {
       return;
     }
 
-    const person = { firstName: first, lastName: last, addonIds: draft.addonIds };
+    // The background check runs on a delay, so a name typed and added quickly
+    // can be added before the answer about it comes back. Asked again here, on
+    // the tap itself, because this is the moment the person joins the list -
+    // after this they are on a payment, and taking them off is somebody's work.
+    if (guestRegEvent) {
+      setCheckingAttendee(true);
+      try {
+        const res = await fetch(`/api/events/registrations?eventId=${guestRegEvent.id}&duplicates=${encodeURIComponent(key)}`);
+        const data = await res.json();
+        const found = data.success ? (data.data || []).map((n) => String(n).toLowerCase()) : [];
+        if (found.includes(key)) {
+          setDupNames((list) => [...new Set([...list, ...found])]);
+          // Keep what came back about them - it is what puts PAID / UNPAID on
+          // the warning instead of a bare "already registered".
+          setDupDetails((list) => {
+            const fresh = data.details || [];
+            const names = new Set(fresh.map((d) => String(d.name).toLowerCase()));
+            return [...list.filter((d) => !names.has(String(d.name).toLowerCase())), ...fresh];
+          });
+          setDraftError('already-registered');
+          return;
+        }
+      } catch {
+        /* the check is a convenience - the server refuses a duplicate on submit */
+      } finally {
+        setCheckingAttendee(false);
+      }
+    }
+
+    const person = { firstName: first, lastName: last, addonIds: draft.addonIds, priceTier: draft.priceTier };
     setBulkAttendees((list) => (editingAttendee == null
       ? [...list, person]
       : list.map((a, i) => (i === editingAttendee ? person : a))));
@@ -819,12 +936,12 @@ export default function HomePage() {
   };
   // What a person's extras cost, and what they are called - the table shows both.
   const attendeeAddons = (a) => (guestRegEvent?.event_addons || []).filter((x) => a.addonIds.includes(x.id));
-  const attendeeExtrasTotal = (a) => attendeeAddons(a).reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+  // Priced for THEIR age group - a child's accommodation can cost less than an
+  // adult's on the same event.
+  const attendeeExtrasTotal = (a) => attendeeAddons(a)
+    .reduce((sum, x) => sum + addonFeeFor(x, personTier(a)), 0);
   // What one person in the roster costs: the base fee plus whatever they ticked.
-  const attendeeAmount = (a) => guestBaseAmount(guestRegEvent)
-    + (guestRegEvent?.event_addons || [])
-        .filter((x) => a.addonIds.includes(x.id))
-        .reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+  const attendeeAmount = (a) => guestBaseAmount(guestRegEvent, personTier(a)) + attendeeExtrasTotal(a);
 
   // Step 1: for an individual, who is coming. For a group, who is holding the
   // registration - the same fields, plus the promise that they are true.
@@ -832,6 +949,14 @@ export default function HomePage() {
     const errs = {};
     if (!guestRegForm.firstName.trim()) errs.firstName = 'First name is required.';
     if (!guestRegForm.lastName.trim()) errs.lastName = 'Last name is required.';
+    // A child is asked for a name and a guardian. The church, the pastor and the
+    // number to ring are the guardian's, and asking a parent to retype their own
+    // details for each of their children is how three spellings of one church
+    // end up on one family.
+    if (isChildReg) {
+      if (!guestGuardian) errs.guardian = 'Please search for the parent or guardian bringing them.';
+      return errs;
+    }
     if (!guestRegForm.churchName.trim()) errs.churchName = 'Church name is required.';
     if (!guestRegForm.churchPastor.trim()) errs.churchPastor = 'Church pastor is required.';
     if (!guestRegForm.mobile.trim()) errs.mobile = 'Contact number is required.';
@@ -921,6 +1046,9 @@ export default function HomePage() {
     }
     setGuestFieldErrors({});
     setGuestRegResult(null);
+    // Leaving the details step settles the church spelling, so the review page
+    // and the receipt read the same as what is saved.
+    if (guestRegStep === 0) settleChurchName();
     if (guestRegStep < reviewStep) { setGuestRegStep(guestRegStep + 1); return; }
     // Nothing to pay - the review IS the last step.
     if (guestTotalAmount(guestRegEvent) <= 0) { submitGuestRegistration(); return; }
@@ -937,6 +1065,7 @@ export default function HomePage() {
 
   const closeGuestRegistration = () => {
     setGuestRegEvent(null); setGuestRegResult(null); setGuestFieldErrors({});
+    setGuestGuardian(null);
     setRepAgreed(false); setRepUsedSaved(false);
     setDupNames([]); setDupDetails([]);
   };
@@ -953,28 +1082,43 @@ export default function HomePage() {
     && (evt?.event_addons || []).filter((a) => a.is_required).every((a) => !(Number(a.fee) > 0));
 
   // Base price for this visitor (early bird if it still applies).
-  const guestBaseAmount = (evt) => {
-    if (!evt || !evt.has_fee) return 0;
-    const early = evt.early_bird_price != null && evt.early_bird_deadline && Date.now() <= (evtMs(evt.early_bird_deadline) ?? 0);
-    return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+  // What one person pays before extras: their age group's price on an event
+  // that has groups, the single registration fee on one that does not.
+  const guestBaseAmount = (evt, tier) => {
+    if (!evt) return 0;
+    if (!hasPriceTiers(evt)) {
+      if (!evt.has_fee) return 0;
+      const early = evt.early_bird_price != null && evt.early_bird_deadline && Date.now() <= (evtMs(evt.early_bird_deadline) ?? 0);
+      return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+    }
+    return baseAmountFor(evt, tier || findTier(evt, guestRegForm.priceTier) || defaultTier(evt));
   };
+
+  // The group one person on the roster is in.
+  const personTier = (a) => findTier(guestRegEvent, a?.priceTier) || defaultTier(guestRegEvent);
+
+  // A child registering on their own: a name, the group, and the parent who is
+  // bringing them. Everything else on the form - church, pastor, number - comes
+  // from that parent's own registration, so it is not asked for twice.
+  //
+  // Never true for a group booking: there the representative is the adult
+  // holding it, and the children are names on their roster.
+  const guestTier = () => findTier(guestRegEvent, guestRegForm.priceTier) || defaultTier(guestRegEvent);
+  const isChildReg = !isBulk && isNameOnlyTier(guestTier());
 
   // Base + the extras ticked. Only a preview - the server recomputes the real
   // total from the database so the form can't understate what is owed.
   const guestTotalAmount = (evt) => {
     // A group pays for each person on the roster, extras and all.
     if (guestRegMode === 'bulk') {
-      const base = guestBaseAmount(evt);
       const topUp = repLocked ? repTopUpTotal() : 0;
-      return topUp + fullRoster().reduce((sum, a) => sum + base
-        + (evt?.event_addons || [])
-            .filter((x) => a.addonIds.includes(x.id))
-            .reduce((s, x) => s + (Number(x.fee) || 0), 0), 0);
+      return topUp + fullRoster().reduce((sum, a) => sum + attendeeAmount(a), 0);
     }
-    return guestBaseAmount(evt)
+    const tier = findTier(evt, guestRegForm.priceTier) || defaultTier(evt);
+    return guestBaseAmount(evt, tier)
       + (evt?.event_addons || [])
           .filter((a) => guestRegAddonIds.includes(a.id))
-          .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+          .reduce((sum, a) => sum + addonFeeFor(a, tier), 0);
   };
 
   const submitGuestRegistration = async () => {
@@ -1014,6 +1158,7 @@ export default function HomePage() {
       if (isBulk) {
         fd.append('attendees', JSON.stringify(fullRoster().map((a) => ({
           firstName: a.firstName.trim(), lastName: a.lastName.trim(), addonIds: a.addonIds,
+          priceTier: a.priceTier || null,
         }))));
         // Who to call about this booking - stored on every row of the group.
         fd.append('representative', `${guestRegForm.firstName.trim()} ${guestRegForm.lastName.trim()}`.trim());
@@ -1022,9 +1167,16 @@ export default function HomePage() {
       }
       fd.append('attendeeEmail', guestRegForm.email || '');
       fd.append('attendeeMobile', guestRegForm.mobile || '');
-      fd.append('churchName', guestRegForm.churchName || '');
+      // Saved as the one word whichever spelling of "no church" was typed.
+      fd.append('churchName', normalizeChurchName(guestRegForm.churchName) || '');
       fd.append('churchPastor', guestRegForm.churchPastor ? `Ptr. ${guestRegForm.churchPastor.trim()}` : '');
       fd.append('addonIds', JSON.stringify(guestRegAddonIds));
+      // Which age group, never what it costs - the server reads the price
+      // from the database so a changed form cannot lower a fee.
+      fd.append('priceTier', guestRegForm.priceTier || '');
+      // A child's row inherits the church, pastor and number from this
+      // registration - the server reads them, so nothing is retyped here.
+      if (guestGuardian?.id) fd.append('guardianRegistrationId', guestGuardian.id);
       if (guestTotalAmount(guestRegEvent) > 0) {
         fd.append('paymentMethod', guestRegForm.paymentMethod || '');
         fd.append('paymentReference', guestRegForm.paymentReference || '');
@@ -2246,6 +2398,56 @@ ${eventsDigest}`;
                       )}
 
 
+                      {/* Which age group. It sits above the church block on
+                          purpose: for a child the rest of this step is a
+                          different set of questions, and the answer has to come
+                          before the questions it changes. */}
+                      {!isBulk && (
+                        <AgeGroupPicker
+                          event={guestRegEvent}
+                          value={guestRegForm.priceTier}
+                          onChange={(label) => {
+                            setGuestRegForm((f) => ({ ...f, priceTier: label }));
+                            // Leaving the children's group means the guardian is no
+                            // longer part of this registration.
+                            if (!isNameOnlyTier(findTier(guestRegEvent, label))) setGuestGuardian(null);
+                            clearGuestFieldError('guardian');
+                          }}
+                          title="Age Group"
+                        />
+                      )}
+
+                      {/* A group booking is held by an adult - the one we ring
+                          about the payment. The children come later, on the
+                          roster, where each of them picks their own group. */}
+                      {isBulk && representativeTiers(guestRegEvent).length > 0 && (
+                        <p className="hp-rep-tier">
+                          <i className="fas fa-user-shield"></i>
+                          <span>
+                            You are registered as <strong>{guestRegForm.priceTier || representativeTiers(guestRegEvent)[0].label}</strong>
+                            {' '}&mdash; &#8369;{guestBaseAmount(guestRegEvent)}.
+                            {nameOnlyTiers(guestRegEvent).length > 0
+                              ? ' Children go on the next step, where each person picks their own age group.'
+                              : ' Everyone else goes on the next step, where each person picks their own age group.'}
+                          </span>
+                        </p>
+                      )}
+
+                      {/* A child is a name and a guardian. Their church, pastor
+                          and contact number are the guardian's - asked once, on
+                          the registration the child is being added to. */}
+                      {isChildReg ? (
+                        <>
+                          <GuardianPicker
+                            eventId={guestRegEvent.id}
+                            value={guestGuardian}
+                            onChange={(g) => { setGuestGuardian(g); clearGuestFieldError('guardian'); }}
+                            invalid={!!guestFieldErrors.guardian}
+                          />
+                          {guestFieldErrors.guardian && <small className="hp-field-error">{guestFieldErrors.guardian}</small>}
+                        </>
+                      ) : (
+                      <>
                       {/* The full church name, spelled the same way every time - past
                           registrations are offered as you type, with how many people
                           already came from each. */}
@@ -2257,17 +2459,20 @@ ${eventsDigest}`;
                           value={guestRegForm.churchName}
                           onChange={(e) => { setGuestRegForm({ ...guestRegForm, churchName: e.target.value }); setChurchOpen(true); clearGuestFieldError('churchName'); }}
                           onFocus={() => setChurchOpen(true)}
-                          onBlur={() => setTimeout(() => setChurchOpen(false), 160)}
+                          onBlur={() => { settleChurchName(); setTimeout(() => setChurchOpen(false), 160); }}
                           placeholder="e.g. Joyful Sound Church - International"
                           autoComplete="off"
                         />
-                        {churchOpen && churchOptions.length > 0 && (
+                        {churchOpen && churchChoices.length > 0 && (
                           <ul className="hp-church-list">
-                            {churchOptions.map((c) => (
+                            {churchChoices.map((c) => (
                               <li key={c.name}>
-                                <button type="button" onMouseDown={() => { setGuestRegForm((f) => ({ ...f, churchName: c.name })); setChurchOpen(false); }}>
-                                  <span>{c.name}</span>
-                                  <em>{c.count} registered</em>
+                                <button type="button" className={c.isOther ? 'hp-church-other' : ''} onMouseDown={() => { setGuestRegForm((f) => ({ ...f, churchName: c.name })); setChurchOpen(false); clearGuestFieldError('churchName'); }}>
+                                  <span>
+                                    {c.name}
+                                    {c.isOther && <small>Not from a church, or none to give</small>}
+                                  </span>
+                                  {c.count > 0 && <em>{c.count} registered</em>}
                                 </button>
                               </li>
                             ))}
@@ -2275,7 +2480,7 @@ ${eventsDigest}`;
                         )}
                         {guestFieldErrors.churchName
                           ? <small className="hp-field-error">{guestFieldErrors.churchName}</small>
-                          : <small className="hp-field-hint">Write it in full, e.g. &quot;Joyful Sound Church - International&quot;.</small>}
+                          : <small className="hp-field-hint">Write it in full, e.g. &quot;Joyful Sound Church - International&quot;. No church to give? Choose <strong>{OTHER_CHURCH}</strong>.</small>}
                       </div>
 
                       <div className="hp-isom-inquire-row">
@@ -2304,6 +2509,8 @@ ${eventsDigest}`;
                           )}
                         </div>
                       </div>
+                      </>
+                      )}
 
                       {/* Paid extras belong here - they decide the total shown on step 2. */}
                       {!isBulk && (guestRegEvent.event_addons || []).length > 0 && (
@@ -2319,7 +2526,7 @@ ${eventsDigest}`;
                                   <strong>{a.question}</strong>
                                   {a.is_required && <small>Required &mdash; included for everyone.</small>}
                                 </span>
-                                <span className="hp-reg-addon-fee">+&#8369;{Number(a.fee) || 0}</span>
+                                <span className="hp-reg-addon-fee">+&#8369;{addonFeeFor(a, findTier(guestRegEvent, guestRegForm.priceTier) || defaultTier(guestRegEvent))}</span>
                               </label>
                               {(a.details || a.description) && (
                                 <button type="button" className="hp-addon-details-btn" onClick={() => setAddonDetail(a)}>
@@ -2364,7 +2571,7 @@ ${eventsDigest}`;
                                   <label className={`hp-bulk-addon ${on ? 'on' : ''} ${frozen ? 'locked' : ''}`} key={x.id}>
                                     <input type="checkbox" checked={on} disabled={frozen} onChange={() => toggleRepAddon(x)} />
                                     <span>{x.question}</span>
-                                    <em>+&#8369;{Number(x.fee) || 0}</em>
+                                    <em>+&#8369;{addonFeeFor(x, findTier(guestRegEvent, guestRegForm.priceTier) || defaultTier(guestRegEvent))}</em>
                                     {settled && <i className="fas fa-lock" title="Already availed on your existing registration"></i>}
                                   </label>
                                 );
@@ -2455,6 +2662,16 @@ ${eventsDigest}`;
                           </div>
                         </div>
 
+                        {/* Age group is per person too - a family is one payment,
+                            not one price. */}
+                        <AgeGroupPicker
+                          event={guestRegEvent}
+                          value={draft.priceTier}
+                          onChange={(label) => setDraft({ priceTier: label })}
+                          title="Age Group"
+                          hint={nameOnlyTiers(guestRegEvent).length > 0 ? 'children are registered under you' : ''}
+                        />
+
                         {/* Extras are per person - only some of a group usually need
                             accommodation, so they are ticked with the name. */}
                         {(guestRegEvent.event_addons || []).length > 0 && (
@@ -2463,7 +2680,7 @@ ${eventsDigest}`;
                               <label className={`hp-bulk-addon ${draft.addonIds.includes(x.id) ? 'on' : ''} ${x.is_required ? 'locked' : ''}`} key={x.id}>
                                 <input type="checkbox" checked={draft.addonIds.includes(x.id)} disabled={x.is_required} onChange={() => toggleDraftAddon(x)} />
                                 <span>{x.question}</span>
-                                <em>+&#8369;{Number(x.fee) || 0}</em>
+                                <em>+&#8369;{addonFeeFor(x, findTier(guestRegEvent, draft.priceTier) || defaultTier(guestRegEvent))}</em>
                               </label>
                             ))}
                           </div>
@@ -2473,22 +2690,30 @@ ${eventsDigest}`;
                             stands, rather than a bare "already registered". */}
                         {draftError === 'already-registered' ? (() => {
                           const info = dupInfoFor(draft.firstName, draft.lastName);
-                          const chip = statusChip(info?.status);
+                          // Nothing came back about their payment: still say plainly
+                          // that the name is taken rather than show an empty chip.
+                          const chip = info ? statusChip(info.status) : null;
                           return (
                             <p className="hp-dup-warn">
                               <i className="fas fa-triangle-exclamation"></i>
                               <span>
                                 <b className="hp-dup-name">{`${draft.firstName.trim()} ${draft.lastName.trim()}`}</b>
-                                <span className={`hp-status-chip ${chip.cls}`}>{chip.label}</span>
+                                {chip && <span className={`hp-status-chip ${chip.cls}`}>{chip.label}</span>}
                                 <br />is already registered for this event, so they cannot be added again.
                               </span>
                             </p>
                           );
                         })() : draftError ? <small className="hp-field-error">{draftError}</small> : null}
 
-                        <button type="button" className="hp-bulk-add" onClick={commitAttendee}>
-                          <i className={`fas ${editingAttendee == null ? 'fa-plus' : 'fa-check'}`}></i>
-                          {editingAttendee == null ? ' Add Attendee' : ' Save Changes'}
+                        <button type="button" className="hp-bulk-add" onClick={commitAttendee} disabled={checkingAttendee}>
+                          {checkingAttendee ? (
+                            <><i className="fas fa-spinner fa-spin"></i> Checking...</>
+                          ) : (
+                            <>
+                              <i className={`fas ${editingAttendee == null ? 'fa-plus' : 'fa-check'}`}></i>
+                              {editingAttendee == null ? ' Add Attendee' : ' Save Changes'}
+                            </>
+                          )}
                         </button>
                       </div>
 
@@ -2526,12 +2751,15 @@ ${eventsDigest}`;
                                         <span className="hp-bulk-row-name">
                                           <b>{i + 1}.</b> {`${a.firstName} ${a.lastName}`.trim()}
                                           {a.isRep && <em className="hp-bulk-you">You</em>}
+                                          {hasPriceTiers(guestRegEvent) && a.priceTier && (
+                                            <em className="hp-bulk-tier">{a.priceTier}</em>
+                                          )}
                                         </span>
                                         {guestFieldErrors[`attendee-${listIndex}`] && (
                                           <small className="hp-field-error">{guestFieldErrors[`attendee-${listIndex}`]}</small>
                                         )}
                                       </td>
-                                      <td data-label="Registration Fee">&#8369;{guestBaseAmount(guestRegEvent)}</td>
+                                      <td data-label="Registration Fee">&#8369;{guestBaseAmount(guestRegEvent, personTier(a))}</td>
                                       <td data-label="Extras">
                                         {attendeeAddons(a).length === 0 ? <span className="hp-bulk-none">&mdash;</span> : (
                                           <>
@@ -2647,18 +2875,39 @@ ${eventsDigest}`;
                             <b>{`${guestRegForm.firstName} ${guestRegForm.lastName}`.trim() || '—'}</b>
                           </div>
                         )}
-                        <div className="hp-review-row">
-                          <span>Church Name</span>
-                          <b>{guestRegForm.churchName.trim() || '—'}</b>
-                        </div>
-                        <div className="hp-review-row">
-                          <span>Church Pastor</span>
-                          <b>{guestRegForm.churchPastor.trim() ? `Ptr. ${guestRegForm.churchPastor.trim()}` : '—'}</b>
-                        </div>
-                        <div className="hp-review-row">
-                          <span>Contact Number</span>
-                          <b>{guestRegForm.mobile || '—'}</b>
-                        </div>
+                        {hasPriceTiers(guestRegEvent) && guestRegForm.priceTier && (
+                          <div className="hp-review-row">
+                            <span>Age Group</span>
+                            <b>{guestRegForm.priceTier}</b>
+                          </div>
+                        )}
+                        {isChildReg && guestGuardian && (
+                          <div className="hp-review-row">
+                            <span>Parent / Guardian</span>
+                            <b>{guestGuardian.name}</b>
+                          </div>
+                        )}
+                        {isChildReg ? (
+                          <div className="hp-review-row">
+                            <span>Church &amp; Contact</span>
+                            <b>{guestGuardian ? `From ${guestGuardian.name}` : '—'}</b>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="hp-review-row">
+                              <span>Church Name</span>
+                              <b>{guestRegForm.churchName.trim() || '—'}</b>
+                            </div>
+                            <div className="hp-review-row">
+                              <span>Church Pastor</span>
+                              <b>{guestRegForm.churchPastor.trim() ? `Ptr. ${guestRegForm.churchPastor.trim()}` : '—'}</b>
+                            </div>
+                            <div className="hp-review-row">
+                              <span>Contact Number</span>
+                              <b>{guestRegForm.mobile || '—'}</b>
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       {/* Itemised like a receipt, so the total is never a mystery.
@@ -2671,34 +2920,38 @@ ${eventsDigest}`;
                               <b>&#8369;{repTopUpTotal()}</b>
                             </div>
                             <div className="hp-receipt-sub">
-                              Already registered &mdash; extras only:{repTopUpAddons().map((x) => ` ${x.question} ₱${Number(x.fee) || 0}`).join(',')}
+                              Already registered &mdash; extras only:{repTopUpAddons().map((x) => ` ${x.question} ₱${addonFeeFor(x, findTier(guestRegEvent, guestRegForm.priceTier) || defaultTier(guestRegEvent))}`).join(',')}
                             </div>
                           </div>
                         )}
                         {isBulk ? fullRoster().map((a, i) => (
                           <div className="hp-receipt-person" key={i}>
                             <div className="hp-receipt-line">
-                              <span><b>{`${a.firstName} ${a.lastName}`.trim() || `Person ${i + 1}`}</b>{a.isRep && <em className="hp-bulk-you">You</em>}</span>
+                              <span>
+                                <b>{`${a.firstName} ${a.lastName}`.trim() || `Person ${i + 1}`}</b>
+                                {a.isRep && <em className="hp-bulk-you">You</em>}
+                                {hasPriceTiers(guestRegEvent) && a.priceTier && <em className="hp-bulk-tier">{a.priceTier}</em>}
+                              </span>
                               <b>&#8369;{attendeeAmount(a)}</b>
                             </div>
                             <div className="hp-receipt-sub">
-                              Registration &#8369;{guestBaseAmount(guestRegEvent)}
+                              Registration &#8369;{guestBaseAmount(guestRegEvent, personTier(a))}
                               {(guestRegEvent.event_addons || [])
                                 .filter((x) => a.addonIds.includes(x.id))
-                                .map((x) => ` + ${x.question} ₱${Number(x.fee) || 0}`)
+                                .map((x) => ` + ${x.question} ₱${addonFeeFor(x, personTier(a))}`)
                                 .join('')}
                             </div>
                           </div>
                         )) : (
                           <>
                             <div className="hp-receipt-line">
-                              <span>Registration Fee</span>
+                              <span>Registration Fee{hasPriceTiers(guestRegEvent) && guestRegForm.priceTier ? ` (${guestRegForm.priceTier})` : ''}</span>
                               <b>&#8369;{guestBaseAmount(guestRegEvent)}</b>
                             </div>
                             {(guestRegEvent.event_addons || []).filter((a) => guestRegAddonIds.includes(a.id)).map((a) => (
                               <div className="hp-receipt-line" key={a.id}>
                                 <span>Extras ({a.question})</span>
-                                <b>&#8369;{Number(a.fee) || 0}</b>
+                                <b>&#8369;{addonFeeFor(a, findTier(guestRegEvent, guestRegForm.priceTier) || defaultTier(guestRegEvent))}</b>
                               </div>
                             ))}
                           </>
@@ -3158,12 +3411,25 @@ ${eventsDigest}`;
                   const icon = { upcoming: 'fa-clock', ongoing: 'fa-circle-dot', ended: 'fa-flag-checkered' };
                   return <span className={`hp-evt-status ${st}`}><i className={`fas ${icon[st]}`}></i> {copy[st]}</span>;
                 })()}
-                <span className={`hp-event-fee ${detailEvent.has_fee ? 'paid' : 'free'}`}>{detailEvent.has_fee ? `₱${detailEvent.registration_fee}` : 'Free Event'}</span>
+                <span className={`hp-event-fee ${detailEvent.has_fee ? 'paid' : 'free'}`}>{detailEvent.has_fee ? eventFeeLabel(detailEvent) : 'Free Event'}</span>
                 {detailEvent.allowed_roles && detailEvent.allowed_roles.length > 0 && <span className="hp-event-roles">{detailEvent.allowed_roles.join(', ')} only</span>}
               </div>
 
               <h2 className="hp-evt-title">{detailEvent.title}</h2>
-              {detailEvent.description && <p className="hp-evt-text">{detailEvent.description}</p>}
+              {detailEvent.description && (
+                <div className="hp-evt-desc">
+                  <p ref={descRef} className={`hp-evt-text ${descOpen ? '' : 'clamped'}`}>{detailEvent.description}</p>
+                  {/* Shown while there is more to read, and while it is open so
+                      there is a way back - never for a description that already
+                      fits, which is most of them. */}
+                  {(descOverflows || descOpen) && (
+                    <button type="button" className="hp-evt-more" onClick={() => setDescOpen((v) => !v)}>
+                      {descOpen ? 'See less' : 'See more'}
+                      <i className={`fas fa-chevron-${descOpen ? 'up' : 'down'}`}></i>
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="hp-evt-info">
                 <div className="hp-evt-info-row">
@@ -3228,6 +3494,55 @@ ${eventsDigest}`;
                     </div>
                   );
                 })()}
+                {/* What each age group pays, laid out the way the poster does
+                    it - the question "how much for my 8-year-old?" answered
+                    before anybody opens the form. Nothing here on an event with
+                    a single price. */}
+                {eventTiers(detailEvent).length > 0 && (
+                  <div className="hp-evt-info-row hp-evt-fees-row">
+                    <i className="fas fa-peso-sign"></i>
+                    <div>
+                      <span className="hp-evt-info-label">Fee</span>
+                      <div className="hp-fee-cards">
+                        {eventTiers(detailEvent).map((t) => {
+                          const fee = tierFee(detailEvent, t);
+                          // What each extra costs someone in this group, so the
+                          // "+₱200 if accommodation is needed" line on the poster
+                          // has somewhere to live.
+                          const extras = (detailEvent.event_addons || [])
+                            .map((a) => ({ question: a.question, fee: addonFeeFor(a, t) }))
+                            .filter((a) => a.fee > 0);
+                          return (
+                            <div className={`hp-fee-card ${t.nameOnly ? 'kid' : ''}`} key={t.label}>
+                              <span className="hp-fee-card-label">{t.label}</span>
+                              <span className="hp-fee-card-age">{tierAgeLabel(t)}</span>
+                              <span className={`hp-fee-card-price ${fee > 0 ? '' : 'free'}`}>
+                                {fee > 0 ? `₱${fee}` : 'FREE'}
+                              </span>
+                              {/* "+₱200 Accommodation", not "+₱200 Do you want
+                                  accommodation?" - the card is a price list, not
+                                  the form, and the full question wraps a narrow
+                                  card to three lines for one word of meaning. */}
+                              {extras.map((x) => (
+                                <span className="hp-fee-card-extra" key={x.question}>
+                                  +₱{x.fee} {addonShortLabel(x.question)}
+                                </span>
+                              ))}
+                              {/* Only the children's cards carry a line of small
+                                  print. An adult's card saying "registered under a
+                                  parent" is a note left behind by a tick that was
+                                  undone, and it makes every card a line taller. */}
+                              {t.nameOnly && (
+                                <span className="hp-fee-card-note">{t.note || 'Under a parent or guardian'}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {detailEvent.has_fee && detailEvent.payment_instructions && (
                   <div className="hp-evt-info-row">
                     <i className="fas fa-money-check-dollar"></i>

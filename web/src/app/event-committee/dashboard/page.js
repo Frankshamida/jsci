@@ -32,6 +32,8 @@ import { amountInWords } from '@/lib/amountInWords';
 // per-day attendance columns, the kit and meal counters and the corrections
 // lock. One component, so the two desks cannot drift apart again.
 import EventAttendanceTab from '@/components/eventDesk/EventAttendanceTab';
+import AgeGroupPicker from '@/components/AgeGroupPicker';
+import { addonFeeFor, baseAmountFor, defaultTier, eventFeeLabel, findTier, hasPriceTiers } from '@/lib/eventPricing';
 
 // The Event Committee dashboard.
 //
@@ -62,6 +64,19 @@ import EventAttendanceTab from '@/components/eventDesk/EventAttendanceTab';
 // Church" are the same place. Shown in Title Case, leaving small joining words
 // and anything deliberately capitalised (JSCI, ISOM) alone.
 const CHURCH_MINOR_WORDS = new Set(['of', 'the', 'and', 'in', 'for', 'a', 'an', 'at', 'on', 'to']);
+
+// A church name that names no church - "N/A", "none", "wala", a dash. They all
+// mean the same thing and are shown as one word, including on rows that were
+// saved before that was true.
+const CHURCH_PLACEHOLDERS = new Set([
+  'n/a', 'na', 'n.a', 'n.a.', 'nil', 'none', 'no', 'no church', 'not applicable',
+  'not available', 'wala', 'wala pa', 'nothing', 'unknown', 'other', 'others', '-', '--', '.',
+]);
+const isPlaceholderChurch = (name) => {
+  const t = String(name || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+  if (!t) return false;
+  return CHURCH_PLACEHOLDERS.has(t) || /^[-_/\.]+$/.test(t);
+};
 const titleCaseChurch = (name) => {
   const raw = (name || '').trim();
   if (!raw) return '';
@@ -77,6 +92,7 @@ const titleCaseChurch = (name) => {
   }).join('');
 };
 const formatChurchName = (name) => {
+  if (isPlaceholderChurch(name)) return 'Others';
   const t = titleCaseChurch(name);
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
 };
@@ -446,6 +462,8 @@ export default function CommitteeDashboardPage() {
   const [addStep, setAddStep] = useState(0);
   const [addForm, setAddForm] = useState({ ...EMPTY_ADD_FORM });
   const [addAddons, setAddAddons] = useState([]);
+  // Which age group this walk-in is in, on an event that prices by age.
+  const [addTier, setAddTier] = useState('');
   const [addErrors, setAddErrors] = useState({});
   const [addSaving, setAddSaving] = useState(false);
   const [churchOpen, setChurchOpen] = useState(false);
@@ -825,6 +843,16 @@ export default function CommitteeDashboardPage() {
   const regPageSafe = Math.min(regPage, Math.max(1, Math.ceil(visibleRegs.length / regPageSize)));
   const pagedRegs = visibleRegs.slice((regPageSafe - 1) * regPageSize, regPageSafe * regPageSize);
 
+  // ---- The Age Group column ----
+  // Shown only on an event priced by age; every other event would get a column
+  // of dashes. Mirrors the admin table so the two desks read the same.
+  const regsHaveTiers = hasPriceTiers(eventRegsModal) || eventRegs.some((r) => r.price_tier);
+  const regCols = regsHaveTiers ? 9 : 8;
+  const regTierIsChild = (label) => {
+    const t = findTier(eventRegsModal, label);
+    return t ? t.nameOnly : /\bkid|child|toddler\b/i.test(String(label || ''));
+  };
+
 
   const instChurchOptions = useMemo(() => {
     const counts = new Map();
@@ -960,6 +988,7 @@ export default function CommitteeDashboardPage() {
     });
     // Required extras are charged to everyone, so they start ticked.
     setAddAddons((eventRegsModal.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
+    setAddTier(defaultTier(eventRegsModal)?.label || '');
     setAddErrors({});
     setAddStep(0);
     setDupName(null);
@@ -1004,15 +1033,24 @@ export default function CommitteeDashboardPage() {
     return listed.some((m) => /^cash$/i.test(m)) ? listed : ['Cash', ...listed];
   };
 
+  // What this person pays before extras: their age group's price on an event
+  // that has groups, the single registration fee on one that does not.
   const baseAmountOf = (evt) => {
-    if (!evt || !evt.has_fee) return 0;
-    const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
-    return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+    if (!evt) return 0;
+    if (!hasPriceTiers(evt)) {
+      if (!evt.has_fee) return 0;
+      const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
+      return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+    }
+    return baseAmountFor(evt, findTier(evt, addTier) || defaultTier(evt));
   };
 
+  // Extras at that same group's price - a child's accommodation can cost less
+  // than an adult's on the same event.
+  const addTierOf = (evt) => findTier(evt, addTier) || defaultTier(evt);
   const totalAmountOf = (evt) => baseAmountOf(evt)
     + (evt?.event_addons || []).filter((a) => addAddons.includes(a.id))
-      .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+      .reduce((sum, a) => sum + addonFeeFor(a, addTierOf(evt)), 0);
 
   const toggleAddon = (addon) => {
     if (addon.is_required) return;
@@ -1069,6 +1107,9 @@ export default function CommitteeDashboardPage() {
           churchName: addForm.churchName.trim() || null,
           churchPastor: addForm.churchPastor.trim() ? `Ptr. ${addForm.churchPastor.trim()}` : '',
           addonIds: addAddons,
+          // Which age group, never what it costs - the server prices it
+          // from the database.
+          priceTier: addTier || null,
           paymentPlan: owed > 0 ? addForm.paymentPlan : 'full',
           initialPayment: addForm.paymentPlan === 'flexible' ? firstPay : 0,
           paymentMethod: addForm.paymentMethod || null,
@@ -2955,7 +2996,7 @@ export default function CommitteeDashboardPage() {
                           </td>
                           <td className="evt-nowrap" data-label="Date">{formatEventSpan(evt.event_date, evt.end_date)}</td>
                           <td data-label="Venue">{evt.location || '—'}{evt.loc_city && <div className="evt-cell-sub">{evt.loc_city}</div>}</td>
-                          <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? peso(evt.registration_fee) : 'Free'}</td>
+                          <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? eventFeeLabel(evt) : 'Free'}</td>
                           <td data-label="Status"><span className={`evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span></td>
                           <td className="evt-td-actions" data-label="Actions">
                             <button className="evt-mini-btn ok" onClick={() => openEventManage(evt)}>
@@ -3141,7 +3182,7 @@ export default function CommitteeDashboardPage() {
                             <div className="evt-admin-card-body">
                               <h4>{evt.title}</h4>
                               <div className="evt-admin-card-meta">
-                                {formatEventDateTime(evt.event_date)} · {evt.has_fee ? peso(evt.registration_fee) : 'Free'} · {st.label}
+                                {formatEventDateTime(evt.event_date)} · {evt.has_fee ? eventFeeLabel(evt) : 'Free'} · {st.label}
                               </div>
                               <button className="evt-admin-manage" onClick={() => openEventManage(evt)}>Work This Event</button>
                             </div>
@@ -3182,7 +3223,7 @@ export default function CommitteeDashboardPage() {
                                 {evt.location || '—'}
                                 {evt.loc_city && <div className="evt-cell-sub">{evt.loc_city}</div>}
                               </td>
-                              <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? peso(evt.registration_fee) : 'Free'}</td>
+                              <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? eventFeeLabel(evt) : 'Free'}</td>
                               <td className="evt-nowrap" data-label="Registered">
                                 {evt.registered_count ?? 0}{evt.max_participants ? ` / ${evt.max_participants}` : ''}
                               </td>
@@ -3268,15 +3309,20 @@ export default function CommitteeDashboardPage() {
                     {/* the wrapper scrolls sideways, which would clip an open row
                         menu - so it stops clipping while one is open */}
                     <div className={`evt-table-wrapper evt-table-steady ${openRowMenu ? 'menu-open' : ''}`}>
-                      <table className="evt-table evt-table-regs">
+                      <table className={`evt-table evt-table-regs ${regsHaveTiers ? 'has-tier' : ''}`}>
                         <thead>
-                          <tr><th>Attendee</th><th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
+                          <tr>
+                            <th>Attendee</th>
+                            {regsHaveTiers && <th>Age Group</th>}
+                            <th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Payment</th><th>Status</th>
+                            <th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
                         </thead>
                         <tbody>
                           {eventRegsLoading ? (
-                            <tr><td colSpan={8}>Loading…</td></tr>
+                            <tr><td colSpan={regCols}>Loading…</td></tr>
                           ) : pagedRegs.length === 0 ? (
-                            <tr><td colSpan={8}>{eventRegs.length === 0
+                            <tr><td colSpan={regCols}>{eventRegs.length === 0
                               ? 'No registrations yet.'
                               : (regSearch.trim() ? `No one matches “${regSearch.trim()}”.` : 'No registrations match these filters.')}</td></tr>
                           ) : pagedRegs.map((r) => (
@@ -3288,6 +3334,21 @@ export default function CommitteeDashboardPage() {
                                   {r.group_size > 1 && <span className="evt-group-tag"><i className="fas fa-user-group"></i> Group of {r.group_size}</span>}
                                 </div>
                               </td>
+                              {/* Which age group they were booked under - what a
+                                  desk counts by, so it is a column. */}
+                              {regsHaveTiers && (
+                                <td data-label="Age Group" className="evt-cell-tier">
+                                  {r.price_tier ? (
+                                    <span className={`evt-tier-tag ${regTierIsChild(r.price_tier) ? 'kid' : ''}`}>
+                                      {regTierIsChild(r.price_tier) && <i className="fas fa-child-reaching"></i>}
+                                      {r.price_tier}
+                                    </span>
+                                  ) : <span className="evt-cell-sub">—</span>}
+                                  {r.guardian_name && (
+                                    <div className="evt-cell-sub">With {formatPersonName(r.guardian_name)}</div>
+                                  )}
+                                </td>
+                              )}
                               <td data-label="Type">
                                 {(() => {
                                   const look = regTypeOf(r) === 'bulk'
@@ -4051,6 +4112,15 @@ export default function CommitteeDashboardPage() {
 
                     {addStep === 1 && (
                       <>
+                        {/* Which age group, on an event priced by age. Nothing
+                            renders on an event with a single price. */}
+                        <AgeGroupPicker
+                          event={eventRegsModal}
+                          value={addTier}
+                          onChange={setAddTier}
+                          title="Age Group"
+                        />
+
                         {/* The same paid extras the attendee would have been offered */}
                         {(eventRegsModal.event_addons || []).length > 0 && (
                           <div className="evt-addon-pick">
@@ -4062,7 +4132,7 @@ export default function CommitteeDashboardPage() {
                                   <strong>{a.question}</strong>
                                   {a.is_required && <small>Required &mdash; included for everyone.</small>}
                                 </span>
-                                <span className="evt-addon-option-fee">+{peso(a.fee)}</span>
+                                <span className="evt-addon-option-fee">+{peso(addonFeeFor(a, addTierOf(eventRegsModal)))}</span>
                               </label>
                             ))}
                           </div>
@@ -4073,9 +4143,12 @@ export default function CommitteeDashboardPage() {
                         ) : (
                           <div className="evt-pay-box">
                             <div className="evt-receipt">
-                              <div className="evt-receipt-line"><span>Registration Fee</span><b>{peso(baseAmountOf(eventRegsModal))}</b></div>
+                              <div className="evt-receipt-line">
+                                <span>Registration Fee{addTier && hasPriceTiers(eventRegsModal) ? ` (${addTier})` : ''}</span>
+                                <b>{peso(baseAmountOf(eventRegsModal))}</b>
+                              </div>
                               {(eventRegsModal.event_addons || []).filter((a) => addAddons.includes(a.id)).map((a) => (
-                                <div className="evt-receipt-line" key={a.id}><span>Extras ({a.question})</span><b>{peso(a.fee)}</b></div>
+                                <div className="evt-receipt-line" key={a.id}><span>Extras ({a.question})</span><b>{peso(addonFeeFor(a, addTierOf(eventRegsModal)))}</b></div>
                               ))}
                               <div className="evt-receipt-total"><span>Total</span><b>{peso(owedForForm)}</b></div>
                             </div>

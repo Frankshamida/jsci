@@ -18,6 +18,29 @@
    the name. */
 const CHURCH_MINOR_WORDS = new Set(['of', 'the', 'and', 'in', 'for', 'a', 'an', 'at', 'on', 'to']);
 
+/* Somebody with no church - or who cannot be bothered to type one - writes
+   "N/A", "n/a", "none", "wala" or a dash, and the church list then carries a
+   handful of meaningless entries that each count as a church people came from.
+   They all mean the same thing, so they are all stored as one word: Others. */
+export const OTHER_CHURCH = 'Others';
+const CHURCH_PLACEHOLDERS = new Set([
+  'n/a', 'na', 'n.a', 'n.a.', 'nil', 'none', 'no', 'no church', 'not applicable',
+  'not available', 'wala', 'wala pa', 'nothing', 'unknown', 'other', 'others', '-', '--', '.',
+]);
+
+// True for anything typed that carries no church name at all.
+export function isPlaceholderChurch(name) {
+  const t = String(name || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+  if (!t) return false;
+  return CHURCH_PLACEHOLDERS.has(t) || /^[-_/\.]+$/.test(t);
+}
+
+// What a typed church name is stored and shown as.
+export function normalizeChurchName(name) {
+  if (isPlaceholderChurch(name)) return OTHER_CHURCH;
+  return titleCaseChurch(name);
+}
+
 export function titleCaseChurch(name) {
   const raw = (name || '').trim();
   if (!raw) return '';
@@ -35,7 +58,8 @@ export function titleCaseChurch(name) {
 }
 
 export function formatChurchName(name) {
-  const t = titleCaseChurch(name);
+  // Rows saved before Others existed still hold "N/A" - they read as Others too.
+  const t = normalizeChurchName(name);
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
 }
 

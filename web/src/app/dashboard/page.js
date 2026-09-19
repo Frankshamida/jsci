@@ -11,8 +11,13 @@ import { normalizeUid, isPlausibleUid, formatUid } from '@/lib/rfid';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { moderateMessage, detectInappropriateWords } from '@/lib/contentModeration';
 import SmartImage from '@/components/SmartImage';
+import AgeGroupPicker from '@/components/AgeGroupPicker';
 import './dashboard.css';
 import { withTitleCase } from '@/lib/eventTitle';
+import {
+  STARTER_TIERS, addonFeeFor, baseAmountFor, defaultTier, eventFeeLabel, eventTiers,
+  findTier, hasPriceTiers, tierAgeLabel, tierKey,
+} from '@/lib/eventPricing';
 import { eventSlugFor, findEventBySlug } from '@/lib/eventSlug';
 import ProofDrop from '@/components/ProofDrop';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
@@ -903,6 +908,10 @@ export default function DashboardPage() {
     hasFee: false, registrationFee: DEFAULT_EVENT_FEE, earlyBirdPrice: '', earlyBirdDeadline: '',
     // Optional paid questions, e.g. "Do you want accommodation?" +200
     addons: [],
+    // Age-based prices, e.g. Adults 300 / 6-10 yrs 100 / 5 and below free.
+    // Empty means the event has ONE price - registrationFee above - which is
+    // how every event worked before age groups existed.
+    priceTiers: [],
     allowOnsitePayment: false, onsitePrice: '',
     paymentDeadline: '', paymentInstructions: '', refundPolicy: '',
     paymentMethods: [], paymentMethodIds: [], gcashName: '', gcashNumber: '', gcashQrUrl: '',
@@ -952,7 +961,9 @@ export default function DashboardPage() {
   const [regChoiceEvent, setRegChoiceEvent] = useState(null);       // the event whose "who are you registering?" step is open
   const [memberRegMode, setMemberRegMode] = useState('individual'); // 'individual' = just me, 'bulk' = a group on one payment
   const [memberBulkList, setMemberBulkList] = useState([]);         // [{ firstName, lastName, addonIds }]
-  const [memberBulkDraft, setMemberBulkDraft] = useState({ firstName: '', lastName: '', addonIds: [] });
+  const [memberBulkDraft, setMemberBulkDraft] = useState({ firstName: '', lastName: '', addonIds: [], priceTier: '' });
+  // The member's own age group, on an event that prices by age.
+  const [registerTier, setRegisterTier] = useState('');
   const [memberBulkEditing, setMemberBulkEditing] = useState(null); // index being edited, or null while adding
   const [memberBulkError, setMemberBulkError] = useState('');
   // Is the representative coming as well? Booking a group is not the same as
@@ -4690,11 +4701,108 @@ export default function DashboardPage() {
     setEventForm((f) => ({ ...f, addons: (f.addons || []).filter((_, i) => i !== index) }));
   };
 
+  // ---- Age-based prices ------------------------------------------------
+  // "ADULTS 300 - 6-10 YRS OLD 100 - KIDS (5 BELOW) FREE" off the poster.
+  // No groups means the event has one price, and nothing about it changes.
+  const addEventTier = () => {
+    setEventForm((f) => ({
+      ...f,
+      priceTiers: [...(f.priceTiers || []), {
+        label: '', minAge: '', maxAge: '', fee: '', earlyFee: '',
+        requiresRegistration: true, nameOnly: false, note: '',
+      }],
+    }));
+  };
+
+  // The three groups nearly every poster uses, so the admin fills in prices
+  // instead of inventing the table. Their own rows are kept and the starters
+  // that would duplicate one are left out.
+  const useStarterTiers = () => {
+    setEventForm((f) => {
+      const have = (f.priceTiers || []).filter((t) => (t.label || '').trim());
+      const taken = new Set(have.map((t) => tierKey(t.label)));
+      const add = STARTER_TIERS.filter((t) => !taken.has(tierKey(t.label)))
+        .map((t) => ({ ...t, minAge: t.minAge ?? '', maxAge: t.maxAge ?? '' }));
+      return { ...f, priceTiers: [...have, ...add] };
+    });
+  };
+
+  const updateEventTier = (index, changes) => {
+    setEventForm((f) => {
+      const tiers = (f.priceTiers || []);
+      const before = tiers[index];
+      const after = { ...before, ...changes };
+      // An add-on's per-group prices are keyed by the group's NAME, so renaming
+      // a group has to carry those keys with it - otherwise "accommodation 100
+      // for 6-10 yrs" quietly reverts to the adult price on a typo fix.
+      let addons = f.addons;
+      if (changes.label !== undefined && tierKey(before?.label) !== tierKey(after.label)) {
+        const fromKey = tierKey(before?.label);
+        const toKey = tierKey(after.label);
+        addons = (f.addons || []).map((a) => {
+          const fees = { ...(a.tierFees || {}) };
+          if (!(fromKey in fees)) return a;
+          const value = fees[fromKey];
+          delete fees[fromKey];
+          if (toKey) fees[toKey] = value;
+          return { ...a, tierFees: fees };
+        });
+      }
+      return { ...f, addons, priceTiers: tiers.map((t, i) => (i === index ? after : t)) };
+    });
+  };
+
+  const removeEventTier = (index) => {
+    setEventForm((f) => {
+      const gone = tierKey((f.priceTiers || [])[index]?.label);
+      return {
+        ...f,
+        priceTiers: (f.priceTiers || []).filter((_, i) => i !== index),
+        // Its per-group add-on prices go with it, rather than lingering as
+        // keys for a group that no longer exists.
+        addons: (f.addons || []).map((a) => {
+          if (!a.tierFees || !(gone in a.tierFees)) return a;
+          const fees = { ...a.tierFees };
+          delete fees[gone];
+          return { ...a, tierFees: fees };
+        }),
+      };
+    });
+  };
+
+  // What one add-on costs one group: blank means "the same as everybody else".
+  const setAddonTierFee = (addonIndex, label, value) => {
+    const key = tierKey(label);
+    if (!key) return;
+    setEventForm((f) => ({
+      ...f,
+      addons: (f.addons || []).map((a, i) => {
+        if (i !== addonIndex) return a;
+        const fees = { ...(a.tierFees || {}) };
+        if (value === '') delete fees[key]; else fees[key] = value;
+        return { ...a, tierFees: fees };
+      }),
+    }));
+  };
+
+  // The groups as the pricing helpers read them, so the preview under the
+  // editor prices a person exactly the way the live form will.
+  const eventFormTiers = () => eventTiers({ priceTiers: eventForm.priceTiers });
+  const eventFormHasTiers = () => (eventForm.priceTiers || []).some((t) => (t.label || '').trim());
+
   // What an attendee who says yes to everything would pay - the number the
   // admin actually wants to sanity-check after typing the fees.
   const eventMaxTotal = () => {
-    const base = eventForm.hasFee ? Number(eventForm.registrationFee) || 0 : 0;
-    return base + (eventForm.addons || []).reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+    // With age groups the dearest group is what "everything ticked" costs.
+    const tiers = eventFormTiers().filter((t) => t.requiresRegistration);
+    const dearest = tiers.length > 0
+      ? tiers.reduce((best, t) => ((Number(t.fee) || 0) > (Number(best.fee) || 0) ? t : best), tiers[0])
+      : null;
+    const base = dearest
+      ? Number(dearest.fee) || 0
+      : (eventForm.hasFee ? Number(eventForm.registrationFee) || 0 : 0);
+    return base + (eventForm.addons || [])
+      .reduce((sum, a) => sum + addonFeeFor({ fee: a.fee, tierFees: a.tierFees }, dearest), 0);
   };
 
   const validateEventStep = (step) => {
@@ -4763,7 +4871,24 @@ export default function DashboardPage() {
       paymentDeadline: evt.payment_deadline?.slice(0, 16) || '', paymentInstructions: evt.payment_instructions || '', refundPolicy: evt.refund_policy || '',
       addons: (Array.isArray(evt.event_addons) ? evt.event_addons : [])
         .slice().sort((a, b) => (a.position || 0) - (b.position || 0))
-        .map((a) => ({ question: a.question || '', description: a.description || '', details: a.details || '', fee: a.fee ?? '', isRequired: !!a.is_required })),
+        .map((a) => ({
+          question: a.question || '', description: a.description || '', details: a.details || '',
+          fee: a.fee ?? '', isRequired: !!a.is_required,
+          // { "6-10 yrs old": 100 } - what this extra costs each age group
+          tierFees: (a.tier_fees && typeof a.tier_fees === 'object') ? { ...a.tier_fees } : {},
+        })),
+      priceTiers: (Array.isArray(evt.event_price_tiers) ? evt.event_price_tiers : [])
+        .slice().sort((a, b) => (a.position || 0) - (b.position || 0))
+        .map((t) => ({
+          label: t.label || '',
+          minAge: t.min_age ?? '', maxAge: t.max_age ?? '',
+          fee: t.fee ?? '', earlyFee: t.early_fee ?? '',
+          // An event saved before children were registered carries the old
+          // "does not register" flag; it means the same thing as name-only.
+          requiresRegistration: true,
+          nameOnly: t.name_only === true || t.requires_registration === false,
+          note: t.note || '',
+        })),
       paymentMethods: evt.payment_methods || [], paymentMethodIds: evt.payment_method_ids || [], gcashName: evt.gcash_name || '', gcashNumber: evt.gcash_number || '', gcashQrUrl: evt.gcash_qr_url || '',
       bankName: evt.bank_name || '', bankAccountName: evt.bank_account_name || '', bankAccountNumber: evt.bank_account_number || '',
     } : EMPTY_EVENT_FORM;
@@ -4877,6 +5002,25 @@ export default function DashboardPage() {
             details: (a.details || '').trim() || null,
             fee: Number(a.fee) || 0,
             isRequired: !!a.isRequired,
+            tierFees: a.tierFees || {},
+          }))
+      ));
+      // Age-based prices. An empty array is meaningful - it is how an event
+      // that used to have age groups goes back to a single price, and it is
+      // also what a free event sends: unticking the fee must not leave a
+      // priced age group behind where the form no longer shows one.
+      fd.append('priceTiers', JSON.stringify(
+        (f.hasFee ? (f.priceTiers || []) : [])
+          .filter((t) => (t.label || '').trim())
+          .map((t) => ({
+            label: t.label.trim(),
+            minAge: t.minAge === '' ? null : Number(t.minAge),
+            maxAge: t.maxAge === '' ? null : Number(t.maxAge),
+            fee: Number(t.fee) || 0,
+            earlyFee: t.earlyFee === '' || t.earlyFee === null || t.earlyFee === undefined ? null : Number(t.earlyFee),
+            requiresRegistration: true,
+            nameOnly: t.nameOnly === true,
+            note: (t.note || '').trim() || null,
           }))
       ));
       fd.append('paymentInstructions', f.paymentInstructions || '');
@@ -5075,6 +5219,19 @@ export default function DashboardPage() {
   // Church" are the same place. Displayed in Title Case, leaving small joining
   // words and anything already capitalised oddly (acronyms) alone.
   const CHURCH_MINOR_WORDS = new Set(['of', 'the', 'and', 'in', 'for', 'a', 'an', 'at', 'on', 'to']);
+
+  // A church name that names no church - "N/A", "none", "wala", a dash. They all
+  // mean the same thing and are shown as one word, including on rows that were
+  // saved before that was true.
+  const CHURCH_PLACEHOLDERS = new Set([
+    'n/a', 'na', 'n.a', 'n.a.', 'nil', 'none', 'no', 'no church', 'not applicable',
+    'not available', 'wala', 'wala pa', 'nothing', 'unknown', 'other', 'others', '-', '--', '.',
+  ]);
+  const isPlaceholderChurch = (name) => {
+    const t = String(name || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+    if (!t) return false;
+    return CHURCH_PLACEHOLDERS.has(t) || /^[-_/\.]+$/.test(t);
+  };
   const titleCaseChurch = (name) => {
     const raw = (name || '').trim();
     if (!raw) return '';
@@ -5093,6 +5250,7 @@ export default function DashboardPage() {
   };
   // The very first word of the whole name always stays capitalised.
   const formatChurchName = (name) => {
+    if (isPlaceholderChurch(name)) return 'Others';
     const t = titleCaseChurch(name);
     return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
   };
@@ -5178,7 +5336,9 @@ export default function DashboardPage() {
   // public form offers. In bulk, step 1 is the representative.
   const [adminRegType, setAdminRegType] = useState('individual');
   const [adminBulkList, setAdminBulkList] = useState([]);          // [{ firstName, lastName, addonIds }]
-  const [adminBulkDraft, setAdminBulkDraft] = useState({ firstName: '', lastName: '', addonIds: [] });
+  const [adminBulkDraft, setAdminBulkDraft] = useState({ firstName: '', lastName: '', addonIds: [], priceTier: '' });
+  // Which age group the walk-in is in, on an event that prices by age.
+  const [adminAddRegTier, setAdminAddRegTier] = useState('');
   const [adminBulkEditing, setAdminBulkEditing] = useState(null);
   const [adminBulkError, setAdminBulkError] = useState('');
   // Set once the representative's saved church/contact has been copied in, so
@@ -5457,6 +5617,23 @@ export default function DashboardPage() {
   const regPageSafe = Math.min(regPage, regPages);
   const pagedRegs = visibleRegs.slice((regPageSafe - 1) * regPageSize, regPageSafe * regPageSize);
 
+  // ---- The Age Group column ----
+  // Shown only on an event priced by age. Every other event would get a column
+  // of dashes, and the table is already wide.
+  const regsHaveTiers = hasPriceTiers(eventRegsModal)
+    || eventRegs.some((r) => r.price_tier);
+  // 8 columns, plus the age group when there is one to show.
+  const regCols = regsHaveTiers ? 9 : 8;
+  // Whether a row's group is one of the children's ones, so a child reads as a
+  // child at a glance rather than as one more label.
+  const regTierIsChild = (label) => {
+    const t = findTier(eventRegsModal, label);
+    // A row saved before the group was renamed still reads as a child when the
+    // name says so - the desk's question is "is this a kid", not "does this
+    // string still match a row in the table".
+    return t ? t.nameOnly : /kid|child|toddler/i.test(String(label || ''));
+  };
+
   // ---- The same view controls, over the installment plans ----
   // Counted off the plans rather than off every registration, so the numbers in
   // this dropdown match the rows this table can actually show.
@@ -5713,7 +5890,12 @@ export default function DashboardPage() {
     setAdminAddErrors({});
     setAdminRegType('individual');
     setAdminBulkList([]);
-    setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id) });
+    setAdminBulkDraft({
+      firstName: '', lastName: '',
+      addonIds: (eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id),
+      priceTier: defaultTier(eventRegsModal)?.label || '',
+    });
+    setAdminAddRegTier(defaultTier(eventRegsModal)?.label || '');
     setAdminBulkEditing(null);
     setAdminBulkError('');
     setAdminRepUsedSaved(false);
@@ -5747,8 +5929,12 @@ export default function DashboardPage() {
 
   // One person on the group's roster, priced on their own line.
   const adminPersonAddons = (a) => (eventRegsModal?.event_addons || []).filter((x) => a.addonIds.includes(x.id));
-  const adminPersonExtras = (a) => adminPersonAddons(a).reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
-  const adminPersonTotal = (a) => adminBaseAmount(eventRegsModal) + adminPersonExtras(a);
+  // Their extras at THEIR age group's price: a child's accommodation can cost
+  // less than an adult's on the same event.
+  const adminPersonTier = (a) => findTier(eventRegsModal, a?.priceTier) || defaultTier(eventRegsModal);
+  const adminPersonExtras = (a) => adminPersonAddons(a)
+    .reduce((sum, x) => sum + addonFeeFor(x, adminPersonTier(a)), 0);
+  const adminPersonTotal = (a) => adminBaseAmount(eventRegsModal, adminPersonTier(a)) + adminPersonExtras(a);
 
   // ---- The representative: are they already on this event, or not? ----
   // A group's representative is usually attending too, so they are one of the
@@ -5779,7 +5965,8 @@ export default function DashboardPage() {
   // Extras being added on top of a slot they already hold.
   const adminRepNewAddonIds = adminAddRegAddons.filter((id) => !adminRepLockedAddonIds.includes(id));
   const adminRepTopUpAddons = () => (eventRegsModal?.event_addons || []).filter((x) => adminRepNewAddonIds.includes(x.id));
-  const adminRepTopUpTotal = () => adminRepTopUpAddons().reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
+  const adminRepTopUpTotal = () => adminRepTopUpAddons()
+    .reduce((sum, x) => sum + addonFeeFor(x, findTier(eventRegsModal, adminAddRegTier) || defaultTier(eventRegsModal)), 0);
 
   // The representative as a roster entry - present only when they need a slot.
   const adminRepAsAttendee = () => ((adminIsBulk && !adminRepLocked
@@ -5788,6 +5975,7 @@ export default function DashboardPage() {
         firstName: adminAddRegForm.attendeeFirstName.trim(),
         lastName: adminAddRegForm.attendeeLastName.trim(),
         addonIds: adminAddRegAddons,
+        priceTier: adminAddRegTier,
         isRep: true,
       }
     : null);
@@ -5846,18 +6034,25 @@ export default function DashboardPage() {
         : 'The representative is already counted as the first person on this list.');
       return;
     }
-    const person = { firstName: first, lastName: last, addonIds: adminBulkDraft.addonIds };
+    const person = { firstName: first, lastName: last, addonIds: adminBulkDraft.addonIds, priceTier: adminBulkDraft.priceTier };
     setAdminBulkList((list) => (adminBulkEditing == null
       ? [...list, person]
       : list.map((a, i) => (i === adminBulkEditing ? person : a))));
-    setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id) });
+    setAdminBulkDraft({
+      firstName: '', lastName: '',
+      addonIds: (eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id),
+      priceTier: defaultTier(eventRegsModal)?.label || '',
+    });
     setAdminBulkEditing(null);
     setAdminBulkError('');
   };
   const adminEditPerson = (i) => { setAdminBulkDraft({ ...adminBulkList[i] }); setAdminBulkEditing(i); setAdminBulkError(''); };
   const adminRemovePerson = (i) => {
     setAdminBulkList((list) => list.filter((_, x) => x !== i));
-    if (adminBulkEditing === i) { setAdminBulkEditing(null); setAdminBulkDraft({ firstName: '', lastName: '', addonIds: [] }); }
+    if (adminBulkEditing === i) {
+      setAdminBulkEditing(null);
+      setAdminBulkDraft({ firstName: '', lastName: '', addonIds: [], priceTier: defaultTier(eventRegsModal)?.label || '' });
+    }
   };
 
   // Cash is always collectable at the desk, whatever the event's online options.
@@ -5923,10 +6118,16 @@ export default function DashboardPage() {
     setAdminAddRegAddons((ids) => (ids.includes(addon.id) ? ids.filter((v) => v !== addon.id) : [...ids, addon.id]));
   };
 
-  const adminBaseAmount = (evt) => {
-    if (!evt || !evt.has_fee) return 0;
-    const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
-    return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+  // What one person pays before extras: their age group's price on an event
+  // that has groups, the single registration fee on one that does not.
+  const adminBaseAmount = (evt, tier) => {
+    if (!evt) return 0;
+    if (!hasPriceTiers(evt)) {
+      if (!evt.has_fee) return 0;
+      const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
+      return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+    }
+    return baseAmountFor(evt, tier || findTier(evt, adminAddRegTier) || defaultTier(evt));
   };
 
   const adminTotalAmount = (evt) => {
@@ -5935,16 +6136,14 @@ export default function DashboardPage() {
     // representative who already has one is billed only for the extras being
     // added to it.
     if (adminRegType === 'bulk') {
-      const base = adminBaseAmount(evt);
-      const people = adminFullRoster().reduce((sum, a) => sum + base
-        + (evt?.event_addons || []).filter((x) => a.addonIds.includes(x.id))
-            .reduce((s, x) => s + (Number(x.fee) || 0), 0), 0);
+      const people = adminFullRoster().reduce((sum, a) => sum + adminPersonTotal(a), 0);
       return people + (adminRepLocked ? adminRepTopUpTotal() : 0);
     }
-    return adminBaseAmount(evt)
+    const tier = findTier(evt, adminAddRegTier) || defaultTier(evt);
+    return adminBaseAmount(evt, tier)
       + (evt?.event_addons || [])
           .filter((a) => adminAddRegAddons.includes(a.id))
-          .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+          .reduce((sum, a) => sum + addonFeeFor(a, tier), 0);
   };
 
   const submitAdminAddReg = async () => {
@@ -5986,6 +6185,9 @@ export default function DashboardPage() {
           churchName: adminAddRegForm.churchName,
           churchPastor: adminAddRegForm.churchPastor ? `Ptr. ${adminAddRegForm.churchPastor.trim()}` : '',
           addonIds: adminAddRegAddons,
+          // The age group they were booked under. The server re-reads its price
+          // from the database, so this only says WHICH group, never what it costs.
+          priceTier: adminAddRegTier || null,
           paymentMethod: adminAddRegForm.paymentMethod,
           paymentReference: adminAddRegForm.paymentReference,
           // entered on the attendee's behalf, so the table can say who by
@@ -6003,7 +6205,9 @@ export default function DashboardPage() {
           ...(adminIsBulk ? {
             // The representative is on this list when they need a slot, and off
             // it when they already have one.
-            attendees: adminFullRoster().map((a) => ({ firstName: a.firstName, lastName: a.lastName, addonIds: a.addonIds })),
+            attendees: adminFullRoster().map((a) => ({
+              firstName: a.firstName, lastName: a.lastName, addonIds: a.addonIds, priceTier: a.priceTier || null,
+            })),
             representative: `${adminAddRegForm.attendeeFirstName.trim()} ${adminAddRegForm.attendeeLastName.trim()}`.trim(),
             // ...and when they already have one, the extras being added to it.
             ...(adminRepLocked && adminRepNewAddonIds.length > 0
@@ -6050,6 +6254,9 @@ export default function DashboardPage() {
       attendeeMobile: reg.attendee_mobile || '',
       paymentMethod: reg.payment_method || '',
       paymentReference: reg.payment_reference || '',
+      // Blank on every row saved before this event had age groups, which is
+      // what this field is mostly here to fix.
+      priceTier: reg.price_tier || '',
     });
     setEditRegErrors({});
     setEditChurchOptions([]);
@@ -6150,7 +6357,10 @@ export default function DashboardPage() {
   // What is being added, and what it comes to. Read off the event's own extras
   // so the figures on screen are the ones the server will charge.
   const extrasChosen = () => (eventRegsModal?.event_addons || []).filter((a) => extrasPicked.includes(a.id));
-  const extrasTotal = () => extrasChosen().reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+  // Priced for the age group this registration was booked under - the same
+  // figure the server charges, so the dialog and the receipt agree.
+  const extrasTier = () => findTier(eventRegsModal, extrasModal?.price_tier);
+  const extrasTotal = () => extrasChosen().reduce((sum, a) => sum + addonFeeFor(a, extrasTier()), 0);
   const extrasNewAmount = () => (Number(extrasModal?.amount) || 0) + extrasTotal();
 
   const submitExtras = async () => {
@@ -6247,6 +6457,7 @@ export default function DashboardPage() {
     // Required add-ons are charged either way, so they start ticked and locked.
     setRegisterAddonIds((evt.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
     setRegisterProofFile(null);
+    setRegisterTier(defaultTier(evt)?.label || '');
     // A group starts with an empty roster, built one person at a time above the table.
     setMemberBulkList([]);
     setMemberBulkDraft(memberEmptyDraft(evt));
@@ -6278,6 +6489,9 @@ export default function DashboardPage() {
   const memberEmptyDraft = (evt) => ({
     firstName: '', lastName: '',
     addonIds: (evt?.event_addons || []).filter((a) => a.is_required).map((a) => a.id),
+    // Everyone starts in the first group - adults on a poster written the
+    // usual way - and changes it if they are not.
+    priceTier: defaultTier(evt)?.label || '',
   });
 
   const memberNameKey = (first, last) => `${(first || '').trim()} ${(last || '').trim()}`.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -6329,6 +6543,7 @@ export default function DashboardPage() {
         firstName: registerForm.attendeeFirstName.trim(),
         lastName: registerForm.attendeeLastName.trim(),
         addonIds: registerAddonIds,
+        priceTier: registerTier,
         isRep: true,
       }
     : null);
@@ -6356,8 +6571,12 @@ export default function DashboardPage() {
 
   // What one person on the roster costs, and what their extras are called.
   const memberPersonAddons = (a) => (registerModal?.event_addons || []).filter((x) => (a.addonIds || []).includes(x.id));
-  const memberPersonExtras = (a) => memberPersonAddons(a).reduce((sum, x) => sum + (Number(x.fee) || 0), 0);
-  const memberPersonTotal = (a) => registerBaseAmount(registerModal) + memberPersonExtras(a);
+  // Priced for the age group this person is in - a child's accommodation can
+  // cost less than an adult's on the same event.
+  const memberPersonTier = (a) => findTier(registerModal, a?.priceTier) || defaultTier(registerModal);
+  const memberPersonExtras = (a) => memberPersonAddons(a)
+    .reduce((sum, x) => sum + addonFeeFor(x, memberPersonTier(a)), 0);
+  const memberPersonTotal = (a) => registerBaseAmount(registerModal, memberPersonTier(a)) + memberPersonExtras(a);
 
   // Names on this event already, checked against the server as they are typed so
   // nobody is told after paying that someone is signed up twice. The server only
@@ -6409,7 +6628,7 @@ export default function DashboardPage() {
       setMemberBulkError('That person already has a registration for this event.');
       return;
     }
-    const person = { firstName: first, lastName: last, addonIds: memberBulkDraft.addonIds };
+    const person = { firstName: first, lastName: last, addonIds: memberBulkDraft.addonIds, priceTier: memberBulkDraft.priceTier };
     setMemberBulkList((list) => (memberBulkEditing == null
       ? [...list, person]
       : list.map((a, i) => (i === memberBulkEditing ? person : a))));
@@ -6500,10 +6719,14 @@ export default function DashboardPage() {
   };
 
   // The base price this attendee gets, early bird included.
-  const registerBaseAmount = (evt) => {
-    if (!evt || !evt.has_fee) return 0;
-    const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
-    return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+  const registerBaseAmount = (evt, tier) => {
+    if (!evt) return 0;
+    if (!hasPriceTiers(evt)) {
+      if (!evt.has_fee) return 0;
+      const early = evt.early_bird_price != null && evt.early_bird_deadline && new Date() <= new Date(evt.early_bird_deadline);
+      return Number(early ? evt.early_bird_price : evt.registration_fee) || 0;
+    }
+    return baseAmountFor(evt, tier || findTier(evt, registerTier) || defaultTier(evt));
   };
 
   // Base + the add-ons ticked. Shown live so nobody is surprised by the total.
@@ -6514,14 +6737,14 @@ export default function DashboardPage() {
   // plus anything the representative is availing on a slot they already hold.
   const registerTotalAmount = (evt) => {
     if (memberIsBulk) {
-      const base = registerBaseAmount(evt);
       const topUp = memberRepLocked ? memberRepTopUpTotal() : 0;
-      return topUp + memberFullRoster().reduce((sum, a) => sum + base + memberPersonExtras(a), 0);
+      return topUp + memberFullRoster().reduce((sum, a) => sum + memberPersonTotal(a), 0);
     }
-    return registerBaseAmount(evt)
+    const tier = findTier(evt, registerTier) || defaultTier(evt);
+    return registerBaseAmount(evt, tier)
       + (evt?.event_addons || [])
           .filter((a) => registerAddonIds.includes(a.id))
-          .reduce((sum, a) => sum + (Number(a.fee) || 0), 0);
+          .reduce((sum, a) => sum + addonFeeFor(a, tier), 0);
   };
 
   // A genuinely free event: no base fee and no compulsory paid extra. Not the
@@ -6644,12 +6867,16 @@ export default function DashboardPage() {
       fd.append('churchName', registerForm.churchName || '');
       fd.append('churchPastor', registerForm.churchPastor.trim() ? `Ptr. ${registerForm.churchPastor.trim()}` : '');
       fd.append('addonIds', JSON.stringify(registerAddonIds));
+      // Which age group, never what it costs - the server prices it from the
+      // database so a changed form cannot lower a fee.
+      fd.append('priceTier', registerTier || '');
       if (memberIsBulk) {
         // The roster the server prices and writes a row for. `isRep` marks the
         // representative's own place on it, so their slot comes back as theirs
         // rather than as one more name on somebody else's booking.
         fd.append('attendees', JSON.stringify(memberFullRoster().map((a) => ({
-          firstName: a.firstName.trim(), lastName: a.lastName.trim(), addonIds: a.addonIds, isRep: !!a.isRep,
+          firstName: a.firstName.trim(), lastName: a.lastName.trim(), addonIds: a.addonIds,
+          priceTier: a.priceTier || null, isRep: !!a.isRep,
         }))));
         // Who to call about this booking - stored on every row of the group.
         fd.append('representative', memberRepName());
@@ -13141,20 +13368,27 @@ Examples:
                       {/* the wrapper scrolls sideways, which would clip an open
                           row menu - so it stops clipping while one is open */}
                       <div className={`evt-table-wrapper evt-table-steady ${openRowMenu ? 'menu-open' : ''}`}>
-                      <table className="evt-table evt-table-regs">
+                      <table className={`evt-table evt-table-regs ${regsHaveTiers ? 'has-tier' : ''}`}>
                         <thead>
                           {/* Contact is searched for, not read down: the
                               box above matches on the number and the email,
                               and the column they used to sit in was two
                               lines deep on every row for something nobody
                               scans a list by. */}
-                          <tr><th>Attendee</th><th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Payment</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
+                          <tr>
+                            <th>Attendee</th>
+                            {/* Only on an event priced by age. On every other
+                                event it would be a column of dashes. */}
+                            {regsHaveTiers && <th>Age Group</th>}
+                            <th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Payment</th><th>Status</th>
+                            <th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
                         </thead>
                         <tbody>
                           {eventRegsLoading ? (
-                            <tr><td colSpan={8}>Loading…</td></tr>
+                            <tr><td colSpan={regCols}>Loading…</td></tr>
                           ) : pagedRegs.length === 0 ? (
-                            <tr><td colSpan={8}>{eventRegs.length === 0
+                            <tr><td colSpan={regCols}>{eventRegs.length === 0
                               ? 'No registrations yet.'
                               : (regSearch.trim() ? `No one matches “${regSearch.trim()}”.` : 'No registrations match these filters.')}</td></tr>
                           ) : pagedRegs.map((r) => (
@@ -13170,6 +13404,25 @@ Examples:
                                   {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                 </div>
                               </td>
+                              {/* Which age group they were booked under. It is a
+                                  column rather than a chip beside the name because
+                                  it is what a desk counts by - how many children
+                                  are coming - and a list is counted down a column. */}
+                              {regsHaveTiers && (
+                                <td data-label="Age Group" className="evt-cell-tier">
+                                  {r.price_tier ? (
+                                    <span className={`evt-tier-tag ${regTierIsChild(r.price_tier) ? 'kid' : ''}`}>
+                                      {regTierIsChild(r.price_tier) && <i className="fas fa-child-reaching"></i>}
+                                      {r.price_tier}
+                                    </span>
+                                  ) : <span className="evt-cell-sub">—</span>}
+                                  {/* A child: whose child, so the desk can hand
+                                      them to the right adult. */}
+                                  {r.guardian_name && (
+                                    <div className="evt-cell-sub">With {formatPersonName(r.guardian_name)}</div>
+                                  )}
+                                </td>
+                              )}
                               {/* how it was made, and whose name is on having made it */}
                               <td data-label="Type">
                                 {(() => {
@@ -15224,8 +15477,159 @@ Examples:
                         <p className="evt-free-note"><i className="fas fa-gift"></i> This is a free event. Attendees register instantly.</p>
                       ) : (
                         <>
+                          {/* ---- Age groups ----
+                              A poster that prices adults, children and toddlers
+                              differently used to have nowhere to go: the event
+                              carried one fee and the desk did the arithmetic by
+                              hand. Leaving this empty keeps that one fee, so an
+                              event that does not need age groups never meets
+                              them. */}
+                          <div className="evt-tier-block">
+                            <div className="evt-tier-head">
+                              <span className="evt-tier-head-title">
+                                <i className="fas fa-user-group"></i> Price by Age Group
+                                <em>optional</em>
+                              </span>
+                              {!eventFormHasTiers() && (
+                                <button type="button" className="evt-tier-starter" onClick={useStarterTiers}>
+                                  <i className="fas fa-wand-magic-sparkles"></i> Use the usual three
+                                </button>
+                              )}
+                            </div>
+
+                            {!eventFormHasTiers() ? (
+                              <p className="evt-muted evt-tier-empty">
+                                <i className="fas fa-info-circle"></i> Everyone pays the one registration fee below.
+                                Add age groups to charge adults, children and toddlers differently
+                                &mdash; e.g. <strong>Adults &#8369;300</strong>, <strong>6-10 yrs &#8369;100</strong>,
+                                <strong> 5 and below free</strong>.
+                              </p>
+                            ) : (
+                              <p className="evt-muted evt-tier-empty">
+                                <i className="fas fa-circle-check"></i> Attendees pick their age group while registering
+                                and are charged that group&apos;s price. The fee below is only used if every group is removed.
+                              </p>
+                            )}
+
+                            <div className="evt-tier-list">
+                              {(eventForm.priceTiers || []).map((t, i) => (
+                                <div className={`evt-tier-row ${t.nameOnly ? 'kid' : ''}`} key={i}>
+                                  <div className="evt-tier-grid">
+                                    <label className="evt-day-field evt-tier-label">
+                                      <span>Group Name</span>
+                                      <input
+                                        type="text"
+                                        className="form-control"
+                                        placeholder="e.g. Adults"
+                                        value={t.label}
+                                        onChange={(e) => updateEventTier(i, { label: e.target.value })}
+                                      />
+                                    </label>
+                                    <label className="evt-day-field evt-tier-age">
+                                      <span>Age From</span>
+                                      <input
+                                        type="number" min="0" max="120"
+                                        className="form-control"
+                                        placeholder="any"
+                                        value={t.minAge}
+                                        onChange={(e) => updateEventTier(i, { minAge: e.target.value })}
+                                      />
+                                    </label>
+                                    <label className="evt-day-field evt-tier-age">
+                                      <span>Age To</span>
+                                      <input
+                                        type="number" min="0" max="120"
+                                        className="form-control"
+                                        placeholder="up"
+                                        value={t.maxAge}
+                                        onChange={(e) => updateEventTier(i, { maxAge: e.target.value })}
+                                      />
+                                    </label>
+                                    <label className="evt-day-field evt-tier-fee">
+                                      <span>Price (PHP)</span>
+                                      <input
+                                        type="number" min="0"
+                                        className="form-control"
+                                        placeholder="0"
+                                        value={t.fee}
+                                        onChange={(e) => updateEventTier(i, { fee: e.target.value })}
+                                      />
+                                    </label>
+                                    {/* Only worth asking once there is an early-bird
+                                        deadline for it to run against. */}
+                                    {!!eventForm.earlyBirdDeadline && !t.nameOnly && (
+                                      <label className="evt-day-field evt-tier-fee">
+                                        <span>Early Bird</span>
+                                        <input
+                                          type="number" min="0"
+                                          className="form-control"
+                                          placeholder="same"
+                                          value={t.earlyFee}
+                                          onChange={(e) => updateEventTier(i, { earlyFee: e.target.value })}
+                                        />
+                                      </label>
+                                    )}
+                                    <button type="button" className="evt-session-remove" onClick={() => removeEventTier(i)} aria-label="Remove this age group">
+                                      <i className="fas fa-trash"></i>
+                                    </button>
+                                  </div>
+
+                                  <div className="evt-tier-foot">
+                                    {/* The children's row. They are still registered
+                                        and still counted at the door - the form just
+                                        stops asking a 4-year-old for a pastor and a
+                                        mobile number, and takes the parent's instead. */}
+                                    <label className="evt-addon-required evt-tier-noreg">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!t.nameOnly}
+                                        // No note is written here on purpose. The
+                                        // event page already says what a children's
+                                        // group is; a sentence auto-filled by a tick
+                                        // outlives the tick when it is undone, and
+                                        // then an adult's price card reads
+                                        // "registered under a parent or guardian".
+                                        onChange={(e) => updateEventTier(i, {
+                                          nameOnly: e.target.checked,
+                                          fee: e.target.checked && t.fee === '' ? '0' : t.fee,
+                                        })}
+                                      />
+                                      <span>
+                                        Children &mdash; <strong>name only</strong>, registered under a parent or guardian
+                                        (no church, pastor or contact number asked)
+                                      </span>
+                                    </label>
+                                    <input
+                                      type="text"
+                                      className="form-control evt-addon-desc evt-tier-note"
+                                      placeholder="Small print under the price (optional) — e.g. Kids 5 and below do not need to register"
+                                      value={t.note}
+                                      onChange={(e) => updateEventTier(i, { note: e.target.value })}
+                                    />
+                                  </div>
+
+                                  <div className="evt-tier-reads">
+                                    <i className="fas fa-eye"></i>
+                                    Reads as <strong>{(t.label || 'Untitled').toUpperCase()}</strong>
+                                    {' \u00B7 '}{tierAgeLabel({ minAge: t.minAge === '' ? null : Number(t.minAge), maxAge: t.maxAge === '' ? null : Number(t.maxAge) })}
+                                    {' \u00B7 '}<strong>{Number(t.fee) > 0 ? `\u20B1${Number(t.fee)}` : 'FREE'}</strong>
+                                    {t.nameOnly && <span className="evt-tier-kid-tag"><i className="fas fa-child-reaching"></i> name only</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <button type="button" className="evt-session-add" onClick={addEventTier}>
+                              <i className="fas fa-plus"></i> Add Age Group
+                            </button>
+                          </div>
+
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                            <div className="form-group"><label>Registration Fee (PHP) *</label><input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationFee} onChange={(e) => setEventForm({ ...eventForm, registrationFee: e.target.value })} /></div>
+                            <div className="form-group">
+                              <label>{eventFormHasTiers() ? 'Registration Fee (fallback)' : 'Registration Fee (PHP) *'}</label>
+                              <input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.registrationFee} onChange={(e) => setEventForm({ ...eventForm, registrationFee: e.target.value })} />
+                              {eventFormHasTiers() && <div className="evt-field-hint">The age groups above decide what each person pays.</div>}
+                            </div>
                             <div className="form-group"><label>Early Bird Price (optional)</label><input type="number" min="0" className="form-control" style={{ padding: '10px 15px' }} value={eventForm.earlyBirdPrice} onChange={(e) => setEventForm({ ...eventForm, earlyBirdPrice: e.target.value })} /></div>
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
@@ -15406,6 +15810,35 @@ Examples:
                               value={a.details}
                               onChange={(e) => updateEventAddon(i, { details: e.target.value })}
                             />
+                            {/* An extra can cost a different amount per age group -
+                                accommodation is 200 for an adult and 100 for a
+                                child on the same poster. Left blank, a group pays
+                                the fee above, so an event that prices its extras
+                                the same for everybody never fills this in. */}
+                            {eventFormHasTiers() && (
+                              <div className="evt-addon-tiers">
+                                <span className="evt-addon-tiers-label">
+                                  <i className="fas fa-user-group"></i> Price per age group
+                                  <em>blank = &#8369;{Number(a.fee) || 0} for that group</em>
+                                </span>
+                                <div className="evt-addon-tier-grid">
+                                  {eventFormTiers().map((t) => (
+                                    <label className="evt-day-field" key={t.label}>
+                                      <span>{t.label}</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        className="form-control"
+                                        placeholder={String(Number(a.fee) || 0)}
+                                        value={(a.tierFees || {})[tierKey(t.label)] ?? ''}
+                                        onChange={(e) => setAddonTierFee(i, t.label, e.target.value)}
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             <label className="evt-addon-required">
                               <input type="checkbox" checked={!!a.isRequired} onChange={(e) => updateEventAddon(i, { isRequired: e.target.checked })} />
                               <span>Required &mdash; always charged, attendees can&apos;t opt out</span>
@@ -15422,7 +15855,9 @@ Examples:
                         <div className="evt-addon-total">
                           <i className="fas fa-receipt"></i>
                           <span>
-                            Base {eventForm.hasFee ? `₱${Number(eventForm.registrationFee) || 0}` : 'Free'}
+                            Base {eventFormHasTiers()
+                              ? `${eventFeeLabel({ has_fee: eventForm.hasFee, registration_fee: eventForm.registrationFee, priceTiers: eventForm.priceTiers })} by age group`
+                              : (eventForm.hasFee ? `₱${Number(eventForm.registrationFee) || 0}` : 'Free')}
                             {(eventForm.addons || []).filter((a) => Number(a.fee) > 0).map((a, i) => (
                               <span key={i}> + ₱{Number(a.fee)}{a.question ? ` (${a.question})` : ''}</span>
                             ))}
@@ -15646,7 +16081,7 @@ Examples:
                           ? <img src={evt.image_url} alt={evt.title} loading="lazy" />
                           : <div className="evt-poster-ph"><i className="fas fa-calendar-day"></i></div>}
                         <span className={`evt-poster-status evt-tstatus-${st.cls}`}>{st.label}</span>
-                        <span className={`evt-poster-fee ${evt.has_fee ? 'paid' : 'free'}`}>{evt.has_fee ? `₱${evt.registration_fee}` : 'FREE'}</span>
+                        <span className={`evt-poster-fee ${evt.has_fee ? 'paid' : 'free'}`}>{evt.has_fee ? eventFeeLabel(evt).toUpperCase() : 'FREE'}</span>
                         <div className="evt-poster-shine"></div>
                         <div className="evt-poster-view"><i className="fas fa-circle-info"></i> View Details</div>
                       </div>
@@ -15734,7 +16169,7 @@ Examples:
                               {(evt.loc_city || evt.location) && <span className="evt-admin-loc"><i className="fas fa-location-dot"></i> {evt.loc_city || evt.location}</span>}
                               <div className="evt-admin-card-body">
                                 <h4>{evt.title}</h4>
-                                <div className="evt-admin-card-meta">{formatEventDateTime(evt.event_date)} · {evt.has_fee ? `₱${evt.registration_fee}` : 'Free'} · {st.label}</div>
+                                <div className="evt-admin-card-meta">{formatEventDateTime(evt.event_date)} · {evt.has_fee ? eventFeeLabel(evt) : 'Free'} · {st.label}</div>
                                 <button className="evt-admin-manage" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.top - 6 - 190, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>Manage</button>
                               </div>
                             </div>
@@ -15804,7 +16239,7 @@ Examples:
                                 ? <span className="evt-prov-pill"><i className="fas fa-location-dot"></i> {provinceLabel(evt)}</span>
                                 : <span className="evt-cell-sub">—</span>}
                             </td>
-                            <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? `₱${evt.registration_fee}` : 'Free'}</td>
+                            <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? eventFeeLabel(evt) : 'Free'}</td>
                             <td className="evt-nowrap" data-label="Audience">{evt.allowed_roles && evt.allowed_roles.length ? evt.allowed_roles.join(', ') : 'All'}</td>
                             <td data-label="Status">
                               <span className={`evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>
@@ -17054,6 +17489,21 @@ Examples:
                           </div>
                         </div>
 
+                        {/* Which age group this person is in, on an event that
+                            prices adults and children differently. Renders
+                            nothing at all on an event with one price. */}
+                        <AgeGroupPicker
+                          event={eventRegsModal}
+                          value={adminAddRegTier}
+                          onChange={(label) => { setAdminAddRegTier(label); setAdminAddErrors({}); }}
+                          title={adminIsBulk ? 'Representative\u2019s Age Group' : 'Age Group'}
+                          hint={adminRepLocked ? 'their existing slot is unchanged' : ''}
+                          disabled={adminRepLocked}
+                          // A group is held by an adult. The children on it are
+                          // added on the roster step, each with their own group.
+                          scope={adminIsBulk ? 'adult' : 'all'}
+                        />
+
                         {/* The representative's extras. Asked here rather than on
                             the payment step because they belong to a person, not
                             to the payment - and for someone who already holds a
@@ -17082,7 +17532,7 @@ Examples:
                                     {settled && <small>Already availed on their registration &mdash; not charged again.</small>}
                                     {!settled && a.is_required && <small>Required &mdash; included for everyone.</small>}
                                   </span>
-                                  <span className="evt-addon-option-fee">{settled ? 'Paid' : `+₱${Number(a.fee) || 0}`}</span>
+                                  <span className="evt-addon-option-fee">{settled ? 'Paid' : `+₱${addonFeeFor(a, findTier(eventRegsModal, adminAddRegTier) || defaultTier(eventRegsModal))}`}</span>
                                 </label>
                               );
                             })}
@@ -17105,7 +17555,7 @@ Examples:
                               {adminBulkEditing == null ? ' Add an Attendee' : ` Editing attendee #${adminBulkEditing + 1}`}
                             </span>
                             {adminBulkEditing != null && (
-                              <button type="button" className="evt-bulk-cancel" onClick={() => { setAdminBulkEditing(null); setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal.event_addons || []).filter((a) => a.is_required).map((a) => a.id) }); }}>Cancel</button>
+                              <button type="button" className="evt-bulk-cancel" onClick={() => { setAdminBulkEditing(null); setAdminBulkDraft({ firstName: '', lastName: '', addonIds: (eventRegsModal.event_addons || []).filter((a) => a.is_required).map((a) => a.id), priceTier: defaultTier(eventRegsModal)?.label || '' }); }}>Cancel</button>
                             )}
                           </div>
                           <div className="evt-form-grid">
@@ -17120,16 +17570,29 @@ Examples:
                                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adminCommitPerson(); } }} />
                             </div>
                           </div>
+                          {/* Age group is per person too - a family booking is
+                              one payment, not one price. */}
+                          <AgeGroupPicker
+                            event={eventRegsModal}
+                            value={adminBulkDraft.priceTier}
+                            onChange={(label) => { setAdminBulkDraft({ ...adminBulkDraft, priceTier: label }); setAdminBulkError(''); }}
+                            title="Age Group"
+                          />
+
                           {/* extras are per person - only some of a group need accommodation */}
                           {(eventRegsModal.event_addons || []).length > 0 && (
                             <div className="evt-addon-pick" style={{ marginTop: 4 }}>
-                              {eventRegsModal.event_addons.map((a) => (
-                                <label key={a.id} className={`evt-addon-option ${adminBulkDraft.addonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
-                                  <input type="checkbox" checked={adminBulkDraft.addonIds.includes(a.id)} disabled={a.is_required} onChange={() => adminToggleDraftAddon(a)} />
-                                  <span className="evt-addon-option-text"><strong>{a.question}</strong></span>
-                                  <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
-                                </label>
-                              ))}
+                              {eventRegsModal.event_addons.map((a) => {
+                                // Priced for the group this person is in.
+                                const fee = addonFeeFor(a, findTier(eventRegsModal, adminBulkDraft.priceTier) || defaultTier(eventRegsModal));
+                                return (
+                                  <label key={a.id} className={`evt-addon-option ${adminBulkDraft.addonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
+                                    <input type="checkbox" checked={adminBulkDraft.addonIds.includes(a.id)} disabled={a.is_required} onChange={() => adminToggleDraftAddon(a)} />
+                                    <span className="evt-addon-option-text"><strong>{a.question}</strong></span>
+                                    <span className="evt-addon-option-fee">+₱{fee}</span>
+                                  </label>
+                                );
+                              })}
                             </div>
                           )}
                           {adminBulkError && <div className="evt-field-error-msg">{adminBulkError}</div>}
@@ -17169,9 +17632,12 @@ Examples:
                                           <tr key={a.isRep ? 'rep' : `p${listIndex}`} className={listIndex != null && adminBulkEditing === listIndex ? 'evt-row-editing' : ''}>
                                             <td data-label="Attendee">
                                               <b>{i + 1}.</b> {formatPersonName(`${a.firstName} ${a.lastName}`)}
+                                              {hasPriceTiers(eventRegsModal) && a.priceTier && (
+                                                <span className="evt-tier-tag">{a.priceTier}</span>
+                                              )}
                                               {a.isRep && <div className="evt-cell-sub">Representative</div>}
                                             </td>
-                                            <td data-label="Registration Fee">₱{adminBaseAmount(eventRegsModal)}</td>
+                                            <td data-label="Registration Fee">₱{adminBaseAmount(eventRegsModal, adminPersonTier(a))}</td>
                                             <td data-label="Extras">
                                               {adminPersonAddons(a).length === 0 ? '—' : (
                                                 <>₱{adminPersonExtras(a)}<div className="evt-cell-sub">{adminPersonAddons(a).map((x) => x.question).join(', ')}</div></>
@@ -17209,7 +17675,7 @@ Examples:
                                             </div>
                                           </td>
                                           <td data-label="Registration Fee">
-                                            <s>₱{adminBaseAmount(eventRegsModal)}</s>
+                                            <s>₱{adminBaseAmount(eventRegsModal, findTier(eventRegsModal, adminAddRegTier))}</s>
                                             <div className="evt-cell-sub">not charged again</div>
                                           </td>
                                           <td data-label="Extras">
@@ -17273,7 +17739,7 @@ Examples:
                                   <strong>{a.question}</strong>
                                   {a.is_required && <small>Required &mdash; included for everyone.</small>}
                                 </span>
-                                <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
+                                <span className="evt-addon-option-fee">+₱{addonFeeFor(a, findTier(eventRegsModal, adminAddRegTier) || defaultTier(eventRegsModal))}</span>
                               </label>
                             ))}
                           </div>
@@ -17322,9 +17788,12 @@ Examples:
                                 </>
                               ) : (
                                 <>
-                                  <div className="evt-receipt-line"><span>Registration Fee</span><b>₱{adminBaseAmount(eventRegsModal)}</b></div>
+                                  <div className="evt-receipt-line">
+                                    <span>Registration Fee{hasPriceTiers(eventRegsModal) && adminAddRegTier ? ` (${adminAddRegTier})` : ''}</span>
+                                    <b>₱{adminBaseAmount(eventRegsModal)}</b>
+                                  </div>
                                   {(eventRegsModal.event_addons || []).filter((a) => adminAddRegAddons.includes(a.id)).map((a) => (
-                                    <div className="evt-receipt-line" key={a.id}><span>Extras ({a.question})</span><b>₱{Number(a.fee) || 0}</b></div>
+                                    <div className="evt-receipt-line" key={a.id}><span>Extras ({a.question})</span><b>₱{addonFeeFor(a, findTier(eventRegsModal, adminAddRegTier) || defaultTier(eventRegsModal))}</b></div>
                                   ))}
                                 </>
                               )}
@@ -17489,6 +17958,23 @@ Examples:
                         {editRegErrors.lastName && <div className="evt-field-error-msg">{editRegErrors.lastName}</div>}
                       </div>
                     </div>
+
+                    {/* The age group, for a row that has none: the ones saved
+                        before this event was priced by age, which the desk has to
+                        be able to label without deleting and re-entering somebody
+                        who has already paid.
+
+                        It relabels, and nothing more. What they owe was agreed
+                        when they registered and may already be paid or part-paid
+                        on a plan, so the money is deliberately left alone and the
+                        dialog says so rather than leaving it to be discovered. */}
+                    <AgeGroupPicker
+                      event={eventRegsModal}
+                      value={editRegForm.priceTier}
+                      onChange={(label) => { setEditRegForm({ ...editRegForm, priceTier: label }); setEditRegErrors({}); }}
+                      title="Age Group"
+                      hint={`the ₱${Number(editRegModal.amount) || 0} already recorded does not change`}
+                    />
 
                     {/* The same suggestions the entry form offers, so a
                         correction lands on the spelling everyone else at this
@@ -17704,7 +18190,7 @@ Examples:
                                     <strong>{a.question}</strong>
                                     {settled && <small>Already availed on this registration &mdash; not charged again.</small>}
                                   </span>
-                                  <span className="evt-addon-option-fee">{settled ? 'Paid' : `+₱${Number(a.fee) || 0}`}</span>
+                                  <span className="evt-addon-option-fee">{settled ? 'Paid' : `+₱${addonFeeFor(a, extrasTier())}`}</span>
                                 </label>
                               );
                             })}
@@ -17737,7 +18223,7 @@ Examples:
                               {chosen.map((a) => (
                                 <div className="evt-receipt-line" key={a.id}>
                                   <span>Extras ({a.question})</span>
-                                  <b>₱{Number(a.fee) || 0}</b>
+                                  <b>₱{addonFeeFor(a, extrasTier())}</b>
                                 </div>
                               ))}
                               <div className="evt-receipt-total"><span>New Total</span><b>₱{newTotal}</b></div>
@@ -18098,6 +18584,7 @@ Examples:
                                   {memberRepJoining ? `+₱${registerBaseAmount(registerModal)}` : '₱0'}
                                 </span>
                               )}
+
                             </label>
                           </div>
                         )}
@@ -18188,6 +18675,19 @@ Examples:
                       />
                     </div>
 
+                    {/* Which age group, on an event priced by age. Renders
+                        nothing on an event with one price. */}
+                    <AgeGroupPicker
+                      event={registerModal}
+                      value={registerTier}
+                      onChange={(label) => { setRegisterTier(label); setRegisterErrors({}); }}
+                      title={memberIsBulk ? 'Your Age Group' : 'Age Group'}
+                      disabled={memberIsBulk && memberRepLocked}
+                      // You are the one holding a group booking, so you are on
+                      // an adult group; the children go on the roster.
+                      scope={memberIsBulk ? 'adult' : 'all'}
+                    />
+
                     {eventSessionsToShow(registerModal).length > 0 && (
                       <div className="evt-addon-pick">
                         <div className="evt-addon-pick-head"><i className="fas fa-calendar-week"></i> Schedule</div>
@@ -18233,7 +18733,7 @@ Examples:
                                 {a.is_required && <small>Required — included for everyone.</small>}
                                 {settled && !a.is_required && <small>Already availed on your registration.</small>}
                               </span>
-                              <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
+                              <span className="evt-addon-option-fee">+₱{addonFeeFor(a, findTier(registerModal, registerTier) || defaultTier(registerModal))}</span>
                             </label>
                           );
                         })}
@@ -18271,16 +18771,28 @@ Examples:
                                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); memberCommitPerson(); } }} />
                             </div>
                           </div>
+                          {/* Each person has their own age group: a family
+                              booking is one payment, not one price. */}
+                          <AgeGroupPicker
+                            event={registerModal}
+                            value={memberBulkDraft.priceTier}
+                            onChange={(label) => { setMemberBulkDraft({ ...memberBulkDraft, priceTier: label }); setMemberBulkError(''); }}
+                            title="Age Group"
+                          />
+
                           {/* Extras are per person - only some of a group need accommodation. */}
                           {(registerModal.event_addons || []).length > 0 && (
                             <div className="evt-addon-pick" style={{ marginTop: 4 }}>
-                              {registerModal.event_addons.map((a) => (
-                                <label key={a.id} className={`evt-addon-option ${memberBulkDraft.addonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
-                                  <input type="checkbox" checked={memberBulkDraft.addonIds.includes(a.id)} disabled={a.is_required} onChange={() => memberToggleDraftAddon(a)} />
-                                  <span className="evt-addon-option-text"><strong>{a.question}</strong></span>
-                                  <span className="evt-addon-option-fee">+₱{Number(a.fee) || 0}</span>
-                                </label>
-                              ))}
+                              {registerModal.event_addons.map((a) => {
+                                const fee = addonFeeFor(a, findTier(registerModal, memberBulkDraft.priceTier) || defaultTier(registerModal));
+                                return (
+                                  <label key={a.id} className={`evt-addon-option ${memberBulkDraft.addonIds.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
+                                    <input type="checkbox" checked={memberBulkDraft.addonIds.includes(a.id)} disabled={a.is_required} onChange={() => memberToggleDraftAddon(a)} />
+                                    <span className="evt-addon-option-text"><strong>{a.question}</strong></span>
+                                    <span className="evt-addon-option-fee">+₱{fee}</span>
+                                  </label>
+                                );
+                              })}
                             </div>
                           )}
                           {memberBulkError && <div className="evt-field-error-msg">{memberBulkError}</div>}
@@ -18322,10 +18834,13 @@ Examples:
                                           <tr key={a.isRep ? 'rep' : `p${listIndex}`} className={listIndex != null && memberBulkEditing === listIndex ? 'evt-row-editing' : ''}>
                                             <td data-label="Attendee">
                                               <b>{i + 1}.</b> {formatPersonName(`${a.firstName} ${a.lastName}`)}
+                                              {hasPriceTiers(registerModal) && a.priceTier && (
+                                                <span className="evt-tier-tag">{a.priceTier}</span>
+                                              )}
                                               {a.isRep && <div className="evt-cell-sub">You &middot; Representative</div>}
                                               {dup && <div className="evt-field-error-msg">Already registered for this event.</div>}
                                             </td>
-                                            <td data-label="Registration Fee">₱{registerBaseAmount(registerModal)}</td>
+                                            <td data-label="Registration Fee">₱{registerBaseAmount(registerModal, memberPersonTier(a))}</td>
                                             <td data-label="Extras">
                                               {memberPersonAddons(a).length === 0 ? '—' : (
                                                 <>₱{memberPersonExtras(a)}<div className="evt-cell-sub">{memberPersonAddons(a).map((x) => x.question).join(', ')}</div></>
@@ -18505,7 +19020,7 @@ Examples:
                           {(registerModal.event_addons || []).filter((a) => registerAddonIds.includes(a.id)).map((a) => (
                             <div className="evt-review-receipt-line" key={a.id}>
                               <span>{a.question}</span>
-                              <b>+₱{Number(a.fee) || 0}</b>
+                              <b>+₱{addonFeeFor(a, findTier(registerModal, registerTier) || defaultTier(registerModal))}</b>
                             </div>
                           ))}
                         </>
@@ -18560,7 +19075,7 @@ Examples:
                           <div className="evt-muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
                             ₱{registerBaseAmount(registerModal)} registration
                             {(registerModal.event_addons || []).filter((a) => registerAddonIds.includes(a.id)).map((a) => (
-                              <span key={a.id}> + ₱{Number(a.fee) || 0} {a.question}</span>
+                              <span key={a.id}> + ₱{addonFeeFor(a, findTier(registerModal, registerTier) || defaultTier(registerModal))} {a.question}</span>
                             ))}
                           </div>
                         )}
