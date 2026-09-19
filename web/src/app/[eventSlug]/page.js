@@ -18,6 +18,7 @@
 // next.config.mjs under `afterFiles`, which Next checks BEFORE dynamic routes -
 // so they keep winning over this file and nothing here shadows them.
 
+import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
 import { supabase } from '@/lib/supabase';
 import { cached } from '@/lib/serverCache';
@@ -116,6 +117,16 @@ export async function generateMetadata({ params }) {
   return eventCardMetadata(evt, url, origin);
 }
 
-export default function EventLinkPage() {
+export default function EventLinkPage({ params }) {
+  // A dynamic segment matches ANY single path segment, dots included, where the
+  // rewrite this replaced matched only letters, digits and hyphens. Left alone,
+  // this page would answer /robots.txt, /sitemap.xml and /favicon.ico with 32 KB
+  // of home page and a 200, which is worse than the 404 those paths used to get:
+  // a crawler reads robots.txt BEFORE it reads the page it came for, and one
+  // that comes back as a web page is not a file it can trust.
+  //
+  // `slugFromPath` already knows what one of our links looks like - anything it
+  // turns down is not a link we gave out.
+  if (!slugFromPath(params?.eventSlug || '')) notFound();
   return <HomePage />;
 }
