@@ -13,33 +13,35 @@
   display: flex;
   align-items: center;
   padding: 12px 40px;
-  /* Glass, so the hero video carries on behind the bar.
-     0.72 is not an aesthetic guess. The panel has to stay readable over ANY
-     frame of ANY clip somebody uploads, so the number was chosen against the
-     worst case - a black frame - where white at 0.72 settles to rgb(184) and
-     the link colour below reads at 5.7:1, comfortably past the 4.5:1 AA asks
-     for. Going lighter shows more video and less text; this is the point where
-     both still work. */
-  background: rgba(255, 255, 255, 0.72);
+  /* Black glass, so the hero video carries on behind the bar - and the same
+     bar in both themes, which is why the link colours below are no longer
+     split by theme.
+     0.72 is not an aesthetic guess. The worst case is not a bright video
+     frame: it is the white page the bar sits over once you scroll past the
+     hero in light mode, which is permanent. Black at 0.72 over white settles
+     to rgb(83), where the link colour reads 6.3:1 and the gold hover 4.8:1 -
+     both past the 4.5:1 AA asks for. Lighter than this and the gold fails;
+     heavier and there is little video left to see. */
+  background: rgba(16, 16, 20, 0.72);
   /* `saturate` is what stops the glass looking like dirty tracing paper: blur
      alone washes the colour out of what is behind it, and pushing saturation
      back up keeps the video's colour reading through the frost. */
   -webkit-backdrop-filter: blur(18px) saturate(180%);
   backdrop-filter: blur(18px) saturate(180%);
-  /* The lit top edge that makes glass read as glass rather than as low opacity. */
-  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.08);
+  /* The lit edge that makes glass read as glass rather than as low opacity. */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.28);
   transition: background 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
   gap: 16px;
 }
 
 body.dark-mode .hp-navbar {
-  /* Same reasoning, mirrored: the worst case here is a WHITE frame, where
-     #1e1e1e at 0.74 settles to rgb(89) and the dark-mode link colour reads at
-     5.6:1. */
-  background: rgba(30, 30, 30, 0.74);
-  border-bottom-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.35);
+  /* A little deeper in dark mode, where the chrome is expected to be heavier
+     and the page below the hero is dark anyway. White text reads 9.6:1 against
+     the worst case here. */
+  background: rgba(12, 12, 15, 0.80);
+  border-bottom-color: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.45);
 }
 
 /* Firefox below 103 and anything else without backdrop-filter would render the
@@ -47,8 +49,8 @@ body.dark-mode .hp-navbar {
    text rather than frosted behind it. Those browsers get a near-solid bar
    instead: no glass, but nothing unreadable. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .hp-navbar { background: rgba(255, 255, 255, 0.96); }
-  body.dark-mode .hp-navbar { background: rgba(30, 30, 30, 0.96); }
+  .hp-navbar { background: rgba(16, 16, 20, 0.96); }
+  body.dark-mode .hp-navbar { background: rgba(12, 12, 15, 0.97); }
 }
 
 .hp-navbar-brand {
@@ -103,10 +105,14 @@ body.dark-mode .hp-navbar {
      the unit is scaled down instead so 8 nav links still fit. */
   letter-spacing: 1.29em;
   margin-right: -1.29em;
-  color: var(--secondary);
+  /* The brighter gold, in both themes: --secondary (#C9980B) was picked for a
+     white bar and only manages ~3.3:1 on the black glass, and this is the
+     smallest text in the bar. --accent takes it to 4.8:1. Dark mode already
+     used --accent here, so the two themes now simply agree. */
+  color: var(--accent);
   /* -webkit-text-fill-color INHERITS. Without this reset the parent's
      transparent fill would make this line invisible. */
-  -webkit-text-fill-color: var(--secondary);
+  -webkit-text-fill-color: var(--accent);
   text-transform: uppercase;
 }
 
@@ -132,27 +138,16 @@ body.dark-mode .hp-navbar-title span {
   text-decoration: none;
   font-weight: 600;
   font-size: 0.88rem;
-  /* Darkened from #555 with the glass: over a black frame #555 falls to 2.8:1
-     and fails, where this holds 5.7:1. On the old near-solid white bar the two
-     are indistinguishable. */
-  color: #3a3a3a;
+  /* Light in BOTH themes now, because the bar is black in both. The old #555
+     was chosen for a white bar and would sit at 1.3:1 on this one. */
+  color: #e9e9e9;
   transition: all 0.3s ease;
   font-family: var(--font-body);
 }
 
-body.dark-mode .hp-navbar-links a {
-  /* Lifted from #ccc for the same reason, measured against a white frame. */
-  color: #e6e6e6;
-}
-
 .hp-navbar-links a:hover {
-  color: var(--primary);
-  background: rgba(146, 108, 21, 0.08);
-}
-
-body.dark-mode .hp-navbar-links a:hover {
   color: var(--accent);
-  background: rgba(255, 195, 0, 0.1);
+  background: rgba(255, 255, 255, 0.10);
 }
 
 .hp-navbar-links .hp-btn-login {
@@ -268,12 +263,11 @@ body.dark-mode .hp-navbar-links .hp-btn-live:hover {
   background: none;
   border: none;
   font-size: 1.5rem;
-  color: var(--primary);
-  cursor: pointer;
-}
-
-body.dark-mode .hp-nav-toggle {
+  /* Gold, not --primary: the deep gold was legible on a white bar and is
+     roughly 1.9:1 on the black one. Same in both themes, like the rest of
+     the bar. */
   color: var(--accent);
+  cursor: pointer;
 }
 
 /* ---- HERO CAROUSEL ---- */
@@ -321,6 +315,37 @@ body.dark-mode .hp-nav-toggle {
   pointer-events: none;
 }
 .hp-hero-video.ready { opacity: 1; }
+
+/* ---- The black layer over the video ----
+   Moving pictures are busier and brighter than the still photos the carousel
+   shows, so a video hero gets a scrim of its own on top of the one every hero
+   already has (.hp-hero-overlay, 0.3 -> 0.55 -> 0.8 down the page). The two
+   MULTIPLY rather than add: 0.42 of black over 0.3 of black leaves 58% of the
+   picture showing, not 28%.
+
+   Which is why this one fades out towards the bottom instead of being flat.
+   The overlay is already at 0.8 down there, and a flat layer on top of that
+   would take the total to ~0.88 and black the clip out completely just where
+   the Events button sits. Tapering keeps the combined darkness roughly even
+   from top to bottom - about 0.59 to 0.80 - so the video reads the whole way
+   down and the white lockup still has something to sit against.
+
+   One knob: change --hp-hero-scrim to taste. 0 removes it entirely. */
+.hp-hero-videoslide {
+  --hp-hero-scrim: 0.42;
+}
+.hp-hero-videoslide::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, var(--hp-hero-scrim)) 0%,
+    rgba(0, 0, 0, calc(var(--hp-hero-scrim) * 0.72)) 55%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
 
 @media (prefers-reduced-motion: reduce) {
   /* Belt and braces: the component already declines to render a video at all
@@ -1752,24 +1777,24 @@ body.dark-mode .hp-chat-input input {
     top: 100%;
     left: 0;
     right: 0;
-    /* The open menu is the same glass as the bar it hangs from - a solid white
-       slab below a frosted bar looks like two different components. Slightly
-       more opaque than the bar because this panel carries a column of links
-       rather than one row. */
-    background: rgba(255, 255, 255, 0.82);
+    /* The same black glass as the bar it hangs from - a pale slab below a dark
+       frosted bar looks like two different components. Slightly more opaque
+       than the bar because this panel carries a column of links rather than
+       one row, and it hangs over page content rather than the hero. */
+    background: rgba(16, 16, 20, 0.86);
     -webkit-backdrop-filter: blur(18px) saturate(180%);
     backdrop-filter: blur(18px) saturate(180%);
     flex-direction: column;
     padding: 15px 20px;
     box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
     gap: 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.5);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
     animation: mobileNavSlide 0.3s ease;
   }
 
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .hp-navbar-links { background: rgba(255, 255, 255, 0.97); }
-    body.dark-mode .hp-navbar-links { background: rgba(30, 30, 30, 0.97); }
+    .hp-navbar-links { background: rgba(16, 16, 20, 0.97); }
+    body.dark-mode .hp-navbar-links { background: rgba(12, 12, 15, 0.98); }
   }
 
   @keyframes mobileNavSlide {
@@ -1778,8 +1803,8 @@ body.dark-mode .hp-chat-input input {
   }
 
   body.dark-mode .hp-navbar-links {
-    background: rgba(30, 30, 30, 0.84);
-    border-top-color: rgba(255, 255, 255, 0.12);
+    background: rgba(12, 12, 15, 0.88);
+    border-top-color: rgba(255, 255, 255, 0.10);
   }
 
   .hp-navbar-links.open {

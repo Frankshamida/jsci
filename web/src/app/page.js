@@ -1871,7 +1871,7 @@ ${eventsDigest}`;
           /* The poster is the carousel's own first photo, which the page is
              already preloading - so the hero is painted before the clip has
              downloaded a byte, and the video fades over it when it can play. */
-          <div className="hp-hero-slide active">
+          <div className="hp-hero-slide hp-hero-videoslide active">
             <HeroVideo src={heroVideoSrc} poster={HERO_SLIDES[0].img} />
           </div>
         ) : HERO_SLIDES.map((slide, i) => (
