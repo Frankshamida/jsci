@@ -3999,8 +3999,14 @@ body.dark-mode .hp-proof-actions button { background: #262626; border-color: rgb
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
   display: flex; flex-direction: column; gap: 10px;
   padding: 24px 26px 26px; color: #fff; text-align: left;
-  /* the title AND the date/place line stay in frame until the card is hovered */
-  transform: translateY(calc(100% - 112px));
+  /* The title, the date/place line AND the venue stay in frame until the card is
+     hovered. The number is the height of that resting band, measured from the
+     top of this panel: 24px of padding, the title, the key line and the venue,
+     each pair separated by the 10px gap above. At 112px that came to 2px of air
+     under the venue, so the address sat all but on the card's bottom edge. The
+     ceiling is the "View Details" button below it - past about 132px it starts
+     to peek out at rest, which is the one thing the hover is for. */
+  transform: translateY(calc(100% - 124px));
   transition: transform 0.34s cubic-bezier(0.22,1,0.36,1);
 }
 .hp-invite-card:hover .hp-invite-info,
@@ -4027,7 +4033,11 @@ body.dark-mode .hp-proof-actions button { background: #262626; border-color: rgb
 .hp-invite-line i { color: var(--accent, #ffc300); width: 15px; text-align: center; flex-shrink: 0; }
 .hp-invite-cta {
   display: inline-flex; align-items: center; justify-content: center; gap: 9px;
-  margin-top: 8px; padding: 13px 16px; border-radius: 26px;
+  /* 12px rather than 8px: the resting band above now stops 124px down, and this
+     margin is the clearance that keeps the button out of it. Four pixels lower
+     on hover is not a layout anyone will notice; the button appearing under the
+     address at rest would be. */
+  margin-top: 12px; padding: 13px 16px; border-radius: 26px;
   background: linear-gradient(135deg, var(--primary), var(--secondary));
   font-weight: 800; font-size: 0.96rem;
 }
@@ -4195,3 +4205,135 @@ body.dark-mode .hp-pay-cash-done {
 }
 body.dark-mode .hp-pay-cash-done i { color: #fbbf24; }
 body.dark-mode .hp-pay-cash-done strong { color: #f3f4f6; }
+
+
+/* ============================================================
+   MODAL SCROLLBARS
+   ============================================================
+   Every panel below scrolls, and each was drawing the operating
+   system's own scrollbar - a grey trough with arrow buttons,
+   sitting against a near-black modal in dark mode. It is the one
+   piece of the registration flow the design never reached.
+
+   The colours are held in two custom properties so the shape is
+   declared once and dark mode only restates the palette: gold,
+   which is the brand's own, and which a bar this thin can carry
+   without shouting.
+
+   The thumb is drawn with a transparent border and clipped to the
+   padding box - that is what makes a 12px scrollbar show a 6px
+   bar with clean space either side, instead of a bar wedged
+   against the edge of the panel.
+
+   Both the standard properties and the -webkit- ones are here on
+   purpose, and only one of them ever runs. Firefox, and Chrome
+   from 121, read `scrollbar-width`/`scrollbar-color` and ignore
+   the pseudo-elements entirely once those are set; Safari and
+   older Chrome have never supported them and fall back to the
+   pseudo-elements. The palette is the same either way - what
+   differs is a hair of thickness and the hover shade, which the
+   standard properties have no way to express.
+   ============================================================ */
+
+.hp-isom-inquire-modal,
+.hp-reg-choice,
+.hp-addon-modal,
+.hp-evt-content,
+.hp-church-list,
+.evt-guardian-list,
+.hp-pay-picker-menu,
+.hp-chat-body {
+  --hp-scroll-thumb: rgba(20, 35, 58, 0.26);
+  --hp-scroll-thumb-hover: rgba(20, 35, 58, 0.45);
+  --hp-scroll-track: transparent;
+  /* Firefox: no pseudo-elements, one declaration for the whole bar. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--hp-scroll-thumb) var(--hp-scroll-track);
+}
+
+body.dark-mode .hp-isom-inquire-modal,
+body.dark-mode .hp-reg-choice,
+body.dark-mode .hp-addon-modal,
+body.dark-mode .hp-evt-content,
+body.dark-mode .hp-church-list,
+body.dark-mode .evt-guardian-list,
+body.dark-mode .hp-pay-picker-menu,
+body.dark-mode .hp-chat-body {
+  --hp-scroll-thumb: #C9980B;
+  --hp-scroll-thumb-hover: #FFC300;
+  --hp-scroll-track: rgba(255, 255, 255, 0.06);
+}
+
+.hp-isom-inquire-modal::-webkit-scrollbar,
+.hp-reg-choice::-webkit-scrollbar,
+.hp-addon-modal::-webkit-scrollbar,
+.hp-evt-content::-webkit-scrollbar,
+.hp-church-list::-webkit-scrollbar,
+.evt-guardian-list::-webkit-scrollbar,
+.hp-pay-picker-menu::-webkit-scrollbar,
+.hp-chat-body::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.hp-isom-inquire-modal::-webkit-scrollbar-track,
+.hp-reg-choice::-webkit-scrollbar-track,
+.hp-addon-modal::-webkit-scrollbar-track,
+.hp-evt-content::-webkit-scrollbar-track,
+.hp-church-list::-webkit-scrollbar-track,
+.evt-guardian-list::-webkit-scrollbar-track,
+.hp-pay-picker-menu::-webkit-scrollbar-track,
+.hp-chat-body::-webkit-scrollbar-track {
+  background: var(--hp-scroll-track);
+  border-radius: 999px;
+}
+
+.hp-isom-inquire-modal::-webkit-scrollbar-thumb,
+.hp-reg-choice::-webkit-scrollbar-thumb,
+.hp-addon-modal::-webkit-scrollbar-thumb,
+.hp-evt-content::-webkit-scrollbar-thumb,
+.hp-church-list::-webkit-scrollbar-thumb,
+.evt-guardian-list::-webkit-scrollbar-thumb,
+.hp-pay-picker-menu::-webkit-scrollbar-thumb,
+.hp-chat-body::-webkit-scrollbar-thumb {
+  background-color: var(--hp-scroll-thumb);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+
+.hp-isom-inquire-modal::-webkit-scrollbar-thumb:hover,
+.hp-reg-choice::-webkit-scrollbar-thumb:hover,
+.hp-addon-modal::-webkit-scrollbar-thumb:hover,
+.hp-evt-content::-webkit-scrollbar-thumb:hover,
+.hp-church-list::-webkit-scrollbar-thumb:hover,
+.evt-guardian-list::-webkit-scrollbar-thumb:hover,
+.hp-pay-picker-menu::-webkit-scrollbar-thumb:hover,
+.hp-chat-body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--hp-scroll-thumb-hover);
+}
+
+/* The little arrows at each end are a desktop-Windows default and the
+   only part of the old bar that cannot be recoloured. */
+.hp-isom-inquire-modal::-webkit-scrollbar-button,
+.hp-reg-choice::-webkit-scrollbar-button,
+.hp-addon-modal::-webkit-scrollbar-button,
+.hp-evt-content::-webkit-scrollbar-button,
+.hp-church-list::-webkit-scrollbar-button,
+.evt-guardian-list::-webkit-scrollbar-button,
+.hp-pay-picker-menu::-webkit-scrollbar-button,
+.hp-chat-body::-webkit-scrollbar-button {
+  display: none;
+}
+
+.hp-isom-inquire-modal::-webkit-scrollbar-corner,
+.hp-reg-choice::-webkit-scrollbar-corner,
+.hp-addon-modal::-webkit-scrollbar-corner,
+.hp-evt-content::-webkit-scrollbar-corner,
+.hp-church-list::-webkit-scrollbar-corner,
+.evt-guardian-list::-webkit-scrollbar-corner,
+.hp-pay-picker-menu::-webkit-scrollbar-corner,
+.hp-chat-body::-webkit-scrollbar-corner {
+  background: transparent;
+}

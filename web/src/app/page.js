@@ -7,6 +7,7 @@ import './home.css';
 import { withTitleCase } from '@/lib/eventTitle';
 import { eventSlug, findEventBySlug, slugFromPath } from '@/lib/eventSlug';
 import { eventCardTitle } from '@/lib/socialCard';
+import { EVENT_IMAGE_SIZES, eventImageSrcSet, eventImageUrl } from '@/lib/eventImage';
 import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
 import { buildEventsDigest, eventsMentionedIn, evtPlaceLabel } from '@/lib/eventDigest';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
@@ -177,6 +178,12 @@ export default function HomePage() {
   const [darkMode, setDarkMode] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
+  // Which hero slides have an <img> in the DOM. All five used to, and because
+  // they are stacked absolutely they are all "in the viewport" - so the browser
+  // fetched 570 KB of carousel at full priority before the events section had
+  // asked for anything, and `loading="lazy"` would not have stopped it. Only the
+  // slide on screen starts out mounted; see the effect that mounts the rest.
+  const [heroMounted, setHeroMounted] = useState(() => new Set([0]));
   const [dailyVerse, setDailyVerse] = useState({ verse: '', reference: '' });
   const heroTimer = useRef(null);
   const [isomIndex, setIsomIndex] = useState(0);
@@ -1757,6 +1764,31 @@ ${eventsDigest}`;
   const prevSlide = () => goSlide((heroIndex - 1 + HERO_SLIDES.length) % HERO_SLIDES.length);
   const nextSlide = () => goSlide((heroIndex + 1) % HERO_SLIDES.length);
 
+  // Mount the slide on screen and the one after it, and not until the page has
+  // finished loading - so a carousel nobody has seen yet never competes with the
+  // events for the connection. Keeping one slide ahead in hand means the 1.2s
+  // fade always has an image to fade to: the carousel turns every 6 seconds,
+  // which is a long head start for one photo.
+  useEffect(() => {
+    const mountAhead = () => setHeroMounted((prev) => {
+      const next = new Set(prev);
+      next.add(heroIndex);
+      next.add((heroIndex + 1) % HERO_SLIDES.length);
+      // Same set back when nothing is new, so this never re-renders for free.
+      return next.size === prev.size ? prev : next;
+    });
+    // Waiting for `load` is only right while the carousel is still sitting on
+    // the slide it started on. Somebody who taps a dot during the initial load
+    // has asked for that slide now, and must not be shown an empty frame until
+    // the rest of the page happens to finish.
+    if (document.readyState === 'complete' || heroIndex !== 0) {
+      mountAhead();
+      return undefined;
+    }
+    window.addEventListener('load', mountAhead, { once: true });
+    return () => window.removeEventListener('load', mountAhead);
+  }, [heroIndex]);
+
   const scrollToSection = (id) => {
     setMobileNavOpen(false);
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
@@ -1802,7 +1834,9 @@ ${eventsDigest}`;
       <section className="hp-hero">
         {HERO_SLIDES.map((slide, i) => (
           <div key={i} className={`hp-hero-slide ${i === heroIndex ? 'active' : ''}`}>
-            <img src={slide.img} alt={slide.title} className="hp-hero-slide-img" />
+            {heroMounted.has(i) && (
+              <img src={slide.img} alt={slide.title} className="hp-hero-slide-img" />
+            )}
           </div>
         ))}
 
@@ -1868,7 +1902,15 @@ ${eventsDigest}`;
               >
                 <div className="hp-invite-hero">
                   {evt.image_url
-                    ? <img src={evt.image_url} alt={evt.title} className="hp-invite-hero-img" loading="lazy" decoding="async" />
+                    ? <img
+                        src={eventImageUrl(evt.image_url, 440)}
+                        srcSet={eventImageSrcSet(evt.image_url)}
+                        sizes={EVENT_IMAGE_SIZES}
+                        alt={evt.title}
+                        className="hp-invite-hero-img"
+                        loading="lazy"
+                        decoding="async"
+                      />
                     : <span className="hp-invite-hero-ph"><i className="fas fa-calendar-day"></i></span>}
 
                   <span className="hp-invite-pill">
@@ -3403,7 +3445,13 @@ ${eventsDigest}`;
             <button className="hp-evt-close" onClick={() => setDetailEvent(null)} aria-label="Close"><i className="fas fa-times"></i></button>
 
             {detailEvent.image_url ? (
-              <img src={detailEvent.image_url} alt={detailEvent.title} className="hp-evt-banner" />
+              <img
+                src={eventImageUrl(detailEvent.image_url, 440)}
+                srcSet={eventImageSrcSet(detailEvent.image_url)}
+                sizes={EVENT_IMAGE_SIZES}
+                alt={detailEvent.title}
+                className="hp-evt-banner"
+              />
             ) : (
               <div className="hp-evt-banner placeholder"><i className="fas fa-calendar-day"></i></div>
             )}

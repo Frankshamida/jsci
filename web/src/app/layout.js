@@ -65,7 +65,33 @@ export default function RootLayout({ children }) {
           referrerPolicy="no-referrer"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {/* Dark mode, decided before the page paints.
+
+            Every page reads `darkModeEnabled` out of localStorage and adds the
+            class in a useEffect - and an effect runs AFTER the first paint. So
+            each fresh document (Sign in -> Sign up is a plain <a>, and so is the
+            home page -> Login) painted its light colours for a frame or two and
+            then flipped to dark: the white flash inside the panel.
+
+            The browser cannot be asked to hold the paint, so the class has to be
+            on the element before there is anything to paint. This script is the
+            first thing in <body>, which means the parser runs it before it has
+            read the markup below - `document.body` exists, nothing has been
+            painted, and the class is already there when it is.
+
+            It stays in sync by reading the same key the toggles write, so the
+            effects on each page now only mirror what is already on the DOM into
+            React state. Wrapped because localStorage throws outright in a
+            browser with site data blocked; the page is simply light then, which
+            is what it was before this existed. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{if(localStorage.getItem('darkModeEnabled')==='true'){document.documentElement.classList.add('dark-mode');document.body.classList.add('dark-mode');}}catch(e){}})();`,
+          }}
+        />
+        {children}
+      </body>
     </html>
   )
 }

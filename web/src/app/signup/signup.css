@@ -10,7 +10,11 @@
   align-items: center;
   justify-content: center;
   padding: 30px;
-  background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 50%, #16213e 100%);
+  /* Light mode: a light page. This gradient used to be the dark navy that is now
+     under `body.dark-mode` below - so light mode rendered a white card on a
+     near-black page, which is the one combination the theme toggle is meant to
+     rule out. Warm at the far corner to pick up the gold the brand is built on. */
+  background: linear-gradient(135deg, #f4f6fb 0%, #eaeef6 50%, #f6f1e4 100%);
   font-family: var(--font-body);
   -webkit-overflow-scrolling: touch;
   transition: background 0.4s ease;
@@ -29,7 +33,8 @@
   position: fixed;
   top: 24px;
   left: 30px;
-  color: rgba(255, 255, 255, 0.6);
+  /* Dark ink for the light page; `body.dark-mode` puts the white back. */
+  color: rgba(26, 26, 46, 0.62);
   text-decoration: none;
   font-size: 0.85rem;
   font-weight: 600;
@@ -43,7 +48,9 @@
 }
 
 .signup-back-link:hover {
-  color: var(--accent);
+  /* #FFC300 is a dark-page colour - on this one it barely reads.
+     The deeper brand gold carries the contrast instead. */
+  color: var(--primary);
 }
 
 .signup-container {
@@ -53,7 +60,7 @@
   min-height: 620px;
   border-radius: 24px;
   overflow: hidden;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 80px rgba(146, 108, 21, 0.08);
+  box-shadow: 0 20px 50px rgba(26, 26, 46, 0.14), 0 0 70px rgba(146, 108, 21, 0.07);
   animation: signupSlideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   transition: box-shadow 0.4s ease;
 }
@@ -568,6 +575,17 @@ body.dark-mode .signup-field-input[type="date"]::-webkit-calendar-picker-indicat
 /* ============================================
    DARK MODE
    ============================================ */
+/* The back link is dark ink on the light page, so dark mode has to hand it
+   back the white it used to have unconditionally - and the bright accent
+   for the hover, which only reads against a dark page. */
+body.dark-mode .signup-back-link {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+body.dark-mode .signup-back-link:hover {
+  color: var(--accent);
+}
+
 body.dark-mode .signup-page {
   background: linear-gradient(135deg, #0a0a14 0%, #111122 50%, #0d1b2a 100%);
 }
