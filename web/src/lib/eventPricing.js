@@ -220,7 +220,22 @@ export function eventFeeLabel(evt) {
 // admin fills in prices rather than inventing the whole table.
 export const STARTER_TIERS = [
   { label: 'Adults', minAge: 11, maxAge: null, fee: '', earlyFee: '', requiresRegistration: true, nameOnly: false, note: '' },
-  { label: '6-10 Yrs Old', minAge: 6, maxAge: 10, fee: '', earlyFee: '', requiresRegistration: true, nameOnly: false, note: '' },
+  {
+    label: '6-10 Yrs Old',
+    minAge: 6,
+    maxAge: 10,
+    fee: '',
+    earlyFee: '',
+    requiresRegistration: true,
+    // A six-to-ten year old is brought by somebody, the same as a toddler, so
+    // this group is registered under a parent or guardian too - their church,
+    // their pastor and the number to ring are that adult's, and a child of ten
+    // cannot be the representative holding a group booking. It differs from the
+    // toddlers only in that it still pays: `nameOnly` is about who the
+    // registration belongs to, not about the price.
+    nameOnly: true,
+    note: '',
+  },
   {
     label: 'Kids (5 Below)',
     minAge: null,

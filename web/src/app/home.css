@@ -13,16 +13,42 @@
   display: flex;
   align-items: center;
   padding: 12px 40px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
-  transition: all 0.3s ease;
+  /* Glass, so the hero video carries on behind the bar.
+     0.72 is not an aesthetic guess. The panel has to stay readable over ANY
+     frame of ANY clip somebody uploads, so the number was chosen against the
+     worst case - a black frame - where white at 0.72 settles to rgb(184) and
+     the link colour below reads at 5.7:1, comfortably past the 4.5:1 AA asks
+     for. Going lighter shows more video and less text; this is the point where
+     both still work. */
+  background: rgba(255, 255, 255, 0.72);
+  /* `saturate` is what stops the glass looking like dirty tracing paper: blur
+     alone washes the colour out of what is behind it, and pushing saturation
+     back up keeps the video's colour reading through the frost. */
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  /* The lit top edge that makes glass read as glass rather than as low opacity. */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.08);
+  transition: background 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
   gap: 16px;
 }
 
 body.dark-mode .hp-navbar {
-  background: rgba(30, 30, 30, 0.95);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+  /* Same reasoning, mirrored: the worst case here is a WHITE frame, where
+     #1e1e1e at 0.74 settles to rgb(89) and the dark-mode link colour reads at
+     5.6:1. */
+  background: rgba(30, 30, 30, 0.74);
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* Firefox below 103 and anything else without backdrop-filter would render the
+   bar as plain 72% white with no blur - the video legible straight through the
+   text rather than frosted behind it. Those browsers get a near-solid bar
+   instead: no glass, but nothing unreadable. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .hp-navbar { background: rgba(255, 255, 255, 0.96); }
+  body.dark-mode .hp-navbar { background: rgba(30, 30, 30, 0.96); }
 }
 
 .hp-navbar-brand {
@@ -56,6 +82,13 @@ body.dark-mode .hp-navbar {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  /* Gold on glass is the one thing here that cannot be fixed by choosing a
+     better colour - the wordmark is the brand and has to stay this gold, and
+     against a pale video frame it has barely any contrast of its own.
+     `text-shadow` is no use under background-clip:text (it paints behind the
+     box, which is transparent) but `drop-shadow` follows the actual glyphs,
+     so the letters keep a defined edge on any backdrop without being tinted. */
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.28));
 }
 
 /* INTERNATIONAL */
@@ -99,13 +132,17 @@ body.dark-mode .hp-navbar-title span {
   text-decoration: none;
   font-weight: 600;
   font-size: 0.88rem;
-  color: #555;
+  /* Darkened from #555 with the glass: over a black frame #555 falls to 2.8:1
+     and fails, where this holds 5.7:1. On the old near-solid white bar the two
+     are indistinguishable. */
+  color: #3a3a3a;
   transition: all 0.3s ease;
   font-family: var(--font-body);
 }
 
 body.dark-mode .hp-navbar-links a {
-  color: #ccc;
+  /* Lifted from #ccc for the same reason, measured against a white frame. */
+  color: #e6e6e6;
 }
 
 .hp-navbar-links a:hover {
@@ -263,6 +300,32 @@ body.dark-mode .hp-nav-toggle {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* The video hero. Same box as a slide's photo, and deliberately WITHOUT the
+   mask sweep the card posters use - a mask on a playing video forces the
+   compositor to re-blend every frame, which is paid for in dropped frames on
+   the phones this most needs to be smooth on.
+   It starts invisible and fades in on `canplay`, so what the visitor sees is
+   the poster photo, then the clip - never a black rectangle. */
+.hp-hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  /* Its own layer, so the hero is not repainted by frames of video. */
+  will-change: opacity;
+  pointer-events: none;
+}
+.hp-hero-video.ready { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Belt and braces: the component already declines to render a video at all
+     under this preference, so this only catches a cached class name. */
+  .hp-hero-video { transition: none; }
 }
 
 .hp-hero-overlay {
@@ -1689,13 +1752,24 @@ body.dark-mode .hp-chat-input input {
     top: 100%;
     left: 0;
     right: 0;
-    background: white;
+    /* The open menu is the same glass as the bar it hangs from - a solid white
+       slab below a frosted bar looks like two different components. Slightly
+       more opaque than the bar because this panel carries a column of links
+       rather than one row. */
+    background: rgba(255, 255, 255, 0.82);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    backdrop-filter: blur(18px) saturate(180%);
     flex-direction: column;
     padding: 15px 20px;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
     gap: 0;
-    border-top: 1px solid rgba(146, 108, 21, 0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.5);
     animation: mobileNavSlide 0.3s ease;
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .hp-navbar-links { background: rgba(255, 255, 255, 0.97); }
+    body.dark-mode .hp-navbar-links { background: rgba(30, 30, 30, 0.97); }
   }
 
   @keyframes mobileNavSlide {
@@ -1704,8 +1778,8 @@ body.dark-mode .hp-chat-input input {
   }
 
   body.dark-mode .hp-navbar-links {
-    background: #1e1e1e;
-    border-top-color: rgba(255, 195, 0, 0.15);
+    background: rgba(30, 30, 30, 0.84);
+    border-top-color: rgba(255, 255, 255, 0.12);
   }
 
   .hp-navbar-links.open {
@@ -2440,7 +2514,31 @@ body.dark-mode .hp-event-btn.outline { color: var(--accent); border-color: var(-
 @keyframes hpEvtFade { from { opacity: 0; } to { opacity: 1; } }
 .hp-evt-modal { width: 100%; max-width: 560px; max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; overflow: hidden; background: #fff; border-radius: 20px; position: relative; box-shadow: 0 24px 70px rgba(0,0,0,0.4); }
 body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
-.hp-evt-close { position: absolute; top: 14px; right: 14px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; border: none; background: rgba(0,0,0,0.45); color: #fff; cursor: pointer; font-size: 1rem; }
+/* The close button on every modal - the event's details, Individual/Bulk, the
+   registration form, the ISOM enquiry. It was a grey-black disc, which is the
+   one thing on a white panel with a gold heading that belongs to no palette at
+   all. It now wears the same gradient as "Register for this Event", so the two
+   round gold things on the panel read as one design.
+
+   White on gold is the site's own button pattern. The glyph sits at the middle
+   of the gradient, around #ae8210, where white reads at 3.5:1 - over the 3:1
+   that WCAG asks of an icon - and the hover deepens rather than brightens,
+   which takes it to 5.4:1. Brightening towards #FFC300 would have looked the
+   more obvious hover and dropped the cross to 1.6:1. */
+.hp-evt-close {
+  position: absolute; top: 14px; right: 14px; z-index: 2;
+  width: 38px; height: 38px; border-radius: 50%; border: none;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: #fff; cursor: pointer; font-size: 1rem;
+  box-shadow: 0 4px 12px rgba(146,108,21,0.32);
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}
+.hp-evt-close:hover {
+  background: linear-gradient(135deg, #7d5c12, var(--primary));
+  box-shadow: 0 6px 16px rgba(146,108,21,0.42);
+}
+.hp-evt-close:active { transform: scale(0.94); }
+.hp-evt-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .hp-evt-banner { flex: 0 0 auto; width: 100%; aspect-ratio: 1080 / 1380; object-fit: contain; border-radius: 20px 20px 0 0; display: block; }
 .hp-evt-banner.placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary), #3e2e08); color: var(--accent); font-size: 3.5rem; }
 .hp-evt-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 24px 22px 26px; display: flex; flex-direction: column; }
@@ -2493,9 +2591,9 @@ body.dark-mode .hp-evt-modal { background: #1e1e1e; color: #eee; }
   /* `safe center` so that when the details do overflow they scroll from the top
      instead of having their first lines clipped above the scroll area. */
   .hp-evt-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto; padding: 26px 28px; justify-content: center; justify-content: safe center; }
-  /* close button now sits over the white details column, not the poster */
-  .hp-evt-close { background: rgba(0,0,0,0.32); }
-  .hp-evt-close:hover { background: rgba(0,0,0,0.55); }
+  /* The close button used to be given a lighter black here, because on desktop
+     it moves off the poster and onto the white details column. The gold disc
+     reads on both, so there is nothing left to say. */
 }
 
 /* Status pill: where the event sits relative to right now. */
@@ -3289,7 +3387,21 @@ body.dark-mode .hp-bulk-row-actions button { background: #2a2a2a; border-color: 
 .hp-form-group label em { font-style: normal; font-weight: 500; font-size: 0.86rem; color: #999; }
 
 /* ---- Registration modals sit in the middle of the screen ---- */
-.hp-reg-overlay { align-items: center; padding: 16px; }
+.hp-reg-overlay {
+  align-items: center; padding: 16px;
+  /* No fade on the way in. Registration is a chain of separate overlays - the
+     event's details, then Individual/Bulk, then the form, then an extra's
+     details - and each step unmounts one overlay and mounts the next. They are
+     set in a single handler, so React commits both in one paint and the backdrop
+     never actually goes away; what flickered was `.hp-evt-overlay`'s fade
+     starting the incoming overlay at opacity 0, which lifted the shade off the
+     page for a fifth of a second on every step and read as the whole screen
+     flashing. The shade now simply stays put from the first modal to the last.
+
+     The plain `.hp-evt-overlay` keeps its fade: it opens over the page itself,
+     where there is no shade already up and nothing to flicker against. */
+  animation: none;
+}
 .hp-reg-overlay .hp-isom-inquire-modal { max-width: 560px; margin: auto; }
 .hp-reg-overlay .hp-reg-choice { margin: auto; }
 
@@ -3720,9 +3832,9 @@ body.dark-mode .hp-reg-overlay .hp-reg-steps { background: #1e1e1e; }
 /* The close button must sit above the sticky header, not under it. */
 .hp-reg-overlay .hp-evt-close {
   position: sticky; z-index: 20; top: 12px; float: right; margin: 12px -6px 0 0;
-  background: rgba(0,0,0,0.55);
+  /* Position only. The gold and the hover come from the base rule, so the close
+     button is the same button on every modal. */
 }
-.hp-reg-overlay .hp-evt-close:hover { background: rgba(0,0,0,0.75); }
 
 /* Stepper items are buttons now. */
 .hp-reg-step {

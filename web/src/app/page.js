@@ -8,6 +8,8 @@ import { withTitleCase } from '@/lib/eventTitle';
 import { eventSlug, findEventBySlug, slugFromPath } from '@/lib/eventSlug';
 import { eventCardTitle } from '@/lib/socialCard';
 import { EVENT_IMAGE_SIZES, eventImageSrcSet, eventImageUrl } from '@/lib/eventImage';
+import { HERO_MEDIA_DEFAULT, heroVideoFor, normalizeHeroMedia } from '@/lib/heroMedia';
+import HeroVideo from '@/components/HeroVideo';
 import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
 import { buildEventsDigest, eventsMentionedIn, evtPlaceLabel } from '@/lib/eventDigest';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
@@ -184,6 +186,13 @@ export default function HomePage() {
   // asked for anything, and `loading="lazy"` would not have stopped it. Only the
   // slide on screen starts out mounted; see the effect that mounts the rest.
   const [heroMounted, setHeroMounted] = useState(() => new Set([0]));
+  // Carousel or video, set by an Admin under System Configuration. It starts on
+  // the carousel - what the site has always shown - and only becomes a video
+  // once the setting has been fetched and says so. That order matters: the
+  // first paint is the carousel's own photo either way, which doubles as the
+  // video's poster, so the hero is never empty while this is in flight.
+  const [heroMedia, setHeroMedia] = useState(HERO_MEDIA_DEFAULT);
+  const [heroIsMobile, setHeroIsMobile] = useState(false);
   const [dailyVerse, setDailyVerse] = useState({ verse: '', reference: '' });
   const heroTimer = useRef(null);
   const [isomIndex, setIsomIndex] = useState(0);
@@ -1252,13 +1261,39 @@ export default function HomePage() {
     if (saved) { document.body.classList.add('dark-mode'); document.documentElement.classList.add('dark-mode'); }
   }, [router]);
 
-  // ---- Hero auto-rotate ----
+  // ---- Which hero the site is set to ----
+  //
+  // A clip cut for a widescreen monitor is the wrong shape on a phone held
+  // upright, so the two are chosen separately and the viewport is read once,
+  // here. Once, deliberately: re-picking on every resize would restart the
+  // download from scratch each time somebody dragged a window edge.
   useEffect(() => {
+    setHeroIsMobile(window.matchMedia?.('(max-width: 768px)')?.matches === true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/hero-media');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && json?.data) setHeroMedia(normalizeHeroMedia(json.data));
+      } catch { /* the carousel is the fallback, and it is already showing */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const heroVideoSrc = heroVideoFor(heroMedia, heroIsMobile);
+
+  // ---- Hero auto-rotate ----
+  // Only the carousel rotates. On a video hero the photos are not on screen to
+  // be advanced, and leaving the timer running would still swap the tagline
+  // underneath the clip every six seconds with no dots to explain why.
+  useEffect(() => {
+    if (heroVideoSrc) return undefined;
     heroTimer.current = setInterval(() => {
       setHeroIndex(prev => (prev + 1) % HERO_SLIDES.length);
     }, 6000);
     return () => clearInterval(heroTimer.current);
-  }, []);
+  }, [heroVideoSrc]);
 
   // ---- ISOM carousel auto-rotate ----
   useEffect(() => {
@@ -1830,9 +1865,16 @@ ${eventsDigest}`;
         </div>
       </nav>
 
-      {/* ---- HERO CAROUSEL ---- */}
+      {/* ---- HERO: the photo carousel, or one looping clip ---- */}
       <section className="hp-hero">
-        {HERO_SLIDES.map((slide, i) => (
+        {heroVideoSrc ? (
+          /* The poster is the carousel's own first photo, which the page is
+             already preloading - so the hero is painted before the clip has
+             downloaded a byte, and the video fades over it when it can play. */
+          <div className="hp-hero-slide active">
+            <HeroVideo src={heroVideoSrc} poster={HERO_SLIDES[0].img} />
+          </div>
+        ) : HERO_SLIDES.map((slide, i) => (
           <div key={i} className={`hp-hero-slide ${i === heroIndex ? 'active' : ''}`}>
             {heroMounted.has(i) && (
               <img src={slide.img} alt={slide.title} className="hp-hero-slide-img" />
@@ -1855,18 +1897,25 @@ ${eventsDigest}`;
           </div>
         </div>
 
-        <button className="hp-hero-arrow left" onClick={prevSlide}>
-          <i className="fas fa-chevron-left"></i>
-        </button>
-        <button className="hp-hero-arrow right" onClick={nextSlide}>
-          <i className="fas fa-chevron-right"></i>
-        </button>
+        {/* Arrows and dots steer the carousel, so a video hero has no use for
+            them - five dots under a single clip are five controls that do
+            nothing. */}
+        {!heroVideoSrc && (
+          <>
+            <button className="hp-hero-arrow left" onClick={prevSlide}>
+              <i className="fas fa-chevron-left"></i>
+            </button>
+            <button className="hp-hero-arrow right" onClick={nextSlide}>
+              <i className="fas fa-chevron-right"></i>
+            </button>
 
-        <div className="hp-hero-dots">
-          {HERO_SLIDES.map((_, i) => (
-            <button key={i} className={`hp-hero-dot ${i === heroIndex ? 'active' : ''}`} onClick={() => goSlide(i)} />
-          ))}
-        </div>
+            <div className="hp-hero-dots">
+              {HERO_SLIDES.map((_, i) => (
+                <button key={i} className={`hp-hero-dot ${i === heroIndex ? 'active' : ''}`} onClick={() => goSlide(i)} />
+              ))}
+            </div>
+          </>
+        )}
 
         {/* The events are the thing most visitors came for, and they sit far down
             the page - this drops them straight there. */}
@@ -3566,8 +3615,14 @@ ${eventsDigest}`;
                           const extras = (detailEvent.event_addons || [])
                             .map((a) => ({ question: a.question, fee: addonFeeFor(a, t) }))
                             .filter((a) => a.fee > 0);
+                          // The green card is the FREE-toddler card, and it is green
+                          // because of the price, not because of the guardian. A paid
+                          // group registered under a parent - the 6-10s - gets the
+                          // ordinary card and says what it costs; the note below still
+                          // tells a parent where that child goes. Green against "₱100"
+                          // would read as though it were free.
                           return (
-                            <div className={`hp-fee-card ${t.nameOnly ? 'kid' : ''}`} key={t.label}>
+                            <div className={`hp-fee-card ${t.nameOnly && fee <= 0 ? 'kid' : ''}`} key={t.label}>
                               <span className="hp-fee-card-label">{t.label}</span>
                               <span className="hp-fee-card-age">{tierAgeLabel(t)}</span>
                               <span className={`hp-fee-card-price ${fee > 0 ? '' : 'free'}`}>

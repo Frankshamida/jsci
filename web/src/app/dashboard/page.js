@@ -19,6 +19,7 @@ import {
   findTier, hasPriceTiers, tierAgeLabel, tierKey,
 } from '@/lib/eventPricing';
 import { eventSlugFor, findEventBySlug } from '@/lib/eventSlug';
+import { HERO_MEDIA_DEFAULT, HERO_VIDEO_DIR, heroVideoWeight, normalizeHeroMedia } from '@/lib/heroMedia';
 import ProofDrop from '@/components/ProofDrop';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import {
@@ -690,6 +691,25 @@ function TablePager({ page, pageSize, total, onPage, onSize, label = 'rows' }) {
         <button type="button" disabled={current >= pages} onClick={() => onPage(pages)} title="Last page"><i className="fas fa-angles-right"></i></button>
       </div>
     </div>
+  );
+}
+
+// The line under a chosen hero video saying whether it is small enough to be a
+// background. Nothing stops an admin picking a heavy file - it is their site -
+// but nobody should have to guess why the hero stutters on a phone.
+function heroSizeWarning(videos, name) {
+  if (!name) return null;
+  const file = (videos || []).find((v) => v.name === name);
+  const weight = heroVideoWeight(file?.bytes);
+  if (!weight || weight === 'good') return null;
+  const mb = (file.bytes / 1048576).toFixed(0);
+  return (
+    <small className={`hero-cfg-warn ${weight}`}>
+      <i className="fas fa-triangle-exclamation"></i>
+      {weight === 'huge'
+        ? `${mb} MB is far too heavy for a background loop — expect a long blank hero on mobile data. Aim for under 6 MB.`
+        : `${mb} MB will be felt on mobile data. Under 6 MB is comfortable.`}
+    </small>
   );
 }
 
@@ -1460,6 +1480,13 @@ export default function DashboardPage() {
 
   // Super Admin: System Settings
   const [systemSettings, setSystemSettings] = useState({});
+  // ---- Public hero: carousel or video ----
+  // `heroForm` is what the boxes show, `heroSaved` what the site is actually
+  // serving; the Save button is only live while they differ.
+  const [heroForm, setHeroForm] = useState(HERO_MEDIA_DEFAULT);
+  const [heroSaved, setHeroSaved] = useState(HERO_MEDIA_DEFAULT);
+  const [heroVideos, setHeroVideos] = useState([]);
+  const [heroSaving, setHeroSaving] = useState(false);
 
   // Super Admin: Terms & Conditions Editor
   const [termsContent, setTermsContent] = useState('');
@@ -3185,6 +3212,61 @@ export default function DashboardPage() {
       const data = await res.json();
       if (data.success) setSystemSettings(data.data);
     } catch { /* silent */ }
+    loadHeroMedia();
+  };
+
+  // What the hero is set to, and what there is to choose from. The list of
+  // clips is read out of /public/Videos at build time - see the route - so
+  // adding one means committing the file and deploying, the same as any other
+  // file under /public.
+  const loadHeroMedia = async () => {
+    try {
+      // `no-store` on the admin side regardless of what the endpoint allows:
+      // this form has to show what is actually saved, never a cached copy of
+      // what it used to be. Getting that wrong reads as "the save did nothing".
+      const [mediaRes, videoRes] = await Promise.all([
+        fetch('/api/hero-media', { cache: 'no-store' }),
+        fetch('/api/hero-videos'),
+      ]);
+      const media = await mediaRes.json();
+      if (media?.data) {
+        const current = normalizeHeroMedia(media.data);
+        setHeroSaved(current);
+        setHeroForm(current);
+      }
+      const videos = await videoRes.json();
+      if (Array.isArray(videos?.data)) setHeroVideos(videos.data);
+    } catch { /* the section still renders; the boxes are just empty */ }
+  };
+
+  const heroDirty = heroForm.mode !== heroSaved.mode
+    || heroForm.desktop !== heroSaved.desktop
+    || heroForm.mobile !== heroSaved.mobile;
+
+  const saveHeroMedia = async () => {
+    setHeroSaving(true);
+    try {
+      const res = await fetch('/api/hero-media', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...heroForm, actorId: userData?.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const saved = normalizeHeroMedia(data.data);
+        setHeroSaved(saved);
+        setHeroForm(saved);
+        showToast(saved.mode === 'video'
+          ? 'The public hero now plays your video'
+          : 'The public hero is back to the image carousel', 'success');
+      } else {
+        showToast(data.message || 'Could not save the hero section', 'danger');
+      }
+    } catch {
+      showToast('Could not reach the server', 'danger');
+    } finally {
+      setHeroSaving(false);
+    }
   };
 
   const loadTermsConditions = async () => {
@@ -23333,6 +23415,93 @@ Examples:
 
           <section className={`content-section ${activeSection === 'system-config' ? 'active' : ''}`}>
             <h2 className="section-title">System Configuration</h2>
+
+            {/* ---- What the public hero shows ---- */}
+            <div className="hero-cfg">
+              <div className="hero-cfg-head">
+                <div>
+                  <h3><i className="fas fa-photo-film"></i> Public Hero Section</h3>
+                  <p>The big panel at the top of the public home page.</p>
+                </div>
+                {heroSaved.mode === 'video' && <span className="hero-cfg-live"><i className="fas fa-circle-play"></i> Video is live</span>}
+              </div>
+
+              <div className="hero-cfg-modes">
+                <button
+                  type="button"
+                  className={`hero-cfg-mode ${heroForm.mode === 'carousel' ? 'active' : ''}`}
+                  onClick={() => setHeroForm((f) => ({ ...f, mode: 'carousel' }))}
+                >
+                  <i className="fas fa-images"></i>
+                  <strong>Image Carousel</strong>
+                  <small>The five rotating photos. This is the default.</small>
+                </button>
+                <button
+                  type="button"
+                  className={`hero-cfg-mode ${heroForm.mode === 'video' ? 'active' : ''}`}
+                  onClick={() => setHeroForm((f) => ({ ...f, mode: 'video' }))}
+                >
+                  <i className="fas fa-film"></i>
+                  <strong>Video</strong>
+                  <small>One looping clip, chosen per screen size below.</small>
+                </button>
+              </div>
+
+              {heroForm.mode === 'video' && (
+                <div className="hero-cfg-pickers">
+                  {[
+                    { key: 'desktop', icon: 'fa-desktop', label: 'Desktop', hint: 'Shown above 768px wide' },
+                    { key: 'mobile', icon: 'fa-mobile-screen', label: 'Mobile', hint: 'Shown at 768px and below' },
+                  ].map((slot) => (
+                    <label className="hero-cfg-picker" key={slot.key}>
+                      <span className="hero-cfg-picker-label">
+                        <i className={`fas ${slot.icon}`}></i> {slot.label}
+                        <small>{slot.hint}</small>
+                      </span>
+                      <select
+                        className="form-control"
+                        value={heroForm[slot.key]}
+                        onChange={(e) => setHeroForm((f) => ({ ...f, [slot.key]: e.target.value }))}
+                      >
+                        <option value="">— none (use the other one) —</option>
+                        {heroVideos.map((v) => (
+                          <option value={v.name} key={v.name}>
+                            {v.name}{v.bytes ? ` · ${(v.bytes / 1048576).toFixed(1)} MB` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {/* The size warning is the useful part of this whole form.
+                          A hero loop that weighs tens of megabytes will stutter
+                          on a phone however well the page is written. */}
+                      {heroSizeWarning(heroVideos, heroForm[slot.key])}
+                    </label>
+                  ))}
+
+                  {heroVideos.length === 0 && (
+                    <p className="hero-cfg-empty">
+                      <i className="fas fa-triangle-exclamation"></i>
+                      No videos found in <code>public/{HERO_VIDEO_DIR}/</code>. Add an .mp4 there,
+                      commit it and deploy, and it will appear in these lists.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="hero-cfg-foot">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!heroDirty || heroSaving}
+                  onClick={saveHeroMedia}
+                >
+                  {heroSaving
+                    ? <><i className="fas fa-spinner fa-spin"></i> Saving…</>
+                    : <><i className="fas fa-check"></i> Save hero section</>}
+                </button>
+                {heroDirty && !heroSaving && <span className="hero-cfg-dirty">Unsaved changes</span>}
+              </div>
+            </div>
+
             {Object.entries(systemSettings).map(([key, value]) => (
               <div key={key} style={{ padding: 15, background: 'var(--bg-card)', borderRadius: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>

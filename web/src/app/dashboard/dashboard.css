@@ -31026,3 +31026,72 @@ body.dark-mode .pm-cash-hint i,
 body.dark-mode .pm-cash-line i,
 body.dark-mode .evt-pay-cash-note i { color: #fbbf24; }
 body.dark-mode .evt-pay-channel-note.cash { border-left-color: #fbbf24; }
+
+/* ============================================================
+   PUBLIC HERO SECTION control (System Configuration)
+   ============================================================ */
+.hero-cfg {
+  background: var(--bg-card);
+  border: 1px solid rgba(146, 108, 21, 0.18);
+  border-radius: 14px;
+  padding: 18px 18px 16px;
+  margin-bottom: 18px;
+}
+.hero-cfg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.hero-cfg-head h3 { margin: 0 0 3px; font-size: 1.05rem; display: flex; align-items: center; gap: 9px; }
+.hero-cfg-head h3 i { color: var(--primary); }
+.hero-cfg-head p { margin: 0; font-size: 0.85rem; color: #6c757d; }
+.hero-cfg-live {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: 999px; font-size: 0.75rem; font-weight: 700;
+  background: rgba(22, 163, 74, 0.12); color: #15803d;
+}
+
+/* The two choices, as cards rather than a dropdown: there are exactly two and
+   each needs a line of explanation. */
+.hero-cfg-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.hero-cfg-mode {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  padding: 14px 15px; border-radius: 12px; cursor: pointer; text-align: left;
+  background: transparent; border: 2px solid rgba(0, 0, 0, 0.10);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.hero-cfg-mode:hover { border-color: rgba(146, 108, 21, 0.45); }
+.hero-cfg-mode i { font-size: 1.1rem; color: var(--primary); margin-bottom: 4px; }
+.hero-cfg-mode strong { font-size: 0.95rem; }
+.hero-cfg-mode small { font-size: 0.78rem; color: #6c757d; line-height: 1.45; }
+.hero-cfg-mode.active { border-color: var(--primary); background: rgba(146, 108, 21, 0.07); }
+
+.hero-cfg-pickers { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; }
+.hero-cfg-picker { display: flex; flex-direction: column; gap: 6px; }
+.hero-cfg-picker-label { display: flex; flex-direction: column; font-size: 0.85rem; font-weight: 700; }
+.hero-cfg-picker-label i { color: var(--primary); margin-right: 6px; }
+.hero-cfg-picker-label small { font-weight: 500; font-size: 0.75rem; color: #6c757d; margin-top: 2px; }
+
+.hero-cfg-warn {
+  display: flex; align-items: flex-start; gap: 7px; line-height: 1.5;
+  font-size: 0.76rem; padding: 8px 10px; border-radius: 9px;
+}
+.hero-cfg-warn i { margin-top: 2px; flex-shrink: 0; }
+.hero-cfg-warn.heavy { background: rgba(217, 119, 6, 0.10); color: #b45309; }
+.hero-cfg-warn.huge { background: rgba(220, 38, 38, 0.10); color: #b91c1c; }
+
+.hero-cfg-empty {
+  grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 8px;
+  margin: 0; padding: 11px 12px; border-radius: 10px; line-height: 1.55;
+  font-size: 0.82rem; background: rgba(217, 119, 6, 0.10); color: #b45309;
+}
+.hero-cfg-empty code { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+
+.hero-cfg-foot { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.hero-cfg-dirty { font-size: 0.8rem; color: #b45309; font-weight: 600; }
+
+body.dark-mode .hero-cfg { border-color: rgba(255, 255, 255, 0.12); }
+body.dark-mode .hero-cfg-mode { border-color: rgba(255, 255, 255, 0.14); }
+body.dark-mode .hero-cfg-mode.active { border-color: var(--accent); background: rgba(255, 195, 0, 0.08); }
+body.dark-mode .hero-cfg-mode i { color: var(--accent); }
+body.dark-mode .hero-cfg-head h3 i,
+body.dark-mode .hero-cfg-picker-label i { color: var(--accent); }
+body.dark-mode .hero-cfg-head p,
+body.dark-mode .hero-cfg-mode small,
+body.dark-mode .hero-cfg-picker-label small { color: #a8a8a8; }
