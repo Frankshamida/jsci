@@ -355,11 +355,23 @@ body.dark-mode .hp-navbar-links .hp-btn-live:hover {
 
 .hp-hero-overlay {
   /* One knob for the hero lockup, same system as the dashboard sidebar.
-     The INTERNATIONAL line is ~29.7x its own font-size once 1.29em of
-     tracking is counted, so it is what overflows first. 5.8vw keeps it
-     under ~90% of the viewport at every width, and 3.2rem caps it at the
-     original desktop size. */
-  --brand-unit: clamp(0.95rem, 5.4vw, 3.2rem);
+     Both lines come out at very nearly the same width - about 11.8x this unit.
+     JOYFUL SOUND CHURCH gets there on 19 letters at ~0.62em each; INTERNATIONAL
+     gets there on 13 letters at half the font-size but 1.29em of tracking
+     apiece. Either one is what overflows first, and they overflow together.
+
+     So the ceiling is 11.8 x unit <= the viewport less the overlay's 20px
+     padding each side. On the narrowest phone still in use, 320px, that allows
+     about 23px; 6.5vw asks for 20.8px there and 6.5vw stays under the limit at
+     every width above it too. 4.4rem caps it on wide screens, where vw would
+     otherwise run away with it.
+
+     (The previous note here put the INTERNATIONAL line at 29.7x its own
+     font-size and held the unit to 5.4vw / 3.2rem because of it. Measured
+     against what the browser actually renders it is 23.5x its own font-size -
+     which is the same 11.8x this unit - so there was roughly a fifth more room
+     than the number suggested.) */
+  --brand-unit: clamp(1.1rem, 6.5vw, 4.4rem);
   position: absolute;
   inset: 0;
   background: linear-gradient(
@@ -428,18 +440,14 @@ body.dark-mode .hp-navbar-links .hp-btn-live:hover {
   animation: fadeInDown 1s ease 0.4s both;
 }
 
-.hp-hero-tagline {
-  font-size: 1.15rem;
-  color: rgba(255, 255, 255, 0.9);
-  max-width: 600px;
-  line-height: 1.7;
-  margin-bottom: 30px;
-  animation: fadeInDown 1s ease 0.6s both;
-}
-
+/* The hero's caption line ("Join us every Sunday...") was removed along with
+   its .hp-hero-tagline rule - the lockup and the two buttons are the whole
+   hero now. It used to sit here and carried `margin-bottom: 30px`, which is
+   the gap the buttons are given below instead. */
 .hp-hero-buttons {
   display: flex;
   gap: 15px;
+  margin-top: 30px;
   animation: fadeInDown 1s ease 0.8s both;
 }
 
@@ -1897,13 +1905,26 @@ body.dark-mode .hp-chat-input input {
   }
 
 
-  .hp-hero-tagline {
-    font-size: 1rem;
+  /* Side by side on one line, not stacked. Two full-width buttons under the
+     lockup pushed the Events jump button to the very bottom of the screen and
+     made the hero read as a form; on one row they read as a pair of choices.
+     They shrink to earn it: at the desktop size the two would not fit across
+     a phone. */
+  .hp-hero-buttons {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    gap: 10px;
   }
 
-  .hp-hero-buttons {
-    flex-direction: column;
-    align-items: center;
+  .hp-hero-buttons .hp-btn-primary,
+  .hp-hero-buttons .hp-btn-outline {
+    padding: 11px 18px;
+    font-size: 0.85rem;
+    gap: 6px;
+    /* "Join Our Family" breaking across two lines inside a pill is the one
+       thing that would look worse than stacking them. */
+    white-space: nowrap;
   }
 
   .hp-hero-arrow {
@@ -1956,6 +1977,7 @@ body.dark-mode .hp-chat-input input {
     width: 90px;
     height: 90px;
   }
+
 
 
   .hp-pastors-grid {
@@ -2743,10 +2765,32 @@ body.dark-mode .hp-link-miss span { color: #9ca3af; }
 /* ============================================ */
 /* `start` so a card is never stretched taller than its own poster - a stretched
    card is what left a blank strip under the artwork. */
-.hp-invite-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 32px; justify-items: center; align-items: start; }
+/* Centred whatever the count is.
+   This was a grid of `auto-fill` tracks, which lays out the columns that WOULD
+   fit and then leaves the empty ones standing - so two events on a wide screen
+   sat over on the left with a column and a half of nothing beside them.
+   `auto-fit` collapses those empties, but it also lets the surviving tracks
+   stretch, which spreads two cards to opposite ends instead of centring them.
+
+   Flex does what was actually wanted: each card asks for 360px, grows to fill
+   the row, stops at its own 440px cap, and `justify-content: center` centres
+   whatever is on the line. That last part is the reason to prefer it - a row
+   with fewer cards than the one above, say a fifth event under a row of four,
+   is centred too, where in a grid it would sit under the first column. */
+.hp-invite-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 32px;
+}
 .hp-invite-card {
   /* The poster IS the card, so the ground behind it is dark: any pixel the
      artwork does not cover reads as part of the design instead of a white gap. */
+  /* 360px is the width a card asks for; it grows into whatever the row has
+     spare and stops at 440. Below 360 it shrinks rather than overflowing, so a
+     narrow phone gets one card the width of the screen. */
+  flex: 1 1 360px;
   width: 100%; max-width: 440px; background: #14100a; border-radius: 26px; overflow: hidden;
   position: relative;
   /* The dark poster already gives the card an edge against the white section, so
@@ -2784,7 +2828,9 @@ body.dark-mode .hp-invite-card:hover {
 
 /* Empty state: no events currently scheduled */
 .hp-empty-state {
-  grid-column: 1 / -1;
+  /* Its own row. `grid-column` was how it claimed one back when this list was
+     a grid; in a flex row a 100% basis is what does it. */
+  flex: 0 0 100%;
   width: 100%;
   max-width: 480px;
   margin: 0 auto;
@@ -2924,7 +2970,10 @@ body.dark-mode .hp-invite-btn.outline { background: transparent; color: var(--ac
 .hp-invite-foot img { width: 20px; height: 20px; object-fit: contain; }
 
 @media (max-width: 480px) {
-  .hp-invite-grid { grid-template-columns: 1fr; }
+  /* One card per row. It already works out that way - two 360px cards cannot
+     fit across a 480px screen - but saying so means a card's basis can be
+     changed later without quietly putting two on a phone. */
+  .hp-invite-card { flex-basis: 100%; }
   .hp-invite-details { flex-direction: column; }
   .hp-invite-fee { width: 100%; flex-direction: row; gap: 10px; justify-content: space-between; padding: 12px 18px; }
 }
@@ -4473,4 +4522,85 @@ body.dark-mode .hp-chat-body {
 .hp-pay-picker-menu::-webkit-scrollbar-corner,
 .hp-chat-body::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* ============================================================
+   "You will lose what you have typed"
+   ============================================================
+   The confirmation shown when a half-filled registration is about to be
+   thrown away. It has to sit above the registration dialog (14000) and above
+   an extra's details popup (14000), hence 15000.
+
+   No backdrop-click handler on this one, by design: it exists because tapping
+   outside a dialog is easy to do by accident, so it cannot itself be closed
+   that way. */
+.hp-discard-overlay { z-index: 15000; background: rgba(0, 0, 0, 0.62); }
+
+.hp-discard {
+  width: min(420px, 94vw);
+  background: #fff;
+  border-radius: 18px;
+  padding: 26px 24px 20px;
+  text-align: center;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
+  animation: hpEvtFade 0.16s ease;
+}
+.hp-discard-icon {
+  width: 56px; height: 56px; margin: 0 auto 14px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 1.5rem;
+  background: rgba(217, 119, 6, 0.12); color: #b45309;
+}
+.hp-discard h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-body); font-weight: 800; font-size: 1.22rem;
+  color: #14233a;
+}
+.hp-discard p {
+  margin: 0 0 20px;
+  font-size: 0.93rem; line-height: 1.6; color: #5c6470;
+}
+
+.hp-discard-actions { display: flex; flex-direction: column; gap: 9px; }
+.hp-discard-actions button {
+  width: 100%; padding: 13px 18px; border-radius: 12px; cursor: pointer;
+  font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+/* Staying is the safe choice, so it is the one that looks like the button. */
+.hp-discard-stay {
+  border: none;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: #fff;
+}
+.hp-discard-stay:hover { background: linear-gradient(135deg, #7d5c12, var(--primary)); }
+/* Leaving is quiet and red - findable, never the thing a thumb lands on. */
+.hp-discard-go {
+  background: transparent;
+  border: 1.5px solid rgba(220, 38, 38, 0.35);
+  color: #b91c1c;
+}
+.hp-discard-go:hover { background: rgba(220, 38, 38, 0.08); border-color: rgba(220, 38, 38, 0.6); }
+
+body.dark-mode .hp-discard { background: #1e1e1e; }
+body.dark-mode .hp-discard h3 { color: #f0f0f0; }
+body.dark-mode .hp-discard p { color: #b0b0b0; }
+body.dark-mode .hp-discard-icon { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+body.dark-mode .hp-discard-go { color: #f87171; border-color: rgba(248, 113, 113, 0.4); }
+body.dark-mode .hp-discard-go:hover { background: rgba(248, 113, 113, 0.12); }
+
+/* The hero's two buttons on the narrowest phones still in use (320-380px).
+   One notch smaller again, and only here: between 380px and 768px the pair
+   fits at the size above, and shrinking them there would be making them small
+   for no reason. At 320px the two pills plus their gap come to roughly 278px
+   of the ~280px there is between the hero's own padding - which is the width
+   this step exists to buy. */
+@media (max-width: 380px) {
+  .hp-hero-buttons { gap: 8px; }
+  .hp-hero-buttons .hp-btn-primary,
+  .hp-hero-buttons .hp-btn-outline {
+    padding: 10px 14px;
+    font-size: 0.78rem;
+  }
 }

@@ -26,6 +26,10 @@ import {
 // ============================================
 // DATA
 // ============================================
+// `sub` is the line each slide used to caption itself with under the lockup.
+// The hero shows the name and the two buttons only now, so nothing reads it -
+// it is kept because it is the copy, and restoring the caption should not mean
+// writing it again.
 const HERO_SLIDES = [
   { img: '/assets/worship-service.jpg', title: 'Experience God\'s Presence', sub: 'Join us every Sunday for a powerful time of worship and the Word' },
   { img: '/assets/community-outreach.jpg', title: 'Reaching Our Community', sub: 'Extending God\'s love through service and outreach to those in need' },
@@ -215,31 +219,6 @@ export default function HomePage() {
   const [eventsVersion, setEventsVersion] = useState(0); // bumped after a registration so the slot counts refresh
   const [detailEvent, setDetailEvent] = useState(null);
 
-  // While the event details modal is open the page behind it must not scroll -
-  // the modal is the only thing on screen, and a scrolling backdrop makes the
-  // wheel feel like it is fighting the dialog. The scrollbar's width is paid back
-  // as padding so the layout does not jump when it disappears.
-  useEffect(() => {
-    if (!detailEvent) return undefined;
-    const { body, documentElement: html } = document;
-    // globals.css sets `overflow-x: hidden` on html AND body, which makes BOTH of
-    // them scroll containers - locking only body still leaves html scrollable, so
-    // both are pinned here.
-    const prev = {
-      body: body.style.overflow,
-      html: html.style.overflow,
-      pad: body.style.paddingRight,
-    };
-    const gap = window.innerWidth - html.clientWidth;
-    body.style.overflow = 'hidden';
-    html.style.overflow = 'hidden';
-    if (gap > 0) body.style.paddingRight = `${gap}px`;
-    return () => {
-      body.style.overflow = prev.body;
-      html.style.overflow = prev.html;
-      body.style.paddingRight = prev.pad;
-    };
-  }, [detailEvent]);
 
   // ---- ISOM Inquire modal ----
   const ISOM_CHURCH_ROLES = [
@@ -328,6 +307,58 @@ export default function HomePage() {
   // group picked is a children's one.
   const [guestGuardian, setGuestGuardian] = useState(null);
 
+  // ---- Losing a half-filled registration ----
+  //
+  // The form sits in a dialog that closes on a tap anywhere outside it, and
+  // the people filling it in are mostly on phones, where "anywhere outside it"
+  // is most of the screen. Losing a name, a church, a pastor, a contact number
+  // and a payment screenshot to a mis-tap is the single most expensive
+  // accident on this page, so a close is only allowed straight through when
+  // there is genuinely nothing to lose.
+  //
+  // `pristineReg` is what the form looked like the moment it opened - kept as
+  // a snapshot rather than compared field by field, so a field added to the
+  // form later is covered without anybody remembering to come back here.
+  const pristineReg = useRef(null);
+  // null when nothing is being asked, otherwise what the visitor was trying to
+  // do - so "Discard" carries out the thing they actually asked for rather
+  // than always just closing.
+  const [discardPrompt, setDiscardPrompt] = useState(null); // null | 'close' | 'change-type'
+
+  // While ANY dialog is open the page behind it must not scroll - the dialog is
+  // the only thing on screen, and a scrolling backdrop makes the wheel feel
+  // like it is fighting it. The scrollbar's width is paid back as padding so
+  // the layout does not jump when it disappears.
+  //
+  // This used to watch `detailEvent` alone, so the event details locked the
+  // page and every other dialog - Individual/Bulk, the registration form
+  // itself, an extra's details, the ISOM enquiry - did not. `anyModalOpen` is
+  // one boolean on purpose: closing the add-on popup while the registration
+  // form is still up must not release the lock, and a single flag cannot get
+  // that wrong the way a stack of separate effects could.
+  const anyModalOpen = !!(detailEvent || regChoiceEvent || guestRegEvent || addonDetail || showIsomInquire);
+  useEffect(() => {
+    if (!anyModalOpen) return undefined;
+    const { body, documentElement: html } = document;
+    // globals.css sets `overflow-x: hidden` on html AND body, which makes BOTH of
+    // them scroll containers - locking only body still leaves html scrollable, so
+    // both are pinned here.
+    const prev = {
+      body: body.style.overflow,
+      html: html.style.overflow,
+      pad: body.style.paddingRight,
+    };
+    const gap = window.innerWidth - html.clientWidth;
+    body.style.overflow = 'hidden';
+    html.style.overflow = 'hidden';
+    if (gap > 0) body.style.paddingRight = `${gap}px`;
+    return () => {
+      body.style.overflow = prev.body;
+      html.style.overflow = prev.html;
+      body.style.paddingRight = prev.pad;
+    };
+  }, [anyModalOpen]);
+
   // ---- The event description: a few lines, then "See more" ----
   // Some of these run to several paragraphs. On a phone that pushed the date,
   // the venue, the price and the Register button below two screens of scrolling,
@@ -378,11 +409,20 @@ export default function HomePage() {
     setGuestRegMode(mode);
     setGuestRegEvent(evt);
     const methods = evt.payment_methods || [];
-    setGuestRegForm({
+    const startingForm = {
       ...EMPTY_GUEST_REG_FORM,
       priceTier: defaultTier(evt)?.label || '',
       paymentMethod: methods.length === 1 ? methods[0] : '',
-    });
+    };
+    const startingAddons = (evt.event_addons || []).filter((a) => a.is_required).map((a) => a.id);
+    setGuestRegForm(startingForm);
+    // The snapshot the "have you typed anything?" check measures against. Taken
+    // from the values being set rather than read back off state, which has not
+    // been applied yet at this point in the handler.
+    pristineReg.current = {
+      form: JSON.stringify(startingForm),
+      addons: JSON.stringify([...startingAddons].sort()),
+    };
     setGuestGuardian(null);
     setGuestFieldErrors({});
     // The roster starts empty and is built one person at a time, above the table.
@@ -1085,12 +1125,75 @@ export default function HomePage() {
     if (evt) { setRegChoiceScreen('who'); setRegChoiceEvent(evt); }
   };
 
+  // Switching between Individual and Bulk rebuilds the form from scratch, so
+  // it throws away everything typed exactly as closing does - and it sits next
+  // to the button that submits. It asks the same question.
+  const requestBackToRegType = () => {
+    if (guestRegDirty) { setDiscardPrompt('change-type'); return; }
+    backToRegType();
+  };
+
   const closeGuestRegistration = () => {
     setGuestRegEvent(null); setGuestRegResult(null); setGuestFieldErrors({});
     setGuestGuardian(null);
     setRepAgreed(false); setRepUsedSaved(false);
     setDupNames([]); setDupDetails([]);
+    setDiscardPrompt(false);
+    pristineReg.current = null;
   };
+
+  // Has anything been entered that closing would throw away?
+  //
+  // A registration that has already gone through is NOT unsaved work - the
+  // last step is a receipt, and being asked to confirm leaving it would be
+  // nonsense. Everything else is measured against the snapshot taken when the
+  // form opened.
+  const guestRegDirty = useMemo(() => {
+    if (!guestRegEvent || guestRegResult) return false;
+    const pristine = pristineReg.current;
+    if (!pristine) return false;
+    if (JSON.stringify(guestRegForm) !== pristine.form) return true;
+    // Sorted, because ticking an extra off and on again reorders the array
+    // without changing what was chosen.
+    if (JSON.stringify([...guestRegAddonIds].sort()) !== pristine.addons) return true;
+    if (bulkAttendees.length > 0) return true;
+    if (guestGuardian) return true;
+    if (guestRegProof) return true;
+    // A name half-typed into the roster's own row counts too: it is the most
+    // common thing on screen when somebody mis-taps during a group booking.
+    if (attendeeDraft && (attendeeDraft.firstName?.trim() || attendeeDraft.lastName?.trim())) return true;
+    return false;
+  }, [guestRegEvent, guestRegResult, guestRegForm, guestRegAddonIds, bulkAttendees, guestGuardian, guestRegProof, attendeeDraft]);
+
+  // Every close the visitor can trigger goes through here. The X, the backdrop
+  // and "Change type" all call this rather than closing directly, so there is
+  // one place that decides whether the question gets asked.
+  const requestCloseGuestRegistration = () => {
+    if (guestRegDirty) { setDiscardPrompt('close'); return; }
+    closeGuestRegistration();
+  };
+
+  // "Yes, discard" - carry out whatever was being asked about.
+  const confirmDiscard = () => {
+    const action = discardPrompt;
+    setDiscardPrompt(null);
+    if (action === 'change-type') backToRegType();
+    else closeGuestRegistration();
+  };
+
+  // Leaving the page outright - the browser's Back button, a reload, closing
+  // the tab. None of those go through any handler of ours, and a browser will
+  // not let a page put its own dialog in front of them: the only thing on
+  // offer is this flag, which makes the browser show its own "Leave site?"
+  // prompt. The wording is fixed by the browser and cannot be customised -
+  // that is deliberate on their part, to stop pages writing scary messages.
+  // It is also the only protection there is for a phone's back gesture.
+  useEffect(() => {
+    if (!guestRegDirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; return ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [guestRegDirty]);
 
   const toggleGuestAddon = (addon) => {
     if (addon.is_required) return;
@@ -1886,7 +1989,6 @@ ${eventsDigest}`;
           <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" className="hp-hero-logo" />
           <h1 className="hp-hero-heading">Joyful Sound Church</h1>
           <p className="hp-hero-sub">International</p>
-          <p className="hp-hero-tagline">{HERO_SLIDES[heroIndex].sub}</p>
           <div className="hp-hero-buttons">
             <a href="/signup" className="hp-btn-primary">
               <i className="fas fa-user-plus"></i> Join Our Family
@@ -2333,7 +2435,7 @@ ${eventsDigest}`;
 
       {/* ---- GUEST REGISTRATION ---- */}
       {guestRegEvent && (
-        <div className="hp-evt-overlay hp-reg-overlay" onClick={closeGuestRegistration}>
+        <div className="hp-evt-overlay hp-reg-overlay" onClick={requestCloseGuestRegistration}>
           <div className="hp-isom-inquire-modal" onClick={(e) => e.stopPropagation()}>
             {guestRegResult?.ok ? (
               <div className="hp-reg-done">
@@ -2383,7 +2485,7 @@ ${eventsDigest}`;
               <>
                 {/* Title, stepper and close stay put; only the step content scrolls. */}
                 <div className="hp-reg-top">
-                  <button className="hp-evt-close hp-reg-close" onClick={closeGuestRegistration} aria-label="Close"><i className="fas fa-times"></i></button>
+                  <button className="hp-evt-close hp-reg-close" onClick={requestCloseGuestRegistration} aria-label="Close"><i className="fas fa-times"></i></button>
                   <div className="hp-isom-inquire-head">
                     <div>
                       <h3>{evtRegionLabel(guestRegEvent)} &mdash; {guestRegEvent.title}</h3>
@@ -2708,7 +2810,7 @@ ${eventsDigest}`;
                       )}
 
                       <div className="hp-reg-actions">
-                        <button type="button" className="hp-reg-back" onClick={backToRegType} disabled={guestRegSubmitting}>
+                        <button type="button" className="hp-reg-back" onClick={requestBackToRegType} disabled={guestRegSubmitting}>
                           <i className="fas fa-arrow-left"></i> Change type
                         </button>
                         <button type="button" className="hp-isom-btn" onClick={guestRegNext} disabled={guestRegSubmitting}>
@@ -3373,6 +3475,39 @@ ${eventsDigest}`;
             {addonDetail.description && <p className="hp-addon-modal-lead">{addonDetail.description}</p>}
             {addonDetail.details && <p className="hp-addon-modal-body">{addonDetail.details}</p>}
             <button type="button" className="hp-isom-btn hp-modal-btn" onClick={() => setAddonDetail(null)}>Got it</button>
+          </div>
+        </div>
+      )}
+
+      {/* ---- "You will lose what you have typed" ---- */}
+      {/* Sits above the registration form (z-index in home.css) and does NOT
+          close on a backdrop tap: a dialog asking whether you meant to close
+          something by tapping outside it cannot itself be dismissed that way.
+          The only ways out are the two buttons, and the safe one is the
+          default. */}
+      {discardPrompt && (
+        <div className="hp-evt-overlay hp-discard-overlay">
+          <div className="hp-discard" role="alertdialog" aria-modal="true" aria-labelledby="hp-discard-title">
+            <div className="hp-discard-icon"><i className="fas fa-triangle-exclamation"></i></div>
+            <h3 id="hp-discard-title">
+              {discardPrompt === 'change-type' ? 'Change registration type?' : 'Leave this registration?'}
+            </h3>
+            <p>
+              {discardPrompt === 'change-type'
+                ? 'Switching between Individual and Bulk starts the form again. The details you have entered will not be kept.'
+                : 'The details you have entered have not been submitted yet. If you leave now, they will be lost and you will have to fill the form in again.'}
+            </p>
+            <div className="hp-discard-actions">
+              {/* Deliberately first and styled as the primary action: the
+                  person is here because of a mis-tap far more often than
+                  because they meant to leave. */}
+              <button type="button" className="hp-discard-stay" onClick={() => setDiscardPrompt(null)} autoFocus>
+                <i className="fas fa-pen"></i> Keep filling it in
+              </button>
+              <button type="button" className="hp-discard-go" onClick={confirmDiscard}>
+                {discardPrompt === 'change-type' ? 'Start again' : 'Discard and leave'}
+              </button>
+            </div>
           </div>
         </div>
       )}
