@@ -16,6 +16,20 @@
   --text-primary: #333333;
   --text-secondary: #6c757d;
   --border-color: #e0e0e0;
+  /* These three were being READ - `var(--input-bg, #fff)` and friends in the
+     event modals - but never DEFINED, anywhere. A var with a fallback and no
+     declaration silently resolves to the fallback, so those controls were
+     hard-wired to their light colours and stayed white in dark mode however
+     the theme was set. Defining them here and in the dark block below is what
+     makes that fallback stop being the answer. */
+  --input-bg: #ffffff;
+  --card-bg: #ffffff;
+  --text-muted: #6c757d;
+  /* Same story: read by date pickers, the location search, the proof receipt
+     and the live-stream copy box, defined by nobody. */
+  --bg-input: #f7f7fb;
+  --bg-secondary: #f8f9fa;
+  --bg-subtle: #faf7f0;
 }
 
 /* ============================================
@@ -708,15 +722,19 @@ body.dark-mode .sidebar-lock-tooltip {
 .sidebar-role-switch-icon {
   width: 40px;
   height: 40px;
-  border-radius: 11px;
-  background: linear-gradient(135deg, #4ade80, #16a34a);
+  /* A circle, and the brand gold rather than the green it was: this is the
+     only green thing in the sidebar, and a rounded square next to a column of
+     round avatars and badges read as a different kit. The arrow still spins on
+     hover, which a circle suits better than a squircle did. */
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
   color: #fff;
   font-size: 1.05rem;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(22,163,74,0.35);
+  box-shadow: 0 2px 8px rgba(146, 108, 21, 0.38);
 }
 
 .sidebar-role-switch-icon i {
@@ -724,7 +742,11 @@ body.dark-mode .sidebar-lock-tooltip {
 }
 
 .sidebar-role-switch:hover .sidebar-role-switch-icon i {
-  transform: rotate(180deg);
+  /* A whole turn, not the half it was. fa-arrows-rotate has two-fold
+     rotational symmetry - half a turn leaves it looking exactly as it
+     started, so the animation read as a wobble. A full revolution is the
+     spin the glyph is asking for. */
+  transform: rotate(360deg);
 }
 
 .sidebar-role-switch-text {
@@ -4977,7 +4999,8 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .community-comment-like-btn.animating::after {
-  content: 'â¤';
+  /* U+2764 HEAVY BLACK HEART - same corruption as the eyes below. */
+  content: '❤';
   position: absolute;
   font-size: 0.6rem;
   animation: heartFloat 0.6s ease-out forwards;
@@ -5169,7 +5192,13 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .trivia-answer-toggle summary::before {
-  content: 'ðŸ‘€';
+  /* U+1F440 EYES. This had been saved as its UTF-8 bytes decoded as
+     Latin-1, so the card rendered four garbage glyphs before "Reveal
+     Answer" instead of the emoji. Written as the character itself: a CSS
+     escape would be safer against a bad re-save, but the minifier does not
+     round-trip one correctly (F440 came out the other side as the
+     literal text "F440"). Keep this file UTF-8. */
+  content: '👀';
   font-size: 0.9rem;
 }
 
@@ -5179,7 +5208,8 @@ body.dark-mode .community-verse-cancel-btn:hover {
 }
 
 .trivia-answer-toggle[open] summary::before {
-  content: 'ðŸŽ‰';
+  /* U+1F389 PARTY POPPER - same corruption as the eyes above. */
+  content: '🎉';
 }
 
 .trivia-answer {
@@ -13051,6 +13081,19 @@ body.dark-mode .dashboard-wrapper {
   --text-primary: #e0e0e0;
   --text-secondary: #a0a0b8;
   --border-color: #3a3a5c;
+  /* #2d2d44 is the colour every other input in dark mode already uses (see
+     `body.dark-mode .form-control`), so the pastor field with its "Ptr."
+     prefix now matches the boxes either side of it instead of being the one
+     white thing in the dialog. */
+  --input-bg: #2d2d44;
+  --card-bg: #252540;
+  --text-muted: #a0a0b8;
+  --bg-input: #2d2d44;
+  --bg-secondary: #1e1e2e;
+  /* Warm dark, matching the tone the event tables already use for their
+     headers (#26241c) - `--bg-subtle` is a cream in light mode and turning it
+     into a flat grey would lose that. */
+  --bg-subtle: #26241c;
 }
 
 body.dark-mode .main-content {
@@ -24914,6 +24957,126 @@ body.dark-mode .evt-plan-option { background: #2a2a3a; }
   .evt-plan-summary.big .bal { grid-column: 1 / -1; border-right: none; padding-top: 12px; border-top: 1px solid rgba(146,108,21,0.20); }
 }
 
+/* ---- Collecting cash from a group at the desk ---- */
+/* One line per attendee, ticked or not. The row is the hit target, so a
+   finger at a registration desk does not have to find the checkbox. */
+.evt-collect-bulkbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.evt-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid rgba(146, 108, 21, 0.28);
+  background: rgba(146, 108, 21, 0.06);
+  color: #92600d;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.evt-chip-btn:hover:not(:disabled) {
+  background: rgba(146, 108, 21, 0.14);
+  border-color: rgba(146, 108, 21, 0.45);
+}
+
+.evt-chip-btn:disabled { opacity: 0.45; cursor: default; }
+
+.evt-collect-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.evt-collect-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.evt-collect-row.on {
+  border-color: rgba(146, 108, 21, 0.45);
+  background: rgba(146, 108, 21, 0.05);
+}
+
+/* Already settled: shown so the desk can see the booking whole, but it is
+   not a choice any more - no pointer, no tick, nothing to charge twice. */
+.evt-collect-row.paid { cursor: default; opacity: 0.72; }
+
+.evt-collect-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: #92600d;
+  cursor: pointer;
+}
+
+.evt-collect-tick.done { color: #1e8e3e; font-size: 1.05rem; }
+
+.evt-collect-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.evt-collect-who b { font-size: 0.9rem; }
+.evt-collect-who em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: #8a8a8a;
+}
+
+.evt-collect-amt b { font-size: 1rem; color: #b45309; white-space: nowrap; }
+
+.evt-collect-paidpill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1e8e3e;
+  background: rgba(30, 142, 62, 0.12);
+}
+
+.evt-collect-short {
+  font-size: 0.8rem;
+  color: #c0392b;
+  margin-top: 8px;
+}
+
+body.dark-mode .evt-collect-row {
+  background: #1e1e24;
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+body.dark-mode .evt-collect-row.on {
+  background: rgba(212, 160, 23, 0.10);
+  border-color: rgba(212, 160, 23, 0.45);
+}
+
+body.dark-mode .evt-collect-who em { color: #9a9a9a; }
+body.dark-mode .evt-collect-amt b { color: #d4a017; }
+body.dark-mode .evt-chip-btn {
+  background: rgba(212, 160, 23, 0.10);
+  border-color: rgba(212, 160, 23, 0.30);
+  color: #d4a017;
+}
+
+@media (max-width: 480px) {
+  .evt-collect-row { gap: 9px; padding: 9px 10px; }
+  .evt-collect-list { max-height: 45vh; }
+}
+
 /* ---- The installment table ---- */
 /* The headline figures for the tab. Sized like the cards in the event hero,
    because this is the screen somebody opens to answer "how much is still out
@@ -31095,3 +31258,26 @@ body.dark-mode .hero-cfg-picker-label i { color: var(--accent); }
 body.dark-mode .hero-cfg-head p,
 body.dark-mode .hero-cfg-mode small,
 body.dark-mode .hero-cfg-picker-label small { color: #a8a8a8; }
+
+/* The Extras cell in the events list: what an event sells on top of the
+   ticket. Gold rather than green - green in these tables means "this person
+   took it", and here nobody has taken anything yet; it is what is on offer. */
+.evt-extras-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: rgba(146, 108, 21, 0.12);
+  color: var(--primary);
+  cursor: help;
+}
+.evt-extras-tag i { font-size: 0.72rem; flex-shrink: 0; }
+/* A long add-on name truncates rather than widening a column the table can
+   ill afford; the full list is in the tooltip. */
+.evt-extras-tag { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+body.dark-mode .evt-extras-tag { background: rgba(255, 195, 0, 0.14); color: var(--accent); }

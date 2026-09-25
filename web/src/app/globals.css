@@ -61,7 +61,25 @@ html {
    genuinely too wide for a phone is fixed where it is defined. */
 html, body {
   max-width: 100%;
+  /* `clip`, not `hidden`, and the difference is the whole reason
+     `position: sticky` works anywhere in this app.
+
+     Any non-visible overflow makes an element a SCROLL CONTAINER. With
+     `hidden` on <body>, a sticky element's nearest scrolling ancestor becomes
+     the body - but the body is not what scrolls, the viewport is. So the
+     sticky element has no scroll to respond to and silently behaves like
+     `position: relative`. That is why the community sidebar sat still despite
+     declaring `position: sticky; top: 20px` correctly.
+
+     `clip` crops the overflow exactly as `hidden` did WITHOUT creating a
+     scroll container, so sticky keeps its bearings. The `hidden` line above
+     it is the fallback for Safari before 16, which ignores `clip` - there
+     sticky stays broken, which is where it already was.
+
+     (The inline `overflow: hidden` the modals set to lock scrolling is
+     unaffected: that is a style attribute and still wins over both.) */
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
@@ -214,9 +232,12 @@ table { max-width: 100%; }
 /* When dark-mode-toggle is inside the navbar actions, remove fixed positioning */
 .hp-navbar-actions .dark-mode-toggle {
   position: static;
-  width: 42px;
-  height: 42px;
-  font-size: 1.15rem;
+  /* Up with the nav links, which went from 0.88rem to 1rem - a 42px disc
+     next to them started to look like the odd one out. Four pixels on one
+     element is the cheapest part of that change. */
+  width: 46px;
+  height: 46px;
+  font-size: 1.22rem;
   z-index: auto;
 }
 

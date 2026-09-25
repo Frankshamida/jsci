@@ -15,8 +15,8 @@ import AgeGroupPicker from '@/components/AgeGroupPicker';
 import './dashboard.css';
 import { withTitleCase } from '@/lib/eventTitle';
 import {
-  STARTER_TIERS, addonFeeFor, baseAmountFor, defaultTier, eventFeeLabel, eventTiers,
-  findTier, hasPriceTiers, tierAgeLabel, tierKey,
+  STARTER_TIERS, addonFeeFor, addonShortLabel, baseAmountFor, defaultTier, eventFeeLabel,
+  eventTiers, findTier, hasPriceTiers, tierAgeLabel, tierKey,
 } from '@/lib/eventPricing';
 import { eventSlugFor, findEventBySlug } from '@/lib/eventSlug';
 import { HERO_MEDIA_DEFAULT, HERO_VIDEO_DIR, heroVideoWeight, normalizeHeroMedia } from '@/lib/heroMedia';
@@ -1541,6 +1541,12 @@ export default function DashboardPage() {
 
   // Super Admin: Permissions Control (real-time)
   const [permissionOverrides, setPermissionOverrides] = useState({});
+
+  // Guests have no Community Hub. showSection() already turns the click away,
+  // but the section can also be opened straight from the URL (/community-hub),
+  // which sets activeSection before any of that runs - so the panel itself
+  // refuses to go active too.
+  const canOpenCommunityHub = isSidebarItemEnabled(userRole, 'community-hub', permissionOverrides);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
   // Failsafe: never let the dashboard get stuck on the loading screen.
@@ -2189,8 +2195,8 @@ export default function DashboardPage() {
     if (sectionId === 'events' || sectionId === 'events-management') { loadEvents(); loadMyRegistrations(); }
     if (sectionId === 'announcements' || sectionId === 'announcements-management') loadAnnouncements();
     if (sectionId === 'ministry-meetings') loadMeetings();
-    if (sectionId === 'community-hub') loadCommunityPosts();
-    if (sectionId === 'community-hub') loadLiveStreams();
+    if (sectionId === 'community-hub' && canOpenCommunityHub) loadCommunityPosts();
+    if (sectionId === 'community-hub' && canOpenCommunityHub) loadLiveStreams();
     if (sectionId === 'live-stream-management') loadLiveStreams();
     if (sectionId === 'recordings') { loadRecordings(); loadPracticeRecordingsListing(); }
     if (sectionId === 'messages') loadMessages();
@@ -2524,7 +2530,7 @@ export default function DashboardPage() {
 
   // Ensure reactions reflect the logged-in user after auth refresh
   useEffect(() => {
-    if (activeSection === 'community-hub' && userData?.id) {
+    if (activeSection === 'community-hub' && canOpenCommunityHub && userData?.id) {
       loadCommunityPosts();
     }
     if (activeSection === 'ministry-meetings' || activeSection === 'user-management' || activeSection === 'ministry-oversight' || activeSection === 'ministry-management') {
@@ -5528,6 +5534,10 @@ export default function DashboardPage() {
   const [regTypeFilter, setRegTypeFilter] = useState('all'); // all | individual | bulk | admin
   const [regSearch, setRegSearch] = useState('');
   const [regChurchFilter, setRegChurchFilter] = useState('all');
+  // Narrow the table to one bulk booking: the representative and everybody
+  // they registered. Held lower-cased, because it is matched against a name
+  // typed by whoever filled the form in.
+  const [regRepFilter, setRegRepFilter] = useState('all');
   // Clicking a statistic filters the table to the rows behind that number.
   const [regMoneyFilter, setRegMoneyFilter] = useState('all'); // all | cash | online | pending
   // Which row's Manage menu is open. One at a time, closed by a click anywhere else.
@@ -5578,7 +5588,12 @@ export default function DashboardPage() {
 
   const eventMoney = (() => {
     const live = eventRegs.filter((r) => r.status !== 'cancelled');
-    let cash = 0, online = 0, pending = 0, planDue = 0, expected = 0;
+    // `cashDue` is money nobody has handed over yet - a seat held on the
+    // promise of paying at the desk. It used to be counted inside `pending`,
+    // under a card reading "Awaiting Verification / not yet checked", which
+    // described it wrongly twice: there is no payment, so there is nothing to
+    // check. The two are separated here so each card says something true.
+    let cash = 0, online = 0, pending = 0, cashDue = 0, planDue = 0, expected = 0;
     live.forEach((r) => {
       const owed = Number(r.amount) || 0;
       expected += owed;
@@ -5597,9 +5612,10 @@ export default function DashboardPage() {
       }
       if (r.status === 'payment_verified' || r.status === 'registered') {
         if (isCash) cash += owed; else online += owed;
-      } else pending += owed;
+      } else if (r.status === 'pending_cash') cashDue += owed;
+      else pending += owed;
     });
-    return { cash, online, total: cash + online, pending, planDue, expected };
+    return { cash, online, total: cash + online, pending, cashDue, planDue, expected };
   })();
   const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
 
@@ -5616,6 +5632,18 @@ export default function DashboardPage() {
     installment: 'installment',
   };
   const statusLabel = (status) => STATUS_LABELS[status] || String(status || '').replace(/_/g, ' ');
+
+  // The same thing, for a row rather than a bare status - which lets a paid
+  // registration say HOW it was paid.
+  //
+  // "Paid" on its own is the one label in the table that hides the thing an
+  // admin is actually reconciling: cash sits in a box at the desk and online
+  // money sits in a bank account, and they are counted apart everywhere else
+  // on this screen (the Cash Collected and Online Collected cards). Only the
+  // status column made them look alike.
+  const regStatusLabel = (r) => (r?.status === 'payment_verified'
+    ? (isCashMethod(r.payment_method) ? 'paid in cash' : 'paid online')
+    : statusLabel(r?.status));
 
   useEffect(() => {
     if (!openRowMenu) return undefined;
@@ -5651,6 +5679,139 @@ export default function DashboardPage() {
     return r.group_size > 1 ? 'bulk' : 'individual';
   };
 
+  // ---- The bulk representatives on this event ----
+  //
+  // One entry per person who booked a group, alphabetical, with how many rows
+  // that booking covers. Grouped case-insensitively and on collapsed spacing,
+  // because the name is free text typed into a form - "Gracelyn  Gambe" and
+  // "gracelyn gambe" are one representative, not three.
+  const regRepName = (r) => String(r.representative || '').trim().replace(/\s+/g, ' ');
+  const regRepOptions = (() => {
+    const byKey = new Map();
+    eventRegs.forEach((r) => {
+      if (regTypeOf(r) !== 'bulk') return;
+      const name = regRepName(r);
+      if (!name) return;
+      const key = name.toLowerCase();
+      const hit = byKey.get(key);
+      if (hit) hit.count += 1;
+      else byKey.set(key, { key, name, count: 1 });
+    });
+    // Alphabetical. The church filter sorts by size because an admin is
+    // usually after the big ones; a representative is looked up by name.
+    return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  // Self-healing: a representative chosen on one event does not exist on the
+  // next, and a filter naming somebody who is not there would show an empty
+  // table with no obvious reason why. Falling back to 'all' costs nothing.
+  const regRepActive = regRepOptions.some((o) => o.key === regRepFilter) ? regRepFilter : 'all';
+
+  // ---- Collecting cash at the desk ----
+  //
+  // A group arrives together and pays together: the representative puts the
+  // money down for everybody they booked. Collecting that one row at a time
+  // means reopening the same menu eight times and doing the arithmetic on
+  // paper, so the whole booking is settled on one screen instead.
+  //
+  // It is still a per-person decision underneath. Every attendee is a line
+  // that can be unticked - somebody who is short today, or who wants to pay
+  // their own way rather than have the representative cover them - and only
+  // the ticked lines are verified. The ones already settled come back on the
+  // next visit marked Paid, so the desk can see at a glance what is left.
+  const [collectCash, setCollectCash] = useState(null);
+  const [collectSelected, setCollectSelected] = useState([]);
+  const [collectTendered, setCollectTendered] = useState('');
+  const [collectSaving, setCollectSaving] = useState(false);
+
+  // What one row still owes. A plan pays itself down through the installment
+  // screen, so only what is left is ever asked for here.
+  const regCashDue = (r) => Math.max(0, (Number(r.amount) || 0) - (Number(r.amount_paid) || 0));
+
+  // Settled means the money is in: either the status says so, or there is
+  // nothing left to hand over.
+  const regCashPaid = (r) => r.status === 'payment_verified' || r.status === 'registered' || regCashDue(r) <= 0;
+
+  // Everyone the money on the desk might be for: the whole booking when a
+  // representative made it, otherwise just the person in front of you.
+  const collectGroupFor = (reg) => {
+    const rep = regRepName(reg).toLowerCase();
+    if (regTypeOf(reg) !== 'bulk' || !rep) return [reg];
+    const group = eventRegs.filter(
+      (r) => r.status !== 'cancelled' && regRepName(r).toLowerCase() === rep,
+    );
+    // The row that was clicked leads, then the rest in the order they were
+    // registered, so the representative's own slot is usually at the top.
+    return group.length ? group : [reg];
+  };
+
+  const openCollectCash = (reg) => {
+    const rows = collectGroupFor(reg);
+    // Ticked to start with: everyone who still owes. Unticking is how one
+    // person is left to pay separately, which is the less common case.
+    setCollectSelected(rows.filter((r) => !regCashPaid(r)).map((r) => r.id));
+    setCollectTendered('');
+    setCollectCash({
+      rows,
+      clickedId: reg.id,
+      isBulk: rows.length > 1,
+      repName: regRepName(reg),
+      churchName: formatChurchName(reg.church_name) || 'No church given',
+      churchPastor: reg.church_pastor || '',
+    });
+  };
+
+  const collectToggle = (id) => setCollectSelected(
+    (sel) => (sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]),
+  );
+
+  // Rows the modal is allowed to act on - the settled ones are shown for
+  // context but can never be ticked, so they cannot be charged twice.
+  const collectPayableRows = collectCash ? collectCash.rows.filter((r) => !regCashPaid(r)) : [];
+  const collectTotal = collectCash
+    ? collectCash.rows.filter((r) => collectSelected.includes(r.id)).reduce((t, r) => t + regCashDue(r), 0)
+    : 0;
+  const collectChange = Math.max(0, (Number(collectTendered) || 0) - collectTotal);
+  const collectShort = collectTendered !== '' && (Number(collectTendered) || 0) < collectTotal;
+
+  const submitCollectCash = async () => {
+    if (!collectCash || collectSelected.length === 0) return;
+    setCollectSaving(true);
+    try {
+      // One request per registration: the endpoint verifies a single row, and
+      // a half-finished batch is still money correctly recorded for whoever
+      // went through - so failures are counted rather than rolled back.
+      let ok = 0;
+      const failed = [];
+      for (const id of collectSelected) {
+        try {
+          const res = await fetch('/api/events/registrations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, actorId: userData?.id, status: 'payment_verified' }),
+          });
+          const data = await res.json();
+          if (data.success) ok += 1;
+          else failed.push(collectCash.rows.find((r) => r.id === id)?.attendee_name || id);
+        } catch { failed.push(collectCash.rows.find((r) => r.id === id)?.attendee_name || id); }
+      }
+      if (ok) {
+        showToast(
+          `₱${collectTotal} collected — ${ok} ${ok === 1 ? 'registration' : 'registrations'} confirmed`,
+          failed.length ? 'warning' : 'success',
+        );
+      }
+      if (failed.length) showToast(`Could not collect for: ${failed.join(', ')}`, 'danger');
+      setCollectCash(null);
+      setCollectSelected([]);
+      setCollectTendered('');
+      if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+      loadPendingRegAlerts();
+      loadEvents();
+    } finally { setCollectSaving(false); }
+  };
+
+
   // Everything an admin might have to hand when looking someone up: the name,
   // who added them, their church, their number, or the payment reference.
   const regMatchesSearch = (r, q) => [
@@ -5658,13 +5819,19 @@ export default function DashboardPage() {
     r.attendee_mobile, r.attendee_email, r.payment_reference,
   ].some((v) => String(v || '').toLowerCase().includes(q));
 
-  useEffect(() => { setRegPage(1); }, [regSearch, regTypeFilter, regChurchFilter, regMoneyFilter, regSort, eventRegsModal?.id]);
+  useEffect(() => { setRegPage(1); }, [regSearch, regTypeFilter, regChurchFilter, regRepFilter, regMoneyFilter, regSort, eventRegsModal?.id]);
 
   const visibleRegs = (() => {
     const q = regSearch.trim().toLowerCase();
     let rows = regTypeFilter === 'all' ? eventRegs : eventRegs.filter((r) => regTypeOf(r) === regTypeFilter);
     if (regChurchFilter !== 'all') {
       rows = rows.filter((r) => (formatChurchName(r.church_name) || 'No church given') === regChurchFilter);
+    }
+    // One booking: the representative's own row and everyone on their roster.
+    // They all carry the same `representative`, which is what makes this a
+    // single comparison rather than a walk of the group.
+    if (regRepActive !== 'all') {
+      rows = rows.filter((r) => regRepName(r).toLowerCase() === regRepActive);
     }
     if (regMoneyFilter !== 'all') {
       rows = rows.filter((r) => {
@@ -5681,9 +5848,12 @@ export default function DashboardPage() {
         const counted = r.status === 'payment_verified' || r.status === 'registered';
         if (regMoneyFilter === 'cash') return counted && isCash;
         if (regMoneyFilter === 'online') return counted && !isCash;
-        // still waiting on somebody - to check a payment, or to take one
+        // Money still to be taken at the desk: no payment has been made, so
+        // these are not "awaiting verification" and no longer answer to it.
+        if (regMoneyFilter === 'cashdue') return r.status === 'pending_cash';
+        // A payment has been made and nobody has checked it yet.
         return r.payment_plan !== 'flexible'
-          && (r.status === 'payment_submitted' || r.status === 'pending_payment' || r.status === 'pending_cash');
+          && (r.status === 'payment_submitted' || r.status === 'pending_payment');
       });
     }
     if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
@@ -12721,7 +12891,10 @@ Examples:
                 aria-label="Switch to the Event Committee dashboard"
               >
                 <span className="sidebar-role-switch-icon">
-                  <i className="fas fa-right-left"></i>
+                  {/* Two arrows chasing each other round a circle. fa-right-left
+                      was a pair of straight horizontal arrows, which reads as
+                      "swap these two things" rather than "change role". */}
+                  <i className="fas fa-arrows-rotate"></i>
                 </span>
                 <span className="sidebar-role-switch-text">
                   <span className="sidebar-role-switch-title">Event Committee</span>
@@ -13301,6 +13474,18 @@ Examples:
                           <b>{peso(eventMoney.planDue)}</b>
                           <em>still to collect</em>
                         </button>
+                        {eventMoney.cashDue > 0 && (
+                          <button
+                            type="button"
+                            className={`evt-stat due ${regMoneyFilter === 'cashdue' ? 'on' : ''}`}
+                            onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cashdue' ? 'all' : 'cashdue'); }}
+                            title="Show the registrations paying cash at the desk"
+                          >
+                            <span>Cash to Collect</span>
+                            <b>{peso(eventMoney.cashDue)}</b>
+                            <em>to be paid in person</em>
+                          </button>
+                        )}
                         {eventMoney.pending > 0 && (
                           <button
                             type="button"
@@ -13436,13 +13621,32 @@ Examples:
                             <option value="individual">Individual</option>
                             <option value="bulk">Bulk</option>
                           </select>
-                          {(regTypeFilter !== 'all' || regChurchFilter !== 'all' || regMoneyFilter !== 'all' || regSearch.trim()) && (
+                          {/* Only when there is a group booking to narrow to. On an
+                              event where everybody signed up for themselves this
+                              would be a dropdown with one entry in it. */}
+                          {regRepOptions.length > 0 && (
+                            <select
+                              className="evt-filter-select"
+                              value={regRepActive}
+                              onChange={(e) => setRegRepFilter(e.target.value)}
+                              aria-label="Filter by bulk representative"
+                            >
+                              <option value="all">All representatives ({regRepOptions.length})</option>
+                              {regRepOptions.map((rep) => (
+                                <option key={rep.key} value={rep.key}>{rep.name} ({rep.count})</option>
+                              ))}
+                            </select>
+                          )}
+                          {(regTypeFilter !== 'all' || regChurchFilter !== 'all' || regRepActive !== 'all' || regMoneyFilter !== 'all' || regSearch.trim()) && (
                             <span className="evt-filter-count">
                               {regMoneyFilter !== 'all' && (
-                                <b className="evt-filter-what">{{ cash: 'Cash', online: 'Online', pending: 'Awaiting check' }[regMoneyFilter]}</b>
+                                <b className="evt-filter-what">{{ cash: 'Cash', online: 'Online', cashdue: 'Cash to collect', pending: 'Awaiting check' }[regMoneyFilter]}</b>
+                              )}
+                              {regRepActive !== 'all' && (
+                                <b className="evt-filter-what">{regRepOptions.find((o) => o.key === regRepActive)?.name}</b>
                               )}
                               {visibleRegs.length} of {eventRegs.length}
-                              <button type="button" onClick={() => { setRegTypeFilter('all'); setRegChurchFilter('all'); setRegMoneyFilter('all'); setRegSearch(''); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
+                              <button type="button" onClick={() => { setRegTypeFilter('all'); setRegChurchFilter('all'); setRegRepFilter('all'); setRegMoneyFilter('all'); setRegSearch(''); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
                             </span>
                           )}
                         </div>
@@ -13655,11 +13859,11 @@ Examples:
                                         onClick={() => setProofModal(r)}
                                         title="Open the proof of payment"
                                       >
-                                        {statusLabel(r.status)}
+                                        {regStatusLabel(r)}
                                       </button>
                                     );
                                   }
-                                  return <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>;
+                                  return <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>;
                                 })()}
                                 {/* Somebody is waiting on a refund - that has to be
                                     visible in the table, not only in the row menu. */}
@@ -13732,11 +13936,7 @@ Examples:
                                             // then "verify" would be two taps for one event.
                                             <button role="menuitem" className="ok" onClick={() => {
                                               setOpenRowMenu(null);
-                                              askConfirm(
-                                                `Collect ₱${Math.max(0, owed - paid)} in cash from ${name} and confirm their registration? Their attendance QR and RFID card unlock straight away.`,
-                                                () => verifyRegistration(r.id, 'payment_verified'),
-                                                { title: 'Collect Cash?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Collect & Verify', icon: 'fa-money-bill-wave' },
-                                              );
+                                              openCollectCash(r);
                                             }}>
                                               <i className="fas fa-money-bill-wave"></i> Collect Cash &amp; Verify
                                               <em>₱{Math.max(0, owed - paid)} due</em>
@@ -16279,12 +16479,12 @@ Examples:
                   <table className="evt-table">
                     <thead>
                       <tr>
-                        <th>Event</th><th>Date</th><th>Venue</th><th>Province</th><th>Fee</th><th>Audience</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th>
+                        <th>Event</th><th>Date</th><th>Venue</th><th>Province</th><th>Fee</th><th>Extras</th><th>Audience</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {shown.length === 0 && (
-                        <tr><td colSpan={8}>{eventSearch.trim()
+                        <tr><td colSpan={9}>{eventSearch.trim()
                           ? `No event matches “${eventSearch.trim()}”.`
                           : 'No events match these filters.'}</td></tr>
                       )}
@@ -16322,6 +16522,29 @@ Examples:
                                 : <span className="evt-cell-sub">—</span>}
                             </td>
                             <td className="evt-nowrap" data-label="Fee">{evt.has_fee ? eventFeeLabel(evt) : 'Free'}</td>
+                            {/* Whether this event sells anything on top of the
+                                ticket, next to the ticket price it adds to.
+                                The name is shown when there is one extra - the
+                                usual case, and more use than the word "1" - and
+                                a count once there are several, because the
+                                column has to stay narrow in an eight-column
+                                table. Either way the tooltip lists them with
+                                their prices. */}
+                            <td className="evt-nowrap" data-label="Extras">
+                              {(() => {
+                                const addons = evt.event_addons || [];
+                                if (addons.length === 0) return <span className="evt-cell-sub">—</span>;
+                                const detail = addons
+                                  .map((a) => `${addonShortLabel(a.question)} +₱${Number(a.fee) || 0}${a.is_required ? ' (required)' : ''}`)
+                                  .join('\n');
+                                return (
+                                  <span className="evt-extras-tag" title={detail}>
+                                    <i className="fas fa-circle-plus"></i>
+                                    {addons.length === 1 ? addonShortLabel(addons[0].question) : `${addons.length} extras`}
+                                  </span>
+                                );
+                              })()}
+                            </td>
                             <td className="evt-nowrap" data-label="Audience">{evt.allowed_roles && evt.allowed_roles.length ? evt.allowed_roles.join(', ') : 'All'}</td>
                             <td data-label="Status">
                               <span className={`evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>
@@ -17104,7 +17327,7 @@ Examples:
                                 ) : 'Free'}
                               </td>
                               <td className="evt-nowrap" data-label="Status When Removed">
-                                <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>
+                                <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>
                                 {r.attended && <div className="evt-cell-sub">Had checked in</div>}
                               </td>
                               {/* who took them off the list, when, and why */}
@@ -17193,7 +17416,7 @@ Examples:
                             <div><dt>Added By</dt><dd>{formatPersonName(r.added_by || r.representative) || '—'}</dd></div>
                             <div>
                               <dt>Status</dt>
-                              <dd><span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span></dd>
+                              <dd><span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span></dd>
                             </div>
                             {r.attended && (
                               <div><dt>Attendance</dt><dd>Already checked in</dd></div>
@@ -17366,6 +17589,128 @@ Examples:
                     <button className="btn-secondary" onClick={() => setPayModal(null)} disabled={paySaving}>Cancel</button>
                     <button className="btn-primary" onClick={submitInstallment} disabled={paySaving}>
                       <i className={`fas ${paySaving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {paySaving ? 'Saving…' : 'Record Payment'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- Collect cash at the desk ---- */}
+            {collectCash && (
+              <div className="evt-modal-overlay" onClick={() => !collectSaving && setCollectCash(null)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3>Collect Cash</h3>
+                      <p>
+                        {collectCash.isBulk
+                          ? `${formatPersonName(collectCash.repName)} — ${collectCash.churchName}`
+                          : formatPersonName(collectCash.rows[0]?.attendee_name)}
+                      </p>
+                    </div>
+                    <button className="evt-modal-close" onClick={() => setCollectCash(null)} disabled={collectSaving}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    {collectCash.isBulk && (
+                      <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
+                        <i className="fas fa-circle-info"></i> Everyone {formatPersonName(collectCash.repName)} registered is listed below.
+                        Untick anyone who is paying separately &mdash; only the ticked names are collected and confirmed.
+                      </p>
+                    )}
+
+                    {/* Tick all / none: a representative paying for the whole
+                        group is one tap, and so is starting from nothing when
+                        only one or two are settling up today. */}
+                    {collectPayableRows.length > 1 && (
+                      <div className="evt-collect-bulkbar">
+                        <button
+                          type="button"
+                          className="evt-chip-btn"
+                          onClick={() => setCollectSelected(collectPayableRows.map((r) => r.id))}
+                          disabled={collectSelected.length === collectPayableRows.length}
+                        >
+                          <i className="fas fa-check-double"></i> Select all ({collectPayableRows.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="evt-chip-btn"
+                          onClick={() => setCollectSelected([])}
+                          disabled={collectSelected.length === 0}
+                        >
+                          <i className="fas fa-xmark"></i> Clear
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="evt-collect-list">
+                      {collectCash.rows.map((r) => {
+                        const paidAlready = regCashPaid(r);
+                        const due = regCashDue(r);
+                        const on = collectSelected.includes(r.id);
+                        return (
+                          <label
+                            key={r.id}
+                            className={`evt-collect-row ${paidAlready ? 'paid' : ''} ${on ? 'on' : ''}`}
+                          >
+                            {paidAlready ? (
+                              <span className="evt-collect-tick done"><i className="fas fa-circle-check"></i></span>
+                            ) : (
+                              <input type="checkbox" checked={on} onChange={() => collectToggle(r.id)} disabled={collectSaving} />
+                            )}
+                            <span className="evt-collect-who">
+                              <b>{formatPersonName(r.attendee_name)}</b>
+                              <em>
+                                {r.price_tier || formatChurchName(r.church_name) || 'No church given'}
+                                {r.id === collectCash.clickedId && collectCash.isBulk ? ' · selected row' : ''}
+                              </em>
+                            </span>
+                            <span className="evt-collect-amt">
+                              {paidAlready
+                                ? <span className="evt-collect-paidpill">Paid</span>
+                                : <b>₱{due}</b>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {/* The desk arithmetic: what is owed, what was handed over,
+                        and what goes back. Change is worked out as it is typed
+                        so nobody counts it out in their head. */}
+                    <div className="evt-plan-summary big" style={{ marginTop: 14 }}>
+                      <div><span>Selected</span><b>{collectSelected.length} of {collectPayableRows.length}</b></div>
+                      <div className="bal"><span>Total To Collect</span><b>₱{collectTotal}</b></div>
+                      <div><span>Change</span><b>₱{collectChange}</b></div>
+                    </div>
+
+                    <div className="form-group" style={{ marginTop: 12 }}>
+                      <label>Cash Received (optional)</label>
+                      <input
+                        className="form-control"
+                        inputMode="numeric"
+                        value={collectTendered}
+                        onChange={(e) => setCollectTendered(onlyDigits(e.target.value))}
+                        placeholder={String(collectTotal)}
+                        disabled={collectSaving}
+                      />
+                    </div>
+
+                    {collectShort ? (
+                      <p className="evt-collect-short">
+                        <i className="fas fa-triangle-exclamation"></i> That is ₱{collectTotal - (Number(collectTendered) || 0)} short of the total.
+                        Untick someone, or take the rest before confirming.
+                      </p>
+                    ) : (
+                      <p className="evt-muted" style={{ fontSize: '0.8rem' }}>
+                        <i className="fas fa-circle-info"></i> Confirming marks the ticked registrations as paid &mdash; their attendance QR and RFID card unlock straight away.
+                      </p>
+                    )}
+                  </div>
+                  <div className="evt-modal-foot">
+                    <button className="btn-secondary" onClick={() => setCollectCash(null)} disabled={collectSaving}>Cancel</button>
+                    <button className="btn-primary" onClick={submitCollectCash} disabled={collectSaving || collectSelected.length === 0}>
+                      <i className={`fas ${collectSaving ? 'fa-spinner fa-spin' : 'fa-money-bill-wave'}`}></i>{' '}
+                      {collectSaving ? 'Collecting…' : `Collect ₱${collectTotal} & Verify`}
                     </button>
                   </div>
                 </div>
@@ -19988,7 +20333,7 @@ Examples:
           </section>
 
           {/* ========== COMMUNITY HUB ========== */}
-          <section className={`content-section ${activeSection === 'community-hub' ? 'active' : ''}`}>
+          <section className={`content-section ${activeSection === 'community-hub' && canOpenCommunityHub ? 'active' : ''}`}>
             <h2 className="section-title">Community Hub</h2>
 
             {/* Kindness Disclaimer */}

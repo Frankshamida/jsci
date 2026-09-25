@@ -133,11 +133,21 @@ body.dark-mode .hp-navbar-title span {
 }
 
 .hp-navbar-links a {
-  padding: 8px 18px;
+  /* Bigger type, paid for sideways so the bar does not grow.
+     0.88rem was small against a 45px logo and a 1rem wordmark. Going to 1rem
+     adds ~46px across the six links; taking the horizontal padding from 18 to
+     16 gives 24px of that back and the ISOM mark (below) the rest, which
+     leaves the row within about ten pixels of where it was. That matters
+     because eight items, a brand and a fixed theme toggle share this line -
+     a 14% type increase that also widened the row would be the thing that
+     finally pushed it off a 1280px laptop.
+     The vertical padding goes up instead, which is free: it makes the tap
+     target taller without costing the row any width. */
+  padding: 10px 16px;
   border-radius: 8px;
   text-decoration: none;
   font-weight: 600;
-  font-size: 0.88rem;
+  font-size: 1rem;
   /* Light in BOTH themes now, because the bar is black in both. The old #555
      was chosen for a white bar and would sit at 1.3:1 on this one. */
   color: #e9e9e9;
@@ -153,7 +163,8 @@ body.dark-mode .hp-navbar-title span {
 .hp-navbar-links .hp-btn-login {
   background: linear-gradient(135deg, var(--primary), var(--secondary));
   color: white !important;
-  padding: 8px 22px;
+  /* Matches the taller links either side of it; it inherits the 1rem. */
+  padding: 10px 24px;
   border-radius: 25px;
   box-shadow: 0 3px 12px rgba(146, 108, 21, 0.25);
 }
@@ -444,6 +455,41 @@ body.dark-mode .hp-navbar-links .hp-btn-live:hover {
    its .hp-hero-tagline rule - the lockup and the two buttons are the whole
    hero now. It used to sit here and carried `margin-bottom: 30px`, which is
    the gap the buttons are given below instead. */
+/* ---- HERO VERSE OF THE DAY (plain text, no container) ---- */
+.hp-hero-verse {
+  max-width: 560px;
+  margin: 0 auto 4px;
+  text-align: center;
+  /* Its own compositing layer: without this the browser re-rasterises the
+     verse (and its shadow) on top of every frame the hero video paints,
+     which is what made the video stutter once the verse moved up here. */
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+.hp-hero-verse-text {
+  font-family: var(--font-body);
+  font-size: clamp(0.72rem, 1.5vw, 0.9rem);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+  margin: 0 0 6px;
+}
+
+.hp-hero-verse-ref {
+  font-family: var(--font-body);
+  font-size: clamp(0.62rem, 1.1vw, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+  margin: 0;
+}
+
 .hp-hero-buttons {
   display: flex;
   gap: 15px;
@@ -800,51 +846,6 @@ body.dark-mode .hp-service-card .hp-service-time {
 
 body.dark-mode .hp-service-card .hp-service-day {
   color: #aaa;
-}
-
-/* ---- DAILY VERSE ---- */
-.hp-verse-wrapper {
-  background: linear-gradient(135deg, var(--primary), #5a4210);
-  border-radius: 20px;
-  padding: 60px 50px;
-  text-align: center;
-  position: relative;
-  overflow: hidden;
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.hp-verse-wrapper::before {
-  content: '\201C';
-  position: absolute;
-  top: -20px;
-  left: 30px;
-  font-size: 12rem;
-  color: rgba(255, 255, 255, 0.07);
-  font-family: var(--font-scripture);
-  line-height: 1;
-}
-
-.hp-verse-icon {
-  font-size: 2rem;
-  color: var(--accent);
-  margin-bottom: 20px;
-}
-
-.hp-verse-text {
-  font-size: 1.35rem;
-  color: rgba(255, 255, 255, 0.95);
-  font-style: italic;
-  line-height: 1.8;
-  max-width: 700px;
-  margin: 0 auto 20px;
-}
-
-.hp-verse-ref {
-  font-family: var(--font-body);
-  font-weight: 700;
-  color: var(--accent);
-  font-size: 1.1rem;
 }
 
 /* ---- ACTIVITIES / NEWS ---- */
@@ -1947,12 +1948,8 @@ body.dark-mode .hp-chat-input input {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .hp-verse-wrapper {
-    padding: 40px 25px;
-  }
-
-  .hp-verse-text {
-    font-size: 1.1rem;
+  .hp-hero-verse {
+    max-width: 300px;
   }
 
   .hp-footer-grid {
@@ -2006,8 +2003,12 @@ body.dark-mode .hp-chat-input input {
 }
 .hp-nav-isom i { margin-right: 4px; }
 .hp-nav-isom-icon {
-  width: 72px;
-  height: 72px;
+  /* 72px was taller than the bar's own content height and dwarfed the text
+     links it sits between - it read as a banner dropped into a nav rather
+     than one item among eight. 52px sits it in line with them, and the 20px
+     it gives back is most of what the larger link text costs. */
+  width: 52px;
+  height: 52px;
   object-fit: contain;
   flex-shrink: 0;
 }

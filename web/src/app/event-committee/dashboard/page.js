@@ -2881,7 +2881,10 @@ export default function CommitteeDashboardPage() {
                 aria-label="Switch to the member dashboard"
               >
                 <span className="sidebar-role-switch-icon">
-                  <i className="fas fa-right-left"></i>
+                  {/* Two arrows chasing each other round a circle. fa-right-left
+                      was a pair of straight horizontal arrows, which reads as
+                      "swap these two things" rather than "change role". */}
+                  <i className="fas fa-arrows-rotate"></i>
                 </span>
                 <span className="sidebar-role-switch-text">
                   <span className="sidebar-role-switch-title">Member Dashboard</span>

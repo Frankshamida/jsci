@@ -1592,12 +1592,14 @@ export default function HomePage() {
   // ---- Daily verse (cached 24h in localStorage) ----
   const fetchDailyVerse = useCallback(async () => {
     const FALLBACK = { verse: '"For I know the plans I have for you," declares the Lord, "plans to prosper you and not to harm you, plans to give you hope and a future."', reference: 'Jeremiah 29:11 (NIV)' };
-    const ONE_DAY = 24 * 60 * 60 * 1000;
+    // The verse turns over on the calendar day, not 24h after it was fetched,
+    // so everyone sees the same verse change at midnight local time.
+    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
 
-    // 1) Serve a cached verse if it's less than 24h old
+    // 1) Serve the cached verse if it was fetched today
     try {
       const cached = JSON.parse(localStorage.getItem('dailyVerse') || 'null');
-      if (cached && cached.verse && cached.savedAt && (Date.now() - cached.savedAt) < ONE_DAY) {
+      if (cached && cached.verse && cached.day === today) {
         setDailyVerse({ verse: cached.verse, reference: cached.reference });
         return;
       }
@@ -1627,7 +1629,7 @@ export default function HomePage() {
         const parsed = JSON.parse(jsonMatch[0]);
         if (parsed.verse && parsed.reference) {
           setDailyVerse({ verse: parsed.verse, reference: parsed.reference });
-          localStorage.setItem('dailyVerse', JSON.stringify({ verse: parsed.verse, reference: parsed.reference, savedAt: Date.now() }));
+          localStorage.setItem('dailyVerse', JSON.stringify({ verse: parsed.verse, reference: parsed.reference, day: today }));
           return;
         }
       }
@@ -1989,6 +1991,12 @@ ${eventsDigest}`;
           <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" className="hp-hero-logo" />
           <h1 className="hp-hero-heading">Joyful Sound Church</h1>
           <p className="hp-hero-sub">International</p>
+          {dailyVerse.verse && (
+            <div className="hp-hero-verse">
+              <p className="hp-hero-verse-text">&ldquo;{dailyVerse.verse}&rdquo;</p>
+              <p className="hp-hero-verse-ref">{dailyVerse.reference}</p>
+            </div>
+          )}
           <div className="hp-hero-buttons">
             <a href="/signup" className="hp-btn-primary">
               <i className="fas fa-user-plus"></i> Join Our Family
@@ -2192,25 +2200,6 @@ ${eventsDigest}`;
           </div>
         </section>
       </div>
-
-      {/* ---- DAILY VERSE ---- */}
-      <section className="hp-section hp-animate">
-        <div className="hp-section-header">
-          <div className="hp-divider"></div>
-          <h2>Verse of the Day</h2>
-          <p>Be inspired by God&apos;s Word today</p>
-        </div>
-
-        <div className="hp-verse-wrapper">
-          <div className="hp-verse-icon">
-            <i className="fas fa-book-open"></i>
-          </div>
-          <p className="hp-verse-text">
-            {dailyVerse.verse || 'Loading verse of the day...'}
-          </p>
-          <p className="hp-verse-ref">— {dailyVerse.reference || 'Loading...'}</p>
-        </div>
-      </section>
 
       {/* ---- ACTIVITIES ---- */}
       <div className="hp-section-dark">

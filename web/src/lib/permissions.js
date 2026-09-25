@@ -164,8 +164,9 @@ export const ROLE_PERMISSIONS = {
     MODULES.VIEW_PROFILE, MODULES.UPDATE_PROFILE, MODULES.CHANGE_PASSWORD,
     // Events (view & RSVP)
     MODULES.VIEW_EVENTS, MODULES.RSVP_EVENT,
-    // Community Hub
-    MODULES.VIEW_COMMUNITY_POSTS, MODULES.CREATE_POSTS, MODULES.LIKE_COMMENT_POSTS,
+    // NOTE: no Community Hub modules. The hub is for the church body, not for
+    // visitors, so a Guest gets neither the feed nor posting. See
+    // GUEST_BLOCKED_SECTIONS below, which keeps the section itself unreachable.
     // Logout
     MODULES.LOGOUT,
   ],
@@ -627,6 +628,11 @@ export function isFeatureEnabled(userRole, featureKey, permissionOverrides = {})
  * Map sidebar section IDs to their feature key for toggle control.
  * 'home' is never hidden — always accessible.
  */
+/**
+ * Sections a Guest can never open, no matter what the SuperAdmin toggles say.
+ */
+export const GUEST_BLOCKED_SECTIONS = new Set(['community-hub']);
+
 export const SIDEBAR_FEATURE_MAP = {
   'weekly-schedule': 'sidebar.schedule',
   'praise-worship': 'sidebar.praise_worship',
@@ -701,6 +707,11 @@ export function isSidebarItemEnabled(userRole, sectionId, permissionOverrides = 
   if (!userRole || !sectionId) return true;
   if (sectionId === 'home') return true;
   if (userRole === ROLES.SUPER_ADMIN) return true;
+
+  // Guests never reach these, whatever the Permissions Control toggles say.
+  // This is a policy of the app rather than a setting, so it is checked before
+  // the overrides and cannot be turned back on from the toggle screen.
+  if (userRole === ROLES.GUEST && GUEST_BLOCKED_SECTIONS.has(sectionId)) return false;
 
   // Check 1: sidebar-level toggle (e.g. sidebar.events)
   const sidebarKey = SIDEBAR_FEATURE_MAP[sectionId];
