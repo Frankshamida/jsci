@@ -183,12 +183,12 @@ body.dark-mode .ap-thumb { background: #16161f; }
   margin: 0; font-size: 1rem; font-weight: 700;
   color: var(--text-primary, #333); line-height: 1.3;
   min-height: 2.6em;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .ap-card-desc {
   margin: 0; font-size: 0.8rem; color: var(--text-secondary, #6c757d); line-height: 1.5;
   /* two lines, so one long description cannot make its card taller than the rest */
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .ap-card-price { font-size: 1.12rem; font-weight: 800; color: var(--primary); }
 .ap-card-price small { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary, #6c757d); margin-left: 6px; }

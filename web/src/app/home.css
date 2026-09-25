@@ -2505,7 +2505,7 @@ body.dark-mode .hp-isom-inquire-success p { color: #aaa; }
 /* ============================================ */
 /* Public event cards: badges, actions, modal   */
 /* ============================================ */
-.hp-event-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hp-event-desc { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .hp-event-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
 .hp-event-fee { font-size: 0.82rem; font-weight: 800; padding: 4px 13px; border-radius: 20px; }
 .hp-event-fee.free { background: rgba(22,163,74,0.15); color: #16a34a; }
@@ -2679,7 +2679,7 @@ body.dark-mode .hp-evt-title { color: var(--accent); }
    -webkit-line-clamp is the only property that clamps by LINE rather than by
    height, and it is supported everywhere this site runs. */
 .hp-evt-text.clamped {
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 .hp-evt-more {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
@@ -2938,7 +2938,7 @@ body.dark-mode .hp-empty-state p { color: #aaa; }
 /* Info card (overlaps hero) */
 .hp-invite-title { font-family: var(--font-body); font-weight: 800; font-size: 1.5rem; color: #14233a; margin: 0 0 4px; }
 body.dark-mode .hp-invite-title { color: #fff; }
-.hp-invite-desc { margin: 0 0 12px; color: #7a8794; font-size: 0.9rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hp-invite-desc { margin: 0 0 12px; color: #7a8794; font-size: 0.9rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .hp-invite-rule { display: block; width: 54px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, var(--primary), var(--accent)); margin-bottom: 18px; }
 
 .hp-invite-details { display: flex; gap: 16px; align-items: stretch; margin-bottom: 20px; }
@@ -3564,7 +3564,7 @@ body.dark-mode .hp-fee-card-extra { background: rgba(255,255,255,0.08); }
   .hp-evt-title { font-size: 1.42rem; margin-bottom: 6px; }
   .hp-evt-text { font-size: 0.94rem; line-height: 1.55; }
   /* Three lines on a phone: four is half the screen before the date is reached. */
-  .hp-evt-text.clamped { -webkit-line-clamp: 3; }
+  .hp-evt-text.clamped { -webkit-line-clamp: 3; line-clamp: 3; }
   .hp-evt-info { gap: 11px; margin-top: 13px; padding-top: 13px; }
   .hp-evt-info-row { gap: 11px; }
   .hp-evt-info-row > div > span { font-size: 0.95rem; line-height: 1.45; }
@@ -4204,7 +4204,7 @@ body.dark-mode .hp-proof-actions button { background: #262626; border-color: rgb
   /* At rest the scrim is transparent, so the title carries its own shadow - it
      sits straight on the artwork and still has to be readable. */
   text-shadow: 0 2px 12px rgba(0,0,0,0.9), 0 1px 3px rgba(0,0,0,0.8);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 /* Date and region sit side by side on the resting line; the venue's full address
    is kept for the hover. */

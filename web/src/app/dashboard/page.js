@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -9,6 +9,8 @@ import { BED_TYPES, MAX_PAX, bedsSleep, bedsToText, compareRoomNumbers, parseRoo
 import { supabase } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, formatUid } from '@/lib/rfid';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
+import { printReport, buildPrintHtml, buildXlsx, buildDocx, buildCsv, downloadBlob, safeFilename } from '@/lib/exportDoc';
+import { buildPdf, loadLogoJpeg } from '@/lib/pdfWriter';
 import { moderateMessage, detectInappropriateWords } from '@/lib/contentModeration';
 import SmartImage from '@/components/SmartImage';
 import AgeGroupPicker from '@/components/AgeGroupPicker';
@@ -224,6 +226,46 @@ const resolveSectionFromPath = () => {
   const hash = window.location.hash.replace('#', '');
   return (hash && VALID_SECTIONS.has(hash)) ? hash : 'home';
 };
+
+// ---- What an attendee export can contain ----
+//
+// One entry per column somebody might want, in the order they read: who came,
+// where from, what they owe, where they stand. `width` is a weight rather than
+// a measurement - the spreadsheet reads it as characters, the Word table
+// shares the page out in that proportion, and the PDF lets the browser decide.
+// Ticking every box would be a table nobody can read on A4, which is why the
+// default below is eight of them.
+const EXPORT_COLUMNS = [
+  { key: 'no', label: '#', width: 5, align: 'right' },
+  { key: 'attendee_name', label: 'Attendee', width: 24 },
+  { key: 'price_tier', label: 'Age Group', width: 12 },
+  { key: 'type', label: 'Type', width: 11 },
+  { key: 'representative', label: 'Representative', width: 20 },
+  { key: 'added_by', label: 'Added By', width: 16 },
+  { key: 'church_name', label: 'Church', width: 26 },
+  { key: 'church_pastor', label: 'Pastor', width: 22 },
+  { key: 'attendee_mobile', label: 'Contact No.', width: 15 },
+  { key: 'attendee_email', label: 'Email', width: 24 },
+  { key: 'extras', label: 'Extras Availed', width: 22 },
+  { key: 'amount', label: 'Amount Due', width: 12, align: 'right', numeric: true },
+  { key: 'amount_paid', label: 'Amount Paid', width: 12, align: 'right', numeric: true },
+  { key: 'balance', label: 'Balance', width: 11, align: 'right', numeric: true },
+  { key: 'payment_method', label: 'Payment Method', width: 16 },
+  { key: 'payment_reference', label: 'Reference', width: 18 },
+  { key: 'status', label: 'Status', width: 16 },
+  { key: 'attended', label: 'Attended', width: 10, align: 'center' },
+  { key: 'created_at', label: 'Registered On', width: 15 },
+];
+
+// What a registration desk asks for nine times out of ten.
+const EXPORT_COLUMNS_DEFAULT = ['no', 'attendee_name', 'price_tier', 'type', 'church_name', 'church_pastor', 'amount', 'status'];
+
+const EXPORT_FORMATS = [
+  { id: 'pdf', label: 'PDF', icon: 'fa-file-pdf', note: 'Print-ready', paged: true },
+  { id: 'xlsx', label: 'Excel', icon: 'fa-file-excel', note: '.xlsx, sums up', paged: false },
+  { id: 'docx', label: 'Word', icon: 'fa-file-word', note: '.docx, editable', paged: true },
+  { id: 'csv', label: 'CSV', icon: 'fa-file-csv', note: 'Plain data', paged: false },
+];
 
 const ALL_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor', 'Admin', 'Super Admin'];
 const ALL_MINISTRIES = ['Praise And Worship', 'Media', 'Dancers', 'Ashers', 'Pastors', 'Teachers'];
@@ -1019,8 +1061,305 @@ export default function DashboardPage() {
       body.style.paddingRight = prev.pad;
     };
   }, [eventDetail]);
+  // ---- Exporting an event's attendees ----
+  // The event being exported (which is also whether the dialog is open), the
+  // registrations behind it, and the shape of the document being asked for.
+  const [exportEvent, setExportEvent] = useState(null);
+  const [exportRows, setExportRows] = useState(null);   // null = still loading
+  const [exportError, setExportError] = useState('');
+  const [exportCols, setExportCols] = useState(EXPORT_COLUMNS_DEFAULT);
+  const [exportChurches, setExportChurches] = useState([]); // empty = every church
+  const [exportStatus, setExportStatus] = useState('all');
+  const [exportType, setExportType] = useState('all');
+  const [exportFormat, setExportFormat] = useState('pdf');
+  const [exportOrient, setExportOrient] = useState('portrait');
+  const [exportBusy, setExportBusy] = useState(false);
+  // What the person is looking at before they commit to a download: the built
+  // file, an object URL for it, and the HTML standing in for the formats a
+  // browser cannot render.
+  const [exportPreview, setExportPreview] = useState(null);
+  // The church emblem, fetched once and kept: every PDF wants it and it does
+  // not change between exports.
+  const exportLogoRef = useRef(undefined);
+
   const [eventActionMenu, setEventActionMenu] = useState(null); // event id whose Manage menu is open
-  const [eventMenuAnchor, setEventMenuAnchor] = useState(null); // {top,left} for the portal menu
+  // Where the portal menu is drawn, in viewport coordinates. Worked out by
+  // measuring rather than guessed at: see placeEventMenu below.
+  const [eventMenuPos, setEventMenuPos] = useState(null);
+  const eventMenuBtnRef = useRef(null);   // the Manage button it belongs to
+  const eventMenuRef = useRef(null);      // the menu itself, once rendered
+  // ---- Placing the Manage menu ----
+  //
+  // The menu is a portal with `position: fixed`, which is what keeps it out of
+  // the card's `overflow: hidden` and above everything else on the page. The
+  // price of `fixed` is that it knows nothing: it does not move when the page
+  // scrolls, and it does not know where the edges of the screen are. Both bills
+  // came due on a phone - the menu opened half off the left-hand side, and then
+  // sat still while the card it belonged to scrolled away underneath it.
+  //
+  // So the position is measured instead of guessed. The menu is rendered first
+  // (hidden, but laid out, so it has a real width and height), then put where
+  // it actually fits, and put there again on every scroll and resize. It used
+  // to be anchored from the click alone, with `r.top - 6 - 190` for the grid
+  // card - a 190 that was the menu's height on the day it was written and had
+  // no way of staying true.
+  const placeEventMenu = useCallback(() => {
+    const btn = eventMenuBtnRef.current;
+    const menu = eventMenuRef.current;
+    if (!btn || !menu) return;
+
+    const b = btn.getBoundingClientRect();
+    const m = menu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const GAP = 6;   // between the button and the menu
+    const EDGE = 8;  // the closest either gets to the side of the screen
+
+    // Scrolled past: the button is no longer on screen, so neither is the
+    // thing the menu is about. Closing beats floating over someone else's row.
+    if (b.bottom < 0 || b.top > vh) { setEventActionMenu(null); return; }
+
+    // Below the button when there is room, above it when there is not, and
+    // pinned inside the screen when there is room for neither.
+    let top = b.bottom + GAP;
+    if (top + m.height > vh - EDGE) {
+      const above = b.top - GAP - m.height;
+      top = above >= EDGE ? above : Math.max(EDGE, vh - EDGE - m.height);
+    }
+
+    // Right edges lined up with the button - then clamped, which is the part
+    // that was missing. On a phone the Manage button sits at the left of the
+    // card, so a 200px menu ending at the button's right edge began at about
+    // -50px: off the screen, with the first letter of every item cut away.
+    let left = b.right - m.width;
+    left = Math.min(left, vw - EDGE - m.width);
+    left = Math.max(EDGE, left);
+
+    setEventMenuPos({ top, left });
+  }, []);
+
+  // ---- Exporting the attendees of an event ----
+  //
+  // Reads the registrations fresh rather than from anything already on screen:
+  // Manage is on the events list, where nobody has opened that event yet, and
+  // an export is the one thing that must not quietly be a week old.
+  const openExportModal = (evt) => {
+    setExportEvent(evt);
+    setExportRows(null);
+    setExportError('');
+    setExportCols(EXPORT_COLUMNS_DEFAULT);
+    setExportChurches([]);
+    setExportStatus('all');
+    setExportType('all');
+    setExportFormat('pdf');
+    setExportOrient('portrait');
+    (async () => {
+      try {
+        const res = await fetch(`/api/events/registrations?eventId=${evt.id}`);
+        const data = await res.json();
+        if (!data.success) { setExportError(data.message || 'Could not load the registrations for this event.'); setExportRows([]); return; }
+        setExportRows(data.data || []);
+      } catch (e) { setExportError(e.message); setExportRows([]); }
+    })();
+  };
+
+  const exportToggleCol = (key) => setExportCols((cols) => (cols.includes(key)
+    ? cols.filter((k) => k !== key)
+    : // Kept in catalogue order however they were ticked, so the document
+      // always reads left to right in the same order as the list above.
+      EXPORT_COLUMNS.filter((c) => c.key === key || cols.includes(c.key)).map((c) => c.key)));
+
+  const exportToggleChurch = (name) => setExportChurches((list) => (list.includes(name)
+    ? list.filter((n) => n !== name)
+    : [...list, name]));
+
+  // Every church on this event, with how many rows each one brought.
+  //
+  // A function rather than a value computed in the component body, and that is
+  // not a style choice: it calls formatChurchName, which is declared a few
+  // thousand lines further down. A `const` is in its temporal dead zone until
+  // the body reaches it, so working this out during the body would throw
+  // "cannot access before initialization" the moment a church was in the list.
+  // Called from the JSX instead, which runs once the whole body has.
+  const exportChurchOptions = () => {
+    const counts = new Map();
+    (exportRows || []).forEach((r) => {
+      const name = formatChurchName(r.church_name) || 'No church given';
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  };
+
+  // The rows that will actually be written, in the order the table shows them.
+  const exportSelectedRows = () => {
+    const all = exportRows || [];
+    let rows;
+    if (exportStatus === 'cancelled') {
+      rows = all.filter((r) => r.status === 'cancelled');
+    } else {
+      // Cancelled rows are never attendees, so they are out of every other
+      // selection - including "all". A head count that quietly includes them
+      // is wrong in a way nobody notices until the meals run short.
+      rows = all.filter((r) => r.status !== 'cancelled');
+      if (exportStatus === 'paid') rows = rows.filter((r) => r.status === 'payment_verified' || r.status === 'registered');
+      else if (exportStatus === 'unpaid') rows = rows.filter((r) => ['pending_cash', 'pending_payment', 'installment'].includes(r.status));
+      else if (exportStatus === 'verify') rows = rows.filter((r) => r.status === 'payment_submitted');
+      else if (exportStatus === 'attended') rows = rows.filter((r) => r.attended);
+    }
+
+    if (exportType !== 'all') rows = rows.filter((r) => regTypeOf(r) === exportType);
+    if (exportChurches.length) {
+      rows = rows.filter((r) => exportChurches.includes(formatChurchName(r.church_name) || 'No church given'));
+    }
+    return rows.sort((a, b) => String(a.attendee_name || '').localeCompare(String(b.attendee_name || '')));
+  };
+
+  // A registration as a flat row of finished text: every value formatted the
+  // same way it is on screen, so an exported figure and a figure somebody is
+  // looking at can never disagree.
+  const exportRowValues = (r, index) => {
+    const owed = Number(r.amount) || 0;
+    const paid = Number(r.amount_paid) || 0;
+    const label = regStatusLabel(r);
+    return {
+      no: index + 1,
+      attendee_name: formatPersonName(r.attendee_name),
+      price_tier: r.price_tier || '',
+      type: regTypeOf(r) === 'bulk' ? 'Bulk' : 'Individual',
+      representative: r.representative ? formatPersonName(r.representative) : '',
+      added_by: r.added_by || '',
+      church_name: formatChurchName(r.church_name) || '',
+      church_pastor: r.church_pastor || '',
+      attendee_mobile: r.attendee_mobile || '',
+      attendee_email: r.attendee_email || '',
+      extras: (Array.isArray(r.addons) ? r.addons : []).map((a) => a.question).filter(Boolean).join(', '),
+      amount: owed,
+      amount_paid: paid,
+      balance: Math.max(0, owed - paid),
+      payment_method: r.payment_method || '',
+      payment_reference: r.payment_reference || '',
+      status: label ? label.charAt(0).toUpperCase() + label.slice(1) : '',
+      attended: r.attended ? 'Yes' : 'No',
+      created_at: r.created_at
+        ? new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : '',
+    };
+  };
+
+  const exportStatusLabel = () => ({
+    all: 'All attendees',
+    paid: 'Paid registrations',
+    unpaid: 'Still to pay',
+    verify: 'Awaiting verification',
+    attended: 'Marked attended',
+    cancelled: 'Cancelled registrations',
+  }[exportStatus] || 'All attendees');
+
+  const buildExportSpec = () => {
+    const evt = exportEvent;
+    const picked = exportSelectedRows();
+    const columns = EXPORT_COLUMNS.filter((c) => exportCols.includes(c.key));
+    const rows = picked.map((r, i) => exportRowValues(r, i));
+    const totalDue = rows.reduce((t, r) => t + (Number(r.amount) || 0), 0);
+    const totalPaid = rows.reduce((t, r) => t + (Number(r.amount_paid) || 0), 0);
+
+    return {
+      title: evt.title,
+      subtitle: exportStatusLabel(),
+      orientation: exportOrient,
+      columns,
+      rows,
+      meta: [
+        ['Date', formatEventSpan(evt.event_date, evt.end_date)],
+        ['Venue', [evt.location, evt.loc_city].filter(Boolean).join(', ')],
+        ['Province', evt.loc_province || ''],
+        ['Churches', exportChurches.length ? exportChurches.join(', ') : 'All churches'],
+        ['Registration Type', exportType === 'all' ? 'All' : (exportType === 'bulk' ? 'Bulk' : 'Individual')],
+        ['Total Due', `PHP ${totalDue.toLocaleString()}`],
+        ['Total Paid', `PHP ${totalPaid.toLocaleString()}`],
+      ],
+      footNote: `Generated ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}${userData?.firstname ? ` by ${userData.firstname} ${userData.lastname || ''}`.trim() : ''}`,
+    };
+  };
+
+  // Build the file and show it, rather than pushing it straight into the
+  // downloads folder. An export is a document somebody is about to send to a
+  // pastor: the columns they picked, the churches they filtered to and the
+  // orientation they chose are all things worth seeing before, not after.
+  const openExportPreview = async () => {
+    if (!exportEvent || !exportCols.length) return;
+    const spec = buildExportSpec();
+    if (!spec.rows.length) { showToast('No registrations match those filters', 'warning'); return; }
+
+    setExportBusy(true);
+    try {
+      const name = safeFilename(exportEvent.title, exportStatusLabel(), new Date().toISOString().slice(0, 10));
+      let blob;
+      let filename;
+
+      if (exportFormat === 'pdf') {
+        // Fetched once per session. `undefined` means never tried, `null`
+        // means tried and there is none - only the first is worth retrying.
+        if (exportLogoRef.current === undefined) exportLogoRef.current = await loadLogoJpeg();
+        blob = buildPdf(spec, exportLogoRef.current);
+        filename = `${name}.pdf`;
+      } else if (exportFormat === 'xlsx') { blob = buildXlsx(spec); filename = `${name}.xlsx`; }
+      else if (exportFormat === 'docx') { blob = buildDocx(spec); filename = `${name}.docx`; }
+      else { blob = buildCsv(spec); filename = `${name}.csv`; }
+
+      setExportPreview({
+        blob,
+        filename,
+        format: exportFormat,
+        rows: spec.rows.length,
+        // A PDF is shown as itself - every browser renders one. A spreadsheet
+        // or a Word file cannot be, so what is shown is the same content laid
+        // out as the printed page would have it, clearly labelled as a preview
+        // of the content rather than of the file.
+        url: exportFormat === 'pdf' ? URL.createObjectURL(blob) : '',
+        html: exportFormat === 'pdf' ? '' : buildPrintHtml(spec),
+        spec,
+      });
+    } catch (e) {
+      showToast(`Could not build the file: ${e.message}`, 'danger');
+    } finally { setExportBusy(false); }
+  };
+
+  const closeExportPreview = () => {
+    setExportPreview((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  };
+
+  const confirmExportDownload = () => {
+    if (!exportPreview) return;
+    downloadBlob(exportPreview.blob, exportPreview.filename);
+    showToast(`${exportPreview.rows} ${exportPreview.rows === 1 ? 'record' : 'records'} downloaded`, 'success');
+    closeExportPreview();
+    setExportEvent(null);
+  };
+
+  // Everything built here lives on an object URL, which is a lock on memory
+  // until it is let go of.
+  useEffect(() => () => { if (exportPreview?.url) URL.revokeObjectURL(exportPreview.url); }, [exportPreview?.url]);
+
+  useLayoutEffect(() => {
+    if (!eventActionMenu) { setEventMenuPos(null); return undefined; }
+    placeEventMenu();
+    const onMove = () => placeEventMenu();
+    // `true` so scrolling inside any container counts, not only the window -
+    // on a tablet the events list is its own scroller.
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [eventActionMenu, placeEventMenu]);
+
   const [eventsView, setEventsView] = useState('list'); // 'list' | 'grid'
   // Narrowing the events listing. All three are view-only, so nothing is ever
   // hidden from a count that is meant to be a total.
@@ -5542,6 +5881,12 @@ export default function DashboardPage() {
   const [regMoneyFilter, setRegMoneyFilter] = useState('all'); // all | cash | online | pending
   // Which row's Manage menu is open. One at a time, closed by a click anywhere else.
   const [openRowMenu, setOpenRowMenu] = useState(null);
+  // Which way the row menu opens. Decided when it opens, by measuring the
+  // trigger against the window: a row near the bottom of a short laptop screen
+  // has nothing below it, and a menu drawn downwards there is a menu nobody
+  // can reach. CSS cannot ask that question, so it is asked here and answered
+  // with a class.
+  const [rowMenuUp, setRowMenuUp] = useState(false);
 
   // The same view controls over the installment plans. A plan list is read for
   // different reasons than a registration list - "who still owes money" rather
@@ -13888,13 +14233,29 @@ Examples:
                                   const settled = onPlan && owed > 0 && paid >= owed;
                                   const name = formatPersonName(r.attendee_name);
                                   return (
-                                    <div className={`evt-rowmenu ${openRowMenu === r.id ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
+                                    <div className={`evt-rowmenu ${openRowMenu === r.id ? 'open' : ''} ${openRowMenu === r.id && rowMenuUp ? 'up' : ''}`} onClick={(e) => e.stopPropagation()}>
                                       <button
                                         className="evt-manage-trigger"
-                                        onClick={() => setOpenRowMenu(openRowMenu === r.id ? null : r.id)}
+                                        title="Manage this registration"
+                                        onClick={(e) => {
+                                          const opening = openRowMenu !== r.id;
+                                          if (opening) {
+                                            // ~300px covers the tallest this menu gets (proof,
+                                            // refund, collect, extras, edit, cancel, delete).
+                                            // Flip only when there is more room above than
+                                            // below, so a short window does not flip a row
+                                            // that had nowhere to go either way.
+                                            const box = e.currentTarget.getBoundingClientRect();
+                                            const below = window.innerHeight - box.bottom;
+                                            setRowMenuUp(below < 300 && box.top > below);
+                                          }
+                                          setOpenRowMenu(opening ? r.id : null);
+                                        }}
                                         aria-expanded={openRowMenu === r.id}
                                       >
-                                        <i className="fas fa-sliders"></i> Manage <i className="fas fa-chevron-down caret"></i>
+                                        <i className="fas fa-sliders"></i>
+                                        <span className="evt-manage-label">Manage</span>
+                                        <i className="fas fa-chevron-down caret"></i>
                                       </button>
                                       {openRowMenu === r.id && (
                                         <div className="evt-rowmenu-list" role="menu">
@@ -16452,7 +16813,13 @@ Examples:
                               <div className="evt-admin-card-body">
                                 <h4>{evt.title}</h4>
                                 <div className="evt-admin-card-meta">{formatEventDateTime(evt.event_date)} · {evt.has_fee ? eventFeeLabel(evt) : 'Free'} · {st.label}</div>
-                                <button className="evt-admin-manage" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.top - 6 - 190, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>Manage</button>
+                                <button
+                                  className="evt-admin-manage"
+                                  onClick={(e) => {
+                                    eventMenuBtnRef.current = e.currentTarget;
+                                    setEventActionMenu(eventActionMenu === evt.id ? null : evt.id);
+                                  }}
+                                >Manage</button>
                               </div>
                             </div>
                           </div>
@@ -16555,7 +16922,13 @@ Examples:
                             </td>
                             <td className="evt-td-actions">
                               <span className="evt-manage-wrap">
-                                <button className="evt-manage-btn" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setEventMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right }); setEventActionMenu(eventActionMenu === evt.id ? null : evt.id); }}>
+                                <button
+                                  className="evt-manage-btn"
+                                  onClick={(e) => {
+                                    eventMenuBtnRef.current = e.currentTarget;
+                                    setEventActionMenu(eventActionMenu === evt.id ? null : evt.id);
+                                  }}
+                                >
                                   Manage <i className={`fas fa-chevron-${eventActionMenu === evt.id ? 'up' : 'down'}`}></i>
                                 </button>
                                 {pendingRegByEvent[evt.id] > 0 && (
@@ -16819,14 +17192,216 @@ Examples:
               )
             )}
 
+            {/* ---- Export the attendees of one event ---- */}
+            {exportEvent && (
+              <div className="evt-modal-overlay" onClick={() => !exportBusy && setExportEvent(null)}>
+                <div className="evt-modal evt-export-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div><h3>Export Data</h3><p>{exportEvent.title}</p></div>
+                    <button className="evt-modal-close" onClick={() => setExportEvent(null)} disabled={exportBusy}><i className="fas fa-times"></i></button>
+                  </div>
+
+                  <div className="evt-modal-body">
+                    {exportRows === null ? (
+                      <div className="evt-export-loading"><i className="fas fa-spinner fa-spin"></i> Reading the registrations…</div>
+                    ) : (
+                      <>
+                        {exportError && (
+                          <p className="evt-dup-warn"><i className="fas fa-triangle-exclamation"></i> {exportError}</p>
+                        )}
+
+                        {/* ---- 1. What goes in ---- */}
+                        <div className="evt-export-block">
+                          <div className="evt-export-legend">
+                            <h4><span>1</span> Columns</h4>
+                            <div className="evt-export-legend-actions">
+                              <button type="button" className="evt-chip-btn" onClick={() => setExportCols(EXPORT_COLUMNS.map((c) => c.key))}>All</button>
+                              <button type="button" className="evt-chip-btn" onClick={() => setExportCols(EXPORT_COLUMNS_DEFAULT)}>Default</button>
+                            </div>
+                          </div>
+                          <div className="evt-export-cols">
+                            {EXPORT_COLUMNS.map((c) => (
+                              <label key={c.key} className={`evt-export-col ${exportCols.includes(c.key) ? 'on' : ''}`}>
+                                <input type="checkbox" checked={exportCols.includes(c.key)} onChange={() => exportToggleCol(c.key)} />
+                                <span>{c.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                          {exportCols.length === 0 && (
+                            <p className="evt-export-warn"><i className="fas fa-circle-exclamation"></i> Pick at least one column.</p>
+                          )}
+                        </div>
+
+                        {/* ---- 2. Who goes in ---- */}
+                        <div className="evt-export-block">
+                          <div className="evt-export-legend">
+                            <h4><span>2</span> Who to include</h4>
+                          </div>
+                          <div className="evt-form-grid">
+                            <div className="form-group">
+                              <label>Registrations</label>
+                              <select className="form-control" value={exportStatus} onChange={(e) => setExportStatus(e.target.value)}>
+                                <option value="all">All attendees</option>
+                                <option value="paid">Paid only</option>
+                                <option value="unpaid">Still to pay</option>
+                                <option value="verify">Awaiting verification</option>
+                                <option value="attended">Marked attended</option>
+                                <option value="cancelled">Cancelled</option>
+                              </select>
+                            </div>
+                            <div className="form-group">
+                              <label>Type</label>
+                              <select className="form-control" value={exportType} onChange={(e) => setExportType(e.target.value)}>
+                                <option value="all">Individual &amp; bulk</option>
+                                <option value="individual">Individual only</option>
+                                <option value="bulk">Bulk only</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="evt-export-legend" style={{ marginTop: 12 }}>
+                            <label className="evt-export-sublabel">Churches</label>
+                            <div className="evt-export-legend-actions">
+                              <button type="button" className="evt-chip-btn" onClick={() => setExportChurches([])} disabled={exportChurches.length === 0}>
+                                Every church
+                              </button>
+                            </div>
+                          </div>
+                          {/* Nothing ticked means every church - the common case,
+                              and one fewer thing to do before exporting. */}
+                          <div className="evt-export-churches">
+                            {exportChurchOptions().length === 0 && <p className="evt-muted" style={{ fontSize: '0.82rem', margin: 0 }}>No registrations yet.</p>}
+                            {exportChurchOptions().map((c) => (
+                              <label key={c.name} className={`evt-export-church ${exportChurches.includes(c.name) ? 'on' : ''}`}>
+                                <input type="checkbox" checked={exportChurches.includes(c.name)} onChange={() => exportToggleChurch(c.name)} />
+                                <b>{c.name}</b>
+                                <em>{c.count}</em>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* ---- 3. What comes out ---- */}
+                        <div className="evt-export-block">
+                          <div className="evt-export-legend"><h4><span>3</span> File</h4></div>
+                          <div className="evt-export-formats">
+                            {EXPORT_FORMATS.map((f) => (
+                              <button
+                                type="button"
+                                key={f.id}
+                                className={`evt-export-format ${exportFormat === f.id ? 'on' : ''}`}
+                                onClick={() => setExportFormat(f.id)}
+                              >
+                                <i className={`fas ${f.icon}`}></i>
+                                <b>{f.label}</b>
+                                <em>{f.note}</em>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Orientation is a property of a page, so it is only
+                              offered by the two formats that have pages. */}
+                          {EXPORT_FORMATS.find((f) => f.id === exportFormat)?.paged && (
+                            <div className="evt-export-orient">
+                              <button type="button" className={exportOrient === 'portrait' ? 'on' : ''} onClick={() => setExportOrient('portrait')}>
+                                <i className="fas fa-file"></i> Portrait
+                              </button>
+                              <button type="button" className={exportOrient === 'landscape' ? 'on' : ''} onClick={() => setExportOrient('landscape')}>
+                                <i className="fas fa-file fa-rotate-90"></i> Landscape
+                              </button>
+                              <span className="evt-muted">
+                                {exportCols.length > 7 ? 'Landscape suits this many columns.' : 'Portrait fits this selection.'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="evt-modal-foot">
+                    <span className="evt-export-count">
+                      {exportRows === null ? '' : `${exportSelectedRows().length} of ${(exportRows || []).length} registrations · ${exportCols.length} columns`}
+                    </span>
+                    <button className="btn-secondary" onClick={() => setExportEvent(null)} disabled={exportBusy}>Cancel</button>
+                    <button className="btn-primary" onClick={openExportPreview} disabled={exportBusy || exportRows === null || exportCols.length === 0}>
+                      <i className={`fas ${exportBusy ? 'fa-spinner fa-spin' : 'fa-eye'}`}></i>{' '}
+                      {exportBusy ? 'Building…' : 'Preview'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- The finished document, before it is downloaded ---- */}
+            {exportPreview && (
+              <div className="evt-modal-overlay evt-preview-overlay" onClick={closeExportPreview}>
+                <div className="evt-modal evt-preview-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3>Preview</h3>
+                      <p>{exportPreview.filename}</p>
+                    </div>
+                    <button className="evt-modal-close" onClick={closeExportPreview}><i className="fas fa-times"></i></button>
+                  </div>
+
+                  <div className="evt-preview-body">
+                    {exportPreview.format === 'pdf' ? (
+                      <iframe className="evt-preview-frame" src={exportPreview.url} title="Export preview" />
+                    ) : (
+                      <>
+                        <p className="evt-preview-note">
+                          <i className="fas fa-circle-info"></i> This is the content of{' '}
+                          <b>{exportPreview.filename}</b> — the file itself keeps its own{' '}
+                          {exportPreview.format === 'xlsx' ? 'spreadsheet formatting, with the money columns as numbers you can sum.'
+                            : exportPreview.format === 'docx' ? 'Word formatting, and stays editable.'
+                              : 'plain comma-separated layout.'}
+                        </p>
+                        <iframe className="evt-preview-frame" srcDoc={exportPreview.html} title="Export preview" />
+                      </>
+                    )}
+                  </div>
+
+                  <div className="evt-modal-foot">
+                    <span className="evt-export-count">
+                      {exportPreview.rows} {exportPreview.rows === 1 ? 'record' : 'records'} · {exportOrient}
+                    </span>
+                    <button className="btn-secondary" onClick={closeExportPreview}>Back</button>
+                    {exportPreview.format === 'pdf' && (
+                      <button className="btn-secondary" onClick={() => printReport(exportPreview.spec)}>
+                        <i className="fas fa-print"></i> Print
+                      </button>
+                    )}
+                    <button className="btn-primary" onClick={confirmExportDownload}>
+                      <i className="fas fa-download"></i> Download
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ---- Manage dropdown (portal, no clipping) ---- */}
-            {eventActionMenu && eventMenuAnchor && typeof document !== 'undefined' && (() => {
+            {eventActionMenu && typeof document !== 'undefined' && (() => {
               const evt = events.find((e) => e.id === eventActionMenu);
               if (!evt) return null;
               return createPortal(
                 <>
                   <div className="evt-manage-backdrop" onClick={() => setEventActionMenu(null)}></div>
-                  <div className="evt-manage-menu" style={{ position: 'fixed', top: eventMenuAnchor.top, right: eventMenuAnchor.right }}>
+                  {/* Rendered before it is placed, so it can be measured. Hidden
+                      rather than unmounted for that one frame - `visibility`
+                      still gives it a width and a height, `display: none` would
+                      not. */}
+                  <div
+                    ref={eventMenuRef}
+                    className="evt-manage-menu"
+                    style={{
+                      position: 'fixed',
+                      top: eventMenuPos ? eventMenuPos.top : 0,
+                      left: eventMenuPos ? eventMenuPos.left : 0,
+                      right: 'auto',
+                      visibility: eventMenuPos ? 'visible' : 'hidden',
+                    }}
+                  >
                     {canManage(MODULES.UPDATE_EVENTS) && featureOn('events.edit') && (
                       <button onClick={() => { setEventActionMenu(null); openEventEditor(evt); }}><i className="fas fa-edit"></i> Edit Event</button>
                     )}
@@ -16872,6 +17447,13 @@ Examples:
                         <i className="fas fa-link"></i> Copy Registration Link
                       </button>
                     )}
+                    {/* Every event can be exported, published or not - a draft
+                        with sign-ups still has a list somebody has to work
+                        from, and a finished event is the one most likely to be
+                        asked for in writing. */}
+                    <button onClick={() => { setEventActionMenu(null); openExportModal(evt); }}>
+                      <i className="fas fa-file-export"></i> Export Data
+                    </button>
                     {evt.latitude && evt.longitude && (
                       <a href={`https://www.google.com/maps/dir/?api=1&destination=${evt.latitude},${evt.longitude}`} target="_blank" rel="noreferrer" onClick={() => setEventActionMenu(null)}><i className="fas fa-directions"></i> Directions</a>
                     )}

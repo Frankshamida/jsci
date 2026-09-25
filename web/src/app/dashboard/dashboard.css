@@ -8495,6 +8495,7 @@ body.dark-mode .community-profile-verse {
   text-shadow: 0 1px 6px rgba(0,0,0,0.25);
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -8819,6 +8820,7 @@ body.dark-mode .community-profile-verse {
   .profile-banner-verse-text {
     font-size: 0.88rem;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
   }
 
   .profile-banner-verse-quote {
@@ -8877,6 +8879,7 @@ body.dark-mode .community-profile-verse {
   .profile-banner-verse-text {
     font-size: 0.78rem;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     line-height: 1.5;
   }
 
@@ -9271,6 +9274,7 @@ body.dark-mode .community-profile-verse {
 .profile-crop-slider {
   flex: 1;
   -webkit-appearance: none;
+  appearance: none;
   height: 5px;
   border-radius: 5px;
   background: #e0e0e0;
@@ -9279,6 +9283,7 @@ body.dark-mode .community-profile-verse {
 
 .profile-crop-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
+  appearance: none;
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -10097,8 +10102,6 @@ input:checked + .slider:before { transform: translateX(24px); }
 }
 
 /* ===== ALL ASSIGNMENTS TAB ===== */
-.lu-all-container { }
-
 .lu-assignments-list {
   display: flex; flex-direction: column; gap: 10px;
 }
@@ -12212,6 +12215,7 @@ body.dark-mode .paw-past-tag { background: rgba(255,255,255,0.06); color: #666; 
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -14525,6 +14529,7 @@ body.dark-mode .btn-small.btn-info {
   border: 2px solid transparent;
   background: conic-gradient(from 0deg, rgba(218, 165, 32, 0.8), rgba(255, 220, 80, 0.2), rgba(218, 165, 32, 0.8)) border-box;
   -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   animation: wmRingSpin 6s linear infinite;
@@ -19220,6 +19225,7 @@ body:not(.dark-mode) .paw-quick-history-reason {
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -22648,6 +22654,7 @@ body.dark-mode .bday-greet-quick-btn:hover {
   border: 3px solid transparent;
   background: linear-gradient(135deg, #f59e0b, #ec4899, #8b5cf6, #f59e0b) border-box;
   -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: destination-out;
   mask-composite: exclude;
   animation: cbdayRingSpin 4s linear infinite;
@@ -24657,13 +24664,32 @@ body.dark-mode .evt-multiday-note.on { color: var(--accent); }
 .evt-mini-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-color, rgba(0,0,0,0.15)); background: transparent; cursor: pointer; font-size: 0.8rem; font-weight: 600; text-decoration: none; color: var(--text-primary, #333); }
 .evt-mini-btn.ok { background: #16a34a; color: #fff; border-color: #16a34a; }
 .evt-mini-btn.danger { color: #dc2626; border-color: rgba(220,38,38,0.4); }
-/* ---- Hero: the event on the left, the money on the right ---- */
+/* ---- Hero: the event on the left, the money on the right ----
+
+   Flex-wrap, not a grid with an `auto` column, and not a media query.
+
+   The grid this replaces gave the money tiles an `auto` track, which resolves
+   to their max-content width - so the tiles took what they wanted and the
+   title got the remainder. On a 1395px window (280px sidebar + two 56px
+   gutters = ~1000px of hero) the remainder was about 120px, and the event
+   title came out as "Miracl / e Workin / g God". The stacking rule underneath
+   it was keyed to the WINDOW at 1040px, but the width that decides whether
+   these two blocks fit side by side is the width of the HERO: the sidebar
+   state and the page gutter have taken their share before either child sees a
+   pixel, and the sidebar is expanded at 1395 and collapsed at 1051.
+
+   With flex-wrap the two children answer that question themselves, at
+   whatever window width it happens to arise, with the sidebar open or shut,
+   on a phone, a tablet in either orientation or a split-screen desktop. Both
+   carry a flex-basis that is the narrowest they read well at; when the hero
+   cannot seat 360 + 520 + the gap, the tiles drop to their own row instead of
+   strangling the title. No breakpoint to keep in sync. */
 .evt-hero-grid {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start; gap: 28px;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 28px;
 }
-.evt-hero-main { min-width: 0; }
-@media (max-width: 1040px) { .evt-hero-grid { grid-template-columns: 1fr; gap: 20px; } }
+/* min-width: 0 so a long unbroken word in the description cannot set a floor
+   for the whole column - the same reason .main-content carries it. */
+.evt-hero-main { flex: 1 1 360px; min-width: 0; }
 
 /* ---- What the event has taken in ---- */
 .evt-hero-stats {
@@ -24680,7 +24706,13 @@ body.dark-mode .evt-multiday-note.on { color: var(--accent); }
      narrow phone - at whatever width that happens to be, on any device and at
      any number of tiles. */
   display: flex; flex-wrap: wrap; gap: 12px;
-  width: 100%; max-width: 780px; margin-left: auto;
+  /* A flex ITEM of .evt-hero-grid as well as a flex container for the tiles.
+     520px is four tiles at their 150px floor minus the gaps - the width below
+     which they would start stacking anyway, so it is the right moment for the
+     whole block to drop under the title instead. It no longer needs
+     `margin-left: auto`: .evt-hero-main absorbs the free space, so the tiles
+     end up against the right edge on their own while they share the row. */
+  flex: 1 1 520px; width: 100%; max-width: 900px;
 }
 .evt-stat { flex: 1 1 150px; min-width: min(150px, 100%); }
 /* Each figure is a button into the rows behind it. Three states, each one
@@ -24721,7 +24753,7 @@ body.dark-mode .evt-multiday-note.on { color: var(--accent); }
 .evt-stat.lead > b { font-size: 1.85rem; }
 .evt-stat.due > b { color: #ffd166; }
 .evt-stat.wait > b { color: #ffb4a2; }
-@media (max-width: 1040px) { .evt-hero-stats { max-width: none; margin-left: 0; } }
+@media (max-width: 1040px) { .evt-hero-stats { max-width: none; } }
 /* Wrapping is the base behaviour now - see .evt-hero-stats above - so this
    only tightens the spacing once the tiles have started stacking. */
 @media (max-width: 780px) {
@@ -24822,9 +24854,21 @@ body.dark-mode .evt-step-line { background: rgba(255,255,255,0.12); }
 .evt-manage-trigger .caret { font-size: 0.68rem; opacity: 0.6; transition: transform 0.18s ease; }
 .evt-rowmenu.open .evt-manage-trigger { border-color: var(--primary, #926c15); color: var(--primary, #926c15); }
 .evt-rowmenu.open .caret { transform: rotate(180deg); }
+/* Opened from a row near the bottom of the window, the menu goes up instead of
+   down. Which way is decided when it opens, by measuring - see the trigger's
+   onClick - because CSS cannot know how much room is left below the button. */
+.evt-rowmenu.up .evt-rowmenu-list { top: auto; bottom: calc(100% + 6px); }
 .evt-rowmenu-list {
+  /* Anchored to the trigger: `right: 0` against a positioned .evt-rowmenu puts
+     the menu's right edge on the button's right edge, which is the table's
+     right edge too. Growing leftwards is the only direction with room. */
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
-  min-width: 208px; padding: 6px; border-radius: 12px;
+  /* ...but never wider than the window it is being opened on. Without the
+     second term a 208px menu on a 320px phone in landscape, opened from a
+     button already near the edge, is drawn partly off the left side. */
+  min-width: min(208px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  padding: 6px; border-radius: 12px;
   background: var(--bg-card, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.12));
   box-shadow: 0 16px 38px rgba(0,0,0,0.18);
   display: flex; flex-direction: column; gap: 2px;
@@ -24955,6 +24999,159 @@ body.dark-mode .evt-plan-option { background: #2a2a3a; }
   .evt-plan-summary.big { grid-template-columns: 1fr 1fr; gap: 14px 0; }
   .evt-plan-summary.big > div:nth-child(2) { border-right: none; }
   .evt-plan-summary.big .bal { grid-column: 1 / -1; border-right: none; padding-top: 12px; border-top: 1px solid rgba(146,108,21,0.20); }
+}
+
+/* ---- The export preview ---- */
+/* Centred and big: the point is to read the document, so it takes the room a
+   document needs and gives the dialog chrome as little as it can. */
+.evt-preview-overlay { padding: 12px; }
+.evt-preview-modal {
+  max-width: min(1040px, 96vw);
+  max-height: 94vh;
+  width: 100%;
+}
+.evt-preview-body {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 16px;
+  background: #6d6d75;   /* the grey a PDF reader puts behind a page */
+  overflow: hidden;
+}
+.evt-preview-frame {
+  flex: 1; min-height: 52vh; width: 100%;
+  border: none; border-radius: 8px; background: #fff;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.28);
+}
+.evt-preview-note {
+  margin: 0; padding: 9px 12px; border-radius: 9px;
+  background: rgba(255,255,255,0.92); color: #3a3a3a;
+  font-size: 0.79rem; line-height: 1.5;
+}
+.evt-preview-note i { color: var(--primary, #926c15); margin-right: 5px; }
+body.dark-mode .evt-preview-body { background: #17171d; }
+body.dark-mode .evt-preview-note { background: #2a2a34; color: #ddd; }
+
+@media (max-width: 640px) {
+  .evt-preview-body { padding: 10px; }
+  .evt-preview-frame { min-height: 44vh; }
+}
+
+/* ---- Export Data: columns, who, and what file ---- */
+/* Three numbered blocks in one dialog rather than a wizard: everything here is
+   a choice somebody wants to see the effect of before committing, and the
+   count in the footer is that effect. */
+.evt-export-modal { max-width: 720px; }
+
+.evt-export-loading {
+  display: flex; align-items: center; gap: 10px; justify-content: center;
+  padding: 40px 0; color: var(--text-muted, #888); font-size: 0.9rem;
+}
+
+.evt-export-block {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.08));
+}
+.evt-export-block:last-child { border-bottom: none; padding-bottom: 4px; }
+.evt-export-block:first-child { padding-top: 0; }
+
+.evt-export-legend {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.evt-export-legend h4 {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0; font-size: 0.92rem; font-weight: 700;
+}
+.evt-export-legend h4 span {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--primary, #926c15); color: #fff; font-size: 0.74rem; font-weight: 800;
+}
+.evt-export-legend-actions { display: flex; gap: 7px; }
+.evt-export-sublabel {
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-muted, #888);
+}
+
+/* Columns: dense, because there are nineteen of them and the point is to see
+   the whole catalogue at once. */
+.evt-export-cols { display: flex; flex-wrap: wrap; gap: 7px; }
+.evt-export-col {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.14));
+  font-size: 0.8rem; font-weight: 600;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.evt-export-col input { width: 15px; height: 15px; accent-color: #926c15; cursor: pointer; }
+.evt-export-col.on {
+  background: rgba(146,108,21,0.09);
+  border-color: rgba(146,108,21,0.45);
+  color: #7a5a11;
+}
+
+.evt-export-churches {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr));
+  gap: 6px; max-height: 190px; overflow-y: auto; padding-right: 2px;
+}
+.evt-export-church {
+  display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 9px;
+  padding: 8px 11px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.08));
+}
+.evt-export-church.on { background: rgba(146,108,21,0.06); border-color: rgba(146,108,21,0.4); }
+.evt-export-church input { width: 16px; height: 16px; accent-color: #926c15; cursor: pointer; }
+.evt-export-church b { font-size: 0.82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evt-export-church em {
+  font-style: normal; font-size: 0.72rem; font-weight: 700;
+  color: var(--text-muted, #888); background: rgba(0,0,0,0.05);
+  padding: 2px 8px; border-radius: 999px;
+}
+
+.evt-export-formats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 9px;
+}
+.evt-export-format {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 14px 10px; border-radius: 12px; cursor: pointer;
+  border: 1.5px solid var(--border-color, rgba(0,0,0,0.12));
+  background: transparent; font: inherit; color: var(--text-primary, #333);
+  transition: border-color 0.14s ease, background 0.14s ease, transform 0.14s ease;
+}
+.evt-export-format:hover { transform: translateY(-1px); border-color: rgba(146,108,21,0.45); }
+.evt-export-format i { font-size: 1.35rem; color: var(--primary, #926c15); }
+.evt-export-format b { font-size: 0.87rem; font-weight: 700; }
+.evt-export-format em { font-style: normal; font-size: 0.72rem; color: var(--text-muted, #888); }
+.evt-export-format.on {
+  border-color: var(--primary, #926c15);
+  background: rgba(146,108,21,0.07);
+  box-shadow: 0 4px 14px rgba(146,108,21,0.14);
+}
+
+.evt-export-orient { display: flex; align-items: center; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+.evt-export-orient button {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 14px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.14));
+  background: transparent; font: inherit; font-size: 0.82rem; font-weight: 600;
+  color: var(--text-primary, #333);
+}
+.evt-export-orient button.on { border-color: var(--primary, #926c15); background: rgba(146,108,21,0.09); color: #7a5a11; }
+.evt-export-orient .evt-muted { font-size: 0.76rem; }
+
+.evt-export-warn { margin: 9px 0 0; font-size: 0.8rem; color: #c0392b; }
+.evt-export-count { margin-right: auto; font-size: 0.8rem; color: var(--text-muted, #888); }
+
+body.dark-mode .evt-export-col.on,
+body.dark-mode .evt-export-church.on,
+body.dark-mode .evt-export-orient button.on { color: #e6c15c; }
+body.dark-mode .evt-export-format { color: #eee; }
+body.dark-mode .evt-export-church em { background: rgba(255,255,255,0.08); }
+
+@media (max-width: 560px) {
+  .evt-export-formats { grid-template-columns: 1fr 1fr; }
+  .evt-export-count { width: 100%; margin-bottom: 8px; }
+  .evt-export-churches { max-height: 40vh; }
 }
 
 /* ---- Collecting cash from a group at the desk ---- */
@@ -25224,24 +25421,40 @@ body.dark-mode .evt-copy-cell:hover { background: rgba(255,255,255,0.08); }
 /* Registrations table: the wide columns get the room, the rest stay tight so
    there are no acres of empty cell between Added By and Church. */
 .evt-table-regs { table-layout: fixed; }
-/* proportions, not pixels, so the row reads evenly at any width. Eight
-   columns since Contact went - the room it had is shared out among the ones
-   that get read, Attendee and Church most of all. */
+/* Proportions, not pixels, and they MUST add up to exactly 100.
+
+   This is the rule the table kept breaking on. `table-layout: fixed` sizes
+   each column from the width written here, and then - per the spec - the table
+   is as wide as the greater of its own width and the sum of those columns. The
+   eight columns used to total 96% PLUS a 132px Actions column, which is 132px
+   more than the container at every screen size there is. The table overflowed
+   by exactly the width of its last column, so Manage sat off the right-hand
+   edge with only a scrollbar to reach it, and at narrow widths the ACTIONS
+   heading came to rest on top of STATUS.
+
+   Actions is a percentage now rather than a pixel width for the same reason:
+   a pixel column cannot be part of a sum that has to come to 100. 11% is
+   ~116px on the narrowest table that is still a table (a 1025px window, where
+   the sidebar has collapsed to its rail) and grows from there - and the Manage
+   button, which is `white-space: nowrap`, measures about 105px at the trimmed
+   font those widths use.
+
+   If these are ever re-tuned: change two numbers so the total stays 100. */
 .evt-table-regs th:nth-child(1), .evt-table-regs td:nth-child(1) { width: 18%; }  /* Attendee */
-.evt-table-regs th:nth-child(2), .evt-table-regs td:nth-child(2) { width: 10%; }  /* Type */
-.evt-table-regs th:nth-child(3), .evt-table-regs td:nth-child(3) { width: 15%; }  /* Added By */
-.evt-table-regs th:nth-child(4), .evt-table-regs td:nth-child(4) { width: 20%; }  /* Church */
-.evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { width: 7%; }   /* Extras */
-.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { width: 15%; }  /* Payment */
-.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { width: 11%; }  /* Status */
-.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { width: 132px; } /* Actions */
+.evt-table-regs th:nth-child(2), .evt-table-regs td:nth-child(2) { width: 9%; }   /* Type */
+.evt-table-regs th:nth-child(3), .evt-table-regs td:nth-child(3) { width: 14%; }  /* Added By */
+.evt-table-regs th:nth-child(4), .evt-table-regs td:nth-child(4) { width: 18%; }  /* Church */
+.evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { width: 5%; }   /* Extras */
+.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { width: 12%; }  /* Payment */
+.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { width: 12%; }  /* Status */
+.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { width: 12%; }  /* Actions */
+/* 18 + 9 + 14 + 18 + 5 + 12 + 12 + 12 = 100 */
 /* the same gutter the Attendee column gets on the other side */
-.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { padding-right: 18px; padding-left: 18px; }
+.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { padding-right: 18px; padding-left: 12px; }
 /* the extras tick sits under the middle of its heading, not off in the margin */
 .evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { text-align: center; }
 /* Manage keeps company with Status instead of hugging the table edge */
 .evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { text-align: right; }
-.evt-table-regs td { word-break: break-word; }
 .evt-table-regs th, .evt-table-regs td { padding: 13px 12px; }
 .evt-table-regs th:first-child, .evt-table-regs td:first-child { padding-left: 18px; }
 .evt-table-regs th:last-child, .evt-table-regs td:last-child { padding-right: 18px; }
@@ -25252,26 +25465,72 @@ body.dark-mode .evt-copy-cell:hover { background: rgba(255,255,255,0.08); }
    nth-child rules above still apply, so each one below is a correction to the
    column that has shifted one place right. */
 .evt-table-regs.has-tier th:nth-child(1), .evt-table-regs.has-tier td:nth-child(1) { width: 16%; }  /* Attendee */
-.evt-table-regs.has-tier th:nth-child(2), .evt-table-regs.has-tier td:nth-child(2) { width: 10%; text-align: left; }   /* Age Group */
-.evt-table-regs.has-tier th:nth-child(3), .evt-table-regs.has-tier td:nth-child(3) { width: 9%; }   /* Type */
-.evt-table-regs.has-tier th:nth-child(4), .evt-table-regs.has-tier td:nth-child(4) { width: 13%; }  /* Added By */
-.evt-table-regs.has-tier th:nth-child(5), .evt-table-regs.has-tier td:nth-child(5) { width: 17%; text-align: left; }  /* Church */
-.evt-table-regs.has-tier th:nth-child(6), .evt-table-regs.has-tier td:nth-child(6) { width: 7%; text-align: center; } /* Extras */
-.evt-table-regs.has-tier th:nth-child(7), .evt-table-regs.has-tier td:nth-child(7) { width: 14%; text-align: left; }  /* Payment */
+.evt-table-regs.has-tier th:nth-child(2), .evt-table-regs.has-tier td:nth-child(2) { width: 9%; text-align: left; }    /* Age Group */
+.evt-table-regs.has-tier th:nth-child(3), .evt-table-regs.has-tier td:nth-child(3) { width: 8%; }   /* Type */
+.evt-table-regs.has-tier th:nth-child(4), .evt-table-regs.has-tier td:nth-child(4) { width: 12%; }  /* Added By */
+.evt-table-regs.has-tier th:nth-child(5), .evt-table-regs.has-tier td:nth-child(5) { width: 15%; text-align: left; }  /* Church */
+.evt-table-regs.has-tier th:nth-child(6), .evt-table-regs.has-tier td:nth-child(6) { width: 5%; text-align: center; } /* Extras */
+.evt-table-regs.has-tier th:nth-child(7), .evt-table-regs.has-tier td:nth-child(7) { width: 11%; text-align: left; }  /* Payment */
 .evt-table-regs.has-tier th:nth-child(8), .evt-table-regs.has-tier td:nth-child(8) {
-  width: 10%; text-align: left; padding-right: 12px; padding-left: 12px;         /* Status */
+  width: 12%; text-align: left; padding-right: 10px; padding-left: 10px;         /* Status */
 }
+/* 16 + 9 + 8 + 12 + 15 + 5 + 11 + 12 + 12 = 100 */
 .evt-table-regs.has-tier th:nth-child(9), .evt-table-regs.has-tier td:nth-child(9) {
-  width: 132px; text-align: right; padding-right: 18px; padding-left: 18px;      /* Actions */
+  width: 12%; text-align: right; padding-right: 18px; padding-left: 10px;        /* Actions */
 }
 
-/* Between a tablet and a desk this table scrolls rather than squeezes: a
-   registration row carries a church name and a payment reference, and neither
-   reads at 60px. Below 1366px it is the tablet band at the end of this file
-   that decides the layout, and below 1024px there is no table left to lay out
-   - every row is a card. */
+/* Words break between words, not inside them. `word-break: break-word` is the
+   legacy spelling of `overflow-wrap: break-word` and behaves the same, but
+   spelling it out this way says the intent: a word is only ever cut when it
+   genuinely cannot fit the column. "Cebu Crossover Tabernacle" coming out as
+   "Cebu Crossov / er Taberna / cle" was never this property misbehaving - it
+   was the column being 60px wide, which the band below is what fixes. */
+.evt-table-regs td { word-break: normal; overflow-wrap: break-word; }
+
+/* ---- 1367-1560: a desk window that is not a desk's worth of room ----
+
+   This band used to hand the table back to `table-layout: auto` with a 960px
+   floor, and that is what ruined it. Auto layout sizes each column to its own
+   content, so on a ~1000px hero the nine columns were apportioned by how much
+   text each happened to hold rather than by how much each needs to be read,
+   and Church, Added By and Attendee were squeezed until their words split
+   mid-syllable.
+
+   The arithmetic: at 1395px the sidebar is EXPANDED (the auto-collapse band
+   ends at 1366), so 1395 - 280 - 2 x 56 leaves about 1000px. That is less
+   room than the 1366px tablet gets with its collapsed 76px rail, which is why
+   this band looked worse than the narrower one below it - and why it needs the
+   same trims rather than fewer.
+
+   So: the same fixed proportions as the desk, the same trimmed padding as the
+   tablet band, and an 880px floor underneath. The floor is what turns the
+   remaining bad case into a horizontal scroll inside .evt-table-wrapper
+   instead of a column of broken words - a table you can push sideways is
+   usable, a table you cannot read is not. */
 @media (min-width: 1367px) and (max-width: 1560px) {
-  .evt-table-regs { table-layout: auto; min-width: 960px; }
+  /* Every table on these screens is in the same squeeze, not only the
+     registrations one - the events list, attendance and the installment plans
+     all lose the same ~280px to an expanded sidebar. They get the tablet
+     band's trims here rather than waiting until 1366px to get them. */
+  .evt-table th, .evt-table td { padding: 12px 11px; }
+  .evt-table tbody td { font-size: 0.85rem; }
+  .evt-table thead th { font-size: 0.75rem; }
+  .evt-cell-banner { width: 52px; height: 66px; }
+
+  /* Padding and type only. The column WIDTHS are the proportions at the top of
+     this file and are never overridden per band - that is what kept pushing
+     the total past 100% and Manage off the screen. */
+  .evt-table-regs { table-layout: fixed; min-width: 0; }
+  .evt-table-regs th, .evt-table-regs td { padding: 12px 9px; }
+  .evt-table-regs tbody td { font-size: 0.84rem; }
+  .evt-table-regs thead th { font-size: 0.75rem; }
+  .evt-table-regs th:first-child, .evt-table-regs td:first-child { padding-left: 16px; }
+  .evt-table-regs th:last-child, .evt-table-regs td:last-child { padding-right: 16px; padding-left: 8px; }
+  /* ~108px with the label on, against a column that is ~120px here. */
+  .evt-table-regs .evt-manage-trigger { padding: 8px 10px; font-size: 0.8rem; }
+  /* The peso floor comes off for the same reason it does on a tablet: it buys
+     its width from the columns people actually read. */
+  .evt-table td.evt-cell-payment { min-width: 0; }
 }
 @media (max-width: 1024px) { .evt-table-regs { min-width: 0; } }
 
@@ -26425,7 +26684,7 @@ body.dark-mode .myreg-fee-alert { background: rgba(234,179,8,0.15); color: #fcd3
 .evt-poster-body { padding: 14px 16px 18px; }
 .evt-poster-title {
   margin: 0 0 8px; font-family: var(--font-body); font-weight: 800; font-size: 1rem; line-height: 1.25;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .evt-poster-meta { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; color: var(--text-muted, #888); margin-bottom: 5px; }
 .evt-poster-meta i { color: var(--primary); width: 15px; text-align: center; flex-shrink: 0; }
@@ -26580,7 +26839,17 @@ body.dark-mode .evt-table thead th { background: #26241c !important; color: #b8a
 .evt-manage-menu {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; min-width: 180px;
   background: var(--bg-card, #fff); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.18);
-  border: 1px solid var(--border-color, rgba(0,0,0,0.08)); overflow: hidden; padding: 6px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.08)); padding: 6px;
+  /* It is placed by measurement (see placeEventMenu), and these are the bounds
+     that measurement works within: never wider than the screen it is on, never
+     taller either - a menu with Publish, Registrations, the link, Directions
+     and Delete is most of a small phone in landscape, so it scrolls rather than
+     running off the bottom. `hidden` horizontally keeps the rounded corners
+     clipping the first and last items. */
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: hidden auto;
+  overscroll-behavior: contain;
 }
 .evt-manage-menu button, .evt-manage-menu a {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: none; background: transparent;
@@ -26880,7 +27149,7 @@ body.dark-mode .evt-admin-card { background: #1e1e2e; }
   body.dark-mode .evt-table tbody td.evt-td-primary { background: rgba(255,255,255,0.04); }
   .evt-cell-title { align-items: flex-start; }
   .evt-cell-banner { width: 58px; height: 74px; }
-  .evt-cell-desc { white-space: normal; -webkit-line-clamp: 2; max-width: 100%; }
+  .evt-cell-desc { white-space: normal; -webkit-line-clamp: 2; line-clamp: 2; max-width: 100%; }
 
   /* Actions cell: full-width row, buttons wrap and get bigger tap targets */
   .evt-table tbody td.evt-td-actions {
@@ -30779,20 +31048,16 @@ body.dark-mode .rmn-ok { color: #4ade80; }
   /* Registrations: proportional columns rather than "as wide as the longest
      church name", which is what table-layout: auto gives and what pushed this
      table off the side of the screen. */
+  /* As above: padding only, never widths. */
   .evt-table-regs { table-layout: fixed; min-width: 0; }
   .evt-table-regs th, .evt-table-regs td { padding: 12px 8px; }
   .evt-table-regs th:first-child, .evt-table-regs td:first-child { padding-left: 15px; }
-  .evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) {
-    width: 112px; padding-left: 10px; padding-right: 15px;
-  }
-  /* With the Age Group column, Actions has moved one place right and the
-     eighth is Status - which must go back to being an ordinary column. */
-  .evt-table-regs.has-tier th:nth-child(8), .evt-table-regs.has-tier td:nth-child(8) {
-    width: auto; padding-left: 8px; padding-right: 8px;
-  }
-  .evt-table-regs.has-tier th:nth-child(9), .evt-table-regs.has-tier td:nth-child(9) {
-    width: 112px; padding-left: 10px; padding-right: 15px;
-  }
+  .evt-table-regs th:last-child, .evt-table-regs td:last-child { padding-right: 15px; padding-left: 7px; }
+  /* The trigger gives up its label before the table gives up a column: at
+     these widths it is an icon and a caret, and the heading above it says
+     what it is. */
+  .evt-manage-trigger .evt-manage-label { display: none; }
+  .evt-manage-trigger { padding-inline: 10px; }
 
   .evt-manage-btn { padding: 8px 14px; font-size: 0.82rem; }
   .evt-manage-trigger { padding: 8px 11px; font-size: 0.8rem; }
