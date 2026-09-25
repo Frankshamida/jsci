@@ -3465,6 +3465,9 @@ export default function CommitteeDashboardPage() {
                                         </>
                                       );
                                   }
+                                  if (r.status === 'pending_cash' && !(Number(r.amount) > 0)) {
+                                    return <span className="evt-status evt-status-registered">registered</span>;
+                                  }
                                   return <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>;
                                 })()}
                                 {r.attended && (
@@ -3516,7 +3519,7 @@ export default function CommitteeDashboardPage() {
                                                 <i className="fas fa-peso-sign"></i> Collect <em>{peso(Math.max(0, owed - paid))} left</em>
                                               </button>
                                             )
-                                          ) : r.status === 'pending_cash' ? (
+                                          ) : r.status === 'pending_cash' && owed > 0 ? (
                                             // The money arriving IS the verification, and the
                                             // person handing it over is at the desk waiting to
                                             // be scanned in - so it is one tap, not two.

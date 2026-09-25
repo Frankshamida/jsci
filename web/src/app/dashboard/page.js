@@ -20,7 +20,7 @@ import {
   STARTER_TIERS, addonFeeFor, addonShortLabel, baseAmountFor, defaultTier, eventFeeLabel,
   eventTiers, findTier, hasPriceTiers, tierAgeLabel, tierKey,
 } from '@/lib/eventPricing';
-import { eventSlugFor, findEventBySlug } from '@/lib/eventSlug';
+import { eventSlugFor, findEventBySlug, eventShareUrl } from '@/lib/eventSlug';
 import { HERO_MEDIA_DEFAULT, HERO_VIDEO_DIR, heroVideoWeight, normalizeHeroMedia } from '@/lib/heroMedia';
 import ProofDrop from '@/components/ProofDrop';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
@@ -697,6 +697,314 @@ function PayMethodSelect({ methods, channels, value, onChange, placeholder = 'Se
   );
 }
 
+// Date and time in one box, opening one panel: a month calendar on the left
+// and hour / minute / AM-PM steppers on the right. Replaces the pair of native
+// inputs, whose pickers are drawn by the browser and ignored the gold theme.
+// Values stay in the native shapes - 'YYYY-MM-DD' and 'HH:MM' (24h) - so the
+// form code around it did not have to change.
+const DTP_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const dtpPad = (n) => String(n).padStart(2, '0');
+const dtpIso = (d) => `${d.getFullYear()}-${dtpPad(d.getMonth() + 1)}-${dtpPad(d.getDate())}`;
+const dtpParse = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+};
+
+function DateTimePicker({ date, time, onDate, onTime, min, invalid = false }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const [view, setView] = useState(() => dtpParse(date) || new Date());
+  const [monthMode, setMonthMode] = useState(false);
+  const boxRef = useRef(null);
+  const panelRef = useRef(null);
+
+  const picked = dtpParse(date);
+  const minDate = dtpParse(min);
+  const [hh, mm] = /^\d{2}:\d{2}$/.test(time || '') ? time.split(':').map(Number) : [null, null];
+
+  const place = () => {
+    const r = boxRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const narrow = window.innerWidth < 600;
+    const width = Math.min(narrow ? 340 : 540, window.innerWidth - 16);
+    const height = narrow ? 560 : 360;
+    const up = window.innerHeight - r.bottom < height + 12 && r.top > window.innerHeight - r.bottom;
+    setPos({
+      left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
+      width,
+      ...(up ? { bottom: window.innerHeight - r.top + 8 } : { top: r.bottom + 8 }),
+    });
+  };
+
+  const openPanel = () => {
+    setView(picked || minDate || new Date());
+    setMonthMode(false);
+    place();
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => {
+      if (boxRef.current?.contains(e.target) || panelRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const scroll = (e) => { if (!panelRef.current?.contains(e.target)) setOpen(false); };
+    const resize = () => setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    document.addEventListener('keydown', esc);
+    window.addEventListener('scroll', scroll, true);
+    window.addEventListener('resize', resize);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('touchstart', away);
+      document.removeEventListener('keydown', esc);
+      window.removeEventListener('scroll', scroll, true);
+      window.removeEventListener('resize', resize);
+    };
+  }, [open]);
+
+  // Six weeks from the Sunday on or before the 1st - the same 42 cells every
+  // month, so the panel never changes height as you page through.
+  const first = new Date(view.getFullYear(), view.getMonth(), 1);
+  const gridStart = new Date(first.getFullYear(), first.getMonth(), 1 - first.getDay());
+  const days = Array.from({ length: 42 }, (_, i) => new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i));
+  const todayIso = dtpIso(new Date());
+  const shiftMonth = (n) => setView(new Date(view.getFullYear(), view.getMonth() + n, 1));
+
+  // Time steppers. An empty time starts from 9:00 AM on the first press.
+  const setTime = (h, m) => onTime(`${dtpPad(((h % 24) + 24) % 24)}:${dtpPad(((m % 60) + 60) % 60)}`);
+  const baseH = hh ?? 9;
+  const baseM = mm ?? 0;
+  const stepHour = (n) => setTime(baseH + n, baseM);
+  const stepMin = (n) => {
+    const total = baseH * 60 + baseM + n;
+    setTime(Math.floor((((total % 1440) + 1440) % 1440) / 60), (((total % 1440) + 1440) % 1440) % 60);
+  };
+  const setMeridiem = (pm) => {
+    if (pm && baseH < 12) setTime(baseH + 12, baseM);
+    else if (!pm && baseH >= 12) setTime(baseH - 12, baseM);
+    else if (hh == null) setTime(baseH, baseM);
+  };
+  const isPm = (hh ?? 9) >= 12;
+  const h12 = hh == null ? '--' : dtpPad(hh % 12 || 12);
+  const mDisp = mm == null ? '--' : dtpPad(mm);
+
+  const dateLabel = picked
+    ? picked.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'Select date';
+  const timeLabel = hh == null ? '--:-- --' : `${dtpPad(hh % 12 || 12)}:${dtpPad(mm)} ${hh >= 12 ? 'PM' : 'AM'}`;
+
+  return (
+    <>
+      <div ref={boxRef} className={`evt-dt evt-dtp ${open ? 'open' : ''} ${invalid ? 'evt-field-error' : ''}`}>
+        <button type="button" className="evt-dt-part evt-dtp-trigger" onClick={() => (open ? setOpen(false) : openPanel())} aria-haspopup="dialog" aria-expanded={open}>
+          <i className="fas fa-calendar-days"></i>
+          <span className={picked ? '' : 'evt-dtp-ph'}>{dateLabel}</span>
+        </button>
+        <span className="evt-dt-split" aria-hidden="true"></span>
+        <button type="button" className="evt-dt-part evt-dt-time evt-dtp-trigger" onClick={() => (open ? setOpen(false) : openPanel())} aria-haspopup="dialog" aria-expanded={open}>
+          <i className="far fa-clock"></i>
+          <span className={hh == null ? 'evt-dtp-ph' : ''}>{timeLabel}</span>
+          <i className="fas fa-chevron-down evt-dtp-caret"></i>
+        </button>
+      </div>
+      {open && pos && typeof document !== 'undefined' && createPortal(
+        <div ref={panelRef} className="evt-dtp-panel" style={pos} role="dialog" aria-label="Choose date and time">
+          <div className="evt-dtp-cal">
+            <div className="evt-dtp-head">
+              <button type="button" className="evt-dtp-nav" onClick={() => (monthMode ? setView(new Date(view.getFullYear() - 1, view.getMonth(), 1)) : shiftMonth(-1))} aria-label="Previous"><i className="fas fa-chevron-left"></i></button>
+              <button type="button" className="evt-dtp-title" onClick={() => setMonthMode((v) => !v)}>
+                {monthMode ? view.getFullYear() : `${DTP_MONTHS[view.getMonth()]} ${view.getFullYear()}`}
+                <i className={`fas fa-caret-${monthMode ? 'up' : 'down'}`}></i>
+              </button>
+              <button type="button" className="evt-dtp-nav" onClick={() => (monthMode ? setView(new Date(view.getFullYear() + 1, view.getMonth(), 1)) : shiftMonth(1))} aria-label="Next"><i className="fas fa-chevron-right"></i></button>
+            </div>
+            {monthMode ? (
+              <div className="evt-dtp-months">
+                {DTP_MONTHS.map((name, i) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={view.getMonth() === i ? 'on' : ''}
+                    onClick={() => { setView(new Date(view.getFullYear(), i, 1)); setMonthMode(false); }}
+                  >{name.slice(0, 3)}</button>
+                ))}
+              </div>
+            ) : (
+              <div className="evt-dtp-grid">
+                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => <span key={d} className="evt-dtp-dow">{d}</span>)}
+                {days.map((d) => {
+                  const iso = dtpIso(d);
+                  const out = d.getMonth() !== view.getMonth();
+                  const blocked = minDate && d < minDate;
+                  return (
+                    <button
+                      key={iso}
+                      type="button"
+                      disabled={!!blocked}
+                      className={`evt-dtp-day ${out ? 'out' : ''} ${iso === date ? 'on' : ''} ${iso === todayIso ? 'today' : ''}`}
+                      onClick={() => { onDate(iso); if (out) setView(new Date(d.getFullYear(), d.getMonth(), 1)); }}
+                    >{d.getDate()}</button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="evt-dtp-foot">
+              <button type="button" className="evt-dtp-clear" onClick={() => onDate('')}>Clear</button>
+            </div>
+          </div>
+
+          <div className="evt-dtp-time">
+            <span className="evt-dtp-time-title">Time</span>
+            <div className="evt-dtp-spin">
+              <div className="evt-dtp-col">
+                <button type="button" onClick={() => stepHour(1)} aria-label="Hour up"><i className="fas fa-chevron-up"></i></button>
+                <b>{h12}</b>
+                <button type="button" onClick={() => stepHour(-1)} aria-label="Hour down"><i className="fas fa-chevron-down"></i></button>
+              </div>
+              <span className="evt-dtp-colon">:</span>
+              <div className="evt-dtp-col">
+                <button type="button" onClick={() => stepMin(5)} aria-label="Minutes up"><i className="fas fa-chevron-up"></i></button>
+                <b>{mDisp}</b>
+                <button type="button" onClick={() => stepMin(-5)} aria-label="Minutes down"><i className="fas fa-chevron-down"></i></button>
+              </div>
+              <div className="evt-dtp-ampm">
+                <button type="button" className={hh != null && !isPm ? 'on' : ''} onClick={() => setMeridiem(false)}>AM</button>
+                <button type="button" className={hh != null && isPm ? 'on' : ''} onClick={() => setMeridiem(true)}>PM</button>
+              </div>
+            </div>
+            <div className="evt-dtp-foot evt-dtp-foot-end">
+              <button
+                type="button"
+                className="evt-dtp-today"
+                onClick={() => {
+                  const now = new Date();
+                  const target = minDate && now < minDate ? minDate : now;
+                  onDate(dtpIso(target));
+                  setView(new Date(target.getFullYear(), target.getMonth(), 1));
+                }}
+              >Today</button>
+              <button type="button" className="evt-dtp-done" onClick={() => setOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+// A filter dropdown in the dashboard's own look. A native <select> opens a list
+// the browser draws - system font, system blue - which is the one thing on
+// these screens that ignored the gold theme. The trigger keeps the
+// evt-filter-select class, so it sits and sizes exactly where the select did.
+// The list is fixed-positioned in a portal so no card or scrolling box clips it.
+function FilterSelect({ value, onChange, options, ariaLabel, className = '' }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+  const current = options.find((o) => String(o.value) === String(value)) || options[0];
+
+  const place = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const want = Math.min(options.length * 42 + 12, 320);
+    const up = window.innerHeight - r.bottom < want + 12 && r.top > window.innerHeight - r.bottom;
+    const width = Math.max(r.width, 180);
+    setPos({
+      left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
+      width,
+      ...(up ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }),
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => {
+      if (btnRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const esc = (e) => { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); } };
+    // Scrolling the page would leave a fixed list floating away from its box.
+    const scroll = (e) => { if (!menuRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    document.addEventListener('keydown', esc);
+    window.addEventListener('scroll', scroll, true);
+    const resize = () => setOpen(false);
+    window.addEventListener('resize', resize);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('touchstart', away);
+      document.removeEventListener('keydown', esc);
+      window.removeEventListener('scroll', scroll, true);
+      window.removeEventListener('resize', resize);
+    };
+  }, [open]);
+
+  // Opening puts the chosen entry in view and under the keyboard.
+  useEffect(() => {
+    if (!open || !menuRef.current) return;
+    const on = menuRef.current.querySelector('.on') || menuRef.current.querySelector('button');
+    on?.focus({ preventScroll: true });
+    on?.scrollIntoView({ block: 'nearest' });
+  }, [open, pos]);
+
+  const moveFocus = (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = [...(menuRef.current?.querySelectorAll('button') || [])];
+    const i = items.indexOf(document.activeElement);
+    const next = items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+    next?.focus();
+  };
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className={`evt-filter-select evt-fsel ${className} ${open ? 'open' : ''}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => { if (!open) place(); setOpen((v) => !v); }}
+        onKeyDown={(e) => {
+          if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); place(); setOpen(true); }
+        }}
+      >
+        {current ? current.label : ''}
+      </button>
+      {open && pos && typeof document !== 'undefined' && createPortal(
+        <ul ref={menuRef} className="evt-fsel-menu" role="listbox" aria-label={ariaLabel} style={pos} onKeyDown={moveFocus}>
+          {options.map((o) => {
+            const on = String(o.value) === String(value);
+            return (
+              <li key={o.value}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={on}
+                  className={on ? 'on' : ''}
+                  onClick={() => { onChange(o.value); setOpen(false); btnRef.current?.focus(); }}
+                >
+                  <span>{o.label}</span>
+                  {on && <i className="fas fa-check"></i>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 // ============================================
 // DASHBOARD COMPONENT
 // ============================================
@@ -1366,6 +1674,11 @@ export default function DashboardPage() {
   const [eventSearch, setEventSearch] = useState('');
   const [eventStatusFilter, setEventStatusFilter] = useState('all'); // all | upcoming | ongoing | past | draft
   const [eventProvinceFilter, setEventProvinceFilter] = useState('all');
+  const [eventDateFilter, setEventDateFilter] = useState('all'); // all | week | month | nextmonth
+  // Phones fold the filter pills away behind the sliders button.
+  const [eventFiltersOpen, setEventFiltersOpen] = useState(true);
+  const [eventCardPageSize, setEventCardPageSize] = useState(10);
+  const [eventCardPage, setEventCardPage] = useState(1);
   const [myRegistrations, setMyRegistrations] = useState([]);
   const [myRegIds, setMyRegIds] = useState(new Set()); // event ids the user is registered for
   const [regQrCodes, setRegQrCodes] = useState({}); // registrationId -> data URL
@@ -5872,6 +6185,8 @@ export default function DashboardPage() {
   const [regSort, setRegSort] = useState('newest');   // 'newest' | 'oldest'
   const [regTypeFilter, setRegTypeFilter] = useState('all'); // all | individual | bulk | admin
   const [regSearch, setRegSearch] = useState('');
+  // Phones fold the sort/church/type selects behind a Filter button.
+  const [regFiltersOpen, setRegFiltersOpen] = useState(false);
   const [regChurchFilter, setRegChurchFilter] = useState('all');
   // Narrow the table to one bulk booking: the representative and everybody
   // they registered. Held lower-cased, because it is matched against a name
@@ -5986,6 +6301,31 @@ export default function DashboardPage() {
   // money sits in a bank account, and they are counted apart everywhere else
   // on this screen (the Cash Collected and Online Collected cards). Only the
   // status column made them look alike.
+  // Whether tapping an event card may open its registrations - the same rule
+  // as the Registrations entry in the Manage menu.
+  const canOpenEventRegs = (evt) => canManage(MODULES.UPDATE_EVENTS)
+    && evt.is_published !== false && !isEventOver(evt);
+
+  // Where an event is in its life, for the status pill.
+  const eventStatusOf = (evt) => {
+    const now = Date.now();
+    const start = evtMs(evt.event_date);
+    const end = evt.end_date ? new Date(evt.end_date).getTime() : start;
+    if (evt.is_published === false) return { label: 'Draft', cls: 'draft' };
+    if (start && now < start) return { label: 'Upcoming', cls: 'upcoming' };
+    if (start && end && now >= start && now <= end) return { label: 'Ongoing', cls: 'ongoing' };
+    if (end && now > end) return { label: 'Completed', cls: 'completed' };
+    return { label: 'Published', cls: 'published' };
+  };
+
+  // Two letters for the avatar on the phone cards: first and last name.
+  const regInitials = (name) => {
+    const words = String(formatPersonName(name) || '').split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '?';
+    return (words[0][0] + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+  };
+  // One of four gold shades, fixed per name so a person keeps their colour.
+  const regAvatarShade = (name) => [...String(name || '')].reduce((n, ch) => n + ch.charCodeAt(0), 0) % 4;
   const regStatusLabel = (r) => (r?.status === 'payment_verified'
     ? (isCashMethod(r.payment_method) ? 'paid in cash' : 'paid online')
     : statusLabel(r?.status));
@@ -13747,12 +14087,115 @@ Examples:
 
           {/* ========== EVENTS ========== */}
           <section className={`content-section ${(activeSection === 'events' || activeSection === 'events-management') ? 'active' : ''}`}>
+            {eventRegsModal && (() => {
+              const ev = eventRegsModal;
+              const st = eventStatusOf(ev);
+              const regCount = eventRegs.filter((r) => r.status !== 'cancelled').length;
+              const stat = (key, icon, label, value, sub, onClick, on) => (
+                <button key={key} type="button" className={`evt-rhead-stat ${on ? 'on' : ''}`} onClick={onClick}>
+                  <span className="evt-rhead-ico"><i className={`fas ${icon}`}></i></span>
+                  <span className="evt-rhead-stat-txt">
+                    <span>{label}</span>
+                    <b>{value}</b>
+                    {sub && <em>{sub}</em>}
+                  </span>
+                </button>
+              );
+              return (
+                <div className="evt-rhead-wrap">
+                  <button type="button" className="evt-rhead-back" onClick={closeEventManage}>
+                    <i className="fas fa-chevron-left"></i> Back to Events
+                  </button>
+                  <div className="evt-rhead">
+                    <div className="evt-rhead-top">
+                      <div className="evt-rhead-img">
+                        {ev.image_url
+                          ? <img src={ev.image_url} alt="" />
+                          : <div className="evt-mcard-ph"><i className="fas fa-calendar-day"></i></div>}
+                      </div>
+                      <div className="evt-rhead-info">
+                        <div className="evt-mcard-headrow">
+                          <span className={`evt-mcard-status evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>
+                          <button
+                            type="button"
+                            className="evt-mcard-more"
+                            title="More actions"
+                            aria-label="More actions"
+                            onClick={(e) => {
+                              eventMenuBtnRef.current = e.currentTarget;
+                              setEventActionMenu(eventActionMenu === ev.id ? null : ev.id);
+                            }}
+                          ><i className="fas fa-ellipsis"></i></button>
+                        </div>
+                        <h2 className="evt-rhead-title">{ev.title}</h2>
+                        {ev.description && <p className="evt-rhead-desc">{ev.description}</p>}
+                        <button type="button" className="evt-rhead-link" onClick={() => setEventDetail(ev)}>
+                          View details <i className="fas fa-arrow-right"></i>
+                        </button>
+                      </div>
+                    </div>
+                    {ev.has_fee && (
+                      <>
+                        <div className="evt-rhead-stats">
+                          {stat('total', 'fa-user-group', 'Total Collected', peso(eventMoney.total), `${regCount} registrations`,
+                            () => { setManageTab('registrations'); setRegMoneyFilter('all'); },
+                            manageTab === 'registrations' && regMoneyFilter === 'all')}
+                          {stat('cash', 'fa-wallet', 'Cash Collected', peso(eventMoney.cash), null,
+                            () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cash' ? 'all' : 'cash'); },
+                            regMoneyFilter === 'cash')}
+                          {stat('online', 'fa-credit-card', 'Online Collected', peso(eventMoney.online), null,
+                            () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'online' ? 'all' : 'online'); },
+                            regMoneyFilter === 'online')}
+                          {stat('plan', 'fa-clock', 'Installment Balances', peso(eventMoney.planDue), null,
+                            () => { setManageTab('installments'); loadInstallments(ev.id); },
+                            manageTab === 'installments')}
+                        </div>
+                        {eventMoney.cashDue > 0 && (
+                          <button
+                            type="button"
+                            className={`evt-rhead-due ${regMoneyFilter === 'cashdue' ? 'on' : ''}`}
+                            onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cashdue' ? 'all' : 'cashdue'); }}
+                          >
+                            <i className="fas fa-coins"></i>
+                            <span>Cash to Collect</span>
+                            <b>{peso(eventMoney.cashDue)}</b>
+                            <i className="fas fa-chevron-right"></i>
+                          </button>
+                        )}
+                        {eventMoney.pending > 0 && (
+                          <button
+                            type="button"
+                            className={`evt-rhead-due wait ${regMoneyFilter === 'pending' ? 'on' : ''}`}
+                            onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'pending' ? 'all' : 'pending'); }}
+                          >
+                            <i className="fas fa-hourglass-half"></i>
+                            <span>Awaiting Verification</span>
+                            <b>{peso(eventMoney.pending)}</b>
+                            <i className="fas fa-chevron-right"></i>
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             {eventRegsModal ? (
-              <div className="um-hero evt-hero">
+              <>
+              <div className="um-hero evt-hero evt-hero-regs">
                 <div className="um-hero-bg"></div>
                 <div className="um-hero-content">
                   <div className="evt-hero-grid">
+                    <div className="evt-hero-poster">
+                      {eventRegsModal.image_url
+                        ? <img src={eventRegsModal.image_url} alt="" />
+                        : <div className="evt-mcard-ph"><i className="fas fa-calendar-day"></i></div>}
+                    </div>
                     <div className="evt-hero-main">
+                      {(() => {
+                        const st = eventStatusOf(eventRegsModal);
+                        return <span className={`evt-hero-pill evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>;
+                      })()}
                       <h2 className="um-hero-title">{eventRegsModal.title}</h2>
                       <p className="um-hero-sub">{eventRegsModal.description || 'Review registrations and manage attendance for this event.'}</p>
                       {/* leaving, and adding - the two things to do from here */}
@@ -13774,86 +14217,70 @@ Examples:
                     </div>
 
                     {/* What the event has taken in, and what is still out there.
-                        Cash and online are split because they are reconciled apart. */}
-                    {/* Each figure is a way into the rows behind it: tap Cash to
+                        Cash and online are split because they are reconciled apart.
+                        Each figure is a way into the rows behind it: tap Cash to
                         see only what came in as cash, and again to clear it. */}
-                    {eventRegsModal.has_fee && (
-                      <div className="evt-hero-stats">
-                        <button
-                          type="button"
-                          className={`evt-stat lead ${manageTab === 'registrations' && regMoneyFilter === 'all' ? 'on' : ''}`}
-                          onClick={() => { setManageTab('registrations'); setRegMoneyFilter('all'); }}
-                          title="Show every registration"
-                        >
-                          <span>Total Collected</span>
-                          <b>{peso(eventMoney.total)}</b>
-                          <em>from {eventRegs.filter((r) => r.status !== 'cancelled').length} registrations</em>
+                    {eventRegsModal.has_fee && (() => {
+                      const tile = ({ key, cls = '', icon, label, value, sub, onClick, on, title }) => (
+                        <button key={key} type="button" className={`evt-stat ${cls} ${on ? 'on' : ''}`} onClick={onClick} title={title}>
+                          <span className="evt-stat-ico"><i className={`fas ${icon}`}></i></span>
+                          <span className="evt-stat-txt">
+                            <span>{label}</span>
+                            <b>{value}</b>
+                            {sub && <em>{sub}</em>}
+                          </span>
+                          {cls.includes('wide') && <i className="fas fa-chevron-right evt-stat-go"></i>}
                         </button>
-                        <button
-                          type="button"
-                          className={`evt-stat ${regMoneyFilter === 'cash' ? 'on' : ''}`}
-                          onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cash' ? 'all' : 'cash'); }}
-                          title="Show the registrations paid in cash"
-                        >
-                          <span>Cash Collected</span>
-                          <b>{peso(eventMoney.cash)}</b>
-                          <em>received in person</em>
-                        </button>
-                        <button
-                          type="button"
-                          className={`evt-stat ${regMoneyFilter === 'online' ? 'on' : ''}`}
-                          onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'online' ? 'all' : 'online'); }}
-                          title="Show the registrations paid online"
-                        >
-                          <span>Online Collected</span>
-                          <b>{peso(eventMoney.online)}</b>
-                          <em>GCash / bank transfer</em>
-                        </button>
-                        <button
-                          type="button"
-                          className={`evt-stat due ${manageTab === 'installments' ? 'on' : ''}`}
-                          onClick={() => { setManageTab('installments'); loadInstallments(eventRegsModal.id); }}
-                          title="Open the installment plans"
-                        >
-                          <span>Installment Balances</span>
-                          <b>{peso(eventMoney.planDue)}</b>
-                          <em>still to collect</em>
-                        </button>
-                        {eventMoney.cashDue > 0 && (
-                          <button
-                            type="button"
-                            className={`evt-stat due ${regMoneyFilter === 'cashdue' ? 'on' : ''}`}
-                            onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cashdue' ? 'all' : 'cashdue'); }}
-                            title="Show the registrations paying cash at the desk"
-                          >
-                            <span>Cash to Collect</span>
-                            <b>{peso(eventMoney.cashDue)}</b>
-                            <em>to be paid in person</em>
-                          </button>
-                        )}
-                        {eventMoney.pending > 0 && (
-                          <button
-                            type="button"
-                            className={`evt-stat wait ${regMoneyFilter === 'pending' ? 'on' : ''}`}
-                            onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'pending' ? 'all' : 'pending'); }}
-                            title="Show the payments nobody has verified yet"
-                          >
-                            <span>Awaiting Verification</span>
-                            <b>{peso(eventMoney.pending)}</b>
-                            <em>not yet checked</em>
-                          </button>
-                        )}
-                      </div>
-                    )}
+                      );
+                      return (
+                        <div className="evt-hero-stats">
+                          {tile({
+                            key: 'total', cls: 'lead', icon: 'fa-user-group', label: 'Total Collected', value: peso(eventMoney.total),
+                            sub: `from ${eventRegs.filter((r) => r.status !== 'cancelled').length} registrations`,
+                            onClick: () => { setManageTab('registrations'); setRegMoneyFilter('all'); },
+                            on: manageTab === 'registrations' && regMoneyFilter === 'all', title: 'Show every registration',
+                          })}
+                          {tile({
+                            key: 'cash', icon: 'fa-wallet', label: 'Cash Collected', value: peso(eventMoney.cash), sub: 'received in person',
+                            onClick: () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cash' ? 'all' : 'cash'); },
+                            on: regMoneyFilter === 'cash', title: 'Show the registrations paid in cash',
+                          })}
+                          {tile({
+                            key: 'online', icon: 'fa-credit-card', label: 'Online Collected', value: peso(eventMoney.online), sub: 'GCash / bank transfer',
+                            onClick: () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'online' ? 'all' : 'online'); },
+                            on: regMoneyFilter === 'online', title: 'Show the registrations paid online',
+                          })}
+                          {tile({
+                            key: 'plan', cls: 'due', icon: 'fa-clock', label: 'Installment Balances', value: peso(eventMoney.planDue), sub: 'still to collect',
+                            onClick: () => { setManageTab('installments'); loadInstallments(eventRegsModal.id); },
+                            on: manageTab === 'installments', title: 'Open the installment plans',
+                          })}
+                          {eventMoney.cashDue > 0 && tile({
+                            key: 'cashdue', cls: 'due wide', icon: 'fa-coins', label: 'Cash to Collect', value: peso(eventMoney.cashDue),
+                            onClick: () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cashdue' ? 'all' : 'cashdue'); },
+                            on: regMoneyFilter === 'cashdue', title: 'Show the registrations paying cash at the desk',
+                          })}
+                          {eventMoney.pending > 0 && tile({
+                            key: 'pending', cls: 'wait wide', icon: 'fa-hourglass-half', label: 'Awaiting Verification', value: peso(eventMoney.pending),
+                            onClick: () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'pending' ? 'all' : 'pending'); },
+                            on: regMoneyFilter === 'pending', title: 'Show the payments nobody has verified yet',
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
+              </>
             ) : (userRole === 'Admin' || userRole === 'Super Admin') ? (
               <div className="um-hero evt-hero">
                 <div className="um-hero-bg"></div>
                 <div className="um-hero-content">
                   <h2 className="um-hero-title">Events</h2>
-                  <p className="um-hero-sub">Create, publish, and manage church events — set audience, pricing, location, and review registrations from one place.</p>
+                  <p className="um-hero-sub">
+                    <span className="evt-hero-sub-long">Create, publish, and manage church events — set audience, pricing, location, and review registrations from one place.</span>
+                    <span className="evt-hero-sub-short">Create, publish, and manage church events in one place.</span>
+                  </p>
                   {!showEventForm && canManage(MODULES.CREATE_EVENTS) && featureOn('events.create') && (
                     <button className="um-hero-btn" onClick={() => openEventEditor(null)}>
                       <i className="fas fa-plus"></i> Create Event
@@ -13891,7 +14318,7 @@ Examples:
               const attendedCount = confirmedAll.filter((r) => r.attended).length;
               return (
                 <>
-                  <div className="evt-tabs">
+                  <div className="evt-tabs evt-manage-tabs">
                     <button className={`evt-tab ${manageTab === 'registrations' ? 'active' : ''}`} onClick={() => setManageTab('registrations')}><i className="fas fa-clipboard-list"></i> Registrations {eventRegs.length > 0 && <span className="evt-tab-count">{eventRegs.length}</span>}</button>
                     <button className={`evt-tab ${manageTab === 'attendance' ? 'active' : ''}`} onClick={() => setManageTab('attendance')}><i className="fas fa-user-check"></i> Attendance {attendedCount > 0 && <span className="evt-tab-count">{attendedCount}</span>}</button>
                     {/* Shown for any event that charges, so a plan can be found
@@ -13931,10 +14358,11 @@ Examples:
 
                   {manageTab === 'registrations' && (
                     <>
-                      <div className="evt-viewbar">
-                        <div className="evt-filters">
+                      <div className="evt-viewbar evt-regs-bar">
+                        <div className={`evt-filters ${regFiltersOpen ? '' : 'evt-filters-closed'}`}>
                           {/* Finding one person in a long list comes before slicing
                               the list, so the search sits first. */}
+                          <div className="evt-search-row">
                           <div className="evt-search">
                             <i className="fas fa-magnifying-glass"></i>
                             <input
@@ -13951,37 +14379,58 @@ Examples:
                               <button type="button" onClick={() => setRegSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
                             )}
                           </div>
-                          <select className="evt-filter-select" value={regSort} onChange={(e) => setRegSort(e.target.value)} aria-label="Sort registrations">
-                            <option value="newest">Newest first</option>
-                            <option value="oldest">Oldest first</option>
-                          </select>
-                          <select className="evt-filter-select" value={regChurchFilter} onChange={(e) => setRegChurchFilter(e.target.value)} aria-label="Filter by church">
-                            <option value="all">All churches ({eventRegs.length})</option>
-                            {regChurchOptions.map((c) => (
-                              <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
-                            ))}
-                          </select>
-                          <select className="evt-filter-select" value={regTypeFilter} onChange={(e) => setRegTypeFilter(e.target.value)} aria-label="Filter by registration type">
-                            <option value="all">All types</option>
-                            <option value="individual">Individual</option>
-                            <option value="bulk">Bulk</option>
-                          </select>
+                          {/* Phones only: the selects below fold away behind this. */}
+                          <button
+                            type="button"
+                            className={`evt-filter-toggle evt-filter-toggle-wide ${regFiltersOpen ? 'on' : ''}`}
+                            onClick={() => setRegFiltersOpen((v) => !v)}
+                            aria-expanded={regFiltersOpen}
+                          ><i className="fas fa-sliders"></i> Filter</button>
+                          </div>
+                          <div className="evt-filter-row evt-filter-row-wrap">
+                          <FilterSelect
+                            value={regSort}
+                            onChange={setRegSort}
+                            ariaLabel="Sort registrations"
+                            options={[
+                              { value: 'newest', label: 'Newest first' },
+                              { value: 'oldest', label: 'Oldest first' },
+                            ]}
+                          />
+                          <FilterSelect
+                            value={regChurchFilter}
+                            onChange={setRegChurchFilter}
+                            ariaLabel="Filter by church"
+                            options={[
+                              { value: 'all', label: `All churches (${eventRegs.length})` },
+                              ...regChurchOptions.map((c) => ({ value: c.name, label: `${c.name} (${c.count})` })),
+                            ]}
+                          />
+                          <FilterSelect
+                            value={regTypeFilter}
+                            onChange={setRegTypeFilter}
+                            ariaLabel="Filter by registration type"
+                            options={[
+                              { value: 'all', label: 'All types' },
+                              { value: 'individual', label: 'Individual' },
+                              { value: 'bulk', label: 'Bulk' },
+                            ]}
+                          />
                           {/* Only when there is a group booking to narrow to. On an
                               event where everybody signed up for themselves this
                               would be a dropdown with one entry in it. */}
                           {regRepOptions.length > 0 && (
-                            <select
-                              className="evt-filter-select"
+                            <FilterSelect
                               value={regRepActive}
-                              onChange={(e) => setRegRepFilter(e.target.value)}
-                              aria-label="Filter by bulk representative"
-                            >
-                              <option value="all">All representatives ({regRepOptions.length})</option>
-                              {regRepOptions.map((rep) => (
-                                <option key={rep.key} value={rep.key}>{rep.name} ({rep.count})</option>
-                              ))}
-                            </select>
+                              onChange={setRegRepFilter}
+                              ariaLabel="Filter by bulk representative"
+                              options={[
+                                { value: 'all', label: `All representatives (${regRepOptions.length})` },
+                                ...regRepOptions.map((rep) => ({ value: rep.key, label: `${rep.name} (${rep.count})` })),
+                              ]}
+                            />
                           )}
+                          </div>
                           {(regTypeFilter !== 'all' || regChurchFilter !== 'all' || regRepActive !== 'all' || regMoneyFilter !== 'all' || regSearch.trim()) && (
                             <span className="evt-filter-count">
                               {regMoneyFilter !== 'all' && (
@@ -13999,7 +14448,7 @@ Examples:
                       {/* the wrapper scrolls sideways, which would clip an open
                           row menu - so it stops clipping while one is open */}
                       <div className={`evt-table-wrapper evt-table-steady ${openRowMenu ? 'menu-open' : ''}`}>
-                      <table className={`evt-table evt-table-regs ${regsHaveTiers ? 'has-tier' : ''}`}>
+                      <table className={`evt-table evt-table-regs evt-regs-cards ${regsHaveTiers ? 'has-tier' : ''}`}>
                         <thead>
                           {/* Contact is searched for, not read down: the
                               box above matches on the number and the email,
@@ -14025,15 +14474,31 @@ Examples:
                           ) : pagedRegs.map((r) => (
                             <tr key={r.id}>
                               <td className="evt-cell-name evt-td-primary" data-label="Attendee">
-                                {formatPersonName(r.attendee_name)}
-                                {/* Just the date. The group size used to hang
-                                    here as a chip and crowded the column for
-                                    something nobody scans a list by - it is
-                                    still on the Type column, and in full on
-                                    the receipt. */}
-                                <div className="evt-cell-sub">
-                                  {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                </div>
+                                {/* Phones: initials in a gold circle, shade picked
+                                    from the name so the same person keeps theirs. */}
+                                <span className={`evt-ravatar g${regAvatarShade(r.attendee_name)}`} aria-hidden="true">{regInitials(r.attendee_name)}</span>
+                                <span className="evt-rname">
+                                  <span className="evt-rname-txt" title={formatPersonName(r.attendee_name)}>{formatPersonName(r.attendee_name)}</span>
+                                  {/* Just the date. The group size used to hang
+                                      here as a chip and crowded the column for
+                                      something nobody scans a list by - it is
+                                      still on the Type column, and in full on
+                                      the receipt. */}
+                                  <div className="evt-cell-sub evt-rdate">
+                                    {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </div>
+                                  {/* Phones: the columns that are hidden there,
+                                      folded into one line under the name. */}
+                                  <span className="evt-rmeta">
+                                    <span><i className="far fa-calendar"></i> {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                    {r.price_tier && <span><i className={`fas ${regTierIsChild(r.price_tier) ? 'fa-child-reaching' : 'fa-user'}`}></i> {r.price_tier}</span>}
+                                    {r.church_name && (
+                                      <span className="evt-rmeta-church" title={formatChurchName(r.church_name)}>
+                                        <i className="fas fa-church"></i> <span>{formatChurchName(r.church_name)}</span>
+                                      </span>
+                                    )}
+                                  </span>
+                                </span>
                               </td>
                               {/* Which age group they were booked under. It is a
                                   column rather than a chip beside the name because
@@ -14208,6 +14673,11 @@ Examples:
                                       </button>
                                     );
                                   }
+                                  // A free child on a cash group owes nothing, so
+                                  // there is no cash to collect from them.
+                                  if (r.status === 'pending_cash' && !(Number(r.amount) > 0)) {
+                                    return <span className="evt-status evt-status-registered">registered</span>;
+                                  }
                                   return <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>;
                                 })()}
                                 {/* Somebody is waiting on a refund - that has to be
@@ -14289,7 +14759,7 @@ Examples:
                                                 <i className="fas fa-peso-sign"></i> Collect <em>₱{Math.max(0, owed - paid)} left</em>
                                               </button>
                                             )
-                                          ) : r.status === 'pending_cash' ? (
+                                          ) : r.status === 'pending_cash' && owed > 0 ? (
                                             // Cash is collected and verified in one motion: the
                                             // money arriving IS the verification, and the person
                                             // handing it over is standing at the desk waiting to
@@ -14390,6 +14860,24 @@ Examples:
                           onPage={setRegPage} onSize={setRegPageSize} label="registrations"
                         />
                       )}
+                      {/* Phones: the one thing done most here, where a thumb is. */}
+                      <div className="evt-rbottom">
+                        <button
+                          type="button"
+                          className={`evt-rbottom-filter ${regFiltersOpen ? 'on' : ''}`}
+                          onClick={() => {
+                            setRegFiltersOpen((v) => !v);
+                            window.scrollTo({ top: document.querySelector('.evt-regs-bar')?.getBoundingClientRect().top + window.scrollY - 90, behavior: 'smooth' });
+                          }}
+                          aria-label="Filters"
+                        ><i className="fas fa-sliders"></i></button>
+                        <button
+                          type="button"
+                          className="evt-rbottom-add"
+                          disabled={isEventOver(eventRegsModal)}
+                          onClick={openAdminAddReg}
+                        ><i className="fas fa-plus"></i> Add Attendee</button>
+                      </div>
                     </>
                   )}
 
@@ -15740,51 +16228,27 @@ Examples:
                       <div className="evt-when-row">
                         <div className="form-group">
                           <label>Start Date &amp; Time *</label>
-                          <div className={`evt-dt ${eventFieldErrors.eventDate ? 'evt-field-error' : ''}`}>
-                            <span className="evt-dt-part">
-                              <i className="fas fa-calendar-days"></i>
-                              <input
-                                type="date"
-                                value={firstSession().startDate}
-                                min={datePartOf(nowLocalDatetimeString())}
-                                onChange={(e) => setEventStart('date', e.target.value)}
-                              />
-                            </span>
-                            <span className="evt-dt-split" aria-hidden="true"></span>
-                            <span className="evt-dt-part evt-dt-time">
-                              <i className="fas fa-clock"></i>
-                              <input
-                                type="time"
-                                value={firstSession().startTime}
-                                onChange={(e) => setEventStart('time', e.target.value)}
-                              />
-                            </span>
-                          </div>
+                          <DateTimePicker
+                            date={firstSession().startDate}
+                            time={firstSession().startTime}
+                            min={datePartOf(nowLocalDatetimeString())}
+                            onDate={(v) => setEventStart('date', v)}
+                            onTime={(v) => setEventStart('time', v)}
+                            invalid={!!eventFieldErrors.eventDate}
+                          />
                           {eventFieldErrors.eventDate && <div className="evt-field-error-msg">Start date is required.</div>}
                         </div>
 
                         <div className="form-group">
                           <label>End Date &amp; Time</label>
-                          <div className={`evt-dt ${eventFieldErrors.endDate ? 'evt-field-error' : ''}`}>
-                            <span className="evt-dt-part">
-                              <i className="fas fa-calendar-days"></i>
-                              <input
-                                type="date"
-                                value={firstSession().endDate}
-                                min={firstSession().startDate || datePartOf(nowLocalDatetimeString())}
-                                onChange={(e) => setEventEnd('date', e.target.value)}
-                              />
-                            </span>
-                            <span className="evt-dt-split" aria-hidden="true"></span>
-                            <span className="evt-dt-part evt-dt-time">
-                              <i className="fas fa-clock"></i>
-                              <input
-                                type="time"
-                                value={firstSession().endTime}
-                                onChange={(e) => setEventEnd('time', e.target.value)}
-                              />
-                            </span>
-                          </div>
+                          <DateTimePicker
+                            date={firstSession().endDate}
+                            time={firstSession().endTime}
+                            min={firstSession().startDate || datePartOf(nowLocalDatetimeString())}
+                            onDate={(v) => setEventEnd('date', v)}
+                            onTime={(v) => setEventEnd('time', v)}
+                            invalid={!!eventFieldErrors.endDate}
+                          />
                           {eventFieldErrors.endDate && <div className="evt-field-error-msg">End must be after the start.</div>}
                         </div>
 
@@ -16604,16 +17068,7 @@ Examples:
                 if (evt.is_published === false) return false;
                 return !evt.allowed_roles || evt.allowed_roles.length === 0 || evt.allowed_roles.includes(userRole);
               });
-              const eventStatus = (evt) => {
-                const now = Date.now();
-                const start = evtMs(evt.event_date);
-                const end = evt.end_date ? new Date(evt.end_date).getTime() : start;
-                if (evt.is_published === false) return { label: 'Draft', cls: 'draft' };
-                if (start && now < start) return { label: 'Upcoming', cls: 'upcoming' };
-                if (start && end && now >= start && now <= end) return { label: 'Ongoing', cls: 'ongoing' };
-                if (end && now > end) return { label: 'Completed', cls: 'completed' };
-                return { label: 'Published', cls: 'published' };
-              };
+              const eventStatus = eventStatusOf;
 
               // Every province with an event, and how many - built from the rows
               // this user can see, so the counts always match the list.
@@ -16650,15 +17105,37 @@ Examples:
                 if (eventProvinceFilter !== 'all') {
                   rows = rows.filter((evt) => provinceLabel(evt) === eventProvinceFilter);
                 }
+                if (eventDateFilter !== 'all') {
+                  // An event is "in" a window if any part of it falls there, so
+                  // a two-day event that starts on the 31st still shows next month.
+                  const now = new Date();
+                  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  const [from, to] = eventDateFilter === 'week'
+                    ? [dayStart, new Date(dayStart.getTime() + 7 * 86400000)]
+                    : eventDateFilter === 'month'
+                      ? [new Date(now.getFullYear(), now.getMonth(), 1), new Date(now.getFullYear(), now.getMonth() + 1, 1)]
+                      : [new Date(now.getFullYear(), now.getMonth() + 1, 1), new Date(now.getFullYear(), now.getMonth() + 2, 1)];
+                  rows = rows.filter((evt) => {
+                    if (!evt.event_date) return false;
+                    const start = new Date(evt.event_date);
+                    const end = evt.end_date ? new Date(evt.end_date) : start;
+                    return start < to && end >= from;
+                  });
+                }
                 if (q) rows = rows.filter((evt) => eventMatchesSearch(evt, q));
                 return rows;
               })();
-              const eventsFiltered = eventStatusFilter !== 'all' || eventProvinceFilter !== 'all' || eventSearch.trim() !== '';
+              // Filtering can leave the phone cards on a page that no longer
+              // exists; clamping here rather than resetting keeps it simple.
+              const cardPages = Math.max(1, Math.ceil(shown.length / eventCardPageSize));
+              const cardPage = Math.min(eventCardPage, cardPages);
+              const eventsFiltered = eventStatusFilter !== 'all' || eventProvinceFilter !== 'all' || eventDateFilter !== 'all' || eventSearch.trim() !== '';
 
               // The bar above both admin views. One component, so List and Grid
               // are narrowed the same way.
               const eventFilterBar = (
-                <div className="evt-filters">
+                <div className={`evt-filters ${eventFiltersOpen ? '' : 'evt-filters-closed'}`}>
+                  <div className="evt-search-row">
                   <div className="evt-search">
                     <i className="fas fa-magnifying-glass"></i>
                     {/* A browser offers a saved email to any box it cannot place,
@@ -16682,25 +17159,58 @@ Examples:
                       <button type="button" onClick={() => setEventSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
                     )}
                   </div>
-                  <select className="evt-filter-select" value={eventStatusFilter} onChange={(e) => setEventStatusFilter(e.target.value)} aria-label="Filter events by status">
-                    <option value="all">All statuses ({visible.length})</option>
-                    <option value="upcoming">Upcoming</option>
-                    <option value="ongoing">Ongoing</option>
-                    <option value="past">Past events</option>
-                    <option value="draft">Drafts</option>
-                  </select>
-                  <select className="evt-filter-select" value={eventProvinceFilter} onChange={(e) => setEventProvinceFilter(e.target.value)} aria-label="Filter events by province">
-                    <option value="all">All provinces ({provinceOptions.length})</option>
-                    {provinceOptions.map((prov) => (
-                      <option key={prov.name} value={prov.name}>{prov.name} ({prov.count})</option>
-                    ))}
-                  </select>
+                  {/* Phones only: shows or hides the row of filter pills. */}
+                  <button
+                    type="button"
+                    className={`evt-filter-toggle ${eventFiltersOpen ? 'on' : ''}`}
+                    onClick={() => setEventFiltersOpen((v) => !v)}
+                    aria-expanded={eventFiltersOpen}
+                    title={eventFiltersOpen ? 'Hide filters' : 'Show filters'}
+                  ><i className="fas fa-sliders"></i></button>
+                  </div>
+                  <div className="evt-filter-row">
+                  <FilterSelect
+                    value={eventStatusFilter}
+                    onChange={setEventStatusFilter}
+                    ariaLabel="Filter events by status"
+                    options={[
+                      { value: 'all', label: `All statuses (${visible.length})` },
+                      { value: 'upcoming', label: 'Upcoming' },
+                      { value: 'ongoing', label: 'Ongoing' },
+                      { value: 'past', label: 'Past events' },
+                      { value: 'draft', label: 'Drafts' },
+                    ]}
+                  />
+                  <FilterSelect
+                    value={eventProvinceFilter}
+                    onChange={setEventProvinceFilter}
+                    ariaLabel="Filter events by province"
+                    options={[
+                      { value: 'all', label: `All provinces (${provinceOptions.length})` },
+                      ...provinceOptions.map((prov) => ({ value: prov.name, label: `${prov.name} (${prov.count})` })),
+                    ]}
+                  />
+                  <div className="evt-date-select">
+                    <i className="fas fa-calendar-days"></i>
+                    <FilterSelect
+                      value={eventDateFilter}
+                      onChange={setEventDateFilter}
+                      ariaLabel="Filter events by date"
+                      options={[
+                        { value: 'all', label: 'Date' },
+                        { value: 'week', label: 'Next 7 days' },
+                        { value: 'month', label: 'This month' },
+                        { value: 'nextmonth', label: 'Next month' },
+                      ]}
+                    />
+                  </div>
+                  </div>
                   {eventsFiltered && (
                     <span className="evt-filter-count">
                       {shown.length} of {visible.length}
                       <button
                         type="button"
-                        onClick={() => { setEventStatusFilter('all'); setEventProvinceFilter('all'); setEventSearch(''); }}
+                        onClick={() => { setEventStatusFilter('all'); setEventProvinceFilter('all'); setEventDateFilter('all'); setEventSearch(''); }}
                         title="Clear filters"
                       ><i className="fas fa-xmark"></i></button>
                     </span>
@@ -16804,8 +17314,13 @@ Examples:
                     <div className="evt-admin-grid">
                       {shown.map((evt) => {
                         const st = eventStatus(evt);
+                        const canOpen = canOpenEventRegs(evt);
                         return (
-                          <div key={evt.id} className="evt-admin-card">
+                          <div
+                            key={evt.id}
+                            className={`evt-admin-card ${canOpen ? 'is-link' : ''}`}
+                            onClick={canOpen ? () => openEventRegistrations(evt) : undefined}
+                          >
                             <div className="evt-admin-card-img">
                               {evt.image_url ? <img src={evt.image_url} alt={evt.title} /> : <div className="evt-admin-card-ph"><i className="fas fa-calendar-day"></i></div>}
                               <span className={`evt-admin-tag ${evt.is_published === false ? 'hidden' : 'public'}`}>{evt.is_published === false ? 'HIDDEN' : 'PUBLIC'}</span>
@@ -16816,6 +17331,7 @@ Examples:
                                 <button
                                   className="evt-admin-manage"
                                   onClick={(e) => {
+                                    e.stopPropagation();
                                     eventMenuBtnRef.current = e.currentTarget;
                                     setEventActionMenu(eventActionMenu === evt.id ? null : evt.id);
                                   }}
@@ -16841,7 +17357,7 @@ Examples:
                   </div>
                   {eventFilterBar}
                 </div>
-                <div className="evt-table-wrapper evt-table-fixed">
+                <div className="evt-table-wrapper evt-table-fixed evt-events-table">
                   <div className="evt-table-scroll">
                   <table className="evt-table">
                     <thead>
@@ -16947,6 +17463,144 @@ Examples:
                   <div className="evt-table-foot">
                     <span>Results {shown.length === 0 ? 0 : 1}–{shown.length} of {visible.length}</span>
                     <span className="evt-rows-per-page">Rows Per Page <b>{String(shown.length).padStart(2, '0')}</b></span>
+                  </div>
+                </div>
+
+                {/* ---- Phones and tablets: one card per event ----
+                    The table's stacked-card fallback read as a list of label /
+                    value pairs. This is laid out for the screen instead - the
+                    poster beside the title, the four facts in a grid, and the
+                    one action at the bottom where a thumb reaches it. The
+                    table is hidden at the same width (dashboard.css). */}
+                <div className="evt-mcards">
+                  {shown.length === 0 && (
+                    <p className="events-empty-msg">{eventSearch.trim()
+                      ? `No event matches “${eventSearch.trim()}”.`
+                      : 'No events match these filters.'}</p>
+                  )}
+                  {shown.slice((cardPage - 1) * eventCardPageSize, cardPage * eventCardPageSize).map((evt) => {
+                    const st = eventStatus(evt);
+                    const addons = evt.event_addons || [];
+                    const openMenu = (e) => {
+                      e.stopPropagation();
+                      eventMenuBtnRef.current = e.currentTarget;
+                      setEventActionMenu(eventActionMenu === evt.id ? null : evt.id);
+                    };
+                    const share = async (e) => {
+                      e.stopPropagation();
+                      const url = eventShareUrl(evt, events, window.location.origin);
+                      if (!url) return;
+                      if (navigator.share) {
+                        try { await navigator.share({ title: evt.title, url }); } catch { /* cancelled */ }
+                        return;
+                      }
+                      try {
+                        await navigator.clipboard.writeText(url);
+                        showToast('Event link copied', 'success');
+                      } catch { showToast(url, 'info'); }
+                    };
+                    const sessions = Array.isArray(evt.event_days) ? evt.event_days.length : 0;
+                    return (
+                      <article
+                        key={evt.id}
+                        className={`evt-mcard ${canOpenEventRegs(evt) ? 'is-link' : ''}`}
+                        onClick={canOpenEventRegs(evt) ? () => openEventRegistrations(evt) : undefined}
+                      >
+                        <div className="evt-mcard-top">
+                          <div className="evt-mcard-img">
+                            {evt.image_url
+                              ? <img src={evt.image_url} alt="" loading="lazy" />
+                              : <div className="evt-mcard-ph"><i className="fas fa-calendar-day"></i></div>}
+                          </div>
+                          <div className="evt-mcard-head">
+                            <div className="evt-mcard-headrow">
+                              <span className={`evt-mcard-status evt-tstatus evt-tstatus-${st.cls}`}>
+                                {st.label}
+                                {st.cls === 'draft' && ` · ${getEventCompletion(evt).percent}%`}
+                              </span>
+                              <div className="evt-mcard-tools">
+                                {evt.is_published !== false && (
+                                  <button type="button" className="evt-mcard-share" onClick={share} title="Share event" aria-label="Share event">
+                                    <i className="fas fa-arrow-up-from-bracket"></i>
+                                  </button>
+                                )}
+                                <button type="button" className="evt-mcard-more" onClick={openMenu} title="More actions" aria-label="More actions">
+                                  <i className="fas fa-ellipsis"></i>
+                                </button>
+                              </div>
+                            </div>
+                            <h4 className="evt-mcard-title">{evt.title}</h4>
+                            {evt.description && <p className="evt-mcard-desc">{evt.description}</p>}
+                          </div>
+                        </div>
+
+                        <div className="evt-mcard-facts">
+                          <div className="evt-mcard-fact">
+                            <span className="evt-mcard-ico"><i className="fas fa-calendar-days"></i></span>
+                            <div>
+                              <b>{formatEventSpan(evt.event_date, evt.end_date)}</b>
+                              {sessions > 1 && <em>{sessions} sessions</em>}
+                            </div>
+                          </div>
+                          <div className="evt-mcard-fact">
+                            <span className="evt-mcard-ico"><i className="fas fa-location-dot"></i></span>
+                            <div>
+                              <b>{evt.location || '—'}</b>
+                              {(evt.loc_city || provinceLabel(evt)) && <em>{evt.loc_city || provinceLabel(evt)}</em>}
+                            </div>
+                          </div>
+                          <div className="evt-mcard-fact">
+                            <span className="evt-mcard-ico"><i className="fas fa-tag"></i></span>
+                            <div><b>{evt.has_fee ? eventFeeLabel(evt) : 'Free'}</b></div>
+                          </div>
+                          <div className="evt-mcard-fact">
+                            <span className="evt-mcard-ico"><i className="fas fa-user-group"></i></span>
+                            <div>
+                              <b>{evt.allowed_roles && evt.allowed_roles.length ? evt.allowed_roles.join(', ') : 'All'}</b>
+                              <em>Audience</em>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="evt-mcard-foot">
+                          <div className="evt-mcard-extras">
+                            {addons.map((a) => (
+                              <span key={a.id || a.question} className="evt-mcard-extra" title={`+₱${Number(a.fee) || 0}${a.is_required ? ' (required)' : ''}`}>
+                                <i className={`fas ${/accommodat|room|lodg|hotel|stay/i.test(a.question || '') ? 'fa-bed' : 'fa-circle-plus'}`}></i> {addonShortLabel(a.question)}
+                              </span>
+                            ))}
+                          </div>
+                          <span className="evt-manage-wrap">
+                            {pendingRegByEvent[evt.id] > 0 && (
+                              <span className="evt-manage-bell" title={`${pendingRegByEvent[evt.id]} registration(s) awaiting verification`}>
+                                <i className="fas fa-bell"></i> {pendingRegByEvent[evt.id]}
+                              </span>
+                            )}
+                            <button className="evt-mcard-manage" onClick={openMenu}>
+                              Manage <i className={`fas fa-chevron-${eventActionMenu === evt.id ? 'up' : 'down'}`}></i>
+                            </button>
+                          </span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  <div className="evt-mcards-foot">
+                    <span>
+                      Showing {shown.length === 0 ? 0 : (cardPage - 1) * eventCardPageSize + 1}–{Math.min(cardPage * eventCardPageSize, shown.length)} of {shown.length} event{shown.length === 1 ? '' : 's'}
+                    </span>
+                    {cardPages > 1 && (
+                      <span className="evt-mcards-pager">
+                        <button type="button" disabled={cardPage <= 1} onClick={() => setEventCardPage(cardPage - 1)} aria-label="Previous page"><i className="fas fa-chevron-left"></i></button>
+                        <b>{cardPage} / {cardPages}</b>
+                        <button type="button" disabled={cardPage >= cardPages} onClick={() => setEventCardPage(cardPage + 1)} aria-label="Next page"><i className="fas fa-chevron-right"></i></button>
+                      </span>
+                    )}
+                    <label className="evt-mcards-size">
+                      Rows per page
+                      <select value={eventCardPageSize} onChange={(e) => { setEventCardPageSize(Number(e.target.value)); setEventCardPage(1); }}>
+                        {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </label>
                   </div>
                 </div>
                 </>
