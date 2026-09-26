@@ -126,6 +126,9 @@ const OPTIONAL_COLUMNS = [
   'guardian_registration_id', 'guardian_name',
   'registered_by_user_id',
   'deleted_at', 'deleted_by', 'deleted_by_name', 'deleted_reason',
+  // paid_pending_turnover.sql - who is holding the money. Without them the row
+  // is still saved as paid - pending turnover, just without the holder's name.
+  'turnover_holder', 'turnover_marked_by', 'turnover_marked_at',
 ];
 
 // Of those, the ones a staff-entered registration is meaningless without: they
@@ -255,6 +258,38 @@ export async function GET(request) {
       return NextResponse.json({ success: true, data: found.map((r) => r.name), details: found });
     }
 
+    // ?nameMatches=1&eventId=..&q=..  -> registrations whose name contains q.
+    //
+    // What the admin desk shows under the name while it is being typed, so a
+    // walk-in who already signed up online is spotted before a second slot is
+    // made. Same narrow shape as the guardian search: three characters at
+    // least, six answers at most, and no contact details.
+    if (searchParams.get('nameMatches')) {
+      const evId = searchParams.get('eventId');
+      if (!evId) return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
+      const q = (searchParams.get('q') || '').trim().replace(/\s+/g, ' ');
+      if (q.length < 3) return NextResponse.json({ success: true, data: [] });
+      const { data: rows } = await supabase
+        .from('event_registrations')
+        .select('id, attendee_name, attendee_firstname, attendee_lastname, church_name, status, price_tier, created_at')
+        .eq('event_id', evId)
+        .neq('status', 'cancelled')
+        .is('deleted_at', null)
+        .ilike('attendee_name', `%${q.replace(/[%_]/g, '').replace(/ /g, '%')}%`)
+        .order('created_at', { ascending: false })
+        .limit(6);
+      const out = (rows || []).map((r) => ({
+        id: r.id,
+        name: r.attendee_name,
+        firstName: r.attendee_firstname || '',
+        lastName: r.attendee_lastname || '',
+        churchName: r.church_name || '',
+        status: r.status,
+        priceTier: r.price_tier || '',
+      }));
+      return NextResponse.json({ success: true, data: out });
+    }
+
     // ?guardians=1&eventId=..&q=..  -> who a child can be registered under.
     //
     // A parent who forgot to add their toddler has to be able to find their own
@@ -312,6 +347,40 @@ export async function GET(request) {
     //
     // A new event therefore starts with no suggestions and builds its own list
     // from its first registration onward, which is the intended behaviour.
+    // ?pastors=1&eventId=..&church=..&q=..  -> the pastors already given for
+    // THAT church at this event, most-used first. Offered under the Ptr. field
+    // so a church's pastor is spelled one way, like the church itself.
+    if (searchParams.get('pastors')) {
+      const scope = searchParams.get('eventId');
+      const church = titleCaseChurch(searchParams.get('church') || '').toLowerCase();
+      const q = (searchParams.get('q') || '').trim().toLowerCase().replace(/^ptr\.?\s*/i, '');
+      if (!scope) return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
+      if (!church) return NextResponse.json({ success: true, data: [] });
+      const { data: rows } = await supabase
+        .from('event_registrations')
+        .select('church_name, church_pastor')
+        .eq('event_id', scope)
+        .not('church_pastor', 'is', null)
+        .neq('status', 'cancelled')
+        .is('deleted_at', null)
+        .limit(3000);
+      const counts = new Map();
+      (rows || []).forEach((r) => {
+        if (titleCaseChurch(r.church_name).toLowerCase() !== church) return;
+        const name = titleCaseName(String(r.church_pastor || '').replace(/^ptr\.?\s*/i, ''));
+        if (!name) return;
+        const key = name.toLowerCase();
+        const hit = counts.get(key);
+        if (hit) hit.count += 1;
+        else counts.set(key, { name, count: 1 });
+      });
+      const list = [...counts.values()]
+        .filter((p) => !q || p.name.toLowerCase().includes(q))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+        .slice(0, 8);
+      return NextResponse.json({ success: true, data: list });
+    }
+
     if (searchParams.get('churches')) {
       const q = (searchParams.get('q') || '').trim().toLowerCase();
       const scope = searchParams.get('eventId');
@@ -553,8 +622,38 @@ export async function POST(request) {
       }
     }
 
-    // Deadline check
-    if (event.registration_deadline && new Date() > new Date(event.registration_deadline)) {
+    // "Added by Super Admin" is a record of who did this, so the role and the
+    // name are read from the logged-in account rather than taken from the form.
+    //
+    // If that account cannot be confirmed, the request is REFUSED rather than
+    // saved under the attendee's own name. A silent fallback here is what makes
+    // a walk-in entered by staff show up as though the attendee registered
+    // themselves - a wrong row that nobody notices beats no row that says why.
+    const addedByAdmin = !!fields.addedByAdmin;
+    let adminActor = null;
+    if (addedByAdmin) {
+      // findEventActor rather than findActor: this needs the committee flags
+      // alongside the role to answer "may you add someone to THIS event".
+      const who = await findEventActor(fields.actorId);
+      if (!who) {
+        return NextResponse.json({
+          success: false,
+          message: fields.actorId
+            ? 'Your account could not be found. Please sign out and sign in again, then add the attendee.'
+            : 'Could not tell who is signed in. Please sign out and sign in again, then add the attendee.',
+        }, { status: 401 });
+      }
+      if (!canWorkEvent(who, eventId)) {
+        return NextResponse.json({ success: false, message: staffDeniedMessage(who) }, { status: 403 });
+      }
+      adminActor = who;
+    }
+
+    // Deadline check. The public form closes at the deadline; an Admin or
+    // Super Admin entering someone at the desk does not - people still turn up
+    // after registration closes, and they have to be recorded somewhere.
+    const staffPastDeadline = !!adminActor && (adminActor.role === 'Admin' || adminActor.role === 'Super Admin');
+    if (event.registration_deadline && new Date() > new Date(event.registration_deadline) && !staffPastDeadline) {
       return NextResponse.json({ success: false, message: 'Registration is closed for this event' }, { status: 400 });
     }
 
@@ -743,33 +842,6 @@ export async function POST(request) {
     // WHO entered it is a separate question, answered by added_by_role.
     const registrationType = isBulk ? 'bulk' : 'individual';
 
-    // "Added by Super Admin" is a record of who did this, so the role and the
-    // name are read from the logged-in account rather than taken from the form.
-    //
-    // If that account cannot be confirmed, the request is REFUSED rather than
-    // saved under the attendee's own name. A silent fallback here is what makes
-    // a walk-in entered by staff show up as though the attendee registered
-    // themselves - a wrong row that nobody notices beats no row that says why.
-    const addedByAdmin = !!fields.addedByAdmin;
-    let adminActor = null;
-    if (addedByAdmin) {
-      // findEventActor rather than findActor: this needs the committee flags
-      // alongside the role to answer "may you add someone to THIS event".
-      const who = await findEventActor(fields.actorId);
-      if (!who) {
-        return NextResponse.json({
-          success: false,
-          message: fields.actorId
-            ? 'Your account could not be found. Please sign out and sign in again, then add the attendee.'
-            : 'Could not tell who is signed in. Please sign out and sign in again, then add the attendee.',
-        }, { status: 401 });
-      }
-      if (!canWorkEvent(who, eventId)) {
-        return NextResponse.json({ success: false, message: staffDeniedMessage(who) }, { status: 403 });
-      }
-      adminActor = who;
-    }
-
     const addedByRole = adminActor
       ? actorRoleLabel(adminActor)                   // 'Admin' | 'Super Admin' | 'Event Committee'
       : (isBulk ? 'Representative' : 'Attendee');
@@ -794,6 +866,20 @@ export async function POST(request) {
       // check it. Pay-in-full is paid. Unticking "already collected" on the
       // form is the way to say the money has not arrived yet.
       status = 'payment_verified';
+    }
+
+    // Paid - Pending Turnover: the attendee paid, but a committee member, usher
+    // or church contact took the money and has still to hand it to the desk.
+    // Staff only, pay-in-full only, and only with the holder's name - that name
+    // is how the desk knows whom to chase for it.
+    const turnoverHolder = String(fields.turnoverHolder || '').trim().slice(0, 120);
+    const wantsTurnover = addedByAdmin && dueNow > 0 && fields.paymentPlan !== 'flexible'
+      && (fields.paidPendingTurnover === true || fields.paidPendingTurnover === 'true' || fields.paidPendingTurnover === '1');
+    if (wantsTurnover) {
+      if (!turnoverHolder) {
+        return NextResponse.json({ success: false, message: 'Enter who is holding the money.' }, { status: 400 });
+      }
+      status = 'paid_pending_turnover';
     }
 
     // Everything the whole group shares - typed once by the organiser.
@@ -827,6 +913,9 @@ export async function POST(request) {
       status,
       ...(status === 'payment_verified' && adminActor
         ? { verified_by: adminActor.id, verified_at: new Date().toISOString() }
+        : {}),
+      ...(status === 'paid_pending_turnover'
+        ? { turnover_holder: turnoverHolder, turnover_marked_by: adminActor.id, turnover_marked_at: new Date().toISOString() }
         : {}),
     };
 
@@ -917,6 +1006,13 @@ export async function POST(request) {
           + 'supabase/migrations/event_bulk_registration.sql and event_flexible_payment.sql, then add the attendee again.',
       }, { status: 500 });
     }
+    // The turnover columns are only the holder's name and when - the status
+    // itself saved - so their absence gets its own, plainer warning.
+    const TURNOVER_COLUMNS = ['turnover_holder', 'turnover_marked_by', 'turnover_marked_at'];
+    const lostTurnover = droppedColumns.some((c) => TURNOVER_COLUMNS.includes(c));
+    for (let i = droppedColumns.length - 1; i >= 0; i -= 1) {
+      if (TURNOVER_COLUMNS.includes(droppedColumns[i])) droppedColumns.splice(i, 1);
+    }
     if (droppedColumns.length > 0) {
       // A guest registering for themselves is not blocked by a missing label
       // column - their slot matters more than the labelling - but the gap is
@@ -931,6 +1027,10 @@ export async function POST(request) {
         columnWarning += ' Everyone on your list is registered, but the group will not show under'
           + ' My Registrations until that column exists.';
       }
+    }
+    if (lostTurnover) {
+      columnWarning = `${columnWarning ? `${columnWarning} ` : ''}Saved as Paid - Pending Turnover, but who is holding `
+        + 'the money was not recorded: run supabase/migrations/paid_pending_turnover.sql.';
     }
 
     // The representative may be availing an extra on a slot they already hold -
@@ -1157,7 +1257,10 @@ export async function DELETE(request) {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { id, ids, actorId, status, attended, action, reason } = body;
+    const { id, ids, actorId, status, attended, action, reason, turnoverHolder, turnedOver } = body;
+    // false = this row only. The proof window sends it: there, the ticks
+    // already say exactly who the transfer covers.
+    const groupCascade = body.groupCascade !== false;
     if (!id && !(Array.isArray(ids) && ids.length > 0)) {
       return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
     }
@@ -1575,25 +1678,99 @@ export async function PUT(request) {
     }
 
     const update = {};
+    // Kept apart so a database that has not run paid_pending_turnover.sql can
+    // still take the status change itself.
+    const turnoverFields = {};
     if (status) {
-      const valid = ['pending_payment', 'payment_submitted', 'pending_cash', 'installment', 'payment_verified', 'registered', 'cancelled'];
+      const valid = ['pending_payment', 'payment_submitted', 'pending_cash', 'installment', 'payment_verified', 'registered', 'cancelled', 'paid_pending_turnover'];
       if (!valid.includes(status)) return NextResponse.json({ success: false, message: 'Invalid status' }, { status: 400 });
       update.status = status;
       if (status === 'payment_verified' || status === 'registered') { update.verified_by = actor.id; update.verified_at = new Date().toISOString(); }
       // Going back to unverified must drop the old signature, or the row still
       // reads as "checked by X" while it waits to be checked again.
       if (status === 'payment_submitted' || status === 'pending_payment' || status === 'pending_cash' || status === 'installment') { update.verified_by = null; update.verified_at = null; }
+      // Paid, money not on hand: somebody is holding it, and that somebody is
+      // who the desk chases. Not verified - nobody has counted the money yet.
+      if (status === 'paid_pending_turnover') {
+        const holder = String(turnoverHolder || '').trim();
+        if (!holder) return NextResponse.json({ success: false, message: 'Say who is holding the money until it is turned over.' }, { status: 400 });
+        update.verified_by = null;
+        update.verified_at = null;
+        turnoverFields.turnover_holder = holder.slice(0, 120);
+        turnoverFields.turnover_marked_by = actor.id;
+        turnoverFields.turnover_marked_at = new Date().toISOString();
+        turnoverFields.turned_over_at = null;
+        turnoverFields.turned_over_by = null;
+      }
+      // The money reached the treasurer.
+      if (status === 'payment_verified' && turnedOver) {
+        turnoverFields.turned_over_at = new Date().toISOString();
+        turnoverFields.turned_over_by = actor.id;
+      }
     }
     if (attended === true) { update.attended = true; update.attended_at = new Date().toISOString(); update.attended_by = actor.id; }
     else if (attended === false) { update.attended = false; update.attended_at = null; update.attended_by = null; }
 
-    const { data, error } = await supabase.from('event_registrations').update(update).eq('id', id).select().single();
+    let warning = '';
+    let { data, error } = await supabase.from('event_registrations')
+      .update({ ...update, ...turnoverFields }).eq('id', id).select().single();
+    if (error && Object.keys(turnoverFields).length > 0 && /turnover|turned_over|column/i.test(error.message || '')) {
+      ({ data, error } = await supabase.from('event_registrations').update(update).eq('id', id).select().single());
+      if (!error) warning = 'Saved, but who is holding the money was not recorded: run supabase/migrations/paid_pending_turnover.sql.';
+    }
     if (error) throw error;
+
+    // ---- One transfer, one group ----
+    // A group booked together is paid on one transfer, so verifying any one of
+    // them verifies everyone on it, and unverifying one puts them all back to
+    // waiting. Only the online payment states move: cash still to collect,
+    // turnover, plans and cancellations are separate money and are left alone.
+    let groupMoved = 0;
+    const cascades = groupCascade && !turnedOver && attended === undefined
+      && (status === 'payment_verified' || status === 'payment_submitted');
+    if (cascades && data?.group_ref && data.payment_plan !== 'flexible') {
+      const fromStatuses = status === 'payment_verified'
+        ? ['payment_submitted', 'pending_payment']
+        : ['payment_verified'];
+      const { data: mates } = await supabase
+        .from('event_registrations')
+        .select('*')
+        .eq('event_id', data.event_id)
+        .eq('group_ref', data.group_ref)
+        .neq('id', id);
+      const targets = (mates || []).filter((m) => fromStatuses.includes(m.status)
+        && m.payment_plan !== 'flexible' && !m.deleted_at);
+      if (targets.length > 0) {
+        const groupUpdate = {
+          status,
+          verified_by: update.verified_by ?? null,
+          verified_at: update.verified_at ?? null,
+        };
+        const { error: groupErr } = await supabase
+          .from('event_registrations').update(groupUpdate).in('id', targets.map((m) => m.id));
+        if (!groupErr) {
+          groupMoved = targets.length;
+          await logAudit(actor, 'event_registration_update', id,
+            `${status === 'payment_verified' ? 'Verified' : 'Unverified'} the rest of the group on the same payment: `
+            + targets.map((m) => m.attendee_name).join(', '));
+        }
+      }
+    }
 
     // Verifying/cancelling changes the pending set — clear the bell's cached feed.
     cacheInvalidate(PENDING_ALERTS_KEY);
-    await logAudit(actor, attended !== undefined ? 'event_attendance_update' : 'event_registration_update', id, attended !== undefined ? `Set attendance to ${attended}` : `Set registration to ${status}`);
-    return NextResponse.json({ success: true, data, message: attended !== undefined ? (attended ? 'Marked attended' : 'Attendance cleared') : 'Registration updated' });
+    await logAudit(actor, attended !== undefined ? 'event_attendance_update' : 'event_registration_update', id,
+      attended !== undefined ? `Set attendance to ${attended}`
+        : status === 'paid_pending_turnover' ? `Marked paid - pending turnover (money with ${turnoverFields.turnover_holder})`
+          : turnoverFields.turned_over_at ? 'Money turned over - payment verified'
+            : `Set registration to ${status}`);
+    return NextResponse.json({
+      success: true, data, warning, groupMoved,
+      message: attended !== undefined ? (attended ? 'Marked attended' : 'Attendance cleared')
+        : groupMoved > 0
+          ? `${status === 'payment_verified' ? 'Verified' : 'Unverified'} - along with ${groupMoved} ${groupMoved === 1 ? 'other' : 'others'} on the same payment`
+          : 'Registration updated',
+    });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }

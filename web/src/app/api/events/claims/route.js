@@ -94,7 +94,7 @@ export async function POST(request) {
     if (reg.event_id !== eventId) {
       return NextResponse.json({ success: false, message: 'That registration is for a different event' }, { status: 400 });
     }
-    if (claimed && !['registered', 'payment_verified'].includes(reg.status)) {
+    if (claimed && !['registered', 'payment_verified', 'paid_pending_turnover'].includes(reg.status)) {
       return NextResponse.json({
         success: false,
         message: `${reg.attendee_name} is not verified yet — verify the registration first.`,

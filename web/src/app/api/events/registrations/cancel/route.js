@@ -53,7 +53,7 @@ function ownedBy(reg, userId) {
 function refundableAmount(reg) {
   const paid = Number(reg.amount_paid || 0);
   if (paid > 0) return paid;
-  return reg.status === 'payment_verified' || reg.status === 'installment' ? Number(reg.amount || 0) : 0;
+  return reg.status === 'payment_verified' || reg.status === 'installment' || reg.status === 'paid_pending_turnover' ? Number(reg.amount || 0) : 0;
 }
 
 // POST — a member asks to cancel their own registration.

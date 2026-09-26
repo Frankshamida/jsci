@@ -33,10 +33,17 @@
 // Counting each registration once is what keeps the arithmetic honest: a person
 // on a plan is a single row that shows in both the Registrations tab and the
 // Flexible Installment tab, and it must cost the event one seat, not two.
-export const SLOT_HOLDING_STATUSES = ['registered', 'payment_verified', 'payment_submitted', 'installment', 'pending_cash'];
+//   paid_pending_turnover  paid - the attendee handed the money to someone
+//                     (usher, committee member) who has still to turn it over
+//                     to the treasurer. Paid as far as the attendee goes, so
+//                     the seat is theirs and the door lets them in.
+export const SLOT_HOLDING_STATUSES = ['registered', 'payment_verified', 'payment_submitted', 'installment', 'pending_cash', 'paid_pending_turnover'];
 
 // Registered to pay in cash, money not yet collected. Its own status rather
 // than a flag on pending_payment, because every list, filter and counter in
 // this app reads a status - a flag would have to be threaded through all of
 // them, and would be forgotten in one of them.
 export const CASH_PENDING_STATUS = 'pending_cash';
+
+// Paid, but the money is not on hand yet - see paid_pending_turnover.sql.
+export const TURNOVER_PENDING_STATUS = 'paid_pending_turnover';

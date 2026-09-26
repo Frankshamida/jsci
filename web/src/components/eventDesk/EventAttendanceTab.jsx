@@ -63,7 +63,7 @@ export default function EventAttendanceTab({
      an unverified one has nothing to check in - it is on the Registrations
      tab, where it can be verified. */
   const confirmedAll = useMemo(
-    () => regs.filter((r) => r.status === 'registered' || r.status === 'payment_verified'),
+    () => regs.filter((r) => r.status === 'registered' || r.status === 'payment_verified' || r.status === 'paid_pending_turnover'),
     [regs],
   );
   const confirmed = useMemo(() => {
@@ -188,7 +188,9 @@ export default function EventAttendanceTab({
       )}
 
       <div className="evt-table-wrapper evt-table-steady">
-        <table className="evt-table">
+        {/* evt-attend-cards: on a phone each row folds into one short card -
+            name and status on top, then the days, kit and meals as chips. */}
+        <table className="evt-table evt-attend-cards">
           <thead>
             <tr>
               {/* No Contact column here on purpose: at a door the question is
@@ -226,7 +228,7 @@ export default function EventAttendanceTab({
                     cleared to come in. */}
                 <td className="evt-nowrap" data-label="Status">
                   <span className={`evt-status evt-status-${r.status}`}>
-                    {r.status === 'payment_verified' || r.status === 'registered'
+                    {r.status === 'payment_verified' || r.status === 'registered' || r.status === 'paid_pending_turnover'
                       ? 'Verified Attendee'
                       : statusLabel(r.status)}
                   </span>

@@ -17,6 +17,7 @@ import { isCashChannel, channelTypeLabel, channelTypeIcon, eventTakesCash } from
 import { OTHER_CHURCH, isPlaceholderChurch, normalizeChurchName } from '@/lib/eventFormat';
 import AgeGroupPicker from '@/components/AgeGroupPicker';
 import GuardianPicker from '@/components/GuardianPicker';
+import PastorInput from '@/components/PastorInput';
 import {
   addonFeeFor, addonShortLabel, baseAmountFor, defaultTier, eventFeeLabel, eventTiers,
   findTier, hasPriceTiers, isNameOnlyTier, nameOnlyTiers, representativeTiers,
@@ -2675,10 +2676,14 @@ ${eventsDigest}`;
                         <div className="hp-form-group">
                           <label>Church Pastor *</label>
                           {/* "Ptr." is fixed, so only the name is typed */}
-                          <div className={`hp-prefix-input ${guestFieldErrors.churchPastor ? 'invalid' : ''}`}>
-                            <span>Ptr.</span>
-                            <input type="text" value={guestRegForm.churchPastor} onChange={(e) => { setGuestRegForm({ ...guestRegForm, churchPastor: e.target.value }); clearGuestFieldError('churchPastor'); }} placeholder="Juan Cruz" />
-                          </div>
+                          <PastorInput
+                            variant="hp"
+                            eventId={guestRegEvent?.id}
+                            churchName={guestRegForm.churchName}
+                            value={guestRegForm.churchPastor}
+                            onChange={(v) => { setGuestRegForm((f) => ({ ...f, churchPastor: v })); clearGuestFieldError('churchPastor'); }}
+                            invalid={!!guestFieldErrors.churchPastor}
+                          />
                           {guestFieldErrors.churchPastor && <small className="hp-field-error">{guestFieldErrors.churchPastor}</small>}
                         </div>
                         <div className="hp-form-group">

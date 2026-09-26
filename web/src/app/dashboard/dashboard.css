@@ -24840,6 +24840,90 @@ body.dark-mode .evt-step-line { background: rgba(255,255,255,0.12); }
 }
 .evt-dup-warn i { margin-top: 3px; flex-shrink: 0; }
 
+/* Registrations with a similar name, listed under Last Name as it is typed. */
+.evt-name-matches {
+  margin: -6px 0 14px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.12));
+  background: rgba(146,108,21,0.05);
+}
+.evt-name-matches-head {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 0.78rem; font-weight: 700; color: var(--text-muted, #888);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.evt-name-matches ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.evt-name-matches li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; background: var(--card-bg, #fff);
+  border: 1px solid transparent;
+}
+.evt-name-matches li > i { color: var(--primary, #926c15); flex-shrink: 0; }
+.evt-name-matches li > span:first-of-type { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.evt-name-matches li strong { font-size: 0.9rem; font-weight: 700; }
+.evt-name-matches li small { font-size: 0.76rem; color: var(--text-muted, #999); }
+.evt-name-matches li em { display: block; font-style: normal; font-weight: 600; color: #b91c1c; }
+.evt-name-matches li.exact { border-color: rgba(220,38,38,0.35); background: rgba(220,38,38,0.07); }
+/* Bulk representative: an existing registration is a person to pick, not a
+   clash - green, and the pick button sits at the end of the row. */
+.evt-name-matches li.exact.pickable { border-color: rgba(22,163,74,0.35); background: rgba(22,163,74,0.07); }
+.evt-name-matches li.exact.pickable em { color: #15803d; }
+.evt-name-matches li.exact.pickable > i { color: #16a34a; }
+.evt-name-pick { flex-shrink: 0; white-space: nowrap; }
+.evt-name-matches li.exact > i { color: #dc2626; }
+body.dark-mode .evt-name-matches { background: rgba(255,255,255,0.04); border-color: #444; }
+body.dark-mode .evt-name-matches li { background: #2a2a2a; }
+body.dark-mode .evt-name-matches li.exact { background: rgba(220,38,38,0.16); }
+
+/* Parent or guardian picker for a kid added at the desk (mirrors home.css). */
+.evt-guardian { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 16px; }
+.evt-guardian-label { font-size: 0.88rem; font-weight: 700; }
+.evt-guardian-search {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px; border-radius: 12px;
+  border: 1.5px solid rgba(0,0,0,0.10); background: #fff;
+}
+.evt-guardian.invalid .evt-guardian-search { border-color: #dc2626; background: #fef2f2; }
+.evt-guardian-search i { color: #999; flex-shrink: 0; }
+.evt-guardian-search input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  font: inherit; font-size: 0.95rem; padding: 13px 0; color: inherit;
+}
+.evt-guardian-list {
+  list-style: none; margin: 0; padding: 5px;
+  border-radius: 12px; border: 1px solid rgba(0,0,0,0.10); background: #fff;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.10); max-height: 230px; overflow-y: auto;
+}
+.evt-guardian-list button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 10px 11px; border: none; border-radius: 9px; cursor: pointer;
+  background: transparent; font: inherit; text-align: left; color: inherit;
+}
+.evt-guardian-list button:hover { background: rgba(146,108,21,0.10); }
+.evt-guardian-list span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.evt-guardian-list strong { font-size: 0.92rem; font-weight: 700; }
+.evt-guardian-list small { font-size: 0.78rem; color: #999; }
+.evt-guardian-list i { color: var(--primary, #926c15); flex-shrink: 0; }
+.evt-guardian-chosen {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 14px; border-radius: 12px;
+  border: 1.5px solid #16a34a; background: rgba(22,163,74,0.08);
+}
+.evt-guardian-chosen > i { color: #16a34a; flex-shrink: 0; }
+.evt-guardian-chosen span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.evt-guardian-chosen strong { font-size: 0.93rem; font-weight: 700; }
+.evt-guardian-chosen small { font-size: 0.78rem; color: #888; }
+.evt-guardian-chosen button {
+  flex-shrink: 0; border: none; background: transparent; cursor: pointer;
+  font: inherit; font-size: 0.8rem; font-weight: 800; color: var(--primary, #926c15);
+  text-decoration: underline; padding: 4px;
+}
+.evt-guardian-hint { font-size: 0.8rem; line-height: 1.5; color: #999; display: flex; gap: 7px; align-items: flex-start; }
+.evt-guardian-hint.warn { color: #b45309; }
+.evt-guardian-hint i { margin-top: 3px; flex-shrink: 0; }
+body.dark-mode .evt-guardian-search,
+body.dark-mode .evt-guardian-list { background: #2a2a2a; border-color: #444; }
+body.dark-mode .evt-guardian-chosen { background: rgba(22,163,74,0.16); }
+
 /* ---- One "Manage" button per row, with the actions behind it ---- */
 .evt-table-wrapper.menu-open { overflow: visible; }
 .evt-rowmenu { position: relative; display: inline-block; text-align: left; }
@@ -24915,6 +24999,14 @@ body.dark-mode .evt-manage-trigger { background: #2a2a3a; color: #eee; }
 .evt-type-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .evt-plan-option:disabled { opacity: 0.45; cursor: not-allowed; }
 @media (max-width: 560px) { .evt-type-choice { grid-template-columns: 1fr; } }
+
+/* Walk-in paid in full: where the money is. Three across on a wide modal,
+   stacked on a phone. */
+.evt-pay-status { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 4px; }
+.evt-pay-status .evt-plan-option { padding: 10px 12px; }
+.evt-pay-status .evt-plan-option strong { font-size: 0.86rem; }
+.evt-pay-status .evt-plan-option small { font-size: 0.76rem; }
+@media (max-width: 560px) { .evt-pay-status { grid-template-columns: 1fr; } }
 
 /* The group roster inside the walk-in form. */
 .evt-bulk-entry {
@@ -25644,6 +25736,7 @@ body.dark-mode .evt-foot-btn.ghost { color: #ddd; border-color: rgba(255,255,255
    and deliberately NOT the yellow of pending_payment - one is somebody who has
    not paid, the other is somebody who arranged to pay in person. */
 .evt-status-pending_cash { background: rgba(217,119,6,0.16); color: #b45309; }
+.evt-status-paid_pending_turnover { background: rgba(37,99,235,0.12); color: #1d4ed8; }
 /* A plan being paid down. Its own colour, because it is not the same state as
    "somebody submitted a payment and nobody has checked it" - there is nothing
    for an admin to do here except collect the rest. */
@@ -31979,6 +32072,16 @@ body.dark-mode .evt-hero-backlink { color: #f5d27a; }
 }
 .evt-hero-pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .evt-hero-pill.evt-tstatus-upcoming { background: #eaf1ff; }
+/* The venue pill that leads the banner, before the status pill. */
+.evt-hero-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.evt-hero-loc {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  padding: 4px 12px; border-radius: 20px; font-size: 0.78rem; font-weight: 700;
+  background: rgba(255,255,255,0.92); color: var(--primary, #926c15);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.evt-hero-loc i { font-size: 0.74rem; flex-shrink: 0; }
+body.dark-mode .evt-hero-loc { background: rgba(0,0,0,0.35); color: #f5d27a; }
 .evt-hero-regs .um-hero-title { margin: 10px 0 10px; font-size: 2rem; line-height: 1.15; }
 .evt-hero-regs .um-hero-sub {
   max-width: none; margin-bottom: 18px; font-size: 0.95rem;
@@ -32199,4 +32302,289 @@ body.dark-mode .evt-dtp-ampm button:not(.on) { background: rgba(234,179,8,0.12);
   .evt-dtp-spin { flex-direction: row; }
   .evt-dtp-ampm { flex-direction: row; margin-left: 12px; }
   .evt-dtp-foot-end { margin-top: 12px; }
+}
+
+/* Kids added on the representative step of a group booking. */
+.evt-kid-add {
+  margin: 4px 0 14px; padding: 14px; border-radius: 12px;
+  border: 1.5px dashed rgba(22,163,74,0.45); background: rgba(22,163,74,0.05);
+}
+.evt-kid-add-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 4px; font-weight: 700; font-size: 0.92rem; color: #15803d;
+}
+.evt-kid-add-head em { font-style: normal; font-size: 0.78rem; font-weight: 600; color: var(--text-muted, #888); }
+.evt-kid-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.evt-kid-list li {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+  background: var(--card-bg, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.10));
+}
+.evt-kid-list li > i { color: #16a34a; }
+.evt-kid-list li > span:first-of-type { flex: 1; min-width: 0; font-weight: 600; }
+.evt-kid-list li b { font-size: 0.85rem; }
+body.dark-mode .evt-kid-add { background: rgba(22,163,74,0.10); }
+body.dark-mode .evt-kid-list li { background: #2a2a2a; border-color: #444; }
+
+/* ---- Registration cards: the Manage menu stays on screen ----
+   On the phone cards the Manage button is the right-hand column, so a menu
+   anchored to its LEFT edge runs off the right side of the screen. Anchor it
+   to the button's right edge instead, so it grows leftwards across the card,
+   and let long labels ("1 not availed") wrap rather than push it wider. */
+@media (max-width: 1024px) {
+  .evt-regs-cards .evt-rowmenu { position: relative; }
+  .evt-regs-cards .evt-rowmenu-list {
+    left: auto; right: 0;
+    width: max-content;
+    min-width: min(230px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+    white-space: normal;
+  }
+  .evt-regs-cards .evt-rowmenu-list button { white-space: normal; line-height: 1.3; }
+  .evt-regs-cards .evt-rowmenu-list button em { white-space: nowrap; padding-left: 8px; }
+}
+
+/* "Turnover by <name>" under a Paid - Pending Turnover pill. Its own class, not
+   .evt-cell-sub, because the phone cards hide the status cell's sub-lines. */
+.evt-turnover-by {
+  display: flex; align-items: center; gap: 5px; margin-top: 5px;
+  max-width: 210px;
+  font-size: 0.74rem; font-weight: 500; line-height: 1.3; color: #1d4ed8;
+}
+/* One line - "Turnover by" and the name wrapping as separate flex items is
+   what split them into two ragged columns. A long name is cut with an
+   ellipsis; the title attribute carries it in full. */
+.evt-turnover-by > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.evt-turnover-by b { font-weight: 700; }
+.evt-turnover-by i { font-size: 0.72rem; flex-shrink: 0; }
+.evt-status-paid_pending_turnover { white-space: nowrap; }
+body.dark-mode .evt-turnover-by { color: #93c5fd; }
+@media (max-width: 1024px) {
+  .evt-regs-cards .evt-turnover-by { justify-content: flex-end; text-align: right; max-width: none; margin-left: auto; }
+}
+
+/* The registered representative's card: done note on the left, the way back
+   out on the right. */
+.evt-rep-known-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+
+/* ============================================ */
+/* Event banner - registrations view (desk)      */
+/* ============================================ */
+/* Poster, title and the four money tiles share one row; the money still out
+   there (cash to collect, turnover, awaiting verification) sits in its own
+   row across the whole banner, side by side. Stacking those under the tiles
+   made the banner twice the height of what was in it, stretched the poster
+   and floated the title in the middle of empty gold. */
+.evt-hero-regs { padding: 18px; }
+.evt-hero-regs .evt-hero-grid {
+  grid-template-columns: 196px minmax(0, 1fr) minmax(430px, 540px);
+  gap: 16px 26px; align-items: center;
+}
+.evt-hero-poster { align-self: start; min-height: 0; aspect-ratio: 4 / 5; }
+.evt-hero-regs .evt-hero-main { padding: 0; align-self: center; }
+.evt-hero-regs .um-hero-title { margin: 10px 0 8px; font-size: 1.9rem; }
+.evt-hero-regs .um-hero-sub { -webkit-line-clamp: 3; line-clamp: 3; margin-bottom: 16px; font-size: 0.92rem; }
+.evt-hero-regs .evt-hero-action { padding: 11px 18px; }
+.evt-hero-regs .evt-stat { padding: 12px 14px; gap: 12px; }
+.evt-hero-regs .evt-stat > span.evt-stat-ico { flex-basis: 46px; width: 46px; height: 46px; font-size: 1.15rem; }
+.evt-hero-regs .evt-stat-txt > b,
+.evt-hero-regs .evt-stat.lead .evt-stat-txt > b { font-size: 1.45rem; }
+.evt-hero-regs .evt-stat-txt > em { font-size: 0.8rem; }
+
+.evt-hero-dues {
+  grid-column: 1 / -1;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px;
+}
+.evt-hero-dues .evt-due {
+  display: flex; flex-direction: row; align-items: center; gap: 12px; min-width: 0; padding: 12px 16px;
+  background: rgba(255,255,255,0.96); border: 1px solid rgba(255,255,255,0.9); border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(60,40,0,0.12); cursor: pointer; font: inherit; text-align: left; color: inherit;
+}
+.evt-hero-dues .evt-due:hover { background: #fff; box-shadow: 0 10px 24px rgba(60,40,0,0.22); }
+.evt-hero-dues .evt-due.on { background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.55), 0 10px 24px rgba(60,40,0,0.25); }
+.evt-hero-dues .evt-due-ico {
+  flex: 0 0 38px; width: 38px; height: 38px; display: grid; place-items: center;
+  font-size: 1.4rem; color: #c8900f;
+}
+.evt-hero-dues .evt-due.wait .evt-stat-ico { color: #2563eb; }
+.evt-hero-dues .evt-due-txt {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.evt-hero-dues .evt-due-txt > span {
+  font-size: 0.95rem; font-weight: 700; color: #7a560c; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.evt-hero-dues .evt-due-txt > b { font-size: 1.4rem; font-weight: 800; color: #2b2100; white-space: nowrap; }
+.evt-hero-dues .evt-due-go { flex-shrink: 0; color: #7a560c; font-size: 1rem; }
+.evt-hero-dues .evt-due:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+body.dark-mode .evt-hero-dues .evt-due { background: rgba(255,255,255,0.96); }
+
+/* Narrower desks: poster and title on the first row, the four tiles across
+   the second, the money still out there across the third. */
+@media (max-width: 1440px) {
+  .evt-hero-regs .evt-hero-grid { grid-template-columns: 170px minmax(0, 1fr); }
+  .evt-hero-regs .evt-hero-stats { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 1240px) {
+  .evt-hero-regs .evt-hero-stats { grid-template-columns: 1fr 1fr; }
+}
+
+/* ---- Phones and tablets: the header card ---- */
+.evt-rhead-pills { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.evt-rhead-loc {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  padding: 4px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700;
+  background: rgba(146,108,21,0.12); color: var(--primary, #926c15);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.dark-mode .evt-rhead-loc { background: rgba(245,210,122,0.14); color: #f5d27a; }
+@media (max-width: 1024px) {
+  .evt-rhead-top { align-items: stretch; }
+  .evt-rhead-img { aspect-ratio: 4 / 5; flex-basis: 30%; max-width: 150px; }
+  .evt-rhead-stat-txt > b { white-space: nowrap; }
+  /* The bars under the tiles: tighter and closer together, one per line. */
+  .evt-rhead-due { margin-top: 8px; padding: 12px 14px; gap: 12px; }
+  .evt-rhead-stats + .evt-rhead-due { margin-top: 12px; }
+  .evt-rhead-due > i:first-child { font-size: 1.25rem; width: 24px; text-align: center; }
+  .evt-rhead-due > span { font-size: 0.92rem; min-width: 0; }
+  .evt-rhead-due > b { font-size: 1.25rem; white-space: nowrap; }
+}
+@media (max-width: 520px) {
+  .evt-rhead-top { gap: 12px; }
+  .evt-rhead-img { flex-basis: 34%; }
+  .evt-rhead-title { margin-top: 8px; }
+  .evt-rhead-link { margin-top: 6px; font-size: 0.85rem; }
+  .evt-rhead-due { padding: 11px 12px; }
+  .evt-rhead-due > span { font-size: 0.86rem; }
+  .evt-rhead-due > b { font-size: 1.1rem; }
+}
+@media (max-width: 380px) {
+  .evt-rhead-stats { grid-template-columns: 1fr; }
+}
+
+/* ============================================ */
+/* Registration cards on phones - two tiers      */
+/* ============================================ */
+/* The person gets the whole width of the card - name in full, wrapped when it
+   is long - and the money sits underneath: amount and status on the left,
+   Manage on the right. Squeezing name, amount, status and Manage into one row
+   is what cut the names short and pushed "Paid - Pending Turnover" under the
+   Manage button. */
+@media (max-width: 1024px) {
+  .evt-table.evt-regs-cards tbody tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "main main" "pay act" "status act";
+    column-gap: 12px; row-gap: 2px;
+  }
+  .evt-table.evt-regs-cards tbody td.evt-td-primary {
+    align-items: flex-start;
+    padding: 0 0 12px !important; margin-bottom: 10px;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.08)) !important;
+  }
+  .evt-regs-cards .evt-rname { overflow: visible; }
+  .evt-regs-cards .evt-rname-txt {
+    white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.3;
+  }
+  .evt-table.evt-regs-cards tbody td.evt-cell-payment,
+  .evt-table.evt-regs-cards tbody td[data-label="Status"] {
+    justify-self: start; text-align: left; white-space: normal; min-width: 0;
+  }
+  .evt-table.evt-regs-cards tbody td.evt-cell-payment { align-self: end; }
+  .evt-table.evt-regs-cards tbody td[data-label="Status"] {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 2px;
+  }
+  .evt-table.evt-regs-cards tbody td.evt-td-actions { align-self: center; }
+  .evt-regs-cards .evt-status { max-width: 100%; }
+  .evt-regs-cards .evt-turnover-by {
+    justify-content: flex-start; text-align: left; margin: 0; max-width: 100%;
+  }
+}
+@media (max-width: 520px) {
+  .evt-table.evt-regs-cards tbody tr { grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; }
+  .evt-regs-cards .evt-status { padding: 4px 10px; font-size: 0.74rem; }
+}
+
+/* ============================================ */
+/* Attendance tab on phones - one short card     */
+/* ============================================ */
+/* The table's generic phone layout gave every cell its own labelled block,
+   so one person took a whole screen: status, two attendance lines, kit, a
+   meal grid and a button, each under a heading. Here it is one compact card:
+
+     Lilibeth Duallo                 [Verified Attendee]
+     [✓ Day 1 Attended] [○ Day 2 Upcoming]
+     KIT  Not claimed        MEALS  D1 [Lunch][Dinner]
+                                    D2 [Lunch][Dinner]
+     [        Mark Day 1 Attended        ]                        */
+@media (max-width: 1024px) {
+  .evt-table-wrapper:has(.evt-attend-cards) {
+    background: transparent !important; box-shadow: none !important; border: none !important;
+    overflow: visible !important; min-height: 0;
+  }
+  .evt-table.evt-attend-cards,
+  .evt-table.evt-attend-cards tbody { display: block; width: 100%; min-width: 0; }
+  .evt-table.evt-attend-cards thead { display: none; }
+  .evt-table.evt-attend-cards tbody tr {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name status" "days days" "kit meals" "act act";
+    gap: 10px 12px; align-items: start;
+    margin: 0 0 10px; padding: 12px 14px; border-radius: 14px;
+    background: var(--bg-card, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.07));
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+  }
+  body.dark-mode .evt-table.evt-attend-cards tbody tr { background: #23232f; border-color: rgba(255,255,255,0.08); }
+  .evt-table.evt-attend-cards tbody tr > td {
+    display: block; width: auto; min-width: 0; padding: 0 !important;
+    border: none !important; background: none !important; border-radius: 0 !important; text-align: left;
+  }
+  .evt-table.evt-attend-cards tbody td::before { content: none !important; display: none !important; }
+  .evt-table.evt-attend-cards tbody tr > td[colspan] { grid-column: 1 / -1; }
+
+  /* name and status */
+  .evt-table.evt-attend-cards td[data-label="Attendee"] {
+    grid-area: name; align-self: center;
+    font-size: 1rem; font-weight: 800; line-height: 1.3; overflow-wrap: anywhere;
+    color: var(--text-primary, #1f1f1f);
+  }
+  body.dark-mode .evt-table.evt-attend-cards td[data-label="Attendee"] { color: #f2f2f2; }
+  .evt-table.evt-attend-cards td[data-label="Status"] { grid-area: status; justify-self: end; align-self: center; }
+  .evt-table.evt-attend-cards td[data-label="Status"] .evt-status { font-size: 0.7rem; padding: 3px 9px; white-space: nowrap; }
+
+  /* the days, side by side */
+  .evt-table.evt-attend-cards td[data-label="Attendance"] { grid-area: days; }
+  .evt-attend-cards .evt-attend-days { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .evt-attend-cards .evt-attend-day { padding: 5px 10px; border-radius: 20px; font-size: 0.74rem; gap: 5px; }
+  .evt-attend-cards .evt-attend-day-sep,
+  .evt-attend-cards .evt-attend-day time { display: none; }
+
+  /* kit and meals, each with a small label */
+  .evt-table.evt-attend-cards td[data-label="Event Kit"],
+  .evt-table.evt-attend-cards td[data-label="Meals"] { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+  .evt-table.evt-attend-cards td[data-label="Event Kit"] { grid-area: kit; }
+  .evt-table.evt-attend-cards td[data-label="Meals"] { grid-area: meals; justify-self: end; align-items: flex-end; }
+  .evt-table.evt-attend-cards td[data-label="Event Kit"]::before,
+  .evt-table.evt-attend-cards td[data-label="Meals"]::before {
+    display: block !important; content: attr(data-label) !important;
+    font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted, #8a8a8a);
+  }
+  .evt-attend-cards .evt-claim-state { font-size: 0.72rem; padding: 4px 10px; }
+  .evt-attend-cards .evt-claim-done { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .evt-attend-cards .evt-attend-when { font-size: 0.66rem; }
+  .evt-attend-cards .evt-meals { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .evt-attend-cards .evt-meal-day { display: flex; align-items: center; gap: 4px; }
+  .evt-attend-cards .evt-meal-daylabel { font-size: 0.66rem; font-weight: 800; min-width: 36px; text-align: right; color: var(--text-muted, #8a8a8a); }
+  .evt-attend-cards .evt-meal-chip { font-size: 0.7rem; padding: 3px 8px; gap: 4px; }
+
+  /* one full-width action */
+  .evt-table.evt-attend-cards td.evt-td-actions { grid-area: act; }
+  .evt-attend-cards td.evt-td-actions .evt-mini-btn {
+    width: 100%; justify-content: center; padding: 9px 12px; font-size: 0.85rem; border-radius: 10px;
+  }
+}
+@media (max-width: 380px) {
+  .evt-table.evt-attend-cards tbody tr { grid-template-areas: "name status" "days days" "kit kit" "meals meals" "act act"; }
+  .evt-table.evt-attend-cards td[data-label="Meals"] { justify-self: start; align-items: flex-start; }
+  .evt-attend-cards .evt-meals { align-items: flex-start; }
+  .evt-attend-cards .evt-meal-daylabel { text-align: left; }
 }

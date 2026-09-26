@@ -94,6 +94,8 @@ export const STATUS_LABELS = {
   // so the word staff need is what they must DO about it.
   pending_cash: 'cash to collect',
   installment: 'installment',
+  // Paid by the attendee; the money is still with whoever took it.
+  paid_pending_turnover: 'paid - pending turnover',
 };
 
 export function statusLabel(status) {
@@ -219,4 +221,4 @@ export function merchItemsOf(event) {
    VERIFIED_STATUSES in api/rfid/event-checkin - 'registered' is what a free
    event produces, 'payment_verified' what a paid one becomes when staff
    confirm the payment. */
-export const VERIFIED_STATUSES = ['registered', 'payment_verified'];
+export const VERIFIED_STATUSES = ['registered', 'payment_verified', 'paid_pending_turnover'];

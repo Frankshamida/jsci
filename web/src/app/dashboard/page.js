@@ -14,15 +14,19 @@ import { buildPdf, loadLogoJpeg } from '@/lib/pdfWriter';
 import { moderateMessage, detectInappropriateWords } from '@/lib/contentModeration';
 import SmartImage from '@/components/SmartImage';
 import AgeGroupPicker from '@/components/AgeGroupPicker';
+import GuardianPicker from '@/components/GuardianPicker';
+import RegisteredNameMatches from '@/components/RegisteredNameMatches';
 import './dashboard.css';
 import { withTitleCase } from '@/lib/eventTitle';
 import {
   STARTER_TIERS, addonFeeFor, addonShortLabel, baseAmountFor, defaultTier, eventFeeLabel,
-  eventTiers, findTier, hasPriceTiers, tierAgeLabel, tierKey,
+  eventTiers, findTier, hasPriceTiers, isNameOnlyTier, nameOnlyTiers, tierAgeLabel, tierKey,
 } from '@/lib/eventPricing';
 import { eventSlugFor, findEventBySlug, eventShareUrl } from '@/lib/eventSlug';
 import { HERO_MEDIA_DEFAULT, HERO_VIDEO_DIR, heroVideoWeight, normalizeHeroMedia } from '@/lib/heroMedia';
 import ProofDrop from '@/components/ProofDrop';
+import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
+import PastorInput from '@/components/PastorInput';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import {
   PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
@@ -31,6 +35,23 @@ import {
 } from '@/lib/paymentChannels';
 
 const Cropper = dynamic(() => import('react-easy-crop'), { ssr: false });
+
+// Is this exact name already registered for the event? Asked at the moment a
+// person is added to a group, so a click that beats the as-you-type lookup
+// still cannot add someone who holds a slot. Returns the existing
+// registration's details, or null. A failed check returns null - the server
+// refuses duplicates again on submit.
+async function findExistingRegistration(eventId, first, last) {
+  const full = `${first || ''} ${last || ''}`.trim().replace(/\s+/g, ' ');
+  if (!eventId || !full.includes(' ')) return null;
+  try {
+    const res = await fetch(`/api/events/registrations?eventId=${eventId}&duplicates=${encodeURIComponent(full)}`);
+    const data = await res.json();
+    return data.success && (data.details || []).length > 0 ? data.details[0] : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---- Per-day event schedule helpers -------------------------------------
 // A day row is { date: "YYYY-MM-DD", start: "HH:mm", end: "HH:mm", label }
@@ -1511,7 +1532,7 @@ export default function DashboardPage() {
       // selection - including "all". A head count that quietly includes them
       // is wrong in a way nobody notices until the meals run short.
       rows = all.filter((r) => r.status !== 'cancelled');
-      if (exportStatus === 'paid') rows = rows.filter((r) => r.status === 'payment_verified' || r.status === 'registered');
+      if (exportStatus === 'paid') rows = rows.filter((r) => r.status === 'payment_verified' || r.status === 'registered' || r.status === 'paid_pending_turnover');
       else if (exportStatus === 'unpaid') rows = rows.filter((r) => ['pending_cash', 'pending_payment', 'installment'].includes(r.status));
       else if (exportStatus === 'verify') rows = rows.filter((r) => r.status === 'payment_submitted');
       else if (exportStatus === 'attended') rows = rows.filter((r) => r.attended);
@@ -6081,9 +6102,25 @@ export default function DashboardPage() {
   const [adminAddRegTier, setAdminAddRegTier] = useState('');
   const [adminBulkEditing, setAdminBulkEditing] = useState(null);
   const [adminBulkError, setAdminBulkError] = useState('');
+  // The roster draft's exact match among this event's registrations, found as
+  // the name is typed - a person already registered is not added again.
+  const [adminDraftDup, setAdminDraftDup] = useState(null);
+  const [adminRosterChecking, setAdminRosterChecking] = useState(false);
+  // Who a kid added on their own is registered under.
+  const [adminGuardian, setAdminGuardian] = useState(null);
+  // A kid being added on the representative step of a group booking.
+  const [adminKidDraft, setAdminKidDraft] = useState({ firstName: '', lastName: '', priceTier: '' });
+  const [adminKidDup, setAdminKidDup] = useState(null);
+  const [adminKidError, setAdminKidError] = useState('');
+  // One add at a time while the registration check is in flight.
+  const adminAddingRef = useRef(false);
+  const memberAddingRef = useRef(false);
   // Set once the representative's saved church/contact has been copied in, so
   // the panel can say so instead of offering it a second time.
   const [adminRepUsedSaved, setAdminRepUsedSaved] = useState(false);
+  // Set when a registered person is picked as the representative, so their
+  // saved details are filled in as soon as the lookup confirms who they are.
+  const [adminRepAutoFill, setAdminRepAutoFill] = useState(false);
 
   // ---- Correcting an attendee's details ----
   // Names are typed at a desk, often from someone speaking them out loud, and a
@@ -6253,7 +6290,7 @@ export default function DashboardPage() {
     // under a card reading "Awaiting Verification / not yet checked", which
     // described it wrongly twice: there is no payment, so there is nothing to
     // check. The two are separated here so each card says something true.
-    let cash = 0, online = 0, pending = 0, cashDue = 0, planDue = 0, expected = 0;
+    let cash = 0, online = 0, pending = 0, cashDue = 0, planDue = 0, expected = 0, turnover = 0;
     live.forEach((r) => {
       const owed = Number(r.amount) || 0;
       expected += owed;
@@ -6273,9 +6310,11 @@ export default function DashboardPage() {
       if (r.status === 'payment_verified' || r.status === 'registered') {
         if (isCash) cash += owed; else online += owed;
       } else if (r.status === 'pending_cash') cashDue += owed;
+      // Paid, but still in somebody's pocket: not collected until turned over.
+      else if (r.status === 'paid_pending_turnover') turnover += owed;
       else pending += owed;
     });
-    return { cash, online, total: cash + online, pending, cashDue, planDue, expected };
+    return { cash, online, total: cash + online, pending, cashDue, planDue, expected, turnover };
   })();
   const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
 
@@ -6290,6 +6329,8 @@ export default function DashboardPage() {
     // arrangement, so the word staff need is what they must DO about it.
     pending_cash: 'cash to collect',
     installment: 'installment',
+    // Paid by the attendee, the money still with whoever took it.
+    paid_pending_turnover: 'paid - pending turnover',
   };
   const statusLabel = (status) => STATUS_LABELS[status] || String(status || '').replace(/_/g, ' ');
 
@@ -6408,6 +6449,10 @@ export default function DashboardPage() {
   const [collectSelected, setCollectSelected] = useState([]);
   const [collectTendered, setCollectTendered] = useState('');
   const [collectSaving, setCollectSaving] = useState(false);
+  // 'onhand': the money is at the desk now. 'turnover': it has been paid, but
+  // to somebody who still has to hand it over - so who that is gets recorded.
+  const [collectMode, setCollectMode] = useState('onhand');
+  const [collectHolder, setCollectHolder] = useState('');
 
   // What one row still owes. A plan pays itself down through the installment
   // screen, so only what is left is ever asked for here.
@@ -6415,7 +6460,7 @@ export default function DashboardPage() {
 
   // Settled means the money is in: either the status says so, or there is
   // nothing left to hand over.
-  const regCashPaid = (r) => r.status === 'payment_verified' || r.status === 'registered' || regCashDue(r) <= 0;
+  const regCashPaid = (r) => r.status === 'payment_verified' || r.status === 'registered' || r.status === 'paid_pending_turnover' || regCashDue(r) <= 0;
 
   // Everyone the money on the desk might be for: the whole booking when a
   // representative made it, otherwise just the person in front of you.
@@ -6430,8 +6475,10 @@ export default function DashboardPage() {
     return group.length ? group : [reg];
   };
 
-  const openCollectCash = (reg) => {
+  const openCollectCash = (reg, mode = 'onhand') => {
     const rows = collectGroupFor(reg);
+    setCollectMode(mode);
+    setCollectHolder('');
     // Ticked to start with: everyone who still owes. Unticking is how one
     // person is left to pay separately, which is the less common case.
     setCollectSelected(rows.filter((r) => !regCashPaid(r)).map((r) => r.id));
@@ -6461,6 +6508,8 @@ export default function DashboardPage() {
 
   const submitCollectCash = async () => {
     if (!collectCash || collectSelected.length === 0) return;
+    const turnover = collectMode === 'turnover';
+    if (turnover && !collectHolder.trim()) { showToast('Enter who is holding the money', 'danger'); return; }
     setCollectSaving(true);
     try {
       // One request per registration: the endpoint verifies a single row, and
@@ -6473,16 +6522,21 @@ export default function DashboardPage() {
           const res = await fetch('/api/events/registrations', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, actorId: userData?.id, status: 'payment_verified' }),
+            body: JSON.stringify(turnover
+              ? { id, actorId: userData?.id, status: 'paid_pending_turnover', turnoverHolder: collectHolder.trim() }
+              : { id, actorId: userData?.id, status: 'payment_verified' }),
           });
           const data = await res.json();
+          if (data.success && data.warning) showToast(data.warning, 'warning');
           if (data.success) ok += 1;
           else failed.push(collectCash.rows.find((r) => r.id === id)?.attendee_name || id);
         } catch { failed.push(collectCash.rows.find((r) => r.id === id)?.attendee_name || id); }
       }
       if (ok) {
         showToast(
-          `₱${collectTotal} collected — ${ok} ${ok === 1 ? 'registration' : 'registrations'} confirmed`,
+          turnover
+            ? `₱${collectTotal} marked paid — pending turnover from ${collectHolder.trim()}`
+            : `₱${collectTotal} collected — ${ok} ${ok === 1 ? 'registration' : 'registrations'} confirmed`,
           failed.length ? 'warning' : 'success',
         );
       }
@@ -6499,10 +6553,27 @@ export default function DashboardPage() {
 
   // Everything an admin might have to hand when looking someone up: the name,
   // who added them, their church, their number, or the payment reference.
-  const regMatchesSearch = (r, q) => [
-    r.attendee_name, r.added_by, r.representative, r.church_name, r.church_pastor,
-    r.attendee_mobile, r.attendee_email, r.payment_reference,
-  ].some((v) => String(v || '').toLowerCase().includes(q));
+  // Every word typed has to appear somewhere on the row, in any order - so
+  // "Apuya Renante" finds Renante Apuya the same as "Renante Apuya" does, and
+  // a name saved with a double space or split across first/last still matches.
+  // The representative's name counts, so searching them lists their row AND
+  // everyone they registered.
+  const regMatchesSearch = (r, q) => {
+    const hay = [
+      r.attendee_name, r.attendee_firstname, r.attendee_lastname,
+      r.added_by, r.representative, r.guardian_name, r.turnover_holder,
+      r.church_name, r.church_pastor,
+      r.attendee_mobile, r.attendee_email, r.payment_reference,
+    ].map((v) => String(v || '').toLowerCase().replace(/\s+/g, ' ')).join(' | ');
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+  };
+
+  // 0 when the search is this row's own name, 1 for everything else it matched.
+  const regNameRank = (r, q) => {
+    const own = [r.attendee_name, r.attendee_firstname, r.attendee_lastname]
+      .map((v) => String(v || '').toLowerCase().replace(/\s+/g, ' ')).join(' | ');
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => own.includes(w)) ? 0 : 1;
+  };
 
   useEffect(() => { setRegPage(1); }, [regSearch, regTypeFilter, regChurchFilter, regRepFilter, regMoneyFilter, regSort, eventRegsModal?.id]);
 
@@ -6536,6 +6607,7 @@ export default function DashboardPage() {
         // Money still to be taken at the desk: no payment has been made, so
         // these are not "awaiting verification" and no longer answer to it.
         if (regMoneyFilter === 'cashdue') return r.status === 'pending_cash';
+        if (regMoneyFilter === 'turnover') return r.status === 'paid_pending_turnover';
         // A payment has been made and nobody has checked it yet.
         return r.payment_plan !== 'flexible'
           && (r.status === 'payment_submitted' || r.status === 'pending_payment');
@@ -6543,6 +6615,19 @@ export default function DashboardPage() {
     }
     if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
     return [...rows].sort((a, b) => {
+      // Searching a person puts THEM first: a representative's own row leads,
+      // then the people they registered (who matched on the representative).
+      if (q) {
+        const rank = regNameRank(a, q) - regNameRank(b, q);
+        if (rank !== 0) return rank;
+      }
+      // Picking a representative from the dropdown: their own row leads too,
+      // whoever the representative is.
+      if (regRepActive !== 'all') {
+        const own = (r) => (String(r.attendee_name || '').trim().toLowerCase().replace(/\s+/g, ' ') === regRepActive ? 0 : 1);
+        const rank = own(a) - own(b);
+        if (rank !== 0) return rank;
+      }
       const da = new Date(a.created_at).getTime();
       const db = new Date(b.created_at).getTime();
       return regSort === 'oldest' ? da - db : db - da;
@@ -6629,12 +6714,160 @@ export default function DashboardPage() {
   const instPageSafe = Math.min(instPage, instPages);
   const pagedInstallments = visibleInstallments.slice((instPageSafe - 1) * instPageSize, instPageSafe * instPageSize);
 
+  // The money for a paid - pending turnover row has been handed in.
+  const confirmTurnover = async (reg) => {
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: reg.id, actorId: userData?.id, status: 'payment_verified', turnedOver: true }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      showToast(`₱${Number(reg.amount) || 0} turned over — ${formatPersonName(reg.attendee_name)} is now paid in full`, 'success');
+      if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+      loadPendingRegAlerts();
+      loadEvents();
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  // ---- Confirming a group's turnover ----
+  // A representative's booking is usually paid through one person, but not
+  // always handed in all at once. The whole group is listed - representative
+  // included - and only the ticked names are confirmed.
+  const [turnoverModal, setTurnoverModal] = useState(null);
+  const [turnoverSelected, setTurnoverSelected] = useState([]);
+  const [turnoverSaving, setTurnoverSaving] = useState(false);
+
+  const openConfirmTurnover = (reg) => {
+    const rows = collectGroupFor(reg);
+    const pending = rows.filter((r) => r.status === 'paid_pending_turnover');
+    // One person with nothing else in their group pending: a plain yes/no.
+    if (pending.length <= 1) {
+      const owed = Number(reg.amount) || 0;
+      askConfirm(
+        `Has the ₱${owed} for ${formatPersonName(reg.attendee_name)} been turned over${reg.turnover_holder ? ` by ${formatPersonName(reg.turnover_holder)}` : ''}? It moves into Cash Collected.`,
+        () => confirmTurnover(reg),
+        { title: 'Confirm Turnover?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Money Received', icon: 'fa-hand-holding-dollar' },
+      );
+      return;
+    }
+    setTurnoverSelected(pending.map((r) => r.id));
+    setTurnoverModal({
+      rows,
+      clickedId: reg.id,
+      repName: regRepName(reg),
+      churchName: formatChurchName(reg.church_name) || 'No church given',
+    });
+  };
+
+  const turnoverPendingRows = turnoverModal ? turnoverModal.rows.filter((r) => r.status === 'paid_pending_turnover') : [];
+  const turnoverTotal = turnoverModal
+    ? turnoverModal.rows.filter((r) => turnoverSelected.includes(r.id)).reduce((t, r) => t + (Number(r.amount) || 0), 0)
+    : 0;
+
+  const submitConfirmTurnover = async () => {
+    if (!turnoverModal || turnoverSelected.length === 0) return;
+    setTurnoverSaving(true);
+    try {
+      // One request per registration, as Collect Cash does: money handed in
+      // for the ones that went through is recorded even if one fails.
+      let ok = 0;
+      const failed = [];
+      for (const id of turnoverSelected) {
+        const row = turnoverModal.rows.find((r) => r.id === id);
+        try {
+          const res = await fetch('/api/events/registrations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, actorId: userData?.id, status: 'payment_verified', turnedOver: true }),
+          });
+          const data = await res.json();
+          if (data.success) ok += 1; else failed.push(formatPersonName(row?.attendee_name));
+        } catch { failed.push(formatPersonName(row?.attendee_name)); }
+      }
+      if (ok > 0) showToast(`₱${turnoverTotal} turned over — ${ok} ${ok === 1 ? 'registration' : 'registrations'} now paid in full`, 'success');
+      if (failed.length > 0) showToast(`Could not confirm: ${failed.join(', ')}`, 'danger');
+      setTurnoverModal(null);
+      if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+      loadPendingRegAlerts();
+      loadEvents();
+    } finally {
+      setTurnoverSaving(false);
+    }
+  };
+
+  // ---- One proof, a whole group ----
+  // A representative pays for everyone on one transfer, so every row of the
+  // booking carries the same receipt. Verifying them one by one was the same
+  // check repeated. The proof window lists everyone on that payment - the
+  // representative included - and verifies the ticked ones together.
+  const VERIFIABLE = ['payment_submitted', 'pending_payment'];
+  const proofGroupFor = (reg) => {
+    if (!reg) return [];
+    let rows = [];
+    if (reg.group_ref) {
+      rows = eventRegs.filter((r) => r.group_ref === reg.group_ref && r.status !== 'cancelled');
+    } else if (regTypeOf(reg) === 'bulk' && reg.payment_proof_url) {
+      // Older bookings from before group_ref: same representative, same receipt.
+      const rep = regRepName(reg).toLowerCase();
+      rows = eventRegs.filter((r) => r.status !== 'cancelled'
+        && r.payment_proof_url === reg.payment_proof_url
+        && regRepName(r).toLowerCase() === rep);
+    }
+    if (!rows.some((r) => r.id === reg.id)) rows = [reg, ...rows];
+    return rows;
+  };
+  const proofGroup = proofModal ? proofGroupFor(proofModal) : [];
+  const proofIsGroup = proofGroup.length > 1;
+  const proofVerifiable = proofGroup.filter((r) => VERIFIABLE.includes(r.status));
+  const [proofSelected, setProofSelected] = useState([]);
+  const [proofSaving, setProofSaving] = useState(false);
+  // Everyone still waiting starts ticked - one payment is usually one check.
+  useEffect(() => {
+    if (!proofModal) { setProofSelected([]); return; }
+    setProofSelected(proofGroupFor(proofModal).filter((r) => VERIFIABLE.includes(r.status)).map((r) => r.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proofModal?.id]);
+  const proofSelectedTotal = proofGroup
+    .filter((r) => proofSelected.includes(r.id))
+    .reduce((t, r) => t + (Number(r.amount) || 0), 0);
+
+  const verifyProofGroup = async () => {
+    if (proofSelected.length === 0) return;
+    setProofSaving(true);
+    try {
+      let ok = 0;
+      const failed = [];
+      for (const id of proofSelected) {
+        const row = proofGroup.find((r) => r.id === id);
+        try {
+          const res = await fetch('/api/events/registrations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, actorId: userData?.id, status: 'payment_verified', groupCascade: false }),
+          });
+          const data = await res.json();
+          if (data.success) ok += 1; else failed.push(formatPersonName(row?.attendee_name));
+        } catch { failed.push(formatPersonName(row?.attendee_name)); }
+      }
+      if (ok > 0) showToast(`${ok} ${ok === 1 ? 'payment' : 'payments'} verified`, 'success');
+      if (failed.length > 0) showToast(`Could not verify: ${failed.join(', ')}`, 'danger');
+      setProofModal(null);
+      if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+      loadPendingRegAlerts();
+      loadEvents();
+    } finally {
+      setProofSaving(false);
+    }
+  };
+
   const verifyRegistration = async (regId, status) => {
     try {
       const res = await fetch('/api/events/registrations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: regId, actorId: userData?.id, status }) });
       const data = await res.json();
       if (data.success) {
-        showToast('Registration updated', 'success');
+        showToast(data.message || 'Registration updated', 'success');
         setProofModal(null);
         if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
         loadPendingRegAlerts();
@@ -6819,6 +7052,9 @@ export default function DashboardPage() {
       attendeeEmail: '', attendeeMobile: '',
       paymentMethod: (eventRegsModal?.payment_methods && eventRegsModal.payment_methods[0]) || '',
       paymentReference: '', markVerified: true,
+      // Pay in full: 'verified' (collected here), 'turnover' (paid, but the
+      // money is with someone who has still to hand it in) or 'unpaid'.
+      payStatus: 'verified', turnoverHolder: '',
       paymentPlan: '',          // '' until chosen, then 'full' | 'flexible'
       initialPayment: '',       // the first installment, when on a plan
     });
@@ -6835,6 +7071,11 @@ export default function DashboardPage() {
     setAdminAddRegTier(defaultTier(eventRegsModal)?.label || '');
     setAdminBulkEditing(null);
     setAdminBulkError('');
+    setAdminDraftDup(null);
+    setAdminGuardian(null);
+    setAdminKidDraft({ firstName: '', lastName: '', priceTier: nameOnlyTiers(eventRegsModal)[0]?.label || '' });
+    setAdminKidDup(null);
+    setAdminKidError('');
     setAdminRepUsedSaved(false);
     setAdminAddRegAddons((eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
     setAdminChurchOptions([]);
@@ -6863,6 +7104,9 @@ export default function DashboardPage() {
     ? ['Representative', 'Attendees', 'Payment']
     : ['Attendee Details', 'Payment'];
   const adminPayStep = adminIsBulk ? 2 : 1;
+  // One kid added on their own, under a parent or guardian already registered.
+  const adminIsKidSolo = !adminIsBulk && isNameOnlyTier(findTier(eventRegsModal, adminAddRegTier));
+  const adminHasKidTiers = nameOnlyTiers(eventRegsModal).length > 0;
 
   // One person on the group's roster, priced on their own line.
   const adminPersonAddons = (a) => (eventRegsModal?.event_addons || []).filter((x) => a.addonIds.includes(x.id));
@@ -6946,6 +7190,44 @@ export default function DashboardPage() {
     setAdminRepUsedSaved(true);
   };
 
+  // Once a registered representative's saved details are in, the card IS their
+  // details - the fields it filled are folded away. Only when everything step 1
+  // requires is actually there, so a missing number can still be typed in.
+  const adminRepCollapsed = adminIsBulk && adminRepLocked && adminRepUsedSaved
+    && !!adminAddRegForm.churchName?.trim() && !!adminAddRegForm.churchPastor?.trim()
+    && /^09\d{9}$/.test(adminAddRegForm.attendeeMobile || ''); // isValidPhMobile, declared further down
+  // Back to an empty step 1, to choose somebody else.
+  const adminClearRep = () => {
+    setAdminAddRegForm((f) => ({
+      ...f, attendeeFirstName: '', attendeeLastName: '', churchName: '', churchPastor: '', attendeeMobile: '',
+    }));
+    setAdminAddRegAddons((eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id));
+    setAdminAddRegTier(defaultTier(eventRegsModal)?.label || '');
+    setAdminRepUsedSaved(false);
+    setAdminRepAutoFill(false);
+    setAdminAddErrors({});
+  };
+
+  // Picking someone already on this event as a group's representative. They
+  // keep the slot they have - paid is paid - and only the people they bring
+  // are charged for.
+  const adminPickRep = (m) => {
+    const whole = String(m.name || '').trim().replace(/\s+/g, ' ');
+    const first = m.firstName || whole.split(' ').slice(0, -1).join(' ') || whole;
+    const last = m.lastName || (whole.includes(' ') ? whole.split(' ').slice(-1)[0] : '');
+    setAdminAddRegForm((f) => ({ ...f, attendeeFirstName: first, attendeeLastName: last }));
+    setAdminAddErrors({});
+    setAdminRepUsedSaved(false);
+    setAdminRepAutoFill(true);
+  };
+  useEffect(() => {
+    if (adminRepAutoFill && adminRepMatch) {
+      adminUseSavedRepDetails();
+      setAdminRepAutoFill(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminRepAutoFill, adminRepMatch]);
+
   const adminToggleDraftAddon = (addon) => {
     if (addon.is_required) return;
     setAdminBulkDraft((d) => ({
@@ -6955,7 +7237,41 @@ export default function DashboardPage() {
     setAdminBulkError('');
   };
 
-  const adminCommitPerson = () => {
+  // The name being typed on the roster step, checked as it is typed: the
+  // representative and everyone already listed are known here, so there is no
+  // reason to wait for a click to say "that person is already on this booking".
+  const adminDraftClash = (() => {
+    const first = (adminBulkDraft.firstName || '').trim();
+    const last = (adminBulkDraft.lastName || '').trim();
+    if (!first || !last) return '';
+    const key = adminNameKey(first, last);
+    if (adminRepKey && key === adminRepKey) {
+      return adminRepLocked
+        ? `${formatPersonName(`${first} ${last}`)} is the representative and already has a registration - their extras are set in step 1.`
+        : `${formatPersonName(`${first} ${last}`)} is the representative - they are already the first person on this list.`;
+    }
+    if (adminBulkList.some((a, i) => i !== adminBulkEditing && adminNameKey(a.firstName, a.lastName) === key)) {
+      return `${formatPersonName(`${first} ${last}`)} is already on the list below.`;
+    }
+    return '';
+  })();
+
+  // The same person twice in one booking - the representative typed in again,
+  // or step 1 changed to a name already on the list after it was added.
+  const adminRosterRepeats = () => {
+    const seen = new Set();
+    const repeats = [];
+    adminFullRoster().forEach((a) => {
+      const key = adminNameKey(a.firstName, a.lastName);
+      if (seen.has(key)) repeats.push(formatPersonName(`${a.firstName} ${a.lastName}`));
+      seen.add(key);
+    });
+    return [...new Set(repeats)];
+  };
+
+  const adminCommitPerson = async () => {
+    if (adminAddingRef.current) return;
+    if (adminDraftClash) { setAdminBulkError(adminDraftClash); return; }
     const first = (adminBulkDraft.firstName || '').trim();
     const last = (adminBulkDraft.lastName || '').trim();
     if (!first || !last) { setAdminBulkError('Enter both the first and last name.'); return; }
@@ -6963,6 +7279,14 @@ export default function DashboardPage() {
     const clash = adminBulkList.findIndex((a, i) => i !== adminBulkEditing
       && `${a.firstName} ${a.lastName}`.toLowerCase().replace(/\s+/g, ' ') === key);
     if (clash > -1) { setAdminBulkError('That person is already on the list below.'); return; }
+    adminAddingRef.current = true;
+    const existing = adminDraftDup || await findExistingRegistration(eventRegsModal?.id, first, last);
+    adminAddingRef.current = false;
+    if (existing) {
+      setAdminDraftDup(existing);
+      setAdminBulkError(`${formatPersonName(existing.name)} is already registered for this event (${statusLabel(existing.status)}) - they cannot be added again.`);
+      return;
+    }
     // The representative is handled by step 1 either way: they are already the
     // first row of the roster, or they already hold a slot for this event.
     if (adminRepKey && key === adminRepKey) {
@@ -6992,6 +7316,42 @@ export default function DashboardPage() {
     }
   };
 
+  // A kid on a group booking, added straight from the representative step. They
+  // join the same roster as everyone on step 2, priced by their own age group.
+  const adminAddKid = async () => {
+    if (adminAddingRef.current) return;
+    const first = (adminKidDraft.firstName || '').trim();
+    const last = (adminKidDraft.lastName || '').trim();
+    if (!first || !last) { setAdminKidError('Enter the kid\u2019s first and last name.'); return; }
+    const key = adminNameKey(first, last);
+    if (adminBulkList.some((a) => adminNameKey(a.firstName, a.lastName) === key)) {
+      setAdminKidError('That kid is already on the list.'); return;
+    }
+    if (adminRepKey && key === adminRepKey) { setAdminKidError('That is the representative\u2019s own name.'); return; }
+    adminAddingRef.current = true;
+    const existing = adminKidDup || await findExistingRegistration(eventRegsModal?.id, first, last);
+    adminAddingRef.current = false;
+    if (existing) {
+      setAdminKidDup(existing);
+      setAdminKidError(`${formatPersonName(existing.name)} is already registered for this event (${statusLabel(existing.status)}) - they cannot be added again.`);
+      return;
+    }
+    const tier = findTier(eventRegsModal, adminKidDraft.priceTier) || nameOnlyTiers(eventRegsModal)[0];
+    setAdminBulkList((list) => [...list, {
+      firstName: first,
+      lastName: last,
+      addonIds: (eventRegsModal?.event_addons || []).filter((a) => a.is_required).map((a) => a.id),
+      priceTier: tier?.label || '',
+    }]);
+    // The next kid is usually a sibling - keep the surname, clear the rest.
+    setAdminKidDraft((d) => ({ ...d, firstName: '' }));
+    setAdminKidDup(null);
+    setAdminKidError('');
+  };
+  const adminKidRows = adminBulkList
+    .map((a, i) => ({ ...a, index: i }))
+    .filter((a) => isNameOnlyTier(findTier(eventRegsModal, a.priceTier)));
+
   // Cash is always collectable at the desk, whatever the event's online options.
   const adminPaymentMethods = () => {
     const listed = (eventRegsModal?.payment_methods || []).filter(Boolean);
@@ -7003,9 +7363,14 @@ export default function DashboardPage() {
     const errs = {};
     if (!adminAddRegForm.attendeeFirstName?.trim()) errs.firstName = 'First name is required.';
     if (!adminAddRegForm.attendeeLastName?.trim()) errs.lastName = 'Last name is required.';
-    if (!adminAddRegForm.churchName?.trim()) errs.churchName = 'Church name is required.';
-    if (!adminAddRegForm.churchPastor?.trim()) errs.churchPastor = 'Church pastor is required.';
-    if (!isValidPhMobile(adminAddRegForm.attendeeMobile)) errs.mobile = 'Contact number must be 11 digits starting with 09.';
+    if (adminIsKidSolo) {
+      // A kid is a name and a guardian - the church and contact are theirs.
+      if (!adminGuardian) errs.guardian = 'Search for the parent or guardian bringing them.';
+    } else {
+      if (!adminAddRegForm.churchName?.trim()) errs.churchName = 'Church name is required.';
+      if (!adminAddRegForm.churchPastor?.trim()) errs.churchPastor = 'Church pastor is required.';
+      if (!isValidPhMobile(adminAddRegForm.attendeeMobile)) errs.mobile = 'Contact number must be 11 digits starting with 09.';
+    }
     if (adminDupName && !adminIsBulk) errs.firstName = 'This person is already registered for this event.';
     return errs;
   };
@@ -7026,7 +7391,28 @@ export default function DashboardPage() {
           : 'Add at least one attendee.');
         return;
       }
-      setAdminAddStep(2);
+      const repeats = adminRosterRepeats();
+      if (repeats.length > 0) {
+        setAdminBulkError(`On this list more than once, remove the extra entry first: ${repeats.join(', ')}.`);
+        return;
+      }
+      // Checked again as a whole, in case someone on the list registered
+      // elsewhere after they were added here.
+      const names = adminFullRoster().map((a) => `${a.firstName} ${a.lastName}`);
+      if (names.length === 0) { setAdminAddStep(2); return; }
+      setAdminRosterChecking(true);
+      fetch(`/api/events/registrations?eventId=${eventRegsModal.id}&duplicates=${encodeURIComponent(names.join('|'))}`)
+        .then((r) => r.json())
+        .then((data) => {
+          const taken = data.success ? data.data || [] : [];
+          if (taken.length > 0) {
+            setAdminBulkError(`Already registered for this event, remove them first: ${taken.map((n) => formatPersonName(n)).join(', ')}.`);
+            return;
+          }
+          setAdminAddStep(2);
+        })
+        .catch(() => setAdminAddStep(2))   // the server refuses duplicates on save regardless
+        .finally(() => setAdminRosterChecking(false));
     }
   };
 
@@ -7097,9 +7483,17 @@ export default function DashboardPage() {
       showToast('Add at least one attendee', 'danger');
       return;
     }
+    if (adminIsBulk && adminRosterRepeats().length > 0) {
+      setAdminAddStep(1);
+      setAdminBulkError(`On this list more than once, remove the extra entry first: ${adminRosterRepeats().join(', ')}.`);
+      showToast('The same person is on the list more than once', 'danger');
+      return;
+    }
     const owed = adminTotalAmount(eventRegsModal);
     if (owed > 0 && !adminAddRegForm.paymentPlan) { showToast('Choose Pay in Full or a Flexible Payment Plan', 'danger'); return; }
     if (owed > 0 && adminAddRegForm.paymentPlan === 'full' && !adminAddRegForm.paymentMethod) { showToast('Choose how the payment was made', 'danger'); return; }
+    const adminTurnover = owed > 0 && adminAddRegForm.paymentPlan === 'full' && adminAddRegForm.payStatus === 'turnover';
+    if (adminTurnover && !adminAddRegForm.turnoverHolder?.trim()) { showToast('Enter who is holding the money', 'danger'); return; }
     const firstPay = Number(adminAddRegForm.initialPayment) || 0;
     if (adminAddRegForm.paymentPlan === 'flexible' && firstPay > owed) { showToast(`The first payment cannot be more than the ₱${owed} total`, 'danger'); return; }
     // This registration is recorded against whoever is signed in. Without an
@@ -7125,6 +7519,7 @@ export default function DashboardPage() {
           // The age group they were booked under. The server re-reads its price
           // from the database, so this only says WHICH group, never what it costs.
           priceTier: adminAddRegTier || null,
+          ...(adminIsKidSolo && adminGuardian ? { guardianRegistrationId: adminGuardian.id } : {}),
           paymentMethod: adminAddRegForm.paymentMethod,
           paymentReference: adminAddRegForm.paymentReference,
           // entered on the attendee's behalf, so the table can say who by
@@ -7137,7 +7532,9 @@ export default function DashboardPage() {
           actorId: userData.id,
           // Staff recording a walk-in have the money in hand, so the row is
           // saved as paid unless this was unticked.
-          markVerified: adminAddRegForm.markVerified !== false,
+          markVerified: adminAddRegForm.payStatus === 'verified',
+          // Paid, but the money is still with whoever took it.
+          ...(adminTurnover ? { paidPendingTurnover: true, turnoverHolder: adminAddRegForm.turnoverHolder.trim() } : {}),
           // A group: the person in step 1 is the representative, the roster is who is coming.
           ...(adminIsBulk ? {
             // The representative is on this list when they need a slot, and off
@@ -7546,7 +7943,8 @@ export default function DashboardPage() {
 
   // Add, or save the row being edited. One button does both, so there is only
   // ever one place a name is typed.
-  const memberCommitPerson = () => {
+  const memberCommitPerson = async () => {
+    if (memberAddingRef.current) return;
     const first = (memberBulkDraft.firstName || '').trim();
     const last = (memberBulkDraft.lastName || '').trim();
     if (!first || !last) { setMemberBulkError('Enter both the first and last name.'); return; }
@@ -7562,6 +7960,16 @@ export default function DashboardPage() {
     const clash = memberBulkList.findIndex((a, i) => i !== memberBulkEditing && memberNameKey(a.firstName, a.lastName) === key);
     if (clash > -1) { setMemberBulkError('That person is already on the list below.'); return; }
     if (memberDupNames.includes(key)) {
+      setMemberBulkError('That person already has a registration for this event.');
+      return;
+    }
+    // Asked directly as well, in case Add was clicked before the lookup above
+    // came back.
+    memberAddingRef.current = true;
+    const existing = await findExistingRegistration(registerModal?.id, first, last);
+    memberAddingRef.current = false;
+    if (existing) {
+      setMemberDupNames((names) => [...new Set([...names, key])]);
       setMemberBulkError('That person already has a registration for this event.');
       return;
     }
@@ -8005,6 +8413,7 @@ export default function DashboardPage() {
     // on the day. Saying "awaiting payment" would read as "not registered".
     pending_cash: { label: 'Pay Cash at the Desk', cls: 'warn' },
     installment: { label: 'Paying In Installments', cls: 'pending' },
+    paid_pending_turnover: { label: 'Paid', cls: 'ok' },
   };
   // Registered while the event was free, and the admin has since put a fee on
   // it: the slot is held but the money never was.
@@ -8015,7 +8424,7 @@ export default function DashboardPage() {
   const myRegChip = (r) => (myRegNeedsPayment(r)
     ? { label: 'Payment Required', cls: 'warn' }
     : MYREG_STATUS[r.status] || { label: statusLabel(r.status), cls: 'pending' });
-  const myRegConfirmed = (r) => (r.status === 'registered' || r.status === 'payment_verified') && !myRegNeedsPayment(r);
+  const myRegConfirmed = (r) => (r.status === 'registered' || r.status === 'payment_verified' || r.status === 'paid_pending_turnover') && !myRegNeedsPayment(r);
 
   // My Registrations shows one card per BOOKING, not per row. Registering
   // yourself is one row and one card. A group booking is several rows that
@@ -14115,7 +14524,14 @@ Examples:
                       </div>
                       <div className="evt-rhead-info">
                         <div className="evt-mcard-headrow">
-                          <span className={`evt-mcard-status evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>
+                          <span className="evt-rhead-pills">
+                            {(ev.location || ev.loc_city) && (
+                              <span className="evt-rhead-loc" title={[ev.location, ev.loc_city].filter(Boolean).join(', ')}>
+                                <i className="fas fa-location-dot"></i> {[ev.location, ev.loc_city].filter(Boolean).join(', ')}
+                              </span>
+                            )}
+                            <span className={`evt-mcard-status evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>
+                          </span>
                           <button
                             type="button"
                             className="evt-mcard-more"
@@ -14162,6 +14578,18 @@ Examples:
                             <i className="fas fa-chevron-right"></i>
                           </button>
                         )}
+                        {eventMoney.turnover > 0 && (
+                          <button
+                            type="button"
+                            className={`evt-rhead-due wait ${regMoneyFilter === 'turnover' ? 'on' : ''}`}
+                            onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'turnover' ? 'all' : 'turnover'); }}
+                          >
+                            <i className="fas fa-hand-holding-dollar"></i>
+                            <span>Paid - Pending Turnover</span>
+                            <b>{peso(eventMoney.turnover)}</b>
+                            <i className="fas fa-chevron-right"></i>
+                          </button>
+                        )}
                         {eventMoney.pending > 0 && (
                           <button
                             type="button"
@@ -14192,10 +14620,20 @@ Examples:
                         : <div className="evt-mcard-ph"><i className="fas fa-calendar-day"></i></div>}
                     </div>
                     <div className="evt-hero-main">
-                      {(() => {
-                        const st = eventStatusOf(eventRegsModal);
-                        return <span className={`evt-hero-pill evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>;
-                      })()}
+                      {/* Where the event is, then where it stands - so a desk
+                          working several events can tell at a glance which
+                          one it has open. */}
+                      <div className="evt-hero-pills">
+                        {(eventRegsModal.location || eventRegsModal.loc_city) && (
+                          <span className="evt-hero-loc" title={[eventRegsModal.location, eventRegsModal.loc_city].filter(Boolean).join(', ')}>
+                          <i className="fas fa-location-dot"></i> {[eventRegsModal.location, eventRegsModal.loc_city].filter(Boolean).join(', ')}
+                        </span>
+                        )}
+                        {(() => {
+                          const st = eventStatusOf(eventRegsModal);
+                          return <span className={`evt-hero-pill evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>;
+                        })()}
+                      </div>
                       <h2 className="um-hero-title">{eventRegsModal.title}</h2>
                       <p className="um-hero-sub">{eventRegsModal.description || 'Review registrations and manage attendance for this event.'}</p>
                       {/* leaving, and adding - the two things to do from here */}
@@ -14255,13 +14693,38 @@ Examples:
                             onClick: () => { setManageTab('installments'); loadInstallments(eventRegsModal.id); },
                             on: manageTab === 'installments', title: 'Open the installment plans',
                           })}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Money still out there - one row across the whole banner,
+                        side by side, rather than stacked under the tiles where
+                        they made the banner twice as tall as its content. */}
+                    {eventRegsModal.has_fee && (eventMoney.cashDue > 0 || eventMoney.turnover > 0 || eventMoney.pending > 0) && (() => {
+                      const tile = ({ key, cls = '', icon, label, value, onClick, on, title }) => (
+                        <button key={key} type="button" className={`evt-due ${cls} ${on ? 'on' : ''}`} onClick={onClick} title={title}>
+                          <span className="evt-due-ico"><i className={`fas ${icon}`}></i></span>
+                          <span className="evt-due-txt">
+                            <span>{label}</span>
+                            <b>{value}</b>
+                          </span>
+                          <i className="fas fa-chevron-right evt-due-go"></i>
+                        </button>
+                      );
+                      return (
+                        <div className="evt-hero-dues">
                           {eventMoney.cashDue > 0 && tile({
-                            key: 'cashdue', cls: 'due wide', icon: 'fa-coins', label: 'Cash to Collect', value: peso(eventMoney.cashDue),
+                            key: 'cashdue', cls: 'due', icon: 'fa-coins', label: 'Cash to Collect', value: peso(eventMoney.cashDue),
                             onClick: () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cashdue' ? 'all' : 'cashdue'); },
                             on: regMoneyFilter === 'cashdue', title: 'Show the registrations paying cash at the desk',
                           })}
+                          {eventMoney.turnover > 0 && tile({
+                            key: 'turnover', cls: 'wait', icon: 'fa-hand-holding-dollar', label: 'Paid - Pending Turnover', value: peso(eventMoney.turnover),
+                            onClick: () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'turnover' ? 'all' : 'turnover'); },
+                            on: regMoneyFilter === 'turnover', title: 'Show the payments still to be turned over',
+                          })}
                           {eventMoney.pending > 0 && tile({
-                            key: 'pending', cls: 'wait wide', icon: 'fa-hourglass-half', label: 'Awaiting Verification', value: peso(eventMoney.pending),
+                            key: 'pending', cls: 'wait', icon: 'fa-hourglass-half', label: 'Awaiting Verification', value: peso(eventMoney.pending),
                             onClick: () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'pending' ? 'all' : 'pending'); },
                             on: regMoneyFilter === 'pending', title: 'Show the payments nobody has verified yet',
                           })}
@@ -14308,7 +14771,7 @@ Examples:
               // showing. Kept apart on purpose: the tab's badge counts the
               // event, and a badge that fell as somebody typed would read as
               // people vanishing.
-              const confirmedAll = eventRegs.filter((r) => r.status === 'registered' || r.status === 'payment_verified');
+              const confirmedAll = eventRegs.filter((r) => r.status === 'registered' || r.status === 'payment_verified' || r.status === 'paid_pending_turnover');
               const confirmedRegs = confirmedAll.filter((r) => {
                 const q = attSearch.trim().toLowerCase();
                 if (!q) return true;
@@ -14434,7 +14897,7 @@ Examples:
                           {(regTypeFilter !== 'all' || regChurchFilter !== 'all' || regRepActive !== 'all' || regMoneyFilter !== 'all' || regSearch.trim()) && (
                             <span className="evt-filter-count">
                               {regMoneyFilter !== 'all' && (
-                                <b className="evt-filter-what">{{ cash: 'Cash', online: 'Online', cashdue: 'Cash to collect', pending: 'Awaiting check' }[regMoneyFilter]}</b>
+                                <b className="evt-filter-what">{{ cash: 'Cash', online: 'Online', cashdue: 'Cash to collect', turnover: 'Pending turnover', pending: 'Awaiting check' }[regMoneyFilter]}</b>
                               )}
                               {regRepActive !== 'all' && (
                                 <b className="evt-filter-what">{regRepOptions.find((o) => o.key === regRepActive)?.name}</b>
@@ -14673,12 +15136,29 @@ Examples:
                                       </button>
                                     );
                                   }
+                                  // A kid under a parent or guardian pays nothing, and
+                                  // "Registered" read as if something were still to do.
+                                  if ((r.guardian_name || r.guardian_registration_id) && !(Number(r.amount) > 0)
+                                    && ['registered', 'pending_cash', 'payment_verified'].includes(r.status)) {
+                                    return <span className="evt-status evt-status-registered">free</span>;
+                                  }
                                   // A free child on a cash group owes nothing, so
                                   // there is no cash to collect from them.
                                   if (r.status === 'pending_cash' && !(Number(r.amount) > 0)) {
                                     return <span className="evt-status evt-status-registered">registered</span>;
                                   }
-                                  return <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>;
+                                  return (
+                                    <>
+                                      <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>
+                                      {/* Who has the money, so the desk knows whom to ask. */}
+                                      {r.status === 'paid_pending_turnover' && r.turnover_holder && (
+                                        <span className="evt-turnover-by" title={`Money with ${formatPersonName(r.turnover_holder)}`}>
+                                          <i className="fas fa-hand-holding-dollar"></i>
+                                          <span>by <b>{formatPersonName(r.turnover_holder)}</b></span>
+                                        </span>
+                                      )}
+                                    </>
+                                  );
                                 })()}
                                 {/* Somebody is waiting on a refund - that has to be
                                     visible in the table, not only in the row menu. */}
@@ -14772,9 +15252,36 @@ Examples:
                                               <i className="fas fa-money-bill-wave"></i> Collect Cash &amp; Verify
                                               <em>₱{Math.max(0, owed - paid)} due</em>
                                             </button>
+                                          ) : r.status === 'paid_pending_turnover' ? (
+                                            // Paid; the desk is waiting on whoever took the money.
+                                            <button role="menuitem" className="ok" onClick={() => {
+                                              setOpenRowMenu(null);
+                                              openConfirmTurnover(r);
+                                            }}>
+                                              <i className="fas fa-hand-holding-dollar"></i> Confirm Turnover
+                                              <em>{r.turnover_holder ? `with ${formatPersonName(r.turnover_holder)}` : `₱${owed}`}</em>
+                                            </button>
                                           ) : (r.status === 'payment_submitted' || r.status === 'pending_payment') && (
                                             <button role="menuitem" className="ok" onClick={() => { setOpenRowMenu(null); verifyRegistration(r.id, 'payment_verified'); }}>
                                               <i className="fas fa-check"></i> Verify
+                                            </button>
+                                          )}
+
+                                          {!onPlan && r.status === 'pending_cash' && owed > 0 && (
+                                            <button role="menuitem" onClick={() => { setOpenRowMenu(null); openCollectCash(r, 'turnover'); }}>
+                                              <i className="fas fa-hand-holding-dollar"></i> Paid - Pending Turnover
+                                            </button>
+                                          )}
+                                          {r.status === 'paid_pending_turnover' && (
+                                            <button role="menuitem" className="warn" onClick={() => {
+                                              setOpenRowMenu(null);
+                                              askConfirm(
+                                                `Put ${name} back to Cash To Collect? Use this if the payment was marked by mistake.`,
+                                                () => verifyRegistration(r.id, 'pending_cash'),
+                                                { title: 'Undo Paid - Pending Turnover?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Undo', icon: 'fa-rotate-left' },
+                                              );
+                                            }}>
+                                              <i className="fas fa-rotate-left"></i> Undo Pending Turnover
                                             </button>
                                           )}
 
@@ -14960,7 +15467,8 @@ Examples:
                         </p>
                       )}
                       <div className="evt-table-wrapper evt-table-steady">
-                        <table className="evt-table">
+                        {/* evt-attend-cards: one short card per person on a phone. */}
+                        <table className="evt-table evt-attend-cards">
                           <thead>
                             <tr>
                               {/* No Contact column here on purpose: at a door
@@ -15001,7 +15509,7 @@ Examples:
                                     gets the wording this table needs. */}
                                 <td className="evt-nowrap" data-label="Status">
                                   <span className={`evt-status evt-status-${r.status}`}>
-                                    {r.status === 'payment_verified' || r.status === 'registered'
+                                    {r.status === 'payment_verified' || r.status === 'registered' || r.status === 'paid_pending_turnover'
                                       ? 'Verified Attendee'
                                       : statusLabel(r.status)}
                                   </span>
@@ -18195,25 +18703,89 @@ Examples:
                         </dl>
                       </div>
 
-                      <div className="evt-proof-section">
-                        <h4>Receipt</h4>
-                        <div className="evt-proof-receipt">
-                          <div className="evt-proof-line">
-                            <span>Registration Fee</span>
-                            <b>&#8369;{Number(proofModal.base_amount ?? proofModal.amount) || 0}</b>
-                          </div>
-                          {(proofModal.addons || []).map((a, i) => (
-                            <div className="evt-proof-line" key={i}>
-                              <span>{a.question}</span>
-                              <b>&#8369;{Number(a.fee) || 0}</b>
+                      {proofIsGroup && (
+                        <div className="evt-proof-section">
+                          <h4>People On This Payment ({proofGroup.length})</h4>
+                          <p className="evt-muted" style={{ margin: '0 0 8px', fontSize: '0.8rem' }}>
+                            <i className="fas fa-circle-info"></i> Everyone {formatPersonName(regRepName(proofModal) || proofModal.attendee_name)} registered on this receipt.
+                            Untick anyone the transfer does not cover.
+                          </p>
+                          {proofVerifiable.length > 1 && (
+                            <div className="evt-collect-bulkbar">
+                              <button type="button" className="evt-chip-btn"
+                                onClick={() => setProofSelected(proofVerifiable.map((r) => r.id))}
+                                disabled={proofSaving || proofSelected.length === proofVerifiable.length}>
+                                <i className="fas fa-check-double"></i> Select all ({proofVerifiable.length})
+                              </button>
+                              <button type="button" className="evt-chip-btn"
+                                onClick={() => setProofSelected([])}
+                                disabled={proofSaving || proofSelected.length === 0}>
+                                <i className="fas fa-xmark"></i> Clear
+                              </button>
                             </div>
-                          ))}
-                          <div className="evt-proof-line total">
-                            <span>Total</span>
-                            <b>&#8369;{Number(proofModal.amount) || 0}</b>
+                          )}
+                          <div className="evt-collect-list">
+                            {proofGroup.map((r) => {
+                              const open = VERIFIABLE.includes(r.status);
+                              const on = proofSelected.includes(r.id);
+                              const isRep = regRepName(r).toLowerCase() === String(r.attendee_name || '').trim().toLowerCase();
+                              return (
+                                <label key={r.id} className={`evt-collect-row ${open ? '' : 'paid'} ${on ? 'on' : ''}`}>
+                                  {open ? (
+                                    <input type="checkbox" checked={on} disabled={proofSaving}
+                                      onChange={() => setProofSelected((sel) => (sel.includes(r.id) ? sel.filter((x) => x !== r.id) : [...sel, r.id]))} />
+                                  ) : (
+                                    <span className="evt-collect-tick done"><i className="fas fa-circle-check"></i></span>
+                                  )}
+                                  <span className="evt-collect-who">
+                                    <b>{formatPersonName(r.attendee_name)}</b>
+                                    <em>
+                                      {[isRep ? 'Representative' : null, r.price_tier || null,
+                                        (r.addons || []).length ? `+ ${(r.addons || []).map((a) => a.question).join(', ')}` : null]
+                                        .filter(Boolean).join(' · ') || '—'}
+                                    </em>
+                                  </span>
+                                  <span className="evt-collect-amt">
+                                    {open
+                                      ? <b>₱{Number(r.amount) || 0}</b>
+                                      : <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="evt-proof-receipt" style={{ marginTop: 10 }}>
+                            <div className="evt-proof-line total">
+                              <span>Whole group</span>
+                              <b>&#8369;{proofGroup.reduce((t, r) => t + (Number(r.amount) || 0), 0)}</b>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
+
+                      {/* A group's amounts are already on each person's line
+                          above - one person's receipt here only repeated it. */}
+                      {!proofIsGroup && (
+                        <div className="evt-proof-section">
+                          <h4>Receipt</h4>
+                          <div className="evt-proof-receipt">
+                            <div className="evt-proof-line">
+                              <span>Registration Fee</span>
+                              <b>&#8369;{Number(proofModal.base_amount ?? proofModal.amount) || 0}</b>
+                            </div>
+                            {(proofModal.addons || []).map((a, i) => (
+                              <div className="evt-proof-line" key={i}>
+                                <span>{a.question}</span>
+                                <b>&#8369;{Number(a.fee) || 0}</b>
+                              </div>
+                            ))}
+                            <div className="evt-proof-line total">
+                              <span>Total</span>
+                              <b>&#8369;{Number(proofModal.amount) || 0}</b>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="evt-proof-section">
                         <h4>Payment</h4>
@@ -18249,11 +18821,22 @@ Examples:
                     <button className="evt-foot-btn ghost" onClick={() => setProofModal(null)}>
                       <i className="fas fa-xmark"></i> Close
                     </button>
-                    {proofModal.status === 'payment_verified' ? (
+                    {proofIsGroup && proofVerifiable.length > 0 ? (
+                      <button
+                        className="evt-foot-btn verify"
+                        onClick={verifyProofGroup}
+                        disabled={proofSaving || proofSelected.length === 0}
+                      >
+                        <i className={`fas ${proofSaving ? 'fa-spinner fa-spin' : 'fa-circle-check'}`}></i>{' '}
+                        {proofSaving
+                          ? 'Verifying…'
+                          : `Verify ${proofSelected.length} ${proofSelected.length === 1 ? 'Payment' : 'Payments'} · ₱${proofSelectedTotal}`}
+                      </button>
+                    ) : proofModal.status === 'payment_verified' ? (
                       <button
                         className="evt-foot-btn unverify"
                         onClick={() => verifyRegistration(proofModal.id, 'payment_submitted')}
-                      ><i className="fas fa-rotate-left"></i> Unverify Payment</button>
+                      ><i className="fas fa-rotate-left"></i> {proofIsGroup ? `Unverify Whole Group (${proofGroup.filter((r) => r.status === 'payment_verified').length})` : 'Unverify Payment'}</button>
                     ) : (
                       <button
                         className="evt-foot-btn verify"
@@ -18832,12 +19415,104 @@ Examples:
             )}
 
             {/* ---- Collect cash at the desk ---- */}
+            {/* ---- Confirm turnover for a group ---- */}
+            {turnoverModal && (
+              <div className="evt-modal-overlay" onClick={() => !turnoverSaving && setTurnoverModal(null)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3>Confirm Turnover</h3>
+                      <p>{formatPersonName(turnoverModal.repName)} &mdash; {turnoverModal.churchName}</p>
+                    </div>
+                    <button className="evt-modal-close" onClick={() => setTurnoverModal(null)} disabled={turnoverSaving}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
+                      <i className="fas fa-circle-info"></i> Everyone {formatPersonName(turnoverModal.repName)} registered is listed below.
+                      Tick only the ones whose money has been handed in &mdash; the rest stay Paid - Pending Turnover.
+                    </p>
+
+                    {turnoverPendingRows.length > 1 && (
+                      <div className="evt-collect-bulkbar">
+                        <button
+                          type="button"
+                          className="evt-chip-btn"
+                          onClick={() => setTurnoverSelected(turnoverPendingRows.map((r) => r.id))}
+                          disabled={turnoverSaving || turnoverSelected.length === turnoverPendingRows.length}
+                        >
+                          <i className="fas fa-check-double"></i> Select all ({turnoverPendingRows.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="evt-chip-btn"
+                          onClick={() => setTurnoverSelected([])}
+                          disabled={turnoverSaving || turnoverSelected.length === 0}
+                        >
+                          <i className="fas fa-xmark"></i> Clear
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="evt-collect-list">
+                      {turnoverModal.rows.map((r) => {
+                        const pending = r.status === 'paid_pending_turnover';
+                        const on = turnoverSelected.includes(r.id);
+                        const isRep = regRepName(r).toLowerCase() === String(r.attendee_name || '').trim().toLowerCase();
+                        return (
+                          <label key={r.id} className={`evt-collect-row ${pending ? '' : 'paid'} ${on ? 'on' : ''}`}>
+                            {pending ? (
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                onChange={() => setTurnoverSelected((sel) => (sel.includes(r.id) ? sel.filter((x) => x !== r.id) : [...sel, r.id]))}
+                                disabled={turnoverSaving}
+                              />
+                            ) : (
+                              <span className="evt-collect-tick done"><i className="fas fa-circle-check"></i></span>
+                            )}
+                            <span className="evt-collect-who">
+                              <b>{formatPersonName(r.attendee_name)}</b>
+                              <em>
+                                {[isRep ? 'Representative' : null, r.price_tier || null,
+                                  pending && r.turnover_holder ? `with ${formatPersonName(r.turnover_holder)}` : null,
+                                  r.id === turnoverModal.clickedId ? 'selected row' : null].filter(Boolean).join(' · ') || '—'}
+                              </em>
+                            </span>
+                            <span className="evt-collect-amt">
+                              {pending
+                                ? <b>₱{Number(r.amount) || 0}</b>
+                                : <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div className="evt-plan-summary big" style={{ marginTop: 14 }}>
+                      <div><span>Selected</span><b>{turnoverSelected.length} of {turnoverPendingRows.length}</b></div>
+                      <div className="bal"><span>Handed In</span><b>₱{turnoverTotal}</b></div>
+                    </div>
+                    <p className="evt-muted" style={{ fontSize: '0.8rem' }}>
+                      <i className="fas fa-circle-info"></i> Confirming moves the ticked registrations to Payment Verified and their money into Cash Collected.
+                    </p>
+                  </div>
+                  <div className="evt-modal-foot">
+                    <button className="btn-secondary" onClick={() => setTurnoverModal(null)} disabled={turnoverSaving}>Cancel</button>
+                    <button className="btn-primary" onClick={submitConfirmTurnover} disabled={turnoverSaving || turnoverSelected.length === 0}>
+                      <i className={`fas ${turnoverSaving ? 'fa-spinner fa-spin' : 'fa-hand-holding-dollar'}`}></i>{' '}
+                      {turnoverSaving ? 'Confirming…' : `Confirm ₱${turnoverTotal} Received`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {collectCash && (
               <div className="evt-modal-overlay" onClick={() => !collectSaving && setCollectCash(null)}>
                 <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="evt-modal-head">
                     <div>
-                      <h3>Collect Cash</h3>
+                      <h3>{collectMode === 'turnover' ? 'Paid - Pending Turnover' : 'Collect Cash'}</h3>
                       <p>
                         {collectCash.isBulk
                           ? `${formatPersonName(collectCash.repName)} — ${collectCash.churchName}`
@@ -18902,12 +19577,34 @@ Examples:
                             </span>
                             <span className="evt-collect-amt">
                               {paidAlready
-                                ? <span className="evt-collect-paidpill">Paid</span>
+                                ? <span className="evt-collect-paidpill">{r.status === 'paid_pending_turnover' ? 'Pending Turnover' : 'Paid'}</span>
                                 : <b>₱{due}</b>}
                             </span>
                           </label>
                         );
                       })}
+                    </div>
+
+                    {/* Where the money is right now. */}
+                    <div className="evt-type-choice" style={{ marginTop: 14 }}>
+                      <button
+                        type="button"
+                        className={`evt-plan-option ${collectMode === 'onhand' ? 'on' : ''}`}
+                        onClick={() => setCollectMode('onhand')}
+                        disabled={collectSaving}
+                      >
+                        <i className="fas fa-money-bill-wave"></i>
+                        <span><strong>Cash On Hand</strong><small>The money is here now.</small></span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`evt-plan-option ${collectMode === 'turnover' ? 'on' : ''}`}
+                        onClick={() => setCollectMode('turnover')}
+                        disabled={collectSaving}
+                      >
+                        <i className="fas fa-hand-holding-dollar"></i>
+                        <span><strong>Paid - Pending Turnover</strong><small>Paid, but someone else is holding the money.</small></span>
+                      </button>
                     </div>
 
                     {/* The desk arithmetic: what is owed, what was handed over,
@@ -18919,6 +19616,19 @@ Examples:
                       <div><span>Change</span><b>₱{collectChange}</b></div>
                     </div>
 
+                    {collectMode === 'turnover' ? (
+                      <div className="form-group" style={{ marginTop: 12 }}>
+                        <label>Who Is Holding The Money? *</label>
+                        <input
+                          className="form-control"
+                          value={collectHolder}
+                          onChange={(e) => setCollectHolder(e.target.value)}
+                          placeholder="e.g. Ptr. Juan Cruz, or the usher's name"
+                          disabled={collectSaving}
+                          autoFocus
+                        />
+                      </div>
+                    ) : (
                     <div className="form-group" style={{ marginTop: 12 }}>
                       <label>Cash Received (optional)</label>
                       <input
@@ -18930,8 +19640,15 @@ Examples:
                         disabled={collectSaving}
                       />
                     </div>
+                    )}
 
-                    {collectShort ? (
+                    {collectMode === 'turnover' ? (
+                      <p className="evt-muted" style={{ fontSize: '0.8rem' }}>
+                        <i className="fas fa-circle-info"></i> The ticked registrations are marked <b>Paid - Pending Turnover</b>: their
+                        attendance QR and RFID card unlock now, but the money stays out of Cash Collected until you use
+                        <b> Confirm Turnover</b> once it is handed in.
+                      </p>
+                    ) : collectShort ? (
                       <p className="evt-collect-short">
                         <i className="fas fa-triangle-exclamation"></i> That is ₱{collectTotal - (Number(collectTendered) || 0)} short of the total.
                         Untick someone, or take the rest before confirming.
@@ -18944,9 +19661,9 @@ Examples:
                   </div>
                   <div className="evt-modal-foot">
                     <button className="btn-secondary" onClick={() => setCollectCash(null)} disabled={collectSaving}>Cancel</button>
-                    <button className="btn-primary" onClick={submitCollectCash} disabled={collectSaving || collectSelected.length === 0}>
-                      <i className={`fas ${collectSaving ? 'fa-spinner fa-spin' : 'fa-money-bill-wave'}`}></i>{' '}
-                      {collectSaving ? 'Collecting…' : `Collect ₱${collectTotal} & Verify`}
+                    <button className="btn-primary" onClick={submitCollectCash} disabled={collectSaving || collectSelected.length === 0 || (collectMode === 'turnover' && !collectHolder.trim())}>
+                      <i className={`fas ${collectSaving ? 'fa-spinner fa-spin' : collectMode === 'turnover' ? 'fa-hand-holding-dollar' : 'fa-money-bill-wave'}`}></i>{' '}
+                      {collectSaving ? 'Saving…' : collectMode === 'turnover' ? `Mark ₱${collectTotal} Paid - Pending Turnover` : `Collect ₱${collectTotal} & Verify`}
                     </button>
                   </div>
                 </div>
@@ -18967,7 +19684,6 @@ Examples:
                     <div className="evt-steps">
                       {adminStepLabels.map((label, i) => (
                         <span className="evt-step-wrap" key={label}>
-                          {i > 0 && <span className="evt-step-line"></span>}
                           <button
                             type="button"
                             className={`evt-step ${adminAddStep === i ? 'on' : ''} ${adminAddStep > i ? 'done' : ''}`}
@@ -19028,6 +19744,8 @@ Examples:
                             person responsible for the group. Their church and contact apply to everyone on the list.
                           </p>
                         )}
+                        {!adminRepCollapsed && (
+                        <>
                         <div className="evt-form-grid">
                           <div className="form-group">
                             <label>First Name *</label>
@@ -19048,6 +19766,23 @@ Examples:
                             {adminAddErrors.lastName && <div className="evt-field-error-msg">{adminAddErrors.lastName}</div>}
                           </div>
                         </div>
+
+                        {/* Everyone already on this event with a name like the
+                            one being typed, so a second slot is never made by
+                            accident. */}
+                        <RegisteredNameMatches
+                          eventId={eventRegsModal.id}
+                          firstName={adminAddRegForm.attendeeFirstName}
+                          lastName={adminAddRegForm.attendeeLastName}
+                          formatStatus={statusLabel}
+                          exactNote={adminIsBulk
+                            ? 'Already registered - they keep that slot and are not charged again.'
+                            : 'Already registered for this event - they cannot be added again.'}
+                          onPick={adminIsBulk ? adminPickRep : undefined}
+                          pickLabel="Make Representative"
+                        />
+                        </>
+                        )}
 
                         {/* Already on this event. For one attendee that is a dead
                             end - the slot exists. For a group it is useful: the
@@ -19074,8 +19809,8 @@ Examples:
                             </div>
                             <p>
                               They already have a registration for this event, so they keep that slot
-                              and are <b>not added to the group again</b> &mdash; only the people you
-                              add below are charged for.
+                              and <b>do not pay again</b> &mdash; they are not added to the group a second
+                              time, and only the people you add next are charged for.
                             </p>
                             {/* What the earlier registration already holds, so the
                                 admin can see there is something worth reusing. */}
@@ -19090,7 +19825,15 @@ Examples:
                               )}
                             </dl>
                             {adminRepUsedSaved ? (
-                              <span className="evt-rep-known-done"><i className="fas fa-circle-check"></i> Their saved details are filled in below.</span>
+                              <div className="evt-rep-known-foot">
+                                <span className="evt-rep-known-done">
+                                  <i className="fas fa-circle-check"></i>
+                                  {adminRepCollapsed ? ' Representative set - their saved details are used.' : ' Their saved details are filled in below.'}
+                                </span>
+                                <button type="button" className="evt-mini-btn" onClick={adminClearRep}>
+                                  <i className="fas fa-rotate-left"></i> Change Representative
+                                </button>
+                              </div>
                             ) : (
                               <button type="button" className="evt-mini-btn ok" onClick={adminUseSavedRepDetails}>
                                 <i className="fas fa-wand-magic-sparkles"></i> Use their saved details
@@ -19099,6 +19842,34 @@ Examples:
                           </div>
                         )}
 
+                        {/* On its own, a kid is registered under a parent or guardian
+                            already on this event, so the age group is asked
+                            before the church questions it replaces. */}
+                        {!adminIsBulk && adminHasKidTiers && (
+                          <AgeGroupPicker
+                            event={eventRegsModal}
+                            value={adminAddRegTier}
+                            onChange={(label) => {
+                              setAdminAddRegTier(label);
+                              if (!isNameOnlyTier(findTier(eventRegsModal, label))) setAdminGuardian(null);
+                              setAdminAddErrors({});
+                            }}
+                            title="Age Group"
+                          />
+                        )}
+
+                        {adminIsKidSolo ? (
+                          <>
+                            <GuardianPicker
+                              eventId={eventRegsModal.id}
+                              value={adminGuardian}
+                              onChange={(g) => { setAdminGuardian(g); setAdminAddErrors({}); }}
+                              invalid={!!adminAddErrors.guardian}
+                            />
+                            {adminAddErrors.guardian && <div className="evt-field-error-msg" style={{ marginTop: -10, marginBottom: 12 }}>{adminAddErrors.guardian}</div>}
+                          </>
+                        ) : !adminRepCollapsed && (
+                        <>
                         {/* Full church name, offered from past registrations with a count */}
                         <div className="form-group evt-church-field">
                           <label>Church Name * <em style={{ fontStyle: 'normal', fontWeight: 500, color: 'var(--text-muted, #999)' }}>(complete name)</em></label>
@@ -19128,14 +19899,13 @@ Examples:
                         <div className="evt-form-grid">
                           <div className="form-group">
                             <label>Church Pastor *</label>
-                            <div className={`evt-prefix-input ${adminAddErrors.churchPastor ? 'evt-field-error' : ''}`}>
-                              <span>Ptr.</span>
-                              <input
-                                value={adminAddRegForm.churchPastor}
-                                onChange={(e) => { setAdminAddRegForm({ ...adminAddRegForm, churchPastor: e.target.value }); setAdminAddErrors({}); }}
-                                placeholder="Juan Cruz"
-                              />
-                            </div>
+                            <PastorInput
+                              eventId={eventRegsModal.id}
+                              churchName={adminAddRegForm.churchName}
+                              value={adminAddRegForm.churchPastor}
+                              onChange={(v) => { setAdminAddRegForm((f) => ({ ...f, churchPastor: v })); setAdminAddErrors({}); }}
+                              invalid={!!adminAddErrors.churchPastor}
+                            />
                             {adminAddErrors.churchPastor && <div className="evt-field-error-msg">{adminAddErrors.churchPastor}</div>}
                           </div>
                           <div className="form-group">
@@ -19151,10 +19921,14 @@ Examples:
                             {adminAddErrors.mobile && <div className="evt-field-error-msg">{adminAddErrors.mobile}</div>}
                           </div>
                         </div>
+                        </>
+                        )}
 
                         {/* Which age group this person is in, on an event that
                             prices adults and children differently. Renders
-                            nothing at all on an event with one price. */}
+                            nothing at all on an event with one price. (Asked
+                            above instead when a kid can be picked on their own.) */}
+                        {(adminIsBulk || !adminHasKidTiers) && !adminRepCollapsed && (
                         <AgeGroupPicker
                           event={eventRegsModal}
                           value={adminAddRegTier}
@@ -19166,6 +19940,7 @@ Examples:
                           // added on the roster step, each with their own group.
                           scope={adminIsBulk ? 'adult' : 'all'}
                         />
+                        )}
 
                         {/* The representative's extras. Asked here rather than on
                             the payment step because they belong to a person, not
@@ -19233,6 +20008,13 @@ Examples:
                                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adminCommitPerson(); } }} />
                             </div>
                           </div>
+                          <RegisteredNameMatches
+                            eventId={eventRegsModal.id}
+                            firstName={adminBulkDraft.firstName}
+                            lastName={adminBulkDraft.lastName}
+                            onExactChange={setAdminDraftDup}
+                            formatStatus={statusLabel}
+                          />
                           {/* Age group is per person too - a family booking is
                               one payment, not one price. */}
                           <AgeGroupPicker
@@ -19240,6 +20022,7 @@ Examples:
                             value={adminBulkDraft.priceTier}
                             onChange={(label) => { setAdminBulkDraft({ ...adminBulkDraft, priceTier: label }); setAdminBulkError(''); }}
                             title="Age Group"
+                            hint={adminHasKidTiers ? 'kids are registered under the representative' : ''}
                           />
 
                           {/* extras are per person - only some of a group need accommodation */}
@@ -19258,8 +20041,8 @@ Examples:
                               })}
                             </div>
                           )}
-                          {adminBulkError && <div className="evt-field-error-msg">{adminBulkError}</div>}
-                          <button className="btn-primary" style={{ width: '100%' }} onClick={adminCommitPerson}>
+                          {(adminDraftClash || adminBulkError) && <div className="evt-field-error-msg">{adminDraftClash || adminBulkError}</div>}
+                          <button className="btn-primary" style={{ width: '100%' }} onClick={adminCommitPerson} disabled={!!adminDraftDup || !!adminDraftClash}>
                             <i className={`fas ${adminBulkEditing == null ? 'fa-plus' : 'fa-check'}`}></i> {adminBulkEditing == null ? ' Add Attendee' : ' Save Changes'}
                           </button>
                         </div>
@@ -19296,7 +20079,7 @@ Examples:
                                             <td data-label="Attendee">
                                               <b>{i + 1}.</b> {formatPersonName(`${a.firstName} ${a.lastName}`)}
                                               {hasPriceTiers(eventRegsModal) && a.priceTier && (
-                                                <span className="evt-tier-tag">{a.priceTier}</span>
+                                                <span className={`evt-tier-tag ${isNameOnlyTier(findTier(eventRegsModal, a.priceTier)) ? 'kid' : ''}`}>{a.priceTier}</span>
                                               )}
                                               {a.isRep && <div className="evt-cell-sub">Representative</div>}
                                             </td>
@@ -19384,7 +20167,9 @@ Examples:
 
                         <div className="evt-modal-foot" style={{ padding: '4px 0 0', border: 'none', background: 'transparent' }}>
                           <button className="btn-secondary" onClick={() => setAdminAddStep(0)}><i className="fas fa-arrow-left"></i> Back</button>
-                          <button className="btn-primary" onClick={adminAddNext}>Continue to Payment <i className="fas fa-arrow-right"></i></button>
+                          <button className="btn-primary" onClick={adminAddNext} disabled={adminRosterChecking}>
+                            {adminRosterChecking ? <><i className="fas fa-spinner fa-spin"></i> Checking…</> : <>Continue to Payment <i className="fas fa-arrow-right"></i></>}
+                          </button>
                         </div>
                       </>
                     )}
@@ -19506,10 +20291,12 @@ Examples:
                                   />
                                 </div>
                                 <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={adminAddRegForm.paymentReference} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentReference: e.target.value })} placeholder={/^cash$/i.test(adminAddRegForm.paymentMethod) ? 'Not needed for cash' : ''} /></div>
-                                <label className="evt-toggle-row" style={{ marginTop: 4 }}>
-                                  <input type="checkbox" checked={adminAddRegForm.markVerified} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, markVerified: e.target.checked })} />
-                                  <span>Mark payment as verified immediately (already collected in person)</span>
-                                </label>
+                                <PayStatusPicker
+                                  value={adminAddRegForm.payStatus}
+                                  holder={adminAddRegForm.turnoverHolder}
+                                  onChange={(payStatus) => setAdminAddRegForm({ ...adminAddRegForm, payStatus })}
+                                  onHolderChange={(turnoverHolder) => setAdminAddRegForm({ ...adminAddRegForm, turnoverHolder })}
+                                />
                               </>
                             )}
 
@@ -19670,14 +20457,13 @@ Examples:
                     <div className="evt-form-grid">
                       <div className="form-group">
                         <label>Church Pastor *</label>
-                        <div className={`evt-prefix-input ${editRegErrors.churchPastor ? 'evt-field-error' : ''}`}>
-                          <span>Ptr.</span>
-                          <input
-                            value={editRegForm.churchPastor}
-                            onChange={(e) => { setEditRegForm({ ...editRegForm, churchPastor: e.target.value }); setEditRegErrors({}); }}
-                            placeholder="Juan Cruz"
-                          />
-                        </div>
+                        <PastorInput
+                          eventId={eventRegsModal?.id}
+                          churchName={editRegForm.churchName}
+                          value={editRegForm.churchPastor}
+                          onChange={(v) => { setEditRegForm((f) => ({ ...f, churchPastor: v })); setEditRegErrors({}); }}
+                          invalid={!!editRegErrors.churchPastor}
+                        />
                         {editRegErrors.churchPastor && <div className="evt-field-error-msg">{editRegErrors.churchPastor}</div>}
                       </div>
                       <div className="form-group">
@@ -19782,8 +20568,7 @@ Examples:
                       <div className="evt-steps">
                         {['Extras', 'Payment'].map((label, i) => (
                           <span className="evt-step-wrap" key={label}>
-                            {i > 0 && <span className="evt-step-line"></span>}
-                            <button
+                              <button
                               type="button"
                               className={`evt-step ${extrasStep === i ? 'on' : ''} ${extrasStep > i ? 'done' : ''}`}
                               onClick={() => {
@@ -20304,14 +21089,13 @@ Examples:
                     <div className="evt-form-grid">
                       <div className="form-group">
                         <label>Church Pastor *</label>
-                        <div className={`evt-prefix-input ${registerErrors.churchPastor ? 'evt-field-error' : ''}`}>
-                          <span>Ptr.</span>
-                          <input
-                            value={registerForm.churchPastor}
-                            onChange={(e) => { setRegisterForm({ ...registerForm, churchPastor: e.target.value }); setRegisterErrors({}); }}
-                            placeholder="Juan Cruz"
-                          />
-                        </div>
+                        <PastorInput
+                          eventId={registerModal?.id}
+                          churchName={registerForm.churchName}
+                          value={registerForm.churchPastor}
+                          onChange={(v) => { setRegisterForm((f) => ({ ...f, churchPastor: v })); setRegisterErrors({}); }}
+                          invalid={!!registerErrors.churchPastor}
+                        />
                         {registerErrors.churchPastor && <div className="evt-field-error-msg">{registerErrors.churchPastor}</div>}
                       </div>
                       <div className="form-group">

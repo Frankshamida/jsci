@@ -11,7 +11,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 // because reports, exports and older screens read it. Both are written in one
 // place - this file - so they cannot drift.
 
-const VERIFIED_STATUSES = ['registered', 'payment_verified'];
+const VERIFIED_STATUSES = ['registered', 'payment_verified', 'paid_pending_turnover'];
 
 // Whatever the day rows now say, said again on the registration. Called after
 // every write rather than computed on read, so the boolean is never a guess.

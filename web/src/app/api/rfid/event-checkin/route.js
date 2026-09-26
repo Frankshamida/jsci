@@ -12,7 +12,8 @@ import { normalizeUid, isPlausibleUid, uidCandidates } from '@/lib/rfid';
 // the two statuses that mean "settled" - 'registered' is what a free event
 // produces, 'payment_verified' is what a paid one becomes when staff confirm
 // the payment. Everything else is still waiting on somebody.
-const VERIFIED_STATUSES = ['registered', 'payment_verified'];
+// 'paid_pending_turnover' is paid too - only the money is not on hand yet.
+const VERIFIED_STATUSES = ['registered', 'payment_verified', 'paid_pending_turnover'];
 
 const REG_FIELDS = 'id, event_id, user_id, attendee_name, attendee_mobile, church_name, status, attended, attended_at, amount_paid, registration_type';
 

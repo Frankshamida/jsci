@@ -32,6 +32,8 @@ import { amountInWords } from '@/lib/amountInWords';
 // per-day attendance columns, the kit and meal counters and the corrections
 // lock. One component, so the two desks cannot drift apart again.
 import EventAttendanceTab from '@/components/eventDesk/EventAttendanceTab';
+import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
+import PastorInput from '@/components/PastorInput';
 import AgeGroupPicker from '@/components/AgeGroupPicker';
 import { addonFeeFor, baseAmountFor, defaultTier, eventFeeLabel, findTier, hasPriceTiers } from '@/lib/eventPricing';
 
@@ -120,6 +122,7 @@ const STATUS_LABELS = {
   // so the word staff need is what they must DO about it.
   pending_cash: 'cash to collect',
   installment: 'installment',
+  paid_pending_turnover: 'paid - pending turnover',
 };
 const statusLabel = (status) => STATUS_LABELS[status] || String(status || '').replace(/_/g, ' ');
 
@@ -127,7 +130,7 @@ const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
 
 // A registration holding a seat. Mirrors lib/eventSlots, so the counters here
 // agree with the ones on the admin dashboard.
-const SLOT_HOLDING = ['registered', 'payment_verified', 'payment_submitted', 'installment', 'pending_cash'];
+const SLOT_HOLDING = ['registered', 'payment_verified', 'payment_submitted', 'installment', 'pending_cash', 'paid_pending_turnover'];
 
 // Event datetimes are WALL-CLOCK: the column holds "the time the admin typed"
 // and Postgres stamps it +00:00 on the way in. Reading one with `new Date()`
@@ -371,6 +374,8 @@ const EMPTY_ADD_FORM = {
   churchName: '', churchPastor: '',
   paymentPlan: 'full', initialPayment: '',
   paymentMethod: '', paymentReference: '', markVerified: true,
+  // Pay in full: 'verified' | 'turnover' (paid, money with someone else) | 'unpaid'
+  payStatus: 'verified', turnoverHolder: '',
 };
 
 export default function CommitteeDashboardPage() {
@@ -831,10 +836,23 @@ export default function CommitteeDashboardPage() {
         if (regMoneyFilter === 'pending' && !['payment_submitted', 'pending_cash'].includes(r.status)) return false;
       }
       if (!q) return true;
-      return [r.attendee_name, r.attendee_email, r.attendee_mobile, r.church_name, r.church_pastor, r.payment_reference, r.added_by]
-        .some((v) => String(v || '').toLowerCase().includes(q));
+      // Every word, in any order, anywhere on the row - the representative's
+      // name included, so searching them lists everyone they registered.
+      const hay = [
+        r.attendee_name, r.attendee_firstname, r.attendee_lastname,
+        r.representative, r.guardian_name, r.turnover_holder, r.added_by,
+        r.attendee_email, r.attendee_mobile, r.church_name, r.church_pastor, r.payment_reference,
+      ].map((v) => String(v || '').toLowerCase().replace(/\s+/g, ' ')).join(' | ');
+      return q.split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
     });
-    rows.sort((a, b) => (regSort === 'oldest'
+    // Searching a person puts THEM first, then the people they registered.
+    const ownName = (r) => {
+      if (!q) return 0;
+      const own = [r.attendee_name, r.attendee_firstname, r.attendee_lastname]
+        .map((v) => String(v || '').toLowerCase().replace(/\s+/g, ' ')).join(' | ');
+      return q.split(/\s+/).filter(Boolean).every((w) => own.includes(w)) ? 0 : 1;
+    };
+    rows.sort((a, b) => (ownName(a) - ownName(b)) || (regSort === 'oldest'
       ? new Date(a.created_at || 0) - new Date(b.created_at || 0)
       : new Date(b.created_at || 0) - new Date(a.created_at || 0)));
     return rows;
@@ -1085,6 +1103,11 @@ export default function CommitteeDashboardPage() {
       showToast('Choose how the payment was made', 'danger');
       return;
     }
+    const turnover = owed > 0 && addForm.paymentPlan === 'full' && addForm.payStatus === 'turnover';
+    if (turnover && !addForm.turnoverHolder.trim()) {
+      showToast('Enter who is holding the money', 'danger');
+      return;
+    }
     const firstPay = Number(addForm.initialPayment) || 0;
     if (addForm.paymentPlan === 'flexible' && firstPay > owed) {
       showToast(`The first payment cannot be more than the ${peso(owed)} total`, 'danger');
@@ -1114,9 +1137,10 @@ export default function CommitteeDashboardPage() {
           initialPayment: addForm.paymentPlan === 'flexible' ? firstPay : 0,
           paymentMethod: addForm.paymentMethod || null,
           paymentReference: addForm.paymentReference.trim() || null,
-          // Unticking "verified" is how staff say the seat is taken but the
-          // money has not arrived yet.
-          markVerified: addForm.markVerified !== false,
+          // 'unpaid' is how staff say the seat is taken but the money has not
+          // arrived yet; 'turnover' that it was paid to someone else.
+          markVerified: addForm.payStatus === 'verified',
+          ...(turnover ? { paidPendingTurnover: true, turnoverHolder: addForm.turnoverHolder.trim() } : {}),
         }),
       });
       const data = await res.json();
@@ -3023,6 +3047,13 @@ export default function CommitteeDashboardPage() {
                 <div className="um-hero-content">
                   <div className="evt-hero-grid">
                     <div className="evt-hero-main">
+                      {(eventRegsModal.location || eventRegsModal.loc_city) && (
+                        <div className="evt-hero-pills">
+                          <span className="evt-hero-loc" title={[eventRegsModal.location, eventRegsModal.loc_city].filter(Boolean).join(', ')}>
+                          <i className="fas fa-location-dot"></i> {[eventRegsModal.location, eventRegsModal.loc_city].filter(Boolean).join(', ')}
+                        </span>
+                        </div>
+                      )}
                       <h2 className="um-hero-title">{eventRegsModal.title}</h2>
                       <p className="um-hero-sub">{eventRegsModal.description || 'Review registrations and manage attendance for this event.'}</p>
                       <div className="evt-hero-actions">
@@ -3465,10 +3496,26 @@ export default function CommitteeDashboardPage() {
                                         </>
                                       );
                                   }
+                                  // A kid under a parent or guardian pays nothing, and
+                                  // "Registered" read as if something were still to do.
+                                  if ((r.guardian_name || r.guardian_registration_id) && !(Number(r.amount) > 0)
+                                    && ['registered', 'pending_cash', 'payment_verified'].includes(r.status)) {
+                                    return <span className="evt-status evt-status-registered">free</span>;
+                                  }
                                   if (r.status === 'pending_cash' && !(Number(r.amount) > 0)) {
                                     return <span className="evt-status evt-status-registered">registered</span>;
                                   }
-                                  return <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>;
+                                  return (
+                                    <>
+                                      <span className={`evt-status evt-status-${r.status}`}>{statusLabel(r.status)}</span>
+                                      {r.status === 'paid_pending_turnover' && r.turnover_holder && (
+                                        <span className="evt-turnover-by" title={`Money with ${r.turnover_holder}`}>
+                                          <i className="fas fa-hand-holding-dollar"></i>
+                                          <span>by <b>{r.turnover_holder}</b></span>
+                                        </span>
+                                      )}
+                                    </>
+                                  );
                                 })()}
                                 {r.attended && (
                                   <div className="evt-cell-sub"><i className="fas fa-circle-check"></i> Checked in</div>
@@ -3483,7 +3530,7 @@ export default function CommitteeDashboardPage() {
                                   const paid = Number(r.amount_paid) || 0;
                                   const settled = onPlan && owed > 0 && paid >= owed;
                                   const name = formatPersonName(r.attendee_name);
-                                  const confirmed = r.status === 'registered' || r.status === 'payment_verified';
+                                  const confirmed = r.status === 'registered' || r.status === 'payment_verified' || r.status === 'paid_pending_turnover';
                                   return (
                                     <div className={`evt-rowmenu ${openRowMenu === r.id ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
                                       <button
@@ -3988,7 +4035,6 @@ export default function CommitteeDashboardPage() {
                     <div className="evt-steps">
                       {['Attendee Details', 'Payment'].map((label, i) => (
                         <span className="evt-step-wrap" key={label}>
-                          {i > 0 && <span className="evt-step-line"></span>}
                           <button
                             type="button"
                             className={`evt-step ${addStep === i ? 'on' : ''} ${addStep > i ? 'done' : ''}`}
@@ -4076,14 +4122,14 @@ export default function CommitteeDashboardPage() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                           <div className="form-group">
                             <label>Church Pastor *</label>
-                            <div className={`evt-prefix-input ${addErrors.churchPastor ? 'evt-field-error' : ''}`}>
-                              <span>Ptr.</span>
-                              <input
-                                value={addForm.churchPastor}
-                                onChange={(e) => setAddForm({ ...addForm, churchPastor: e.target.value })}
-                                placeholder="Full name"
-                              />
-                            </div>
+                            <PastorInput
+                              eventId={eventRegsModal?.id}
+                              churchName={addForm.churchName}
+                              value={addForm.churchPastor}
+                              onChange={(v) => setAddForm((f) => ({ ...f, churchPastor: v }))}
+                              invalid={!!addErrors.churchPastor}
+                              placeholder="Full name"
+                            />
                             {addErrors.churchPastor && <div className="evt-field-error-msg">{addErrors.churchPastor}</div>}
                           </div>
                           <div className="form-group">
@@ -4202,10 +4248,13 @@ export default function CommitteeDashboardPage() {
                                     placeholder={/^cash$/i.test(addForm.paymentMethod) ? 'Not needed for cash' : ''}
                                   />
                                 </div>
-                                <label className="evt-toggle-row" style={{ marginTop: 4 }}>
-                                  <input type="checkbox" checked={addForm.markVerified} onChange={(e) => setAddForm({ ...addForm, markVerified: e.target.checked })} />
-                                  <span>Mark payment as verified immediately (already collected in person)</span>
-                                </label>
+                                <PayStatusPicker
+                                  value={addForm.payStatus}
+                                  holder={addForm.turnoverHolder}
+                                  onChange={(payStatus) => setAddForm({ ...addForm, payStatus })}
+                                  onHolderChange={(turnoverHolder) => setAddForm({ ...addForm, turnoverHolder })}
+                                  disabled={addSaving}
+                                />
                               </>
                             )}
 
