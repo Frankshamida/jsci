@@ -1603,7 +1603,7 @@ export default function DashboardPage() {
       meta: [
         ['Date', formatEventSpan(evt.event_date, evt.end_date)],
         ['Venue', [evt.location, evt.loc_city].filter(Boolean).join(', ')],
-        ['Province', evt.loc_province || ''],
+        ['Province', provinceLabel(evt) || evt.loc_province || ''],
         ['Churches', exportChurches.length ? exportChurches.join(', ') : 'All churches'],
         ['Registration Type', exportType === 'all' ? 'All' : (exportType === 'bulk' ? 'Bulk' : 'Individual')],
         ['Total Due', `PHP ${totalDue.toLocaleString()}`],
@@ -1624,7 +1624,9 @@ export default function DashboardPage() {
 
     setExportBusy(true);
     try {
-      const name = safeFilename(exportEvent.title, exportStatusLabel(), new Date().toISOString().slice(0, 10));
+      // Province first - "Cebu-Miracle_Working_God-..." - so the same event
+      // run in Cebu and in Leyte downloads as two files that sort apart.
+      const name = safeFilename(provinceLabel(exportEvent), exportEvent.title, exportStatusLabel(), new Date().toISOString().slice(0, 10));
       let blob;
       let filename;
 
@@ -6317,6 +6319,57 @@ export default function DashboardPage() {
     return { cash, online, total: cash + online, pending, cashDue, planDue, expected, turnover };
   })();
   const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
+
+  // ---- Copy Report ----
+  // The banner's figures as plain text, for pasting into Messenger, a phone
+  // message or an email. Plain lines only - no tabs, bullets or markdown -
+  // because every one of those apps shows them differently.
+  const buildCollectionReport = (evt) => {
+    if (!evt) return '';
+    const place = provinceLabel(evt);
+    const when = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+    const regCount = eventRegs.filter((r) => r.status !== 'cancelled').length;
+    const by = userData?.firstname ? `${userData.firstname} ${userData.lastname || ''}`.trim() : '';
+    const lines = [
+      `${place ? `${place} - ` : ''}${evt.title}`,
+      'Collection Report',
+      `As of ${when}`,
+      '',
+      'COLLECTED',
+      `Cash Collected: ${peso(eventMoney.cash)}`,
+      `Online Collected: ${peso(eventMoney.online)}`,
+      `Total Collected: ${peso(eventMoney.total)}`,
+      '',
+      'STILL TO COME IN',
+      `Cash to Collect: ${peso(eventMoney.cashDue)}`,
+      `Paid - Pending Turnover: ${peso(eventMoney.turnover)}`,
+      `Awaiting Verification: ${peso(eventMoney.pending)}`,
+      ...(eventMoney.planDue > 0 ? [`Installment Balances: ${peso(eventMoney.planDue)}`] : []),
+      '',
+      `Registrations: ${regCount}`,
+      ...(by ? [`Prepared by: ${by}`] : []),
+    ];
+    return lines.join('\n');
+  };
+  const copyCollectionReport = async (evt) => {
+    const text = buildCollectionReport(evt);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Older phones and non-HTTPS pages have no clipboard API.
+      const box = document.createElement('textarea');
+      box.value = text;
+      box.setAttribute('readonly', '');
+      box.style.position = 'fixed';
+      box.style.opacity = '0';
+      document.body.appendChild(box);
+      box.select();
+      try { document.execCommand('copy'); } catch { /* shown below */ }
+      document.body.removeChild(box);
+    }
+    showToast('Report copied — paste it into Messenger, a text or an email', 'success');
+  };
 
   // What a status is called on screen. 'payment_verified' is the end of the
   // road for money - there is nothing left to check - so it reads as "paid"
@@ -14545,9 +14598,16 @@ Examples:
                         </div>
                         <h2 className="evt-rhead-title">{ev.title}</h2>
                         {ev.description && <p className="evt-rhead-desc">{ev.description}</p>}
-                        <button type="button" className="evt-rhead-link" onClick={() => setEventDetail(ev)}>
-                          View details <i className="fas fa-arrow-right"></i>
-                        </button>
+                        <div className="evt-rhead-links">
+                          <button type="button" className="evt-rhead-link" onClick={() => setEventDetail(ev)}>
+                            View details <i className="fas fa-arrow-right"></i>
+                          </button>
+                          {ev.has_fee && (
+                            <button type="button" className="evt-rhead-link" onClick={() => copyCollectionReport(ev)}>
+                              <i className="fas fa-copy"></i> Copy Report
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                     {ev.has_fee && (
@@ -14649,6 +14709,15 @@ Examples:
                             onClick={openAdminAddReg}
                           >
                             <i className="fas fa-user-plus"></i> Add Attendee
+                          </button>
+                        )}
+                        {eventRegsModal.has_fee && (
+                          <button
+                            className="evt-hero-action ghost evt-hero-copy"
+                            onClick={() => copyCollectionReport(eventRegsModal)}
+                            title="Copy the collection figures as text"
+                          >
+                            <i className="fas fa-copy"></i> Copy Report
                           </button>
                         )}
                       </div>

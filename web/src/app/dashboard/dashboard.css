@@ -32588,3 +32588,9 @@ body.dark-mode .evt-rhead-loc { background: rgba(245,210,122,0.14); color: #f5d2
   .evt-attend-cards .evt-meals { align-items: flex-start; }
   .evt-attend-cards .evt-meal-daylabel { text-align: left; }
 }
+
+/* ---- Copy Report ---- */
+/* Desk banner: a smaller third button after Back and Add Attendee. */
+.evt-hero-regs .evt-hero-action.evt-hero-copy { flex: 0 0 auto; padding-left: 20px; padding-right: 20px; }
+/* Phone header: sits on the same line as View details. */
+.evt-rhead-links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; }
