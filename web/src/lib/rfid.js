@@ -1,5 +1,14 @@
 // ============================================================
 // RFID card numbers, and why they need their own file
+//
+// Readers in use:
+//   Arduino + RC522 (hardware/)       hex over USB serial
+//   13.56 MHz USB desk reader         a keyboard: types a 10-digit DECIMAL
+//     (Mifare S50/S70, ISO 14443A)    number and presses Enter. Plug and play,
+//                                     no driver. Same cards as the RC522, so a
+//                                     card registered on one matches on the
+//                                     other through uidCandidates() below.
+//   the phone (Web NFC)               colon-separated hex
 // ============================================================
 // The same card gives a different answer depending on what is reading it.
 // This is not a bug in any of the readers; there simply is no agreed way to
@@ -120,6 +129,20 @@ export function uidCandidates(raw) {
   }
 
   return out;
+}
+
+/**
+ * Are two readings the same card? For comparisons made in the browser - a
+ * master card, the card just tapped - which cannot lean on the database
+ * lookup to bridge a decimal USB reader and a hex one.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+export function sameCard(a, b) {
+  const want = normalizeUid(b);
+  return !!want && uidCandidates(a).includes(want);
 }
 
 /**

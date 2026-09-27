@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
 import { BED_TYPES, MAX_PAX, bedsSleep, bedsToText, compareRoomNumbers, parseRoomNumbers, roomEntitlement, roomTypeName } from '@/lib/rooms';
 import { supabase } from '@/lib/supabase';
-import { normalizeUid, isPlausibleUid, formatUid } from '@/lib/rfid';
+import { normalizeUid, isPlausibleUid, formatUid, sameCard } from '@/lib/rfid';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { printReport, buildPrintHtml, buildXlsx, buildDocx, buildCsv, downloadBlob, safeFilename } from '@/lib/exportDoc';
 import { buildPdf, loadLogoJpeg } from '@/lib/pdfWriter';
@@ -27,6 +27,10 @@ import { HERO_MEDIA_DEFAULT, HERO_VIDEO_DIR, heroVideoWeight, normalizeHeroMedia
 import ProofDrop from '@/components/ProofDrop';
 import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
 import PastorInput from '@/components/PastorInput';
+import AttendeeIdModal from '@/components/eventDesk/AttendeeIdModal';
+import EventProgrammeTab from '@/components/eventDesk/EventProgrammeTab';
+import EventPhotosTab from '@/components/eventDesk/EventPhotosTab';
+import { publicEventSlugFor } from '@/lib/eventPublic';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import {
   PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
@@ -544,9 +548,8 @@ const GATHERINGS = [
   { title: 'ISOM', desc: 'International School of Ministry training for leadership development and ministry equipping', photo: '/assets/isom-training.jpg' },
 ];
 
-const CLOUDINARY_FREE_STORAGE_BYTES = 25 * 1024 * 1024 * 1024; // 25 GB
-const CLOUDINARY_FREE_BANDWIDTH_BYTES = 25 * 1024 * 1024 * 1024; // 25 GB
-const CLOUDINARY_FREE_CREDITS = 25; // free plan credits
+// Fallback only - the real allowance comes back from the usage API.
+const CLOUDINARY_FREE_CREDITS = 25; // free plan monthly credits
 
 // Circle-logo fallback for a payment channel: initials of the bank name
 // ("BDO" -> "BDO", "Bank of the Phil. Islands" -> "BP").
@@ -1317,7 +1320,7 @@ export default function DashboardPage() {
   const [eventRegsModal, setEventRegsModal] = useState(null); // event object being managed (registrations/attendance page)
   const [eventRegs, setEventRegs] = useState([]);
   const [eventRegsLoading, setEventRegsLoading] = useState(false);
-  const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance' | 'accommodation' | 'installments' | 'bin'
+  const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance' | 'accommodation' | 'installments' | 'programme' | 'photos' | 'bin'
   // Admin/Super Admin manually adding a walk-in / offline registration
   const [showAdminAddReg, setShowAdminAddReg] = useState(false);
   const [adminAddRegForm, setAdminAddRegForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '', markVerified: true });
@@ -6795,6 +6798,45 @@ export default function DashboardPage() {
     return [...counts.entries()].map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   })();
+  // ============ ID CARDS ============
+  // One printable ID per attendee: name on the front, their check-in QR on the
+  // back. Drawn by lib/idCard.js; this is only the list to pick them from.
+  const [idSearch, setIdSearch] = useState('');
+  const [idChurch, setIdChurch] = useState('all');
+  const [idSort, setIdSort] = useState('last');   // last | first | newest
+  const [idFiltersOpen, setIdFiltersOpen] = useState(false);
+  const [idPage, setIdPage] = useState(1);
+  const [idPageSize, setIdPageSize] = useState(10);
+  const [idModalReg, setIdModalReg] = useState(null);
+  const idLastOf = (r) => {
+    const whole = String(r.attendee_name || '').trim().replace(/\s+/g, ' ');
+    return formatPersonName(r.attendee_lastname || (whole.includes(' ') ? whole.split(' ').slice(-1)[0] : whole));
+  };
+  const idFirstOf = (r) => {
+    const whole = String(r.attendee_name || '').trim().replace(/\s+/g, ' ');
+    return formatPersonName(r.attendee_firstname || whole.split(' ').slice(0, -1).join(' ') || whole);
+  };
+  const visibleIds = (() => {
+    const q = idSearch.trim().toLowerCase();
+    let rows = eventRegs.filter((r) => r.status !== 'cancelled');
+    if (idChurch !== 'all') rows = rows.filter((r) => (formatChurchName(r.church_name) || 'No church given') === idChurch);
+    if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
+    const cmp = (a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' });
+    return [...rows].sort((a, b) => {
+      if (q) {
+        const rank = regNameRank(a, q) - regNameRank(b, q);
+        if (rank !== 0) return rank;
+      }
+      if (idSort === 'first') return cmp(idFirstOf(a), idFirstOf(b)) || cmp(idLastOf(a), idLastOf(b));
+      if (idSort === 'newest') return new Date(b.created_at) - new Date(a.created_at);
+      return cmp(idLastOf(a), idLastOf(b)) || cmp(idFirstOf(a), idFirstOf(b));
+    });
+  })();
+  useEffect(() => { setIdPage(1); }, [idSearch, idChurch, idSort, eventRegsModal?.id]);
+  const idPages = Math.max(1, Math.ceil(visibleIds.length / idPageSize));
+  const idPageSafe = Math.min(idPage, idPages);
+  const pagedIds = visibleIds.slice((idPageSafe - 1) * idPageSize, idPageSafe * idPageSize);
+
   // Rows that share one call: the same bulk booking on the same number.
   const callGroupKey = (r) => {
     const rep = regRepName(r).toLowerCase();
@@ -7059,6 +7101,64 @@ export default function DashboardPage() {
       loadPendingRegAlerts();
       loadEvents();
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+  };
+
+  // ---- Paid In Cash -> Paid - Pending Turnover ----
+  // A row recorded as cash in hand when the money actually went to somebody
+  // else - an usher, a pastor - who has still to bring it in. Admin and Super
+  // Admin only: it takes money back OUT of Cash Collected. A group lists
+  // everyone on the booking, and only the ticked ones are moved.
+  const [toTurnover, setToTurnover] = useState(null);   // { rows, clickedId, repName, churchName }
+  const [toTurnoverSel, setToTurnoverSel] = useState([]);
+  const [toTurnoverHolder, setToTurnoverHolder] = useState('');
+  const [toTurnoverSaving, setToTurnoverSaving] = useState(false);
+  const canMoveToTurnover = (r) => r.status === 'payment_verified' && r.payment_plan !== 'flexible'
+    && isCashMethod(r.payment_method) && (Number(r.amount) || 0) > 0;
+  const openToTurnover = (reg) => {
+    const rows = collectGroupFor(reg);
+    // Just the one clicked to start with - moving money is done on purpose.
+    setToTurnoverSel([reg.id]);
+    setToTurnoverHolder('');
+    setToTurnover({
+      rows,
+      clickedId: reg.id,
+      repName: regRepName(reg),
+      churchName: formatChurchName(reg.church_name) || 'No church given',
+    });
+  };
+  const toTurnoverEligible = toTurnover ? toTurnover.rows.filter(canMoveToTurnover) : [];
+  const toTurnoverTotal = toTurnover
+    ? toTurnover.rows.filter((r) => toTurnoverSel.includes(r.id)).reduce((t, r) => t + (Number(r.amount) || 0), 0)
+    : 0;
+  const submitToTurnover = async () => {
+    if (!toTurnover || toTurnoverSel.length === 0) return;
+    const holder = toTurnoverHolder.trim();
+    if (!holder) { showToast('Enter who is holding the money', 'danger'); return; }
+    setToTurnoverSaving(true);
+    try {
+      let ok = 0;
+      const failed = [];
+      for (const id of toTurnoverSel) {
+        const row = toTurnover.rows.find((r) => r.id === id);
+        try {
+          const res = await fetch('/api/events/registrations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, actorId: userData?.id, status: 'paid_pending_turnover', turnoverHolder: holder }),
+          });
+          const data = await res.json();
+          if (data.success) ok += 1; else failed.push(formatPersonName(row?.attendee_name));
+          if (data.warning) showToast(data.warning, 'danger');
+        } catch { failed.push(formatPersonName(row?.attendee_name)); }
+      }
+      if (ok > 0) showToast(`₱${toTurnoverTotal} moved to Paid - Pending Turnover — money with ${holder}`, 'success');
+      if (failed.length > 0) showToast(`Could not change: ${failed.join(', ')}`, 'danger');
+      setToTurnover(null);
+      if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
+      loadPendingRegAlerts();
+    } finally {
+      setToTurnoverSaving(false);
+    }
   };
 
   // ---- Confirming a group's turnover ----
@@ -11934,7 +12034,7 @@ Examples:
   const tryUnlockTable = useCallback((rawUid) => {
     const uid = normalizeUid(rawUid);
     if (!isPlausibleUid(uid)) return;
-    if (uid === EVT_UNLOCK_UID) {
+    if (sameCard(uid, EVT_UNLOCK_UID)) {
       setEvtUnlocked(true);
       setEvtUnlockOpen(false);
       setEvtUnlockError('');
@@ -11963,7 +12063,7 @@ Examples:
     // record was left empty, by name, while that is still fixable.
     const leaving = claimWho;
     if (leaving?.result === 'matched' && !claimDeskRecorded(claimDesk, leaving, evtCheckinDay)
-      && normalizeUid(leaving.uid) !== uid) {
+      && !sameCard(leaving.uid, uid)) {
       showToast(
         `Nothing was recorded for ${leaving.registration?.attendee_name || 'the last card'}`,
         'warning',
@@ -15133,6 +15233,11 @@ Examples:
                     <button className={`evt-tab ${manageTab === 'calls' ? 'active' : ''}`} onClick={() => setManageTab('calls')}>
                       <i className="fas fa-phone"></i> Call Attendee {callDoneCount > 0 && <span className="evt-tab-count">{callDoneCount}</span>}
                     </button>
+                    {canEditRegistrations && (
+                      <button className={`evt-tab ${manageTab === 'ids' ? 'active' : ''}`} onClick={() => setManageTab('ids')}>
+                        <i className="fas fa-id-card"></i> ID Cards
+                      </button>
+                    )}
                     {/* Shown for any event that charges, so a plan can be found
                         even before anybody is on one. */}
                     {(eventRegsModal.has_fee || hasFlexiblePlans) && (
@@ -15156,6 +15261,17 @@ Examples:
                         <i className="fas fa-bed"></i> Accommodation
                         {evtRoomGuests.length > 0 && <span className="evt-tab-count">{evtRoomGuests.length}</span>}
                       </button>
+                    )}
+                    {/* The public page the ID's QR opens: its programme and its photos. */}
+                    {canEditRegistrations && (
+                      <>
+                        <button className={`evt-tab ${manageTab === 'programme' ? 'active' : ''}`} onClick={() => setManageTab('programme')}>
+                          <i className="fas fa-list-ol"></i> Programme
+                        </button>
+                        <button className={`evt-tab ${manageTab === 'photos' ? 'active' : ''}`} onClick={() => setManageTab('photos')}>
+                          <i className="fas fa-images"></i> Photos
+                        </button>
+                      </>
                     )}
                     {/* Only worth a tab once something is actually in it. */}
                     {deletedRegs.length > 0 && (
@@ -15619,6 +15735,17 @@ Examples:
                                           {!onPlan && r.status === 'pending_cash' && owed > 0 && (
                                             <button role="menuitem" onClick={() => { setOpenRowMenu(null); openCollectCash(r, 'turnover'); }}>
                                               <i className="fas fa-hand-holding-dollar"></i> Paid - Pending Turnover
+                                            </button>
+                                          )}
+                                          {canEditRegistrations && r.status !== 'cancelled' && (
+                                            <button role="menuitem" onClick={() => { setOpenRowMenu(null); setIdModalReg(r); }}>
+                                              <i className="fas fa-id-card"></i> Generate ID
+                                            </button>
+                                          )}
+                                          {canEditRegistrations && canMoveToTurnover(r) && (
+                                            <button role="menuitem" onClick={() => { setOpenRowMenu(null); openToTurnover(r); }}>
+                                              <i className="fas fa-hand-holding-dollar"></i> Change to Pending Turnover
+                                              <em>money not at the desk</em>
                                             </button>
                                           )}
                                           {r.status === 'paid_pending_turnover' && (
@@ -16196,6 +16323,11 @@ Examples:
                               return (
                                 <tr key={r.id}>
                                   <td className="evt-cell-name evt-call-who" data-label="Attendee">
+                                    {/* The flex layout lives on this inner box, not on the
+                                        cell: a flex <td> stops being a table cell, stops
+                                        stretching to the row, and its borders no longer
+                                        line up with the rest of the row. */}
+                                    <div className="evt-call-who-in">
                                     <span className={`evt-ravatar g${regAvatarShade(r.attendee_name)}`} aria-hidden="true">{regInitials(r.attendee_name)}</span>
                                     <span className="evt-call-name">
                                       <b>{formatPersonName(r.attendee_name)}</b>
@@ -16206,6 +16338,7 @@ Examples:
                                             || (regTypeOf(r) === 'bulk' ? 'Representative' : 'Individual'))}
                                       </span>
                                     </span>
+                                    </div>
                                   </td>
                                   <td className="evt-call-church" data-label="Church">
                                     <i className="fas fa-church evt-call-church-ico"></i>{formatChurchName(r.church_name) || '—'}
@@ -16300,6 +16433,145 @@ Examples:
                         onPage={setCallPage}
                         onSize={(n) => { setCallPageSize(n); setCallPage(1); }}
                         label="calls"
+                      />
+                    </>
+                  )}
+
+                  {/* ================= ID CARDS ================= */}
+                  {manageTab === 'programme' && canEditRegistrations && (
+                    <EventProgrammeTab
+                      key={`prog-${eventRegsModal.id}`}
+                      event={eventRegsModal}
+                      actorId={userData?.id}
+                      publicUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/events/${publicEventSlugFor(eventRegsModal, events)}`}
+                      showToast={showToast}
+                    />
+                  )}
+                  {manageTab === 'photos' && canEditRegistrations && (
+                    <EventPhotosTab
+                      key={`photos-${eventRegsModal.id}`}
+                      event={eventRegsModal}
+                      actorId={userData?.id}
+                      publicUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/events/${publicEventSlugFor(eventRegsModal, events)}`}
+                      showToast={showToast}
+                    />
+                  )}
+
+                  {manageTab === 'ids' && canEditRegistrations && (
+                    <>
+                      <div className="evt-viewbar evt-regs-bar">
+                        <div className={`evt-filters ${idFiltersOpen ? '' : 'evt-filters-closed'}`}>
+                          <div className="evt-search-row">
+                            <div className="evt-search">
+                              <i className="fas fa-magnifying-glass"></i>
+                              <input
+                                type="search"
+                                autoComplete="new-password"
+                                data-lpignore="true"
+                                data-form-type="other"
+                                value={idSearch}
+                                onChange={(e) => setIdSearch(e.target.value)}
+                                placeholder="Search attendees or church"
+                                aria-label="Search attendees for an ID"
+                              />
+                              {idSearch && (
+                                <button type="button" onClick={() => setIdSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              className={`evt-filter-toggle evt-filter-toggle-wide ${idFiltersOpen ? 'on' : ''}`}
+                              onClick={() => setIdFiltersOpen((v) => !v)}
+                              aria-expanded={idFiltersOpen}
+                            ><i className="fas fa-sliders"></i> Filter</button>
+                          </div>
+                          <div className="evt-filter-row evt-filter-row-wrap">
+                            <FilterSelect
+                              value={idSort}
+                              onChange={setIdSort}
+                              ariaLabel="Sort attendees"
+                              options={[
+                                { value: 'last', label: 'Last name A–Z' },
+                                { value: 'first', label: 'First name A–Z' },
+                                { value: 'newest', label: 'Newest first' },
+                              ]}
+                            />
+                            <FilterSelect
+                              value={idChurch}
+                              onChange={setIdChurch}
+                              ariaLabel="Filter by church"
+                              options={[
+                                { value: 'all', label: `All churches (${eventRegs.filter((r) => r.status !== 'cancelled').length})` },
+                                ...regChurchOptions.map((c) => ({ value: c.name, label: `${c.name} (${c.count})` })),
+                              ]}
+                            />
+                          </div>
+                          {(idChurch !== 'all' || idSearch.trim()) && (
+                            <span className="evt-filter-count">
+                              {visibleIds.length} of {eventRegs.filter((r) => r.status !== 'cancelled').length}
+                              <button type="button" onClick={() => { setIdChurch('all'); setIdSearch(''); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="evt-table-wrapper evt-table-steady">
+                        <table className="evt-table evt-call-cards evt-id-cards">
+                          <thead>
+                            <tr>
+                              <th>Name on the ID</th><th>Church</th><th>Payment</th>
+                              <th style={{ textAlign: 'right' }}>ID</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {eventRegsLoading ? (
+                              <tr><td colSpan={4}>Loading…</td></tr>
+                            ) : pagedIds.length === 0 ? (
+                              <tr><td colSpan={4}>{idSearch.trim() ? `No one matches “${idSearch.trim()}”.` : 'No registrations yet.'}</td></tr>
+                            ) : pagedIds.map((r) => {
+                              const pay = callPayOf(r);
+                              return (
+                                <tr key={r.id}>
+                                  <td className="evt-cell-name evt-call-who" data-label="Name on the ID">
+                                    <div className="evt-call-who-in">
+                                      <span className={`evt-ravatar g${regAvatarShade(r.attendee_name)}`} aria-hidden="true">{regInitials(r.attendee_name)}</span>
+                                      <span className="evt-call-name">
+                                        {/* Last name first, the way the card prints it. */}
+                                        <b>{idLastOf(r)}</b>
+                                        <span className="evt-id-first">{idFirstOf(r)}</span>
+                                        {r.price_tier && <span className="evt-cell-sub">{r.price_tier}</span>}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="evt-call-church" data-label="Church">
+                                    <i className="fas fa-church evt-call-church-ico"></i>{formatChurchName(r.church_name) || '—'}
+                                  </td>
+                                  <td className="evt-call-pay" data-label="Payment">
+                                    <span className={`evt-call-paypill ${pay.key}`}>
+                                      {pay.key === 'unpaid' ? `Unpaid ${peso(pay.due)}` : pay.label}
+                                    </span>
+                                  </td>
+                                  <td className="evt-td-actions evt-call-act" data-label="ID">
+                                    <button type="button" className="evt-call-btn evt-id-btn" onClick={() => setIdModalReg(r)}>
+                                      <i className="fas fa-id-card"></i> Generate ID
+                                    </button>
+                                    {r.id_printed_at && (
+                                      <span className="evt-id-printed-badge"><i className="fas fa-circle-check"></i> Printed</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <TablePager
+                        page={idPageSafe}
+                        pageSize={idPageSize}
+                        total={visibleIds.length}
+                        onPage={setIdPage}
+                        onSize={(n) => { setIdPageSize(n); setIdPage(1); }}
+                        label="attendees"
                       />
                     </>
                   )}
@@ -20179,6 +20451,116 @@ Examples:
                 </div>
               );
             })()}
+
+            {idModalReg && (
+              <AttendeeIdModal
+                reg={idModalReg}
+                eventTitle={eventRegsModal?.title}
+                eventSlug={eventRegsModal ? publicEventSlugFor(eventRegsModal, events) : ''}
+                actorId={userData?.id}
+                onClose={() => setIdModalReg(null)}
+                onUpdated={(row) => {
+                  setEventRegs((regs) => regs.map((x) => (x.id === row.id ? { ...x, ...row } : x)));
+                  setIdModalReg((cur) => (cur && cur.id === row.id ? { ...cur, ...row } : cur));
+                }}
+                showToast={showToast}
+              />
+            )}
+
+            {/* ---- Paid In Cash -> Paid - Pending Turnover ---- */}
+            {toTurnover && (
+              <div className="evt-modal-overlay" onClick={() => !toTurnoverSaving && setToTurnover(null)}>
+                <div className="evt-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3>Change to Pending Turnover</h3>
+                      <p>
+                        {toTurnover.rows.length > 1
+                          ? `${formatPersonName(toTurnover.repName)} — ${toTurnover.churchName}`
+                          : formatPersonName(toTurnover.rows[0]?.attendee_name)}
+                      </p>
+                    </div>
+                    <button className="evt-modal-close" onClick={() => setToTurnover(null)} disabled={toTurnoverSaving}><i className="fas fa-times"></i></button>
+                  </div>
+                  <div className="evt-modal-body">
+                    <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
+                      <i className="fas fa-circle-info"></i> For a payment recorded as <b>Paid In Cash</b> when the money is
+                      actually with someone else. It stays paid &mdash; QR and RFID still work &mdash; but moves out of
+                      Cash Collected until you use <b>Confirm Turnover</b>.
+                    </p>
+
+                    {toTurnover.rows.length > 1 && toTurnoverEligible.length > 1 && (
+                      <div className="evt-collect-bulkbar">
+                        <button type="button" className="evt-chip-btn"
+                          onClick={() => setToTurnoverSel(toTurnoverEligible.map((r) => r.id))}
+                          disabled={toTurnoverSaving || toTurnoverSel.length === toTurnoverEligible.length}>
+                          <i className="fas fa-check-double"></i> Select all ({toTurnoverEligible.length})
+                        </button>
+                        <button type="button" className="evt-chip-btn"
+                          onClick={() => setToTurnoverSel([])}
+                          disabled={toTurnoverSaving || toTurnoverSel.length === 0}>
+                          <i className="fas fa-xmark"></i> Clear
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="evt-collect-list">
+                      {toTurnover.rows.map((r) => {
+                        const open = canMoveToTurnover(r);
+                        const on = toTurnoverSel.includes(r.id);
+                        return (
+                          <label key={r.id} className={`evt-collect-row ${open ? '' : 'paid'} ${on ? 'on' : ''}`}>
+                            {open ? (
+                              <input type="checkbox" checked={on} disabled={toTurnoverSaving}
+                                onChange={() => setToTurnoverSel((sel) => (sel.includes(r.id) ? sel.filter((x) => x !== r.id) : [...sel, r.id]))} />
+                            ) : (
+                              <span className="evt-collect-tick done"><i className="fas fa-minus"></i></span>
+                            )}
+                            <span className="evt-collect-who">
+                              <b>{formatPersonName(r.attendee_name)}</b>
+                              <em>
+                                {[r.price_tier || null, r.id === toTurnover.clickedId && toTurnover.rows.length > 1 ? 'selected row' : null]
+                                  .filter(Boolean).join(' · ') || formatChurchName(r.church_name) || '—'}
+                              </em>
+                            </span>
+                            <span className="evt-collect-amt">
+                              {open
+                                ? <b>₱{Number(r.amount) || 0}</b>
+                                : <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div className="form-group" style={{ marginTop: 12 }}>
+                      <label>Who Is Holding The Money? *</label>
+                      <input
+                        className="form-control"
+                        value={toTurnoverHolder}
+                        onChange={(e) => setToTurnoverHolder(e.target.value)}
+                        placeholder="e.g. Ptr. Juan Cruz, or the usher's name"
+                        maxLength={120}
+                        disabled={toTurnoverSaving}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="evt-plan-summary big" style={{ marginTop: 4 }}>
+                      <div><span>Selected</span><b>{toTurnoverSel.length} of {toTurnoverEligible.length}</b></div>
+                      <div className="bal"><span>Out Of Cash Collected</span><b>₱{toTurnoverTotal}</b></div>
+                    </div>
+                  </div>
+                  <div className="evt-modal-foot">
+                    <button className="btn-secondary" onClick={() => setToTurnover(null)} disabled={toTurnoverSaving}>Cancel</button>
+                    <button className="btn-primary" onClick={submitToTurnover}
+                      disabled={toTurnoverSaving || toTurnoverSel.length === 0 || !toTurnoverHolder.trim()}>
+                      <i className={`fas ${toTurnoverSaving ? 'fa-spinner fa-spin' : 'fa-hand-holding-dollar'}`}></i>{' '}
+                      {toTurnoverSaving ? 'Saving…' : `Change ₱${toTurnoverTotal} to Pending Turnover`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* ---- Confirm turnover for a group ---- */}
             {turnoverModal && (
@@ -26493,28 +26875,35 @@ Examples:
 
             <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
               {(() => {
-                const storageUsed = cloudUsage?.storageBytes || 0;
-                const bandwidthUsed = cloudUsage?.bandwidthBytes || 0;
-                const creditsUsed = cloudUsage?.transformations || 0;
+                // One monthly allowance shared by everything (free plan). Each
+                // card's bar is that metric's share of the allowance.
+                const limit = cloudUsage?.credits?.limit || CLOUDINARY_FREE_CREDITS;
+                const share = (credits) => `${formatCredits(credits || 0)} of ${limit}`;
 
                 const cards = [
                   {
+                    title: 'Monthly Credits',
+                    usedLabel: formatCredits(cloudUsage?.credits?.usage || 0),
+                    pct: usagePercent(cloudUsage?.credits?.usage || 0, limit),
+                    limitLabel: `${limit} credits`,
+                  },
+                  {
                     title: 'Storage',
-                    usedLabel: formatFileSize(storageUsed),
-                    pct: usagePercent(storageUsed, CLOUDINARY_FREE_STORAGE_BYTES),
-                    limitLabel: formatFileSize(CLOUDINARY_FREE_STORAGE_BYTES),
+                    usedLabel: formatFileSize(cloudUsage?.storageBytes || 0),
+                    pct: usagePercent(cloudUsage?.storageCredits || 0, limit),
+                    limitLabel: share(cloudUsage?.storageCredits),
                   },
                   {
                     title: 'Bandwidth',
-                    usedLabel: formatFileSize(bandwidthUsed),
-                    pct: usagePercent(bandwidthUsed, CLOUDINARY_FREE_BANDWIDTH_BYTES),
-                    limitLabel: formatFileSize(CLOUDINARY_FREE_BANDWIDTH_BYTES),
+                    usedLabel: formatFileSize(cloudUsage?.bandwidthBytes || 0),
+                    pct: usagePercent(cloudUsage?.bandwidthCredits || 0, limit),
+                    limitLabel: share(cloudUsage?.bandwidthCredits),
                   },
                   {
-                    title: 'Transformation Credits',
-                    usedLabel: formatCredits(creditsUsed),
-                    pct: usagePercent(creditsUsed, CLOUDINARY_FREE_CREDITS),
-                    limitLabel: `${CLOUDINARY_FREE_CREDITS} credits`,
+                    title: 'Transformations',
+                    usedLabel: `${(cloudUsage?.transformations || 0).toLocaleString()}`,
+                    pct: usagePercent(cloudUsage?.transformationCredits || 0, limit),
+                    limitLabel: share(cloudUsage?.transformationCredits),
                   },
                 ];
 
@@ -26522,14 +26911,14 @@ Examples:
                   <div key={card.title} style={{ padding: 16, borderRadius: 14, background: 'var(--card-bg, #fff)', boxShadow: 'var(--shadow, 0 4px 12px rgba(0,0,0,0.06))', border: '1px solid rgba(0,0,0,0.05)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{card.title}</h3>
-                      <span style={{ fontSize: 12, color: '#6c757d' }}>{card.limitLabel} limit</span>
+                      <span style={{ fontSize: 12, color: '#6c757d' }}>{card.title === 'Monthly Credits' ? `${card.limitLabel} limit` : card.limitLabel}</span>
                     </div>
                     <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>{card.usedLabel}</div>
                     <div style={{ height: 12, borderRadius: 12, background: 'rgba(0,0,0,0.06)', overflow: 'hidden', position: 'relative' }}>
                       <div style={{ width: `${card.pct}%`, height: '100%', background: usageBarColor(card.pct), transition: 'width 0.4s ease' }}></div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12, color: '#6c757d' }}>
-                      <span>{card.pct.toFixed(1)}% of free tier</span>
+                      <span>{card.pct.toFixed(1)}% of {cloudUsage?.plan ? `${cloudUsage.plan} plan` : 'free tier'} credits</span>
                       {card.pct >= 75 && <span style={{ color: card.pct >= 90 ? '#d32f2f' : '#f9a825' }}>Approaching limit</span>}
                     </div>
                   </div>
@@ -26539,7 +26928,11 @@ Examples:
 
 
             <div style={{ marginTop: 14, fontSize: 12, color: '#6c757d', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span><i className="fas fa-info-circle"></i> Data pulled from Cloudinary Admin API. Respecting rate limits; values update roughly every 45 seconds.</span>
+              <span>
+                <i className="fas fa-info-circle"></i> Storage, bandwidth and transformations all draw from the same monthly credits
+                (1 credit ≈ 1 GB stored, 1 GB delivered, or 1,000 transformations).
+                {cloudUsage?.lastUpdated && <> Cloudinary last updated these figures on {cloudUsage.lastUpdated} - it refreshes them about once a day.</>}
+              </span>
             </div>
           </section>
 

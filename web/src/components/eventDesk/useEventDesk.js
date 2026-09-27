@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { normalizeUid, isPlausibleUid, formatUid } from '@/lib/rfid';
+import { normalizeUid, isPlausibleUid, formatUid, sameCard } from '@/lib/rfid';
 import { eventDaysOf, merchItemsOf } from '@/lib/eventFormat';
 
 /* ============================================================
@@ -225,7 +225,7 @@ export default function useEventDesk({
   const tryUnlock = useCallback((rawUid) => {
     const uid = normalizeUid(rawUid);
     if (!isPlausibleUid(uid)) return;
-    if (uid === UNLOCK_UID) {
+    if (sameCard(uid, UNLOCK_UID)) {
       setUnlocked(true);
       setUnlockOpen(false);
       setUnlockError('');

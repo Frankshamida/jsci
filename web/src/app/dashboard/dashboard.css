@@ -32842,3 +32842,180 @@ body.dark-mode .evt-call-who .evt-ravatar, body.dark-mode .evt-call-person .evt-
 @media (max-width: 1024px) {
   .evt-call-cards .evt-call-church i.evt-call-church-ico { display: inline-block; }
 }
+
+/* ---- Call Attendee: straight rows on a desk ----
+   The attendee cell is a normal table cell again; its avatar-and-name layout
+   is on the inner box. Every cell in a row now shares one height and one
+   bottom border. */
+.evt-table.evt-call-cards td.evt-call-who { display: table-cell; min-width: 220px; }
+.evt-call-who-in { display: flex; align-items: center; justify-content: flex-start; gap: 12px; min-width: 0; text-align: left; }
+.evt-table.evt-call-cards tbody td { vertical-align: middle; }
+@media (max-width: 1024px) {
+  .evt-table.evt-call-cards tbody td.evt-call-who { display: block; }
+  .evt-call-cards .evt-call-who-in { gap: 12px; }
+}
+
+/* ============================================ */
+/* Attendee ID cards                             */
+/* ============================================ */
+.evt-id-modal { max-width: 1180px; }
+/* The page behind the ID modal is blurred well out of the way, so only the card reads. */
+.evt-modal-overlay.evt-id-overlay {
+  background: rgba(8,8,14,0.6);
+  -webkit-backdrop-filter: blur(14px) saturate(0.8);
+  backdrop-filter: blur(14px) saturate(0.8);
+}
+/* Fields and buttons on the left, the preview on the right. */
+.evt-id-layout { display: grid; grid-template-columns: minmax(240px, 280px) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+/* As tall as the preview: fields on top, buttons at the bottom, details between. */
+.evt-id-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.evt-id-side .evt-id-actions { margin-top: auto; }
+.evt-id-info {
+  flex: 1 1 auto; margin: 0; padding: 12px 14px; border-radius: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  background: rgba(146,108,21,0.08); border: 1px solid rgba(146,108,21,0.25);
+}
+.evt-id-info > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.evt-id-info dt { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted, #8a8a8a); display: flex; align-items: center; gap: 6px; }
+.evt-id-info dt i { width: 14px; text-align: center; color: var(--primary, #c8961e); }
+.evt-id-info dd { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--text-primary, inherit); overflow-wrap: anywhere; }
+.evt-id-info dd.is-printed { color: #22c55e; }
+.evt-id-side .form-group { margin: 0; }
+.evt-id-side .form-group label { margin-bottom: 4px; font-size: 0.72rem; }
+.evt-id-side .form-control { padding: 9px 12px; }
+.evt-id-names { display: flex; flex-direction: column; gap: 8px; }
+.evt-id-side .evt-call-warn { margin: 0; font-size: 0.78rem; }
+.evt-id-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.evt-id-actions .btn-secondary, .evt-id-actions .btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 10px; }
+.evt-id-actions .evt-id-both { grid-column: 1 / -1; }
+/* Logo on/off: a switch row, not a full button. */
+.evt-id-logo-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 8px 12px; border-radius: 10px; cursor: pointer; font: inherit; font-size: 0.85rem; font-weight: 600;
+  background: transparent; color: var(--text-secondary, #aaa); border: 1px dashed rgba(146,108,21,0.55);
+}
+.evt-id-logo-toggle span { display: inline-flex; align-items: center; gap: 8px; }
+.evt-id-logo-toggle .evt-id-switch { font-size: 1.35em; color: var(--text-muted, #8a8a8a); }
+.evt-id-logo-toggle.is-on .evt-id-switch { color: #22c55e; }
+.evt-id-logo-toggle:disabled { opacity: 0.6; cursor: default; }
+/* Mark as Printed: outlined until done, solid green once it is. */
+.evt-id-printed {
+  grid-column: 1 / -1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 9px 10px; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 700; font-size: 0.88rem;
+  background: transparent; color: #22c55e; border: 1px solid rgba(34,197,94,0.6);
+}
+.evt-id-printed:hover:not(:disabled) { background: rgba(34,197,94,0.1); }
+.evt-id-printed.is-printed { background: #16a34a; color: #fff; border-color: #16a34a; }
+.evt-id-printed.is-printed:hover:not(:disabled) { background: #15803d; }
+.evt-id-printed:disabled { opacity: 0.6; cursor: default; }
+.evt-id-printed-when { grid-column: 1 / -1; margin: -2px 0 0; font-size: 0.72rem; color: var(--text-muted, #8a8a8a); text-align: center; }
+.evt-id-preview {
+  display: flex; justify-content: center; gap: 18px; flex-wrap: nowrap;
+  padding: 16px; border-radius: 14px; min-width: 0;
+  background: repeating-conic-gradient(rgba(0,0,0,0.03) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+}
+.evt-id-preview figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; flex: 0 1 340px; }
+/* 340 x 480 on a desk; on a phone both still side by side, same proportions. */
+.evt-id-canvas {
+  display: block; width: 340px; max-width: 100%; height: auto; aspect-ratio: 250 / 353;
+  border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  background: #f3f3f3;
+}
+.evt-id-preview figcaption { font-size: 0.74rem; font-weight: 700; color: var(--text-muted, #8a8a8a); text-align: center; }
+/* Too narrow for two columns: preview first, then the fields and buttons. */
+@media (max-width: 960px) {
+  .evt-id-layout { grid-template-columns: minmax(0, 1fr); }
+  .evt-id-preview { order: -1; }
+  .evt-id-info { flex: 0 0 auto; }
+}
+@media (max-width: 520px) {
+  .evt-id-preview { gap: 10px; padding: 10px; }
+}
+
+/* The list: last name first, as printed. */
+.evt-id-first { font-size: 0.86rem; color: var(--text-secondary, #555); }
+.evt-id-btn { background: var(--primary, #926c15); box-shadow: 0 3px 10px rgba(146,108,21,0.25); border: none; cursor: pointer; font: inherit; font-weight: 700; font-size: 0.85rem; }
+.evt-id-btn:hover { background: #7a560c; }
+.evt-id-printed-badge { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 3px 9px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; color: #16a34a; background: rgba(34,197,94,0.12); white-space: nowrap; }
+@media (max-width: 1024px) {
+  .evt-table.evt-id-cards tbody tr { grid-template-areas: "who act" "church church" "acc acc"; }
+  .evt-table.evt-id-cards tbody td.evt-call-pay { justify-self: start; align-items: flex-start; text-align: left; }
+}
+
+/* ============================================ */
+/* Programme flow & event photos (public page)  */
+/* ============================================ */
+.evt-prog { display: flex; flex-direction: column; gap: 16px; }
+.evt-prog-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.evt-prog-bar h4 { margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; }
+.evt-prog-bar p { margin: 4px 0 0; font-size: 0.85rem; color: var(--text-muted, #8a8a8a); max-width: 560px; }
+.evt-prog-bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.evt-prog-bar-actions .btn-primary, .evt-prog-bar-actions .btn-secondary { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+.evt-prog-empty { text-align: center; color: var(--text-muted, #8a8a8a); padding: 30px 12px; margin: 0; }
+.evt-prog-empty > i { font-size: 2rem; color: #d8c8a4; display: block; margin-bottom: 8px; }
+.evt-prog-day h5 { margin: 0 0 8px; font-size: 0.92rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.evt-prog-day h5 span { background: var(--primary, #926c15); color: #fff; font-size: 0.72rem; padding: 3px 9px; border-radius: 999px; }
+.evt-prog-day ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.evt-prog-item {
+  display: grid; grid-template-columns: 110px 28px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--border-color, #ece5d6); border-radius: 12px; background: var(--bg-card, #fff);
+}
+.evt-prog-time { font-weight: 700; font-size: 0.88rem; display: flex; flex-direction: column; }
+.evt-prog-time small { font-weight: 500; color: var(--text-muted, #8a8a8a); }
+.evt-prog-icon { color: var(--primary, #926c15); text-align: center; }
+.evt-prog-item.kind-meal .evt-prog-icon, .evt-prog-item.kind-break .evt-prog-icon { color: #b0671a; }
+.evt-prog-item.kind-worship .evt-prog-icon { color: #7b3fbf; }
+.evt-prog-main { min-width: 0; display: flex; flex-direction: column; }
+.evt-prog-main strong { overflow-wrap: anywhere; }
+.evt-prog-main span { font-size: 0.82rem; color: var(--text-muted, #8a8a8a); overflow-wrap: anywhere; }
+.evt-prog-actions { display: flex; gap: 4px; }
+.evt-prog-actions button { border: none; background: #f4efe3; color: var(--primary, #926c15); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; }
+.evt-prog-actions button.danger { background: #fdecec; color: #b42318; }
+.evt-prog-modal { max-width: 560px; }
+@media (max-width: 600px) {
+  .evt-prog-item { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "time act" "main act"; gap: 2px 10px; }
+  .evt-prog-time { grid-area: time; flex-direction: row; gap: 6px; }
+  .evt-prog-icon { display: none; }
+  .evt-prog-main { grid-area: main; }
+  .evt-prog-actions { grid-area: act; }
+}
+
+.evt-photos-drop { border: 2px dashed var(--border-color, #e3d9c3); border-radius: 14px; padding: 12px; min-height: 140px; }
+.evt-photos-drop.busy { opacity: 0.7; }
+.evt-photos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.evt-photos-grid figure { margin: 0; position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: #eee6d6; }
+.evt-photos-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.evt-photos-grid button {
+  position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(0,0,0,0.6); color: #fff; opacity: 0; transition: opacity 0.15s;
+}
+.evt-photos-grid figure:hover button, .evt-photos-grid button:focus { opacity: 1; }
+@media (hover: none) { .evt-photos-grid button { opacity: 1; } }
+
+/* ---- Day 1 / Day 2 tabs (Programme and Photos) ---- */
+.evt-daytabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 14px; }
+.evt-daytabs button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 0.82rem; font-weight: 700; color: var(--text-secondary, #666);
+  background: transparent; border: 1px solid rgba(146,108,21,0.35); transition: background 0.15s, color 0.15s;
+}
+.evt-daytabs button:hover { background: rgba(146,108,21,0.1); }
+.evt-daytabs button small { font-weight: 500; opacity: 0.8; }
+.evt-daytabs button em { font-style: normal; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: rgba(146,108,21,0.15); }
+.evt-daytabs button.active { background: var(--primary, #926c15); border-color: var(--primary, #926c15); color: #fff; }
+.evt-daytabs button.active em { background: rgba(255,255,255,0.25); }
+.evt-daytabs-hint { margin-left: auto; font-size: 0.76rem; color: var(--text-muted, #8a8a8a); display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 700px) { .evt-daytabs-hint { margin-left: 0; width: 100%; } }
+.evt-prog-dayempty {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 12px 14px; margin-bottom: 8px; border-radius: 10px; border: 1px dashed rgba(146,108,21,0.4);
+  font-size: 0.85rem; color: var(--text-muted, #8a8a8a);
+}
+.evt-prog-dayempty .btn-secondary { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 0.8rem; }
+/* Which day a photo is on - bottom-left of its tile. */
+.evt-photos-grid select.evt-photo-day {
+  position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px);
+  padding: 3px 6px; border-radius: 7px; border: none; cursor: pointer;
+  font: inherit; font-size: 0.72rem; font-weight: 700; color: #fff; background: rgba(0,0,0,0.62);
+}
+.evt-photos-grid select.evt-photo-day option { color: #111; background: #fff; }

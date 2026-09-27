@@ -32,15 +32,26 @@ async function fetchUsage() {
 
   const usage = await res.json();
 
+  // On the free plan every metric draws from ONE monthly credit allowance
+  // (1 credit ~ 1 GB stored, 1 GB delivered, or 1,000 transformations), so
+  // each metric is reported with the credits it has used, next to the total.
   return {
-    storageBytes: safeNumber(usage?.storage?.usage || usage?.storage_usage || usage?.storage?.usage_bytes),
-    bandwidthBytes: safeNumber(usage?.bandwidth?.usage || usage?.bandwidth_usage || usage?.bandwidth?.usage_bytes),
-    transformations: safeNumber(usage?.transformations?.usage || usage?.transformations_usage),
-    raw: {
-      storage: usage?.storage || null,
-      bandwidth: usage?.bandwidth || null,
-      transformations: usage?.transformations || null,
+    plan: usage?.plan || null,
+    lastUpdated: usage?.last_updated || null,
+    credits: {
+      usage: safeNumber(usage?.credits?.usage),
+      limit: safeNumber(usage?.credits?.limit),
+      usedPercent: safeNumber(usage?.credits?.used_percent),
     },
+    storageBytes: safeNumber(usage?.storage?.usage || usage?.storage_usage || usage?.storage?.usage_bytes),
+    storageCredits: safeNumber(usage?.storage?.credits_usage),
+    bandwidthBytes: safeNumber(usage?.bandwidth?.usage || usage?.bandwidth_usage || usage?.bandwidth?.usage_bytes),
+    bandwidthCredits: safeNumber(usage?.bandwidth?.credits_usage),
+    // A COUNT of transformations, not credits.
+    transformations: safeNumber(usage?.transformations?.usage || usage?.transformations_usage),
+    transformationCredits: safeNumber(usage?.transformations?.credits_usage),
+    assets: safeNumber(usage?.resources),
+    imageMaxBytes: safeNumber(usage?.media_limits?.image_max_size_bytes),
   };
 }
 

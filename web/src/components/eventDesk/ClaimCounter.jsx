@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { normalizeUid, isPlausibleUid } from '@/lib/rfid';
+import { normalizeUid, isPlausibleUid, sameCard } from '@/lib/rfid';
 import { formatPersonName, formatChurchName, formatStampLine } from '@/lib/eventFormat';
 import { claimDeskRecorded } from './useEventDesk';
 import ReaderStatusStrip from './ReaderStatusStrip';
@@ -60,7 +60,7 @@ export default function ClaimCounter({
     // record was left empty, by name, while that is still fixable.
     const leaving = who;
     if (leaving?.result === 'matched' && !claimDeskRecorded(deskKind, leaving, desk.checkinDay)
-      && normalizeUid(leaving.uid) !== uid) {
+      && !sameCard(leaving.uid, uid)) {
       showToast(
         `Nothing was recorded for ${leaving.registration?.attendee_name || 'the last card'}`,
         'warning',

@@ -1168,6 +1168,7 @@ export async function POST(request) {
 
 // PUT /api/events/registrations  { id, actorId, status }            -> staff verifies/updates a registration
 //                                { id, actorId, attended: true|false } -> staff marks/clears attendance (QR check-in)
+//                                { id, actorId, action: 'id_printed', printed: true|false } -> staff marks the attendee's ID as printed (or not)
 //   "staff" = an Admin/Super Admin, or an Event Committee member assigned to
 //   that registration's event. The bin actions and the edit below stay Admin-only.
 //                                { id, actorId, action: 'add_addons', addonIds, paymentMethod, paymentReference, collectNow }
@@ -1299,6 +1300,26 @@ export async function PUT(request) {
         return NextResponse.json({ success: false, message: staffDeniedMessage(who) }, { status: 403 });
       }
       actor = who;
+    }
+
+    // The attendee's ID card has been printed - or that was a mistake. Only the
+    // two printed fields change; nothing about the registration itself.
+    if (action === 'id_printed') {
+      const printed = body.printed !== false;
+      const { data, error } = await supabase.from('event_registrations')
+        .update(printed
+          ? { id_printed_at: new Date().toISOString(), id_printed_by: actor.id }
+          : { id_printed_at: null, id_printed_by: null })
+        .eq('id', id).select().single();
+      if (error) {
+        if (/id_printed|column/i.test(error.message || '')) {
+          return NextResponse.json({ success: false, message: 'Run supabase/migrations/event_id_printed.sql first.' }, { status: 500 });
+        }
+        throw error;
+      }
+      await logAudit(actor, 'event_registration_update', id,
+        `${printed ? 'Marked the ID as printed' : 'Unmarked the printed ID'}: ${data.attendee_name}`);
+      return NextResponse.json({ success: true, data, message: printed ? 'Marked as printed' : 'No longer marked as printed' });
     }
 
     // Moving a registration to the Recycle Bin, or bringing it back out. Nothing
