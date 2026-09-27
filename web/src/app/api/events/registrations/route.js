@@ -1518,6 +1518,52 @@ export async function PUT(request) {
     // registration that already exists. No new slot: the same person owes more
     // than they did, and the money for it is usually being handed over at the
     // desk as this is recorded.
+    // ---- Call Attendee: what the phone call came back with ----
+    // Recorded on the registration, never anything else about it: a "not
+    // coming" here is what they said on the phone, not a cancellation - the
+    // seat and the money are the desk's to settle separately.
+    if (action === 'call_log') {
+      const CALL_STATUSES = ['confirmed', 'no_accommodation', 'call_back', 'no_answer', 'not_coming'];
+      const callStatus = String(body.callStatus || '');
+      if (!CALL_STATUSES.includes(callStatus)) {
+        return NextResponse.json({ success: false, message: 'Choose how the call went.' }, { status: 400 });
+      }
+      const note = String(body.note || '').trim().slice(0, 500);
+      const { data: reg } = await supabase
+        .from('event_registrations').select('*').eq('id', id).single();
+      if (!reg) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+
+      const patch = {
+        call_status: callStatus,
+        call_note: note || null,
+        call_attempts: (Number(reg.call_attempts) || 0) + 1,
+        call_last_at: new Date().toISOString(),
+        call_last_by: actor.id,
+        call_last_by_name: `${actor.firstname || ''} ${actor.lastname || ''}`.trim() || null,
+      };
+      const { data: saved, error: callErr } = await supabase
+        .from('event_registrations').update(patch).eq('id', id).select().single();
+      if (callErr) {
+        if (/call_status|call_note|call_attempts|call_last|column/i.test(callErr.message || '')) {
+          return NextResponse.json({
+            success: false,
+            message: 'This database cannot record calls yet. Run supabase/migrations/attendee_calls.sql, then try again.',
+          }, { status: 500 });
+        }
+        throw callErr;
+      }
+      const said = {
+        confirmed: 'confirmed',
+        no_accommodation: 'is coming but is cancelling their accommodation',
+        call_back: 'asked to be called back',
+        no_answer: 'did not answer',
+        not_coming: 'is not coming',
+      }[callStatus];
+      await logAudit(actor, 'event_registration_call', id,
+        `Called ${reg.attendee_name}${reg.attendee_mobile ? ` (${reg.attendee_mobile})` : ''} - ${said}${note ? `: ${note}` : ''}`);
+      return NextResponse.json({ success: true, data: saved, message: 'Call recorded' });
+    }
+
     if (action === 'add_addons') {
       const wantedIds = (Array.isArray(body.addonIds) ? body.addonIds : []).filter(Boolean);
       if (wantedIds.length === 0) {

@@ -5921,7 +5921,34 @@ export default function DashboardPage() {
     } catch { /* the rows on screen stay as they were */ }
   };
 
+  // ---- Staying on the event through a refresh ----
+  // Which event is open, and on which tab, is kept for this browser tab only
+  // (sessionStorage), so a refresh on Registrations -> Call Attendee comes back
+  // to Call Attendee on the same event instead of the event list.
+  const EVT_MANAGE_KEY = 'evtManageOpen';
+  const evtRestoreDone = useRef(false);
+  useEffect(() => {
+    if (!eventRegsModal?.id) return;
+    try { sessionStorage.setItem(EVT_MANAGE_KEY, JSON.stringify({ id: eventRegsModal.id, tab: manageTab })); } catch { /* private mode */ }
+  }, [eventRegsModal?.id, manageTab]);
+  useEffect(() => {
+    if (evtRestoreDone.current || eventRegsModal || events.length === 0) return;
+    if (activeSection !== 'events' && activeSection !== 'events-management') return;
+    evtRestoreDone.current = true;
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(EVT_MANAGE_KEY) || 'null'); } catch { saved = null; }
+    if (!saved?.id) return;
+    const evt = events.find((e) => String(e.id) === String(saved.id));
+    if (!evt) { try { sessionStorage.removeItem(EVT_MANAGE_KEY); } catch { /* ignore */ } return; }
+    const tab = saved.tab || 'registrations';
+    openEventRegistrations(evt, tab);
+    // The tabs that load their own data when clicked, loaded here the same way.
+    if (tab === 'accommodation') { loadEvtRooms(evt.id); loadEvtRoomGuests(evt.id); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, activeSection]);
+
   const closeEventManage = () => {
+    try { sessionStorage.removeItem(EVT_MANAGE_KEY); } catch { /* ignore */ }
     // The room desk is a dialog inside this modal, and a desk left open would
     // keep the card reader pointed at a room belonging to an event nobody is
     // looking at any more.
@@ -6691,6 +6718,189 @@ export default function DashboardPage() {
   const regPages = Math.max(1, Math.ceil(visibleRegs.length / regPageSize));
   const regPageSafe = Math.min(regPage, regPages);
   const pagedRegs = visibleRegs.slice((regPageSafe - 1) * regPageSize, regPageSafe * regPageSize);
+
+  // ============ CALL ATTENDEE ============
+  // Staff ring the people registered - "are you still coming, and do you still
+  // need the room?". The call goes out on the phone's own dialer through a
+  // tel: link; when the phone hands the page back, the result is asked for and
+  // saved on the registration (supabase/migrations/attendee_calls.sql).
+  const CALL_STATUS = {
+    confirmed: { label: 'Confirmed', icon: 'fa-circle-check' },
+    // Still coming - but the room is to be given up. Recorded here only: the
+    // paid extra itself is removed from the registration by whoever settles
+    // the refund, so the money and the room change together.
+    no_accommodation: { label: 'Coming - No Accommodation', icon: 'fa-bed' },
+    call_back: { label: 'Call Back', icon: 'fa-clock-rotate-left' },
+    no_answer: { label: 'No Answer', icon: 'fa-phone-slash' },
+    not_coming: { label: 'Not Coming', icon: 'fa-user-xmark' },
+  };
+  const [callSearch, setCallSearch] = useState('');
+  const [callAccFilter, setCallAccFilter] = useState('all');      // all | with | without
+  const [callChurchFilter, setCallChurchFilter] = useState('all');
+  const [callStatusFilter, setCallStatusFilter] = useState('all'); // all | none | confirmed | ...
+  const [callSort, setCallSort] = useState('todo');                // todo | az | za
+  const [callFiltersOpen, setCallFiltersOpen] = useState(false);
+  const [callPage, setCallPage] = useState(1);
+  const [callPageSize, setCallPageSize] = useState(10);
+  const [callConfirm, setCallConfirm] = useState(null);           // { reg, rows, results: {id: status}, note }
+  const [callSaving, setCallSaving] = useState(false);
+  const pendingCallRef = useRef(null);
+
+  // A number the dialer will take: digits only, and a leading + kept.
+  const callNumber = (v) => {
+    const raw = String(v || '').trim();
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '';
+    return raw.startsWith('+') ? `+${digits}` : digits;
+  };
+  const callHasAccommodation = (r) => roomEntitlement(r.addons, eventRegsModal?.event_addons).ok;
+
+  // Everyone who holds a seat - a cancelled registration has nobody to ring.
+  const callPool = eventRegs.filter((r) => r.status !== 'cancelled');
+  const callChurchOptions = (() => {
+    const counts = new Map();
+    callPool.forEach((r) => {
+      const name = formatChurchName(r.church_name) || 'No church given';
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return [...counts.entries()].map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  })();
+  const visibleCalls = (() => {
+    const q = callSearch.trim().toLowerCase();
+    let rows = callPool;
+    if (callAccFilter === 'with') rows = rows.filter(callHasAccommodation);
+    if (callAccFilter === 'without') rows = rows.filter((r) => !callHasAccommodation(r));
+    if (callChurchFilter !== 'all') rows = rows.filter((r) => (formatChurchName(r.church_name) || 'No church given') === callChurchFilter);
+    if (callStatusFilter === 'none') rows = rows.filter((r) => !r.call_status);
+    else if (callStatusFilter !== 'all') rows = rows.filter((r) => r.call_status === callStatusFilter);
+    if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
+    // "To call first": who still needs a call, then call-backs, then the rest.
+    // A-Z / Z-A: by name only.
+    const order = { call_back: 1, no_answer: 2, not_coming: 3, no_accommodation: 4, confirmed: 5 };
+    const byName = (a, b) => formatPersonName(a.attendee_name).localeCompare(formatPersonName(b.attendee_name), 'en', { sensitivity: 'base' });
+    return [...rows].sort((a, b) => {
+      if (q) {
+        const rank = regNameRank(a, q) - regNameRank(b, q);
+        if (rank !== 0) return rank;
+      }
+      if (callSort === 'az') return byName(a, b);
+      if (callSort === 'za') return byName(b, a);
+      const oa = order[a.call_status] || 0;
+      const ob = order[b.call_status] || 0;
+      if (oa !== ob) return oa - ob;
+      return byName(a, b);
+    });
+  })();
+  useEffect(() => { setCallPage(1); }, [callSearch, callAccFilter, callChurchFilter, callStatusFilter, callSort, eventRegsModal?.id]);
+  const callPages = Math.max(1, Math.ceil(visibleCalls.length / callPageSize));
+  const callPageSafe = Math.min(callPage, callPages);
+  const pagedCalls = visibleCalls.slice((callPageSafe - 1) * callPageSize, callPageSafe * callPageSize);
+  const callDoneCount = callPool.filter((r) => r.call_status === 'confirmed').length;
+
+  // Who one call reaches. A bulk booking usually carries the representative's
+  // number on every row, so ringing it is ringing the whole group - they are
+  // all listed, and each gets their own answer from the one call.
+  const callGroupFor = (reg) => {
+    const num = callNumber(reg.attendee_mobile);
+    const rows = collectGroupFor(reg).filter((r) => r.status !== 'cancelled'
+      && (!num || callNumber(r.attendee_mobile) === num));
+    if (!rows.some((r) => r.id === reg.id)) rows.unshift(reg);
+    // The representative's own row first, then everyone else by name.
+    const rep = regRepName(reg).toLowerCase();
+    const isRep = (r) => rep && String(r.attendee_name || '').trim().toLowerCase().replace(/\s+/g, ' ') === rep;
+    return [...rows].sort((a, b) => (isRep(b) - isRep(a))
+      || formatPersonName(a.attendee_name).localeCompare(formatPersonName(b.attendee_name)));
+  };
+  const openCallConfirm = (reg) => {
+    const rows = callGroupFor(reg);
+    const results = {};
+    rows.forEach((r) => { results[r.id] = r.call_status || ''; });
+    setCallConfirm({ reg, rows, results, note: reg.call_note || '' });
+  };
+  // The call listeners are set up once, so they reach for the latest version of
+  // this through a ref - otherwise the group would be worked out from the
+  // registrations as they were when the page first loaded.
+  const openCallConfirmRef = useRef(openCallConfirm);
+  openCallConfirmRef.current = openCallConfirm;
+
+  // The Call button. The tel: link does the dialling; this only remembers who
+  // was being rung, so the page can ask how it went once the phone gives it
+  // back. On a computer with nothing to dial with, the page never goes away -
+  // so after a few seconds it asks anyway.
+  const startCall = (reg) => {
+    const pending = { reg, left: false, timer: null };
+    pending.timer = setTimeout(() => {
+      if (pendingCallRef.current === pending && !pending.left) {
+        pendingCallRef.current = null;
+        openCallConfirmRef.current(pending.reg);
+      }
+    }, 5000);
+    pendingCallRef.current = pending;
+  };
+  useEffect(() => {
+    const away = () => { if (pendingCallRef.current) pendingCallRef.current.left = true; };
+    const back = () => {
+      const pending = pendingCallRef.current;
+      if (!pending || !pending.left || document.hidden) return;
+      clearTimeout(pending.timer);
+      pendingCallRef.current = null;
+      openCallConfirmRef.current(pending.reg);
+    };
+    const onVisibility = () => { if (document.hidden) away(); else back(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', away);
+    window.addEventListener('focus', back);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', away);
+      window.removeEventListener('focus', back);
+    };
+  }, []);
+
+  const saveCallResult = async () => {
+    if (!callConfirm) return;
+    // Only the people an answer was picked for - an untouched row stays as it was.
+    const todo = callConfirm.rows.filter((r) => callConfirm.results[r.id]
+      && (callConfirm.results[r.id] !== r.call_status || callConfirm.rows.length === 1 || callConfirm.note !== (r.call_note || '')));
+    if (todo.length === 0) { showToast('Choose how the call went', 'danger'); return; }
+    setCallSaving(true);
+    try {
+      let ok = 0;
+      const failed = [];
+      for (const r of todo) {
+        try {
+          const res = await fetch('/api/events/registrations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: r.id, actorId: userData?.id, action: 'call_log',
+              callStatus: callConfirm.results[r.id], note: callConfirm.note,
+            }),
+          });
+          const data = await res.json();
+          if (!data.success) {
+            failed.push(formatPersonName(r.attendee_name));
+            // Same answer for every row - no point repeating it.
+            if (/attendee_calls\.sql/.test(data.message || '')) { showToast(data.message, 'danger'); break; }
+            continue;
+          }
+          ok += 1;
+          // Straight into the list - no reload, so the desk keeps its place.
+          setEventRegs((list) => list.map((x) => (x.id === data.data.id ? { ...x, ...data.data } : x)));
+        } catch { failed.push(formatPersonName(r.attendee_name)); }
+      }
+      if (ok > 0) {
+        showToast(todo.length === 1
+          ? `${formatPersonName(todo[0].attendee_name)} — ${CALL_STATUS[callConfirm.results[todo[0].id]].label}`
+          : `Call recorded for ${ok} ${ok === 1 ? 'person' : 'people'}`, 'success');
+      }
+      if (failed.length > 0 && ok > 0) showToast(`Could not save: ${failed.join(', ')}`, 'danger');
+      if (ok > 0 && failed.length === 0) setCallConfirm(null);
+    } finally {
+      setCallSaving(false);
+    }
+  };
 
   // ---- The Age Group column ----
   // Shown only on an event priced by age. Every other event would get a column
@@ -14853,6 +15063,9 @@ Examples:
                   <div className="evt-tabs evt-manage-tabs">
                     <button className={`evt-tab ${manageTab === 'registrations' ? 'active' : ''}`} onClick={() => setManageTab('registrations')}><i className="fas fa-clipboard-list"></i> Registrations {eventRegs.length > 0 && <span className="evt-tab-count">{eventRegs.length}</span>}</button>
                     <button className={`evt-tab ${manageTab === 'attendance' ? 'active' : ''}`} onClick={() => setManageTab('attendance')}><i className="fas fa-user-check"></i> Attendance {attendedCount > 0 && <span className="evt-tab-count">{attendedCount}</span>}</button>
+                    <button className={`evt-tab ${manageTab === 'calls' ? 'active' : ''}`} onClick={() => setManageTab('calls')}>
+                      <i className="fas fa-phone"></i> Call Attendee {callDoneCount > 0 && <span className="evt-tab-count">{callDoneCount}</span>}
+                    </button>
                     {/* Shown for any event that charges, so a plan can be found
                         even before anybody is on one. */}
                     {(eventRegsModal.has_fee || hasFlexiblePlans) && (
@@ -15802,6 +16015,180 @@ Examples:
                       )}
                     </>
                   )}
+                  {/* ================= CALL ATTENDEE ================= */}
+                  {manageTab === 'calls' && (
+                    <>
+                      <div className="evt-viewbar evt-regs-bar">
+                        <div className={`evt-filters ${callFiltersOpen ? '' : 'evt-filters-closed'}`}>
+                          <div className="evt-search-row">
+                            <div className="evt-search">
+                              <i className="fas fa-magnifying-glass"></i>
+                              <input
+                                type="search"
+                                autoComplete="new-password"
+                                data-lpignore="true"
+                                data-form-type="other"
+                                value={callSearch}
+                                onChange={(e) => setCallSearch(e.target.value)}
+                                placeholder="Search attendees, church or contact number"
+                                aria-label="Search attendees to call"
+                              />
+                              {callSearch && (
+                                <button type="button" onClick={() => setCallSearch('')} title="Clear search"><i className="fas fa-xmark"></i></button>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              className={`evt-filter-toggle evt-filter-toggle-wide ${callFiltersOpen ? 'on' : ''}`}
+                              onClick={() => setCallFiltersOpen((v) => !v)}
+                              aria-expanded={callFiltersOpen}
+                            ><i className="fas fa-sliders"></i> Filter</button>
+                          </div>
+                          <div className="evt-filter-row evt-filter-row-wrap">
+                            <FilterSelect
+                              value={callSort}
+                              onChange={setCallSort}
+                              ariaLabel="Sort attendees to call"
+                              options={[
+                                { value: 'todo', label: 'Not called first' },
+                                { value: 'az', label: 'Name A–Z' },
+                                { value: 'za', label: 'Name Z–A' },
+                              ]}
+                            />
+                            <FilterSelect
+                              value={callAccFilter}
+                              onChange={setCallAccFilter}
+                              ariaLabel="Filter by accommodation"
+                              options={[
+                                { value: 'all', label: 'All attendees' },
+                                { value: 'with', label: `With accommodation (${callPool.filter(callHasAccommodation).length})` },
+                                { value: 'without', label: 'Without accommodation' },
+                              ]}
+                            />
+                            <FilterSelect
+                              value={callChurchFilter}
+                              onChange={setCallChurchFilter}
+                              ariaLabel="Filter by church"
+                              options={[
+                                { value: 'all', label: `All churches (${callPool.length})` },
+                                ...callChurchOptions.map((c) => ({ value: c.name, label: `${c.name} (${c.count})` })),
+                              ]}
+                            />
+                            <FilterSelect
+                              value={callStatusFilter}
+                              onChange={setCallStatusFilter}
+                              ariaLabel="Filter by call status"
+                              options={[
+                                { value: 'all', label: 'All call statuses' },
+                                { value: 'none', label: `Not called yet (${callPool.filter((r) => !r.call_status).length})` },
+                                ...Object.entries(CALL_STATUS).map(([key, v]) => ({
+                                  value: key, label: `${v.label} (${callPool.filter((r) => r.call_status === key).length})`,
+                                })),
+                              ]}
+                            />
+                          </div>
+                          {(callAccFilter !== 'all' || callChurchFilter !== 'all' || callStatusFilter !== 'all' || callSearch.trim()) && (
+                            <span className="evt-filter-count">
+                              {visibleCalls.length} of {callPool.length}
+                              <button type="button" onClick={() => { setCallAccFilter('all'); setCallChurchFilter('all'); setCallStatusFilter('all'); setCallSearch(''); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="evt-table-wrapper evt-table-steady">
+                        <table className="evt-table evt-call-cards">
+                          <thead>
+                            <tr>
+                              <th>Attendee</th><th>Church</th><th>Contact Number</th>
+                              <th>Accommodation</th><th>Call Status</th>
+                              <th style={{ textAlign: 'right' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {eventRegsLoading ? (
+                              <tr><td colSpan={6}>Loading…</td></tr>
+                            ) : pagedCalls.length === 0 ? (
+                              <tr><td colSpan={6}>{callPool.length === 0
+                                ? 'No registrations yet.'
+                                : (callSearch.trim() ? `No one matches “${callSearch.trim()}”.` : 'No attendees match these filters.')}</td></tr>
+                            ) : pagedCalls.map((r) => {
+                              const number = callNumber(r.attendee_mobile);
+                              const acc = callHasAccommodation(r);
+                              const st = CALL_STATUS[r.call_status];
+                              const rep = regRepName(r);
+                              const viaRep = rep && rep.toLowerCase() !== String(r.attendee_name || '').trim().toLowerCase();
+                              // How many people this one number reaches.
+                              const reach = number && regTypeOf(r) === 'bulk'
+                                ? callPool.filter((x) => regRepName(x).toLowerCase() === rep.toLowerCase() && callNumber(x.attendee_mobile) === number).length
+                                : 1;
+                              return (
+                                <tr key={r.id}>
+                                  <td className="evt-cell-name evt-call-who" data-label="Attendee">
+                                    <span className={`evt-ravatar g${regAvatarShade(r.attendee_name)}`} aria-hidden="true">{regInitials(r.attendee_name)}</span>
+                                    <span className="evt-call-name">
+                                      <b>{formatPersonName(r.attendee_name)}</b>
+                                      <span className="evt-cell-sub">
+                                        {[r.price_tier || null, viaRep ? `via ${formatPersonName(rep)}` : null].filter(Boolean).join(' · ') || (regTypeOf(r) === 'bulk' ? 'Representative' : 'Individual')}
+                                      </span>
+                                    </span>
+                                  </td>
+                                  <td className="evt-call-church" data-label="Church">
+                                    <i className="fas fa-church evt-call-church-ico"></i>{formatChurchName(r.church_name) || '—'}
+                                    {r.church_pastor && <div className="evt-cell-sub">{r.church_pastor}</div>}
+                                  </td>
+                                  <td className="evt-call-number" data-label="Contact Number">
+                                    {number ? <span><i className="fas fa-phone"></i> {r.attendee_mobile}</span> : <span className="evt-cell-sub">No number</span>}
+                                    {reach > 1 && <div className="evt-cell-sub evt-call-reach"><i className="fas fa-user-group"></i> {reach} people on this number</div>}
+                                  </td>
+                                  <td className="evt-call-acc" data-label="Accommodation">
+                                    {acc && r.call_status === 'no_accommodation'
+                                      ? <span className="evt-call-chip cancel"><i className="fas fa-bed"></i> Cancelling accommodation</span>
+                                      : acc
+                                        ? <span className="evt-call-chip acc"><i className="fas fa-bed"></i> With accommodation</span>
+                                        : <span className="evt-call-chip"><i className="fas fa-minus"></i> No accommodation</span>}
+                                  </td>
+                                  <td className="evt-call-state" data-label="Call Status">
+                                    {st ? (
+                                      <button type="button" className={`evt-call-status ${r.call_status}`} onClick={() => openCallConfirm(r)} title="Change the call result">
+                                        <i className={`fas ${st.icon}`}></i> {st.label}
+                                      </button>
+                                    ) : (
+                                      <span className="evt-call-status none"><i className="fas fa-circle"></i> Not called yet</span>
+                                    )}
+                                    {r.call_last_at && (
+                                      <div className="evt-cell-sub">
+                                        {formatStampLine(r.call_last_at)}{r.call_last_by_name ? ` · ${formatPersonName(r.call_last_by_name)}` : ''}
+                                        {Number(r.call_attempts) > 1 ? ` · ${r.call_attempts} calls` : ''}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="evt-td-actions evt-call-act" data-label="Action">
+                                    {number ? (
+                                      <a className="evt-call-btn" href={`tel:${number}`} onClick={() => startCall(r)}>
+                                        <i className="fas fa-phone"></i> Call
+                                      </a>
+                                    ) : (
+                                      <span className="evt-call-btn off" title="No contact number on this registration"><i className="fas fa-phone-slash"></i> No number</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <TablePager
+                        page={callPageSafe}
+                        pageSize={callPageSize}
+                        total={visibleCalls.length}
+                        onPage={setCallPage}
+                        onSize={(n) => { setCallPageSize(n); setCallPage(1); }}
+                        label="attendees"
+                      />
+                    </>
+                  )}
+
                   {/* ================= ACCOMMODATION =================
                        The rooms booked for this event, with names in them.
                        Room type, then room, then a card tapped - and the
@@ -19484,6 +19871,156 @@ Examples:
             )}
 
             {/* ---- Collect cash at the desk ---- */}
+            {/* ---- After a call: how did it go? ----
+                One person: the answers as big buttons. A group on one number:
+                the representative, then everyone on the booking with their own
+                answer, and a row of buttons to answer for all of them at once. */}
+            {callConfirm && (() => {
+              const r = callConfirm.reg;
+              const rows = callConfirm.rows;
+              const isGroup = rows.length > 1;
+              const repName = regRepName(r);
+              const setResult = (id, status) => setCallConfirm((c) => ({ ...c, results: { ...c.results, [id]: status } }));
+              const setAll = (status) => setCallConfirm((c) => {
+                const results = { ...c.results };
+                c.rows.forEach((x) => {
+                  // "No accommodation" only means something for somebody with a room.
+                  results[x.id] = status === 'no_accommodation' && !callHasAccommodation(x) ? 'confirmed' : status;
+                });
+                return { ...c, results };
+              });
+              const optionsFor = (x) => [
+                { key: 'confirmed', hint: callHasAccommodation(x) ? 'Coming, and their accommodation is confirmed.' : 'Coming to the event.' },
+                ...(callHasAccommodation(x) ? [{ key: 'no_accommodation', hint: 'Coming to the event, but cancelling their accommodation.' }] : []),
+                { key: 'call_back', hint: 'Asked to be called again later.' },
+                { key: 'no_answer', hint: 'Did not pick up, or could not be reached.' },
+                { key: 'not_coming', hint: 'Said they will not attend.' },
+              ];
+              const anyNoAcc = rows.some((x) => callConfirm.results[x.id] === 'no_accommodation');
+              const answered = rows.filter((x) => callConfirm.results[x.id]).length;
+              const accNames = (x) => (x.addons || []).map((a) => a.question).filter(Boolean).join(', ');
+              return (
+                <div className="evt-modal-overlay" onClick={() => !callSaving && setCallConfirm(null)}>
+                  <div className="evt-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                    <div className="evt-modal-head">
+                      <div>
+                        <h3>{isGroup ? 'Confirm Group' : 'Confirm Attendee'}</h3>
+                        <p>{isGroup ? `${formatPersonName(repName)} — ${rows.length} people on this number` : formatPersonName(r.attendee_name)}</p>
+                      </div>
+                      <button className="evt-modal-close" onClick={() => setCallConfirm(null)} disabled={callSaving}><i className="fas fa-times"></i></button>
+                    </div>
+                    <div className="evt-modal-body">
+                      <dl className="evt-call-facts">
+                        {isGroup && <div><dt>Representative</dt><dd>{formatPersonName(repName) || '—'}</dd></div>}
+                        <div><dt>Contact</dt><dd>{r.attendee_mobile || '—'}</dd></div>
+                        <div><dt>Church</dt><dd>{formatChurchName(r.church_name) || '—'}</dd></div>
+                        {!isGroup && (
+                          <div>
+                            <dt>Accommodation</dt>
+                            <dd>{callHasAccommodation(r) ? <span className="evt-call-chip acc"><i className="fas fa-bed"></i> {accNames(r) || 'Availed'}</span> : 'None'}</dd>
+                          </div>
+                        )}
+                      </dl>
+
+                      {isGroup ? (
+                        <>
+                          <div className="evt-plan-head" style={{ margin: '14px 0 8px' }}>Answer for everyone</div>
+                          <div className="evt-call-setall">
+                            {['confirmed', 'no_accommodation', 'call_back', 'no_answer', 'not_coming']
+                              .filter((k) => k !== 'no_accommodation' || rows.some(callHasAccommodation))
+                              .map((k) => (
+                                <button key={k} type="button" className={`evt-call-status ${k}`} onClick={() => setAll(k)} disabled={callSaving}>
+                                  <i className={`fas ${CALL_STATUS[k].icon}`}></i> {CALL_STATUS[k].label}
+                                </button>
+                              ))}
+                          </div>
+                          <div className="evt-plan-head" style={{ margin: '14px 0 8px' }}>
+                            The people on this booking ({answered} of {rows.length} answered)
+                          </div>
+                          <div className="evt-call-people">
+                            {rows.map((x) => {
+                              const isRep = repName && String(x.attendee_name || '').trim().toLowerCase().replace(/\s+/g, ' ') === repName.toLowerCase();
+                              const acc = callHasAccommodation(x);
+                              return (
+                                <div className={`evt-call-person ${callConfirm.results[x.id] ? 'done' : ''}`} key={x.id}>
+                                  <span className={`evt-ravatar g${regAvatarShade(x.attendee_name)}`} aria-hidden="true">{regInitials(x.attendee_name)}</span>
+                                  <span className="evt-call-person-who">
+                                    <b>{formatPersonName(x.attendee_name)}</b>
+                                    <span>
+                                      {[isRep ? 'Representative' : null, x.price_tier || null].filter(Boolean).join(' · ')}
+                                      {acc && <em className="evt-call-chip acc"><i className="fas fa-bed"></i> Accommodation</em>}
+                                    </span>
+                                  </span>
+                                  <select
+                                    className={`form-control evt-call-pick ${callConfirm.results[x.id] || 'none'}`}
+                                    value={callConfirm.results[x.id] || ''}
+                                    onChange={(e) => setResult(x.id, e.target.value)}
+                                    disabled={callSaving}
+                                    aria-label={`Call result for ${formatPersonName(x.attendee_name)}`}
+                                  >
+                                    <option value="">Choose…</option>
+                                    {optionsFor(x).map((o) => <option key={o.key} value={o.key}>{CALL_STATUS[o.key].label}</option>)}
+                                  </select>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="evt-plan-head" style={{ margin: '14px 0 8px' }}>How did the call go?</div>
+                          <div className="evt-call-options">
+                            {optionsFor(r).map((o) => (
+                              <button
+                                key={o.key}
+                                type="button"
+                                className={`evt-plan-option evt-call-opt ${o.key} ${callConfirm.results[r.id] === o.key ? 'on' : ''}`}
+                                onClick={() => setResult(r.id, o.key)}
+                                disabled={callSaving}
+                              >
+                                <i className={`fas ${CALL_STATUS[o.key].icon}`}></i>
+                                <span><strong>{CALL_STATUS[o.key].label}</strong><small>{o.hint}</small></span>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {anyNoAcc && (
+                        <p className="evt-call-warn">
+                          <i className="fas fa-circle-info"></i> This records that they no longer want the room. Their
+                          accommodation extra stays on the registration until you remove it and settle any refund.
+                        </p>
+                      )}
+                      <div className="form-group" style={{ marginTop: 12 }}>
+                        <label>Note (optional)</label>
+                        <textarea
+                          className="form-control"
+                          rows={2}
+                          maxLength={500}
+                          value={callConfirm.note}
+                          onChange={(e) => setCallConfirm({ ...callConfirm, note: e.target.value })}
+                          placeholder={isGroup ? 'e.g. Two of them arrive Day 2 only' : 'e.g. Arriving Day 2 only, needs a room for 2 nights'}
+                          disabled={callSaving}
+                        />
+                      </div>
+                    </div>
+                    <div className="evt-modal-foot">
+                      {callNumber(r.attendee_mobile) && (
+                        <a className="btn-secondary evt-call-again" href={`tel:${callNumber(r.attendee_mobile)}`} onClick={() => { setCallConfirm(null); startCall(r); }}>
+                          <i className="fas fa-phone"></i> Call Again
+                        </a>
+                      )}
+                      <button className="btn-primary" onClick={saveCallResult} disabled={callSaving || answered === 0}>
+                        <i className={`fas ${callSaving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i>{' '}
+                        {callSaving ? 'Saving…' : isGroup ? `Save ${answered} ${answered === 1 ? 'Answer' : 'Answers'}` : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ---- Confirm turnover for a group ---- */}
             {turnoverModal && (
               <div className="evt-modal-overlay" onClick={() => !turnoverSaving && setTurnoverModal(null)}>
