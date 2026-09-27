@@ -6755,6 +6755,35 @@ export default function DashboardPage() {
   };
   const callHasAccommodation = (r) => roomEntitlement(r.addons, eventRegsModal?.event_addons).ok;
 
+  // Where one registration stands on money, for the caller to say out loud:
+  //   paid    - verified, free-registered, or paid and awaiting turnover
+  //   verify  - they sent a payment and nobody has checked it yet
+  //   unpaid  - money still owed: cash to collect, not paid, or a plan's balance
+  //   free    - nothing to pay
+  const callPayOf = (r) => {
+    const owed = Number(r.amount) || 0;
+    if (r.payment_plan === 'flexible') {
+      const left = Math.max(0, owed - (Number(r.amount_paid) || 0));
+      return left > 0 ? { key: 'unpaid', label: 'Unpaid', due: left } : { key: 'paid', label: 'Paid', due: 0 };
+    }
+    if (owed <= 0) return { key: 'free', label: 'Free', due: 0 };
+    if (['payment_verified', 'registered', 'paid_pending_turnover'].includes(r.status)) return { key: 'paid', label: 'Paid', due: 0 };
+    if (r.status === 'payment_submitted') return { key: 'verify', label: 'For Verification', due: 0 };
+    return { key: 'unpaid', label: 'Unpaid', due: owed };
+  };
+  // The whole booking a registration belongs to - everyone the representative
+  // registered, whatever number is on their row - and what is still owed on it.
+  const callBookingDue = (r) => {
+    const rows = regTypeOf(r) === 'bulk' ? collectGroupFor(r).filter((x) => x.status !== 'cancelled') : [r];
+    const unpaid = rows.filter((x) => callPayOf(x).key === 'unpaid');
+    return {
+      rows,
+      isGroup: rows.length > 1,
+      due: unpaid.reduce((t, x) => t + callPayOf(x).due, 0),
+      unpaidCount: unpaid.length,
+    };
+  };
+
   // Everyone who holds a seat - a cancelled registration has nobody to ring.
   const callPool = eventRegs.filter((r) => r.status !== 'cancelled');
   const callChurchOptions = (() => {
@@ -6766,6 +6795,23 @@ export default function DashboardPage() {
     return [...counts.entries()].map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   })();
+  // Rows that share one call: the same bulk booking on the same number.
+  const callGroupKey = (r) => {
+    const rep = regRepName(r).toLowerCase();
+    const num = callNumber(r.attendee_mobile);
+    return regTypeOf(r) === 'bulk' && rep && num ? `${rep}|${num}` : null;
+  };
+  // What the call column says for a row that may stand for several people.
+  const callLineState = (members) => {
+    const answered = members.filter((m) => m.call_status);
+    if (answered.length === 0) return { key: 'none', answered: 0 };
+    const first = answered[0].call_status;
+    if (answered.length === members.length && answered.every((m) => m.call_status === first)) {
+      return { key: first, answered: answered.length };
+    }
+    return { key: 'partial', answered: answered.length };
+  };
+
   const visibleCalls = (() => {
     const q = callSearch.trim().toLowerCase();
     let rows = callPool;
@@ -6775,19 +6821,40 @@ export default function DashboardPage() {
     if (callStatusFilter === 'none') rows = rows.filter((r) => !r.call_status);
     else if (callStatusFilter !== 'all') rows = rows.filter((r) => r.call_status === callStatusFilter);
     if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
+
+    // A bulk booking on one number is one call, so it is one row: the
+    // representative's. Everybody else on it is listed in the window that
+    // opens when the representative is called. A booking is kept when ANY of
+    // its people matches the filters - "with accommodation" still finds the
+    // group where only two of the seven have a room.
+    const seen = new Map();
+    const lines = [];
+    rows.forEach((r) => {
+      const key = callGroupKey(r);
+      if (!key) { lines.push({ ...r, _members: [r] }); return; }
+      if (seen.has(key)) return;
+      const members = callPool.filter((x) => callGroupKey(x) === key);
+      const repKey = regRepName(r).toLowerCase();
+      const lead = members.find((x) => String(x.attendee_name || '').trim().toLowerCase().replace(/\s+/g, ' ') === repKey)
+        || [...members].sort((a, b) => formatPersonName(a.attendee_name).localeCompare(formatPersonName(b.attendee_name)))[0];
+      const line = { ...lead, _members: members };
+      seen.set(key, line);
+      lines.push(line);
+    });
+
     // "To call first": who still needs a call, then call-backs, then the rest.
     // A-Z / Z-A: by name only.
-    const order = { call_back: 1, no_answer: 2, not_coming: 3, no_accommodation: 4, confirmed: 5 };
+    const order = { none: 0, partial: 1, call_back: 1, no_answer: 2, not_coming: 3, no_accommodation: 4, confirmed: 5 };
     const byName = (a, b) => formatPersonName(a.attendee_name).localeCompare(formatPersonName(b.attendee_name), 'en', { sensitivity: 'base' });
-    return [...rows].sort((a, b) => {
+    return lines.sort((a, b) => {
       if (q) {
         const rank = regNameRank(a, q) - regNameRank(b, q);
         if (rank !== 0) return rank;
       }
       if (callSort === 'az') return byName(a, b);
       if (callSort === 'za') return byName(b, a);
-      const oa = order[a.call_status] || 0;
-      const ob = order[b.call_status] || 0;
+      const oa = order[callLineState(a._members).key] ?? 0;
+      const ob = order[callLineState(b._members).key] ?? 0;
       if (oa !== ob) return oa - ob;
       return byName(a, b);
     });
@@ -16101,27 +16168,31 @@ Examples:
                           <thead>
                             <tr>
                               <th>Attendee</th><th>Church</th><th>Contact Number</th>
-                              <th>Accommodation</th><th>Call Status</th>
+                              <th>Accommodation</th><th>Payment</th><th>Call Status</th>
                               <th style={{ textAlign: 'right' }}>Action</th>
                             </tr>
                           </thead>
                           <tbody>
                             {eventRegsLoading ? (
-                              <tr><td colSpan={6}>Loading…</td></tr>
+                              <tr><td colSpan={7}>Loading…</td></tr>
                             ) : pagedCalls.length === 0 ? (
-                              <tr><td colSpan={6}>{callPool.length === 0
+                              <tr><td colSpan={7}>{callPool.length === 0
                                 ? 'No registrations yet.'
                                 : (callSearch.trim() ? `No one matches “${callSearch.trim()}”.` : 'No attendees match these filters.')}</td></tr>
                             ) : pagedCalls.map((r) => {
                               const number = callNumber(r.attendee_mobile);
+                              const members = r._members || [r];
+                              const isGroup = members.length > 1;
                               const acc = callHasAccommodation(r);
-                              const st = CALL_STATUS[r.call_status];
+                              const accCount = members.filter(callHasAccommodation).length;
+                              const line = callLineState(members);
+                              const st = CALL_STATUS[isGroup ? line.key : r.call_status];
                               const rep = regRepName(r);
-                              const viaRep = rep && rep.toLowerCase() !== String(r.attendee_name || '').trim().toLowerCase();
-                              // How many people this one number reaches.
-                              const reach = number && regTypeOf(r) === 'bulk'
-                                ? callPool.filter((x) => regRepName(x).toLowerCase() === rep.toLowerCase() && callNumber(x.attendee_mobile) === number).length
-                                : 1;
+                              const isRepRow = rep && rep.toLowerCase() === String(r.attendee_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                              const viaRep = rep && !isRepRow;
+                              // The latest call logged against anybody on the line.
+                              const lastCall = [...members].filter((m) => m.call_last_at)
+                                .sort((a, b) => new Date(b.call_last_at) - new Date(a.call_last_at))[0];
                               return (
                                 <tr key={r.id}>
                                   <td className="evt-cell-name evt-call-who" data-label="Attendee">
@@ -16129,7 +16200,10 @@ Examples:
                                     <span className="evt-call-name">
                                       <b>{formatPersonName(r.attendee_name)}</b>
                                       <span className="evt-cell-sub">
-                                        {[r.price_tier || null, viaRep ? `via ${formatPersonName(rep)}` : null].filter(Boolean).join(' · ') || (regTypeOf(r) === 'bulk' ? 'Representative' : 'Individual')}
+                                        {isGroup
+                                          ? `${isRepRow ? 'Representative' : `For ${formatPersonName(rep)}'s group`} · ${members.length} people`
+                                          : ([r.price_tier || null, viaRep ? `via ${formatPersonName(rep)}` : null].filter(Boolean).join(' · ')
+                                            || (regTypeOf(r) === 'bulk' ? 'Representative' : 'Individual'))}
                                       </span>
                                     </span>
                                   </td>
@@ -16139,27 +16213,68 @@ Examples:
                                   </td>
                                   <td className="evt-call-number" data-label="Contact Number">
                                     {number ? <span><i className="fas fa-phone"></i> {r.attendee_mobile}</span> : <span className="evt-cell-sub">No number</span>}
-                                    {reach > 1 && <div className="evt-cell-sub evt-call-reach"><i className="fas fa-user-group"></i> {reach} people on this number</div>}
+                                    {isGroup && <div className="evt-cell-sub evt-call-reach"><i className="fas fa-user-group"></i> {members.length} people on this number</div>}
                                   </td>
                                   <td className="evt-call-acc" data-label="Accommodation">
-                                    {acc && r.call_status === 'no_accommodation'
-                                      ? <span className="evt-call-chip cancel"><i className="fas fa-bed"></i> Cancelling accommodation</span>
-                                      : acc
-                                        ? <span className="evt-call-chip acc"><i className="fas fa-bed"></i> With accommodation</span>
-                                        : <span className="evt-call-chip"><i className="fas fa-minus"></i> No accommodation</span>}
+                                    {isGroup
+                                      ? (accCount > 0
+                                        ? <span className="evt-call-chip acc"><i className="fas fa-bed"></i> {accCount} of {members.length} with accommodation</span>
+                                        : <span className="evt-call-chip"><i className="fas fa-minus"></i> No accommodation</span>)
+                                      : acc && r.call_status === 'no_accommodation'
+                                        ? <span className="evt-call-chip cancel"><i className="fas fa-bed"></i> Cancelling accommodation</span>
+                                        : acc
+                                          ? <span className="evt-call-chip acc"><i className="fas fa-bed"></i> With accommodation</span>
+                                          : <span className="evt-call-chip"><i className="fas fa-minus"></i> No accommodation</span>}
+                                  </td>
+                                  <td className="evt-call-pay" data-label="Payment">
+                                    {isGroup ? (() => {
+                                      // The booking as a whole: what the representative is asked to settle.
+                                      const book = callBookingDue(r);
+                                      return book.due > 0 ? (
+                                        <>
+                                          <span className="evt-call-paypill unpaid"><i className="fas fa-peso-sign"></i> Unpaid {peso(book.due)}</span>
+                                          <div className="evt-cell-sub">{book.unpaidCount} of {book.rows.length} unpaid · whole booking</div>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="evt-call-paypill paid"><i className="fas fa-circle-check"></i> Paid</span>
+                                          <div className="evt-cell-sub">Whole booking settled</div>
+                                        </>
+                                      );
+                                    })() : (() => {
+                                      const pay = callPayOf(r);
+                                      const book = pay.key === 'unpaid' || regTypeOf(r) === 'bulk' ? callBookingDue(r) : null;
+                                      return (
+                                        <>
+                                          <span className={`evt-call-paypill ${pay.key}`}>
+                                            <i className={`fas ${pay.key === 'paid' ? 'fa-circle-check' : pay.key === 'verify' ? 'fa-hourglass-half' : pay.key === 'free' ? 'fa-gift' : 'fa-peso-sign'}`}></i>
+                                            {pay.key === 'unpaid' ? `Unpaid ${peso(pay.due)}` : pay.label}
+                                          </span>
+                                          {/* On a group, what the whole booking still owes -
+                                              the figure the representative is asked to settle. */}
+                                          {book?.isGroup && book.due > 0 && (
+                                            <div className="evt-cell-sub evt-call-bookdue">Booking owes {peso(book.due)}</div>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
                                   </td>
                                   <td className="evt-call-state" data-label="Call Status">
                                     {st ? (
-                                      <button type="button" className={`evt-call-status ${r.call_status}`} onClick={() => openCallConfirm(r)} title="Change the call result">
+                                      <button type="button" className={`evt-call-status ${isGroup ? line.key : r.call_status}`} onClick={() => openCallConfirm(r)} title="Change the call result">
                                         <i className={`fas ${st.icon}`}></i> {st.label}
+                                      </button>
+                                    ) : isGroup && line.key === 'partial' ? (
+                                      <button type="button" className="evt-call-status partial" onClick={() => openCallConfirm(r)} title="See who has been answered for">
+                                        <i className="fas fa-list-check"></i> {line.answered} of {members.length} answered
                                       </button>
                                     ) : (
                                       <span className="evt-call-status none"><i className="fas fa-circle"></i> Not called yet</span>
                                     )}
-                                    {r.call_last_at && (
+                                    {lastCall && (
                                       <div className="evt-cell-sub">
-                                        {formatStampLine(r.call_last_at)}{r.call_last_by_name ? ` · ${formatPersonName(r.call_last_by_name)}` : ''}
-                                        {Number(r.call_attempts) > 1 ? ` · ${r.call_attempts} calls` : ''}
+                                        {formatStampLine(lastCall.call_last_at)}{lastCall.call_last_by_name ? ` · ${formatPersonName(lastCall.call_last_by_name)}` : ''}
+                                        {!isGroup && Number(r.call_attempts) > 1 ? ` · ${r.call_attempts} calls` : ''}
                                       </div>
                                     )}
                                   </td>
@@ -16184,7 +16299,7 @@ Examples:
                         total={visibleCalls.length}
                         onPage={setCallPage}
                         onSize={(n) => { setCallPageSize(n); setCallPage(1); }}
-                        label="attendees"
+                        label="calls"
                       />
                     </>
                   )}
@@ -19921,6 +20036,42 @@ Examples:
                           </div>
                         )}
                       </dl>
+                      {/* What they still have to pay - the whole booking for a
+                          group, their own registration for anyone else. */}
+                      {(() => {
+                        const book = callBookingDue(r);
+                        const pay = callPayOf(r);
+                        if (book.isGroup) {
+                          return book.due > 0 ? (
+                            <div className="evt-call-due unpaid">
+                              <span>
+                                <b>Booking still to pay</b>
+                                <small>{book.unpaidCount} of {book.rows.length} {book.rows.length === 1 ? 'person' : 'people'} unpaid</small>
+                              </span>
+                              <strong>{peso(book.due)}</strong>
+                            </div>
+                          ) : (
+                            <div className="evt-call-due paid"><span><b>Booking fully paid</b><small>Everyone on it is settled</small></span><i className="fas fa-circle-check"></i></div>
+                          );
+                        }
+                        if (pay.key === 'unpaid') {
+                          return (
+                            <div className="evt-call-due unpaid">
+                              <span><b>Still to pay</b><small>{r.payment_plan === 'flexible' ? 'Remaining balance on their plan' : 'Their registration'}</small></span>
+                              <strong>{peso(pay.due)}</strong>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className={`evt-call-due ${pay.key === 'verify' ? 'verify' : 'paid'}`}>
+                            <span>
+                              <b>{pay.key === 'verify' ? 'Payment sent - for verification' : pay.key === 'free' ? 'Nothing to pay' : 'Paid'}</b>
+                              <small>{pay.key === 'verify' ? 'Waiting for an admin to check it' : 'Nothing is owed'}</small>
+                            </span>
+                            <i className={`fas ${pay.key === 'verify' ? 'fa-hourglass-half' : 'fa-circle-check'}`}></i>
+                          </div>
+                        );
+                      })()}
 
                       {isGroup ? (
                         <>
@@ -19949,6 +20100,14 @@ Examples:
                                     <span>
                                       {[isRep ? 'Representative' : null, x.price_tier || null].filter(Boolean).join(' · ')}
                                       {acc && <em className="evt-call-chip acc"><i className="fas fa-bed"></i> Accommodation</em>}
+                                      {(() => {
+                                        const pay = callPayOf(x);
+                                        return (
+                                          <em className={`evt-call-paypill ${pay.key}`}>
+                                            {pay.key === 'unpaid' ? `Unpaid ${peso(pay.due)}` : pay.label}
+                                          </em>
+                                        );
+                                      })()}
                                     </span>
                                   </span>
                                   <select

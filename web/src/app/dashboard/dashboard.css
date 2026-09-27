@@ -32792,3 +32792,53 @@ body.dark-mode .evt-call-person { background: rgba(255,255,255,0.03); border-col
   .evt-table.evt-call-cards tbody tr { grid-template-areas: "who act" "church church" "num num" "state state" "acc acc"; }
   .evt-table.evt-call-cards tbody td.evt-call-state { grid-area: state; justify-self: start; max-width: none; padding-top: 0 !important; }
 }
+
+/* ---- Call Attendee: paid or not, and how much ---- */
+.evt-call-paypill {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px;
+  font-size: 0.72rem; font-weight: 700; font-style: normal; white-space: nowrap;
+}
+.evt-call-paypill i { font-size: 0.68rem; }
+.evt-call-paypill.paid { background: rgba(22,163,74,0.14); color: #15803d; }
+.evt-call-paypill.free { background: rgba(22,163,74,0.1); color: #15803d; }
+.evt-call-paypill.verify { background: rgba(59,130,246,0.14); color: #2563eb; }
+.evt-call-paypill.unpaid { background: rgba(234,88,12,0.13); color: #c2410c; }
+.evt-call-bookdue { margin-top: 4px; font-weight: 700; color: #c2410c !important; }
+.evt-call-pay { white-space: nowrap; }
+.evt-call-person-who .evt-call-paypill { padding: 2px 8px; font-size: 0.66rem; }
+
+.evt-call-due {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 12px; padding: 12px 14px; border-radius: 12px;
+}
+.evt-call-due > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.evt-call-due b { font-size: 0.9rem; }
+.evt-call-due small { font-size: 0.76rem; opacity: 0.8; }
+.evt-call-due strong { font-size: 1.35rem; font-weight: 800; white-space: nowrap; }
+.evt-call-due > i { font-size: 1.3rem; }
+.evt-call-due.unpaid { background: rgba(234,88,12,0.09); color: #9a3412; border: 1px solid rgba(234,88,12,0.25); }
+.evt-call-due.paid { background: rgba(22,163,74,0.08); color: #166534; border: 1px solid rgba(22,163,74,0.22); }
+.evt-call-due.verify { background: rgba(59,130,246,0.08); color: #1e40af; border: 1px solid rgba(59,130,246,0.22); }
+
+/* Phones: the payment pill sits at the right of the accommodation line. */
+@media (max-width: 1024px) {
+  .evt-table.evt-call-cards tbody td.evt-call-pay {
+    grid-area: acc; justify-self: end; text-align: right;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  }
+  .evt-call-cards .evt-call-bookdue { margin: 0; font-size: 0.7rem; }
+}
+
+/* ---- Call Attendee: a booking on one line, and desk polish ---- */
+.evt-call-status.partial { background: rgba(146,108,21,0.13); color: #7a560c; }
+/* The initials circle on a desk too - its colours were only set for phones. */
+.evt-call-who .evt-ravatar.g0, .evt-call-person .evt-ravatar.g0 { background: #fbefcf; color: #8a6412; }
+.evt-call-who .evt-ravatar.g1, .evt-call-person .evt-ravatar.g1 { background: #f6e3b0; color: #7a560c; }
+.evt-call-who .evt-ravatar.g2, .evt-call-person .evt-ravatar.g2 { background: #fdf5e1; color: #a57a1c; }
+.evt-call-who .evt-ravatar.g3, .evt-call-person .evt-ravatar.g3 { background: #efd89a; color: #6b4b08; }
+body.dark-mode .evt-call-who .evt-ravatar, body.dark-mode .evt-call-person .evt-ravatar { background: rgba(234,179,8,0.18); color: #f5d27a; }
+/* Font Awesome's own display rule outranked the one hiding this on a desk. */
+.evt-call-church i.evt-call-church-ico { display: none; }
+@media (max-width: 1024px) {
+  .evt-call-cards .evt-call-church i.evt-call-church-ico { display: inline-block; }
+}
