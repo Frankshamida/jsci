@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import {
   eventForPublicSlug, registrationForCode, homeEventForCode, displayName, issuePass, unlockAllowed,
-  REG_FIELDS, VERIFIED_STATUSES,
+  REG_FIELDS,
 } from '@/lib/eventAccess';
 import { FIRST_LETTERS, lastNameOf, passwordMatchKind, passwordMatches, passwordYear } from '@/lib/eventPublic';
 import { isPlausibleUid } from '@/lib/rfid';
@@ -10,14 +10,20 @@ import { resolveEventCard } from '@/lib/rfidEventCard';
 
 const fail = (message, status) => NextResponse.json({ success: false, message }, { status });
 
+// Who may open the photos: anyone registered for the event, paid or not yet
+// (most attendees pay cash at the desk) - only a cancelled or deleted
+// registration is left out. Door check-in keeps its own, stricter list.
+const canSeePhotos = (reg) => !!reg && !reg.deleted_at && reg.status !== 'cancelled';
+
 // POST /api/events/public/unlock
 //   { slug, code?, password }  -> the password LASTNAME@2026
 //   { slug, code?, uid }       -> an RFID card tapped on the reader / phone
 //
-// Answers with a pass for the photos. `code` is the attendee's own code from
-// the ID's QR: when it is there, the password or card has to be THAT
-// attendee's - somebody else's card does not open their page. Without it (the
-// link typed by hand) any settled attendee of this event gets in.
+// Answers with a pass for the photos. `code` is the code from the ID's QR
+// (remembered by the browser). It only says who to try first: a password or
+// card of ANY settled attendee of this event still opens the photos, so a
+// phone or a shared link that once opened someone else's QR does not lock
+// everybody else out.
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -38,11 +44,11 @@ export async function POST(request) {
           message: `Your ID is for ${home.event.title}. Open that event to see its photos.`,
         }, { status: 403 });
       }
-      return fail("This ID's QR code is not recognised for this event.", 404);
+      // A code nobody holds any more (an old QR, a mistyped link): ignore it
+      // and check the password or card against the whole event.
     }
-    if (owner && !VERIFIED_STATUSES.includes(owner.status)) {
-      return fail('Your registration is not confirmed yet. Photos open once your payment is verified.', 403);
-    }
+    // The code's holder, unless their registration was cancelled.
+    const verifiedOwner = canSeePhotos(owner) ? owner : null;
 
     let reg = null;
 
@@ -51,24 +57,23 @@ export async function POST(request) {
       const found = await resolveEventCard(event.id, body.uid, REG_FIELDS);
       reg = found.registration;
       if (!reg) return fail('This card is not linked to anyone at this event.', 403);
-      if (reg.deleted_at || !VERIFIED_STATUSES.includes(reg.status)) {
-        return fail("This card's registration is not confirmed yet.", 403);
+      if (!canSeePhotos(reg)) {
+        return fail("This card's registration was cancelled.", 403);
       }
-      if (owner && owner.id !== reg.id) return fail('This card belongs to a different attendee.', 403);
     } else {
       const password = String(body.password || '').trim();
       if (!password) return fail('Enter your password.', 400);
       if (password !== password.toUpperCase()) {
         return fail(`The password is in ALL CAPITAL letters, e.g. DELACRUZ@${passwordYear(event)}.`, 401);
       }
-      if (owner) {
-        reg = passwordMatches(password, owner, event) ? owner : null;
+      if (verifiedOwner && passwordMatches(password, verifiedOwner, event)) {
+        reg = verifiedOwner;
       } else {
         const { data, error } = await supabaseAdmin
           .from('event_registrations')
           .select(REG_FIELDS)
           .eq('event_id', event.id)
-          .in('status', VERIFIED_STATUSES)
+          .neq('status', 'cancelled')
           .is('deleted_at', null);
         if (error) throw error;
         const rows = data || [];
@@ -101,6 +106,9 @@ export async function POST(request) {
           }, { status: 409 });
         }
       }
+      if (!reg && owner && !verifiedOwner && passwordMatches(password, owner, event)) {
+        return fail('Your registration was cancelled, so the photos cannot be opened.', 403);
+      }
       if (!reg) return fail(`Wrong password. It is your LAST NAME in capitals, then @${passwordYear(event)} - e.g. DELACRUZ@${passwordYear(event)}.`, 401);
     }
 
@@ -108,6 +116,8 @@ export async function POST(request) {
       success: true,
       pass: issuePass(event.id, reg.id),
       name: displayName(reg),
+      // Who actually unlocked - the page forgets a QR code that was someone else's.
+      code: reg.public_code || null,
     });
   } catch (error) {
     return fail(error.message, 500);

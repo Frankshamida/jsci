@@ -80,4 +80,10 @@ export const photoUrls = (p) => ({
   thumb: buildCloudinaryUrl(p.public_id, { width: 400, height: 400, crop: 'fill', gravity: 'auto', quality: 'auto', format: 'auto' }) || p.url,
   full: urlFor(p.public_id, PREVIEW_T) || p.url,
   download: urlFor(p.public_id, DOWNLOAD_T) || p.url,
+  // The plain photo with STORY_SLOT where the transformation goes: the story
+  // maker (storyCard.js) fills it with one fixed size-limit, so Cloudinary
+  // builds a single extra version of each photo.
+  story: urlFor(p.public_id, STORY_SLOT),
 });
+
+export const STORY_SLOT = '__SLOT__';

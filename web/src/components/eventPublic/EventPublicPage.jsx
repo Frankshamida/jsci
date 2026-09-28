@@ -5,6 +5,10 @@ import {
   daysWith, formatClock, formatDay, groupProgramme, programmeKind, publicEventTitle, shortDay,
 } from '@/lib/eventPublic';
 import { normalizeUid, isPlausibleUid } from '@/lib/rfid';
+import {
+  STORY_H, STORY_LOGO_SRC, STORY_MAX, STORY_POS, STORY_THEMES, STORY_W, STORY_ZOOM_MAX,
+  drawStory, loadStoryFonts, loadStoryImage, storyLayouts, storyPan, storyPhotoUrl, storySlotAt, storySlots, storyZoom,
+} from '@/lib/storyCard';
 
 // The page an attendee's ID QR opens: /events/cebu-miracle-working-god.
 //
@@ -111,11 +115,17 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
   useEffect(() => {
     if (store.get(`evt-pass:${slug}`)) setUnlockedName(store.get(nameKey) || '');
   }, [slug, nameKey]);
-  const onUnlockedName = useCallback((name) => {
+  const onUnlockedName = useCallback((name, unlockedCode) => {
     setForgotten(false);
     setUnlockedName(name || '');
     if (name) store.set(nameKey, name); else store.del(nameKey);
-  }, [nameKey]);
+    // Somebody other than the QR's holder unlocked on this phone: remember
+    // them instead, so the next unlock does not start from the wrong person.
+    if (unlockedCode) {
+      store.set(`evt-code:${slug}`, unlockedCode);
+      setCode(unlockedCode);
+    }
+  }, [nameKey, slug]);
   const onLocked = useCallback(() => {
     setUnlockedName('');
     setForgotten(true);
@@ -196,7 +206,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
       <section className="ep-body">
         {view === 'programme'
           ? <Programme event={event} items={info.programme} />
-          : <Photos event={event} slug={slug} code={code} year={info.passwordYear} onName={onUnlockedName} onLock={onLocked} />}
+          : <Photos event={event} slug={slug} code={code} year={info.passwordYear} name={guestName} onName={onUnlockedName} onLock={onLocked} />}
       </section>
 
       {/* The same lockup as the top of the dashboard sidebar. */}
@@ -325,13 +335,22 @@ function Programme({ event, items }) {
 // Photos
 // ============================================================
 
-function Photos({ event, slug, code, year, onName, onLock }) {
+function Photos({ event, slug, code, year, name, onName, onLock }) {
   const passKey = `evt-pass:${slug}`;
   const [pass, setPass] = useState('');
   const [photos, setPhotos] = useState(null);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(-1);
   const [day, setDay] = useState('all');
+  // Story mode: the attendee picks up to STORY_MAX photos, in order.
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState([]);
+  const [story, setStory] = useState(null);
+  const togglePick = (id) => setPicked((cur) => {
+    if (cur.includes(id)) return cur.filter((x) => x !== id);
+    return cur.length >= STORY_MAX ? cur : [...cur, id];
+  });
+  const stopPicking = () => { setPicking(false); setPicked([]); };
 
   useEffect(() => { setPass(store.get(passKey) || ''); }, [passKey]);
 
@@ -373,7 +392,7 @@ function Photos({ event, slug, code, year, onName, onLock }) {
 
   const unlocked = (result) => {
     store.set(passKey, result.pass);
-    onName(result.name || '');
+    onName(result.name || '', result.code || '');
     setPass(result.pass);
   };
 
@@ -393,8 +412,25 @@ function Photos({ event, slug, code, year, onName, onLock }) {
   return (
     <div className="ep-photos">
       <div className="ep-photos-bar">
-        <p><strong>{shown.length}</strong> photo{shown.length === 1 ? '' : 's'}</p>
-        <button type="button" className="ep-link" onClick={lock}><i className="fas fa-lock"></i> Lock</button>
+        {picking ? (
+          <p>Pick up to <strong>{STORY_MAX}</strong> photos for your story</p>
+        ) : (
+          <p><strong>{shown.length}</strong> photo{shown.length === 1 ? '' : 's'}</p>
+        )}
+        <div className="ep-photos-actions">
+          {picking ? (
+            <button type="button" className="ep-link" onClick={stopPicking}><i className="fas fa-times"></i> Cancel</button>
+          ) : (
+            <>
+              {photos.length > 0 && (
+                <button type="button" className="ep-btn ep-btn-sm ep-btn-story" onClick={() => setPicking(true)}>
+                  <i className="fas fa-wand-magic-sparkles"></i> Make a Story
+                </button>
+              )}
+              <button type="button" className="ep-link" onClick={lock}><i className="fas fa-lock"></i> Lock</button>
+            </>
+          )}
+        </div>
       </div>
       {days.length > 1 && (
         <DayTabs days={days} value={day} onChange={(d) => { setDay(d); setOpen(-1); }} all={`${photos.length} photos`} />
@@ -407,12 +443,45 @@ function Photos({ event, slug, code, year, onName, onLock }) {
         </div>
       ) : (
         <div className="ep-grid">
-          {shown.map((p, i) => (
-            <button type="button" key={p.id} className="ep-thumb" onClick={() => setOpen(i)}>
-              <img src={p.thumb} alt={p.caption || `Event photo ${i + 1}`} loading="lazy" />
-            </button>
-          ))}
+          {shown.map((p, i) => {
+            const n = picked.indexOf(p.id);
+            return (
+              <button
+                type="button"
+                key={p.id}
+                className={`ep-thumb ${picking ? 'is-picking' : ''} ${n >= 0 ? 'is-picked' : ''}`}
+                onClick={() => (picking ? togglePick(p.id) : setOpen(i))}
+                aria-pressed={picking ? n >= 0 : undefined}
+              >
+                <img src={p.thumb} alt={p.caption || `Event photo ${i + 1}`} loading="lazy" />
+                {picking && <span className="ep-pick">{n >= 0 ? n + 1 : ''}</span>}
+              </button>
+            );
+          })}
         </div>
+      )}
+      {picking && (
+        <div className="ep-pickbar">
+          <span>{picked.length} of {STORY_MAX} picked</span>
+          <button
+            type="button"
+            className="ep-btn ep-btn-story"
+            disabled={!picked.length}
+            onClick={() => setStory(picked.map((id) => photos.find((p) => p.id === id)).filter(Boolean))}
+          >
+            <i className="fas fa-wand-magic-sparkles"></i> Create Story
+          </button>
+        </div>
+      )}
+      {story && (
+        <StoryMaker
+          photos={story}
+          event={event}
+          slug={slug}
+          name={name}
+          onClose={() => setStory(null)}
+          onDone={() => { setStory(null); stopPicking(); }}
+        />
       )}
       {open >= 0 && shown[open] && (
         <Lightbox photos={shown} index={open} onIndex={setOpen} onClose={() => setOpen(-1)} />
@@ -595,6 +664,316 @@ const preload = (url) => {
   img.decoding = 'async';
   img.src = url;
 };
+
+// ============================================================
+// Story maker - the picked photos as one 9:16 image for an Instagram or
+// Facebook story, in the ID's red and white (see lib/storyCard.js).
+// ============================================================
+
+// Each photo cut to a slot is fetched once per visit, whatever the theme.
+const storyImages = new Map();
+const storyImage = (src) => {
+  if (!src) return Promise.resolve(null);
+  if (!storyImages.has(src)) storyImages.set(src, loadStoryImage(src).catch(() => { storyImages.delete(src); return null; }));
+  return storyImages.get(src);
+};
+
+function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
+  const canvasRef = useRef(null);
+  const [order, setOrder] = useState(photos);
+  const layouts = storyLayouts(photos.length);
+  const [layout, setLayout] = useState(layouts[0].key);
+  const [theme, setTheme] = useState('red');
+  const [showName, setShowName] = useState(!!name);
+  const [assets, setAssets] = useState(null); // { logo, byId: { [photoId]: img } }
+  // Where each photo sits in its box, by photo id - so it keeps its place
+  // when the photos swap boxes or the layout changes.
+  const [pos, setPos] = useState({});
+  const [active, setActive] = useState(-1);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      loadStoryFonts(),
+      storyImage(STORY_LOGO_SRC),
+      Promise.all(photos.map((p) => storyImage(storyPhotoUrl(p)))),
+    ]).then(([, logo, images]) => {
+      if (!live) return;
+      if (images.every((img) => !img)) setError('Could not load the photos. Check your connection and try again.');
+      setAssets({ logo, byId: Object.fromEntries(photos.map((p, i) => [p.id, images[i]])) });
+    });
+    return () => { live = false; };
+  }, [photos]);
+
+  const slots = storySlots(order.length, layout);
+  const images = assets ? order.map((p) => assets.byId[p.id] || null) : [];
+  const positions = order.map((p) => pos[p.id] || STORY_POS);
+  const drawOpts = (ring) => ({
+    images, logo: assets?.logo, theme, event, layout, positions, active: ring, name: showName ? name : '',
+  });
+
+  // Redrawn at most once a frame, however fast a finger moves.
+  const frame = useRef(0);
+  const latest = useRef(null);
+  latest.current = drawOpts(active);
+  useEffect(() => {
+    if (!assets || !canvasRef.current) return undefined;
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => canvasRef.current && drawStory(canvasRef.current, latest.current));
+    return () => cancelAnimationFrame(frame.current);
+  });
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = overflow; };
+  }, [onClose]);
+
+  // ---- Moving a photo: drag with a finger or the mouse, pinch or scroll to zoom ----
+  const now = useRef({});
+  now.current = { slots, images, order };
+  const pointers = useRef(new Map());
+  const drag = useRef(null);
+  const toStory = (e) => {
+    const r = canvasRef.current.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) / r.width) * STORY_W, y: ((e.clientY - r.top) / r.height) * STORY_H };
+  };
+  const spread = () => {
+    const [a, b] = [...pointers.current.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  };
+  const update = (i, fn) => {
+    const id = now.current.order[i]?.id;
+    if (id) setPos((cur) => ({ ...cur, [id]: fn(cur[id] || STORY_POS) }));
+  };
+
+  const onPointerDown = (e) => {
+    if (!assets) return;
+    const pt = toStory(e);
+    pointers.current.set(e.pointerId, pt);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    if (pointers.current.size === 1) {
+      const i = storySlotAt(now.current.slots, pt.x, pt.y);
+      setActive(i);
+      drag.current = i >= 0 ? { i, last: pt } : null;
+    } else if (pointers.current.size === 2 && drag.current) {
+      const id = now.current.order[drag.current.i]?.id;
+      drag.current.pinch = { d: spread(), z: (pos[id] || STORY_POS).z };
+    }
+  };
+  const onPointerMove = (e) => {
+    if (!drag.current || !pointers.current.has(e.pointerId)) return;
+    const pt = toStory(e);
+    pointers.current.set(e.pointerId, pt);
+    const { i, pinch, last } = drag.current;
+    if (pinch && pointers.current.size >= 2) {
+      const z = pinch.z * (spread() / pinch.d);
+      update(i, (p) => storyZoom(p, z));
+      return;
+    }
+    drag.current.last = pt;
+    const { slots: s, images: imgs } = now.current;
+    update(i, (p) => storyPan(s[i], imgs[i], p, pt.x - last.x, pt.y - last.y));
+  };
+  const onPointerUp = (e) => {
+    pointers.current.delete(e.pointerId);
+    if (!drag.current) return;
+    if (pointers.current.size === 0) drag.current = null;
+    else {
+      drag.current.pinch = null;
+      drag.current.last = [...pointers.current.values()][0];
+    }
+  };
+  // Scroll to zoom the photo under the mouse. Not passive, so the panel
+  // does not scroll at the same time.
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return undefined;
+    const onWheel = (e) => {
+      const r = c.getBoundingClientRect();
+      const i = storySlotAt(now.current.slots, ((e.clientX - r.left) / r.width) * STORY_W, ((e.clientY - r.top) / r.height) * STORY_H);
+      if (i < 0) return;
+      e.preventDefault();
+      setActive(i);
+      const k = Math.exp(-e.deltaY * 0.0015);
+      update(i, (p) => storyZoom(p, p.z * k));
+    };
+    c.addEventListener('wheel', onWheel, { passive: false });
+    return () => c.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const activeId = order[active]?.id;
+  const activePos = activeId ? pos[activeId] || STORY_POS : null;
+
+  // The saved file is drawn fresh, without the ring round the chosen photo.
+  const toFile = () => new Promise((resolve, reject) => {
+    try {
+      const out = document.createElement('canvas');
+      drawStory(out, drawOpts(-1));
+      out.toBlob(
+        (blob) => (blob ? resolve(new File([blob], `${slug}-story.jpg`, { type: 'image/jpeg' })) : reject(new Error('empty'))),
+        'image/jpeg',
+        0.93,
+      );
+    } catch (e) { reject(e); }
+  });
+
+  const download = async () => {
+    setBusy('download');
+    setError('');
+    try {
+      const file = await toFile();
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch {
+      setError('Could not save the story. Please try again.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  // On a phone this opens the share sheet, where Instagram and Facebook
+  // offer "Story" straight away.
+  const canShare = typeof navigator !== 'undefined' && !!navigator.canShare
+    && navigator.canShare({ files: [new File([''], 'x.jpg', { type: 'image/jpeg' })] });
+  const share = async () => {
+    setBusy('share');
+    setError('');
+    try {
+      const file = await toFile();
+      await navigator.share({ files: [file], title: event?.title || 'Event story' });
+    } catch (e) {
+      if (e?.name !== 'AbortError') setError('Sharing did not work here. Download the story, then post it from your gallery.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const ready = !!assets;
+
+  return (
+    <div className="ep-story" role="dialog" aria-modal="true" aria-label="Make a story" onClick={onClose}>
+      <div className="ep-story-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="ep-story-head">
+          <h2><i className="fas fa-wand-magic-sparkles"></i> Your Story</h2>
+          <button type="button" className="ep-lb-close" onClick={onClose} aria-label="Close"><i className="fas fa-times"></i></button>
+        </div>
+        <div className="ep-story-body">
+          <div className="ep-story-preview">
+            <canvas
+              ref={canvasRef}
+              width={STORY_W}
+              height={STORY_H}
+              className={ready ? 'ready' : ''}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            />
+            {!ready && <span className="ep-lb-wait"><span className="ep-spinner" /></span>}
+          </div>
+          <div className="ep-story-tools">
+            <p className="ep-story-hint ep-story-how">
+              <i className="fas fa-hand-pointer"></i> Drag a photo to move it inside its box. Pinch, scroll or use the slider to zoom.
+            </p>
+            {activePos && (
+              <div className="ep-story-zoom">
+                <i className="fas fa-magnifying-glass-minus"></i>
+                <input
+                  type="range"
+                  min="1"
+                  max={STORY_ZOOM_MAX}
+                  step="0.01"
+                  value={activePos.z}
+                  aria-label="Zoom the chosen photo"
+                  onChange={(e) => update(active, (p) => storyZoom(p, Number(e.target.value)))}
+                />
+                <i className="fas fa-magnifying-glass-plus"></i>
+                <button type="button" className="ep-link" onClick={() => update(active, () => STORY_POS)}>Reset</button>
+              </div>
+            )}
+            <p className="ep-story-label">Layout</p>
+            <div className="ep-layouts">
+              {layouts.map((l) => (
+                <button
+                  type="button"
+                  key={l.key}
+                  className={layout === l.key ? 'active' : ''}
+                  onClick={() => setLayout(l.key)}
+                  title={l.label}
+                >
+                  <span className="ep-layout-map">
+                    {l.slots.map((sl, i) => (
+                      <span
+                        // eslint-disable-next-line react/no-array-index-key
+                        key={i}
+                        style={{
+                          left: `${(sl.x / STORY_W) * 100}%`,
+                          top: `${(sl.y / STORY_H) * 100}%`,
+                          width: `${(sl.w / STORY_W) * 100}%`,
+                          height: `${(sl.h / STORY_H) * 100}%`,
+                          transform: sl.rot ? `rotate(${sl.rot}deg)` : undefined,
+                        }}
+                      />
+                    ))}
+                  </span>
+                  <small>{l.label}</small>
+                </button>
+              ))}
+            </div>
+            <p className="ep-story-label">Style</p>
+            <div className="ep-seg">
+              {STORY_THEMES.map((t) => (
+                <button
+                  type="button"
+                  key={t.key}
+                  className={theme === t.key ? 'active' : ''}
+                  onClick={() => setTheme(t.key)}
+                >
+                  <span className={`ep-swatch ep-swatch-${t.key}`} /> {t.label}
+                </button>
+              ))}
+            </div>
+            {name && (
+              <label className="ep-story-check">
+                <input type="checkbox" checked={showName} onChange={(e) => setShowName(e.target.checked)} />
+                Put my name on it
+              </label>
+            )}
+            {order.length > 1 && (
+              <button type="button" className="ep-btn ep-btn-ghost ep-btn-sm" onClick={() => { setOrder((o) => [...o.slice(1), o[0]]); setActive(-1); }}>
+                <i className="fas fa-shuffle"></i> Swap photo places
+              </button>
+            )}
+            <p className="ep-story-hint">9:16 — the size of an Instagram or Facebook story.</p>
+            {error && <p className="ep-error">{error}</p>}
+            <div className="ep-story-actions">
+              {canShare && (
+                <button type="button" className="ep-btn ep-btn-story" onClick={share} disabled={!ready || !!busy}>
+                  {busy === 'share' ? <span className="ep-spinner" /> : <i className="fas fa-share-nodes"></i>} Share to Story
+                </button>
+              )}
+              <button type="button" className={`ep-btn ${canShare ? 'ep-btn-ghost' : 'ep-btn-story'}`} onClick={download} disabled={!ready || !!busy}>
+                {busy === 'download' ? <span className="ep-spinner" /> : <i className="fas fa-download"></i>} Download
+              </button>
+              <button type="button" className="ep-link" onClick={onDone}>Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Lightbox({ photos, index, onIndex, onClose }) {
   const photo = photos[index];
