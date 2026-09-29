@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   daysWith, formatClock, formatDay, groupProgramme, programmeKind, publicEventTitle, shortDay,
 } from '@/lib/eventPublic';
-import { normalizeUid, isPlausibleUid } from '@/lib/rfid';
+import { normalizeUid, isPlausibleUid, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
 import {
   STORY_H, STORY_LOGO_SRC, STORY_MAX, STORY_POS, STORY_THEMES, STORY_VIDEO_MAX_S, STORY_VIDEO_SRC, STORY_W, STORY_ZOOM_MAX,
   canRecordStory, recordStory,
@@ -43,12 +43,12 @@ function useDarkMode() {
   return [dark, toggle];
 }
 
-const VIEWS = ['photos', 'profile'];
+const VIEWS = ['photos', 'profile', 'extras'];
 const viewPath = (slug, view, code) => {
   const base = `/events/${slug}${VIEWS.includes(view) ? `/${view}` : ''}`;
   return code ? `${base}?t=${encodeURIComponent(code)}` : base;
 };
-// Which tab an address is: /events/<slug>[/photos|/profile].
+// Which tab an address is: /events/<slug>[/photos|/profile|/extras].
 const viewOf = (pathname) => VIEWS.find((v) => pathname.endsWith(`/${v}`)) || 'programme';
 
 // "Fri, Oct 2 - Sun, Oct 4, 2026", from the event's wall-clock dates.
@@ -149,10 +149,38 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
   // /profile while locked (an old link, or Lock pressed there): the photos'
   // unlock first, and the Profile tab appears once it is done.
   useEffect(() => {
-    if (unlocked !== false || view !== 'profile') return;
+    if (unlocked !== false || (view !== 'profile' && view !== 'extras')) return;
     window.history.replaceState(null, '', viewPath(slug, 'photos', code));
     setView('photos');
   }, [unlocked, view, slug, code]);
+
+  // What the holder availed, and where they are sleeping. Asked for as soon as
+  // they are unlocked, because it decides whether there is an Extras tab at
+  // all - and asked again each time the tab is opened, so a room given at the
+  // desk a minute ago shows up without a reload.
+  const [extrasInfo, setExtrasInfo] = useState(null); // null = not known yet
+  useEffect(() => {
+    if (!unlocked) { setExtrasInfo(null); return undefined; }
+    const pass = store.get(`evt-pass:${slug}`);
+    if (!pass) return undefined;
+    let live = true;
+    fetch(`/api/events/public/extras?slug=${encodeURIComponent(slug)}`, { headers: { 'x-event-pass': pass } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!live) return;
+        if (data.success) setExtrasInfo({ extras: data.extras || [], accommodation: data.accommodation || null });
+        else setExtrasInfo({ extras: [], accommodation: null, error: data.locked ? '' : (data.message || '') });
+      })
+      .catch(() => live && setExtrasInfo((cur) => cur || { extras: [], accommodation: null, error: 'Could not load your extras. Check your connection.' }));
+    return () => { live = false; };
+  }, [unlocked, slug, view === 'extras']); // eslint-disable-line react-hooks/exhaustive-deps
+  const hasExtras = (extrasInfo?.extras?.length || 0) > 0;
+  // /extras for somebody with nothing extra (an old link): their profile instead.
+  useEffect(() => {
+    if (view !== 'extras' || !unlocked || !extrasInfo || hasExtras || extrasInfo.error) return;
+    window.history.replaceState(null, '', viewPath(slug, 'profile', code));
+    setView('profile');
+  }, [view, unlocked, extrasInfo, hasExtras, slug, code]);
   const guestName = unlockedName || (forgotten ? '' : info?.guest?.name) || '';
 
   if (loadError) {
@@ -229,12 +257,22 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
             <i className="fas fa-id-badge"></i> Profile
           </a>
         )}
+        {unlocked && hasExtras && (
+          <a
+            href={viewPath(slug, 'extras', code)}
+            className={`ep-tab-new ${view === 'extras' ? 'active' : ''}`}
+            onClick={(e) => { e.preventDefault(); go('extras'); }}
+          >
+            <i className="fas fa-gift"></i> Extras
+          </a>
+        )}
       </nav>
 
       <section className="ep-body">
         {view === 'programme' && <Programme event={event} items={info.programme} />}
         {view === 'photos' && <Photos event={event} slug={slug} code={code} year={info.passwordYear} name={guestName} onName={onUnlockedName} onLock={onLocked} />}
         {view === 'profile' && unlocked && <Profile slug={slug} code={code} year={info.passwordYear} onName={onUnlockedName} onLock={onLocked} />}
+        {view === 'extras' && unlocked && <Extras info={extrasInfo} />}
       </section>
 
       {/* The same lockup as the top of the dashboard sidebar. */}
@@ -600,16 +638,20 @@ function Unlock({
     if (mode !== 'rfid' || isPhone) return undefined;
     // preventScroll: focusing the hidden box must never move the page.
     setTimeout(() => cardRef.current?.focus({ preventScroll: true }), 50);
-    const key = { buf: '', at: 0 };
+    // Judged over the whole tap (lib/rfid wedgeCapture), so one stall in the
+    // middle of it cannot throw away the digits typed before the stall.
+    const key = { buf: '', at: 0, gaps: [] };
     const onKeyDown = (e) => {
       if (e.target === cardRef.current) return; // the box handles its own
       const now = Date.now();
-      if (now - key.at > 120) key.buf = '';
+      if (now - key.at > WEDGE_IDLE_RESET_MS) { key.buf = ''; key.gaps = []; }
+      else if (key.buf || e.key === 'Enter') key.gaps.push(now - key.at);
       key.at = now;
       if (e.key === 'Enter') {
-        const captured = key.buf;
+        const captured = wedgeCapture(key.buf, key.gaps);
         key.buf = '';
-        if (isPlausibleUid(captured)) { e.preventDefault(); sendRef.current?.(captured); }
+        key.gaps = [];
+        if (captured) { e.preventDefault(); sendRef.current?.(captured); }
         return;
       }
       if (e.key.length === 1) key.buf += e.key;
@@ -799,6 +841,113 @@ const siteOrigin = () => (process.env.NEXT_PUBLIC_SITE_URL || window.location.or
 
 // Drawn at 4x and shown at up to 320px wide: crisp on high-density phones.
 const ID_PREVIEW_SCALE = 4;
+
+// ============================================================
+// Extras - what the attendee availed on top of their registration, and, if
+// one of those is accommodation, where they are sleeping and with whom.
+// ============================================================
+const OCC_ICON = { boys: 'fa-person', girls: 'fa-person-dress', family: 'fa-people-roof' };
+
+function Extras({ info }) {
+  if (!info) {
+    return <div className="ep-extras"><p className="ep-muted-center"><span className="ep-spinner" /> Loading your extras…</p></div>;
+  }
+  if (info.error) {
+    return <div className="ep-extras"><p className="ep-error"><i className="fas fa-circle-exclamation"></i> {info.error}</p></div>;
+  }
+  const { extras, accommodation: acc } = info;
+  const room = acc?.room;
+
+  return (
+    <div className="ep-extras">
+      <div className="ep-extras-head">
+        <h2><i className="fas fa-gift"></i> Your Extras</h2>
+        <p>What you availed on top of your registration.</p>
+      </div>
+
+      <ul className="ep-extra-list">
+        {extras.map((x, i) => (
+          <li key={`${x.name}-${i}`}>
+            <i className="fas fa-circle-check"></i>
+            <span>{x.name}</span>
+            {x.fee > 0 && <em>₱{x.fee.toLocaleString('en-PH')}</em>}
+          </li>
+        ))}
+      </ul>
+
+      {acc && (
+        <div className="ep-stay">
+          <div className="ep-stay-head">
+            <i className="fas fa-hotel"></i>
+            <div>
+              <span className="ep-stay-label">Accommodation</span>
+              <b>{acc.hotel || 'The event venue'}</b>
+              {acc.address && <span className="ep-stay-addr"><i className="fas fa-location-dot"></i> {acc.address}</span>}
+            </div>
+          </div>
+
+          {!room ? (
+            <div className="ep-stay-wait">
+              <i className="fas fa-hourglass-half"></i>
+              <div>
+                <b>Your room is not assigned yet</b>
+                <span>The registration desk will give you a room when you check in. Come back to this page after.</span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="ep-room">
+                <div className="ep-room-num">
+                  <span>Room</span>
+                  <b>{room.number}</b>
+                </div>
+                <div className="ep-room-info">
+                  <b>{room.type}</b>
+                  {room.pax && <span><i className="fas fa-user-group"></i> Good for {room.pax} pax</span>}
+                  {room.occupancyLabel && (
+                    <span className={`ep-occ ${room.occupancy}`}>
+                      <i className={`fas ${OCC_ICON[room.occupancy] || 'fa-users'}`}></i> {room.occupancyLabel}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="ep-stay-section">
+                <span className="ep-stay-label">Beds</span>
+                {room.beds.length > 0 ? (
+                  <ul className="ep-beds">
+                    {room.beds.map((b) => (
+                      <li key={b.type}><i className="fas fa-bed"></i> {b.count} × {b.type}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="ep-stay-none">{room.bedsText || 'No bed details given for this room.'}</p>
+                )}
+              </div>
+
+              <div className="ep-stay-section">
+                <span className="ep-stay-label">Who is with you</span>
+                {acc.roommates.length === 0 ? (
+                  <p className="ep-stay-none">Nobody else in this room yet.</p>
+                ) : (
+                  <ul className="ep-mates">
+                    {acc.roommates.map((m, i) => (
+                      <li key={`${m.name}-${i}`}>
+                        <span className="ep-mate-av">{m.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+                        <span className="ep-mate-name">{m.name}</span>
+                        {m.sameGroup && <em>Your group</em>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Profile({ slug, code, year, onName, onLock }) {
   const passKey = `evt-pass:${slug}`;

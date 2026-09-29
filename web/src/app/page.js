@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import './home.css';
 import { withTitleCase } from '@/lib/eventTitle';
+import { sameAddon } from '@/lib/addons';
 import { eventSlug, findEventBySlug, slugFromPath } from '@/lib/eventSlug';
 import { eventCardTitle } from '@/lib/socialCard';
 import { EVENT_IMAGE_SIZES, eventImageSrcSet, eventImageUrl } from '@/lib/eventImage';
@@ -837,9 +838,8 @@ export default function HomePage() {
   const repLockedAddonIds = (() => {
     const held = repMatch?.addons || [];
     if (held.length === 0) return [];
-    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
     return (guestRegEvent?.event_addons || [])
-      .filter((x) => held.some((h) => h.id === x.id || same(h.question, x.question)))
+      .filter((x) => held.some((h) => sameAddon(h, x)))
       .map((x) => x.id);
   })();
 

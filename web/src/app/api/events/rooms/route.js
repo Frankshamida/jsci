@@ -5,6 +5,7 @@ import {
   MAX_ROOMS_PER_ADD,
   compareRoomNumbers,
   normalizeBeds,
+  normalizeOccupancy,
   normalizePax,
   parseRoomNumbers,
   roomTypeName,
@@ -54,7 +55,13 @@ const sortRooms = (rows) => [...(rows || [])].sort((a, b) => (
   || compareRoomNumbers(a.room_number, b.room_number)
 ));
 
-const ROOM_FIELDS = 'id, event_id, room_type, room_number, pax, beds, notes, created_at, updated_at, created_by';
+const BASE_ROOM_FIELDS = 'id, event_id, room_type, room_number, pax, beds, notes, created_at, updated_at, created_by';
+// occupancy (All Boys / All Girls / Family) comes from event_room_occupancy.sql.
+// Until that is run the rooms still load - just without the label - rather
+// than the whole Accommodation tab going blank over one missing column.
+const ROOM_FIELDS = `${BASE_ROOM_FIELDS}, occupancy`;
+const missingOccupancy = (error) => /occupancy/i.test(error?.message || '');
+const OCCUPANCY_MIGRATION = 'Room labels need their migration: run supabase/migrations/event_room_occupancy.sql in the Supabase SQL editor, then try again.';
 
 // A stored row, in the shape the screen wants: beds always an array, never a
 // null that every caller has to guard.
@@ -81,10 +88,16 @@ export async function GET(request) {
       return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
     }
 
-    const { data, error } = await supabaseAdmin
+    let { data, error } = await supabaseAdmin
       .from('event_rooms')
       .select(ROOM_FIELDS)
       .eq('event_id', eventId);
+    if (error && missingOccupancy(error)) {
+      ({ data, error } = await supabaseAdmin
+        .from('event_rooms')
+        .select(BASE_ROOM_FIELDS)
+        .eq('event_id', eventId));
+    }
     if (error) throw error;
 
     return NextResponse.json({ success: true, data: sortRooms(data).map(shape) });
@@ -171,10 +184,16 @@ export async function POST(request) {
       created_by: actor.id,
     }));
 
-    const { data, error } = await supabaseAdmin
+    let { data, error } = await supabaseAdmin
       .from('event_rooms')
       .insert(payload)
       .select(ROOM_FIELDS);
+    if (error && missingOccupancy(error)) {
+      ({ data, error } = await supabaseAdmin
+        .from('event_rooms')
+        .insert(payload)
+        .select(BASE_ROOM_FIELDS));
+    }
     if (error) throw error;
 
     const made = (data || []).map(shape);
@@ -220,7 +239,7 @@ export async function PATCH(request) {
 
     const { data: room } = await supabaseAdmin
       .from('event_rooms')
-      .select(ROOM_FIELDS)
+      .select(BASE_ROOM_FIELDS)
       .eq('id', body.id)
       .maybeSingle();
     if (!room) {
@@ -251,17 +270,31 @@ export async function PATCH(request) {
     if (body.beds !== undefined) patch.beds = beds;
     if (body.pax !== undefined) patch.pax = normalizePax(body.pax, beds);
     if (body.notes !== undefined) patch.notes = String(body.notes || '').trim().slice(0, 500) || null;
+    if (body.occupancy !== undefined) patch.occupancy = normalizeOccupancy(body.occupancy);
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ success: true, data: shape(room), message: 'Nothing to change' });
     }
 
-    const { data, error } = await supabaseAdmin
+    let { data, error } = await supabaseAdmin
       .from('event_rooms')
       .update(patch)
       .eq('id', body.id)
       .select(ROOM_FIELDS)
       .single();
+    if (error && missingOccupancy(error)) {
+      // Setting the label itself cannot work without the column - say so.
+      // Any other edit still goes through, only without reading the label back.
+      if ('occupancy' in patch) {
+        return NextResponse.json({ success: false, message: OCCUPANCY_MIGRATION }, { status: 500 });
+      }
+      ({ data, error } = await supabaseAdmin
+        .from('event_rooms')
+        .update(patch)
+        .eq('id', body.id)
+        .select(BASE_ROOM_FIELDS)
+        .single());
+    }
     if (error) throw error;
 
     return NextResponse.json({

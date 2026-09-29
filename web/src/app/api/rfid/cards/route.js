@@ -58,11 +58,14 @@ export async function POST(request) {
     // A card already on file belongs to somebody. Say who, rather than failing
     // on a unique-constraint error the desk cannot act on - "Maria has this
     // card" is something a person can resolve; "duplicate key" is not.
-    const { data: existing } = await supabaseAdmin
+    // limit(1), not maybeSingle(): two spellings of one card on file would
+    // make maybeSingle() return nothing, and the card would be handed out again.
+    const { data: existingRows } = await supabaseAdmin
       .from('rfid_cards')
       .select(`*, users:user_id (${USER_FIELDS})`)
       .in('uid', uidCandidates(raw))
-      .maybeSingle();
+      .limit(1);
+    const existing = existingRows?.[0] || null;
 
     if (existing) {
       if (existing.user_id === userId) {

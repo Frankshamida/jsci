@@ -1,3 +1,5 @@
+import { sameAddon } from '@/lib/addons';
+
 // ============================================================
 // Rooms at an event: what a room is, and how beds become a head count
 // ============================================================
@@ -228,7 +230,6 @@ export function compareRoomNumbers(a, b) {
 // than mysterious.
 const ACCOMMODATION_WORDS = /accommodat|accomodat|lodg|billet|hotel|dorm|room|bed|stay|sleep|overnight|tulog|hotel/i;
 
-const sameQuestion = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
 /**
  * The extras on this event that mean "a bed", or [] if none of them is worded
@@ -268,8 +269,7 @@ export function roomEntitlement(regAddons, eventAddons) {
     return { ok: true, why: '', availed };
   }
 
-  const has = theirs.some((t) => wanted.some((w) => (t.id && w.id && t.id === w.id)
-    || sameQuestion(t.question, w.question)));
+  const has = theirs.some((t) => wanted.some((w) => sameAddon(t, w)));
   if (has) return { ok: true, why: '', availed };
 
   return {
@@ -280,3 +280,26 @@ export function roomEntitlement(regAddons, eventAddons) {
     availed,
   };
 }
+
+// ---- Who a room is for ----
+// Set by the desk as the rooms fill (see event_room_occupancy.sql). Null means
+// nobody has said, and the room takes anybody.
+export const ROOM_OCCUPANCY = [
+  { value: 'boys', label: 'All Boys', icon: 'fa-person' },
+  { value: 'girls', label: 'All Girls', icon: 'fa-person-dress' },
+  { value: 'family', label: 'Family', icon: 'fa-people-roof' },
+];
+
+/** The label for a stored occupancy, or '' when none is set. */
+export function occupancyLabel(value) {
+  return ROOM_OCCUPANCY.find((o) => o.value === value)?.label || '';
+}
+
+/** A stored occupancy, or null for anything that is not one of the three. */
+export function normalizeOccupancy(raw) {
+  const v = String(raw || '').trim().toLowerCase();
+  return ROOM_OCCUPANCY.some((o) => o.value === v) ? v : null;
+}
+
+// Registrations whose payment is settled - the ones a room can be given to.
+export const ROOM_QUEUE_STATUSES = ['registered', 'payment_verified', 'paid_pending_turnover'];

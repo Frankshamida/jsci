@@ -202,6 +202,7 @@ export async function POST(request) {
       .eq('registration_id', registrationId)
       .maybeSingle();
 
+
     // Upsert onto (event_id, registration_id): one bed each, and a move is
     // the same write as a first assignment.
     const { data, error } = await supabaseAdmin

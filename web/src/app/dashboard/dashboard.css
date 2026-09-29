@@ -12767,7 +12767,10 @@ body.dark-mode .sched-rec-timer { color: #f1f5f9; }
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.6);
-  z-index: 3000;
+  /* Above every event dialog (15000-16000): this is also the confirm box, and
+     a confirm opened from inside a dialog - "Take the card back?" from Assign
+     RFID - has to sit in front of the dialog that asked it. */
+  z-index: 19000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -30725,6 +30728,22 @@ body.dark-mode .acc-allrooms .evt-pager { border-top-color: rgba(255, 255, 255, 
   .acc-table td[data-label="Notes"] { max-width: 220px; }
 }
 body.dark-mode .acc-num-chip { background: rgba(240, 196, 25, 0.18); color: #f0c419; }
+
+/* The subtotal after each room type in the all-rooms table. */
+.evt-table.acc-table tbody tr.acc-subtotal-row td { background: rgba(146,108,21,0.07); border-top: 1.5px solid rgba(146,108,21,0.3); padding-top: 10px; padding-bottom: 10px; }
+.acc-subtotal-label { font-weight: 800; color: var(--primary, #926c15); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.03em; }
+.acc-subtotal-label i { margin-right: 6px; }
+.acc-subtotal-label em { font-style: normal; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text-secondary, #666); margin-left: 8px; }
+.acc-subtotal-pax { color: var(--primary, #926c15); white-space: nowrap; }
+.acc-subtotal-pax b { font-size: 1rem; }
+body.dark-mode .evt-table.acc-table tbody tr.acc-subtotal-row td { background: rgba(240,196,25,0.08); border-top-color: rgba(240,196,25,0.3); }
+body.dark-mode .acc-subtotal-label, body.dark-mode .acc-subtotal-pax { color: #f0c419; }
+/* Phones: the table turns into cards, so the subtotal is one line of its own. */
+@media (max-width: 768px) {
+  .evt-table.acc-table tbody tr.acc-subtotal-row { display: flex; align-items: center; justify-content: space-between; }
+  .evt-table.acc-table tbody tr.acc-subtotal-row td:empty { display: none; }
+  .evt-table.acc-table tbody tr.acc-subtotal-row td::before { content: none !important; }
+}
 body.dark-mode .acc-bed-chip { background: rgba(255, 255, 255, 0.08); }
 
 /* ---- Adding a room ---- */
@@ -32936,6 +32955,45 @@ body.dark-mode .evt-call-who .evt-ravatar, body.dark-mode .evt-call-person .evt-
 .evt-id-first { font-size: 0.86rem; color: var(--text-secondary, #555); }
 .evt-id-btn { background: var(--primary, #926c15); box-shadow: 0 3px 10px rgba(146,108,21,0.25); border: none; cursor: pointer; font: inherit; font-weight: 700; font-size: 0.85rem; }
 .evt-id-btn:hover { background: #7a560c; }
+/* Mark as Printed: the button beside the church filter, the bar it opens,
+   and a tick on each row. */
+.evt-id-printall-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; min-height: 42px; border-radius: 10px;
+  border: 1.5px solid var(--primary, #926c15); background: #fff; color: var(--primary, #926c15);
+  font: inherit; font-weight: 700; font-size: 0.88rem; cursor: pointer; white-space: nowrap;
+}
+.evt-id-printall-btn:hover { background: rgba(146,108,21,0.08); }
+.evt-id-printall-btn.on { background: var(--primary, #926c15); color: #fff; }
+.evt-id-printbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 12px 14px; border-radius: 12px;
+  background: rgba(146,108,21,0.08); border: 1px solid rgba(146,108,21,0.25);
+}
+.evt-id-printbar-text { display: flex; align-items: flex-start; gap: 8px; font-size: 0.86rem; }
+.evt-id-printbar-text i { color: var(--primary, #926c15); margin-top: 3px; }
+.evt-id-printbar-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.evt-id-printpick { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--primary, #926c15); cursor: pointer; }
+.evt-id-printpick:disabled { cursor: not-allowed; opacity: 0.45; }
+body.dark-mode .evt-id-printall-btn,
+body.dark-mode .evt-id-rfid-btn { background: transparent; color: #e0b44a; border-color: #e0b44a; }
+body.dark-mode .evt-id-printall-btn.on { background: #e0b44a; color: #1a1408; }
+body.dark-mode .evt-id-rfid-btn.has { color: #4ade80; border-color: #4ade80; }
+body.dark-mode .evt-id-printbar { background: rgba(224,180,74,0.08); border-color: rgba(224,180,74,0.25); }
+@media (max-width: 640px) {
+  .evt-id-printall-btn { width: 100%; justify-content: center; }
+  .evt-id-printbar-acts { width: 100%; }
+  .evt-id-printbar-acts .btn-primary { flex: 1; }
+}
+
+/* "ARANAS, Jocelyn" on one line, then whether the ID has been printed. */
+.evt-id-fullname { font-size: 0.92rem; color: var(--text-primary, #1a1a1a); }
+.evt-id-fullname b { font-weight: 800; letter-spacing: 0.02em; }
+.evt-id-namemeta { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 3px; }
+.evt-id-namemeta .evt-cell-sub { margin: 0; }
+.evt-id-print-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
+.evt-id-print-tag.done { color: #15803d; background: rgba(34,197,94,0.12); }
+.evt-id-print-tag.todo { color: #9a6b00; background: rgba(234,179,8,0.14); }
+
 /* Generate ID and Assign RFID side by side, the card number under its button. */
 .evt-id-acts { display: inline-flex; align-items: flex-start; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .evt-id-rfid { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
@@ -33029,3 +33087,113 @@ body.dark-mode .evt-call-who .evt-ravatar, body.dark-mode .evt-call-person .evt-
   font: inherit; font-size: 0.72rem; font-weight: 700; color: #fff; background: rgba(0,0,0,0.62);
 }
 .evt-photos-grid select.evt-photo-day option { color: #111; background: #fff; }
+
+/* ============================================
+   Accommodation: Scan Attendee, and who a room is for
+   ============================================ */
+.acc-occ-chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; white-space: nowrap; background: rgba(100,116,139,0.14); color: #475569; }
+.acc-occ-chip.boys { background: rgba(37,99,235,0.12); color: #1d4ed8; }
+.acc-occ-chip.girls { background: rgba(219,39,119,0.12); color: #be185d; }
+.acc-occ-chip.family { background: rgba(22,163,74,0.12); color: #15803d; }
+.rmn-room-top .acc-occ-chip { margin-right: auto; margin-left: 6px; }
+
+.acc-scan-modal { max-width: 640px; }
+.acc-scan-search { position: relative; margin-top: 12px; }
+.acc-scan-search i { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-secondary, #888); }
+.acc-scan-search input { padding-left: 38px; }
+.acc-scan-hits { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.acc-scan-hits button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color, #e5e0d5); background: var(--card-bg, #fff); cursor: pointer; font: inherit; text-align: left; color: inherit; }
+.acc-scan-hits button:hover { border-color: var(--primary, #926c15); background: rgba(146,108,21,0.05); }
+.acc-scan-hit-name { display: flex; flex-direction: column; min-width: 0; }
+.acc-scan-hit-name em { font-style: normal; font-size: 0.78rem; color: var(--text-secondary, #777); }
+.acc-scan-hit-tags { display: inline-flex; gap: 6px; align-items: center; flex: 0 0 auto; }
+
+.acc-scan-type { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; }
+.acc-scan-type.bulk { background: rgba(37,99,235,0.12); color: #1d4ed8; }
+.acc-scan-type.solo { background: rgba(146,108,21,0.12); color: #7a560c; }
+
+.acc-scan-person { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; background: rgba(146,108,21,0.06); margin-bottom: 12px; }
+.acc-scan-person-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.acc-scan-person-main > b { font-size: 1.02rem; }
+.acc-scan-person-main > em { font-style: normal; font-size: 0.8rem; color: var(--text-secondary, #777); }
+.acc-scan-person-tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.acc-scan-booked { font-size: 0.74rem; color: var(--text-secondary, #777); }
+
+.acc-scan-turn { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; font-size: 0.84rem; }
+.acc-scan-turn.ok { background: rgba(22,163,74,0.1); color: #15803d; }
+.acc-scan-turn.wait { background: rgba(234,179,8,0.12); color: #854d0e; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.acc-scan-turn.wait p { margin: 0; }
+.acc-scan-turn ul { margin: 0; padding-left: 18px; }
+.acc-scan-turn li em { font-style: normal; opacity: 0.8; margin-left: 6px; font-size: 0.78rem; }
+
+.acc-scan-members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.acc-scan-members li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border-color, #eee); }
+.acc-scan-members li:last-child { border-bottom: none; }
+.acc-scan-members li.scanned { background: rgba(146,108,21,0.06); border-radius: 8px; }
+.acc-scan-members li.muted .acc-scan-member-name { opacity: 0.65; }
+.acc-scan-members input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary, #926c15); flex: 0 0 auto; }
+.acc-scan-member-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.acc-scan-member-name em { font-style: normal; font-size: 0.74rem; color: var(--text-secondary, #777); }
+.acc-scan-member-state { flex: 0 0 auto; }
+.acc-scan-flag { display: inline-flex; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; white-space: nowrap; background: rgba(100,116,139,0.12); color: #475569; }
+.acc-scan-flag.ok { background: rgba(22,163,74,0.12); color: #15803d; }
+.acc-scan-flag.warn { background: rgba(234,179,8,0.16); color: #854d0e; }
+.acc-scan-flag.bad { background: rgba(220,38,38,0.1); color: #b91c1c; }
+
+.acc-scan-done { list-style: none; margin: 10px 0 0; padding: 0; font-size: 0.84rem; display: flex; flex-direction: column; gap: 4px; }
+.acc-scan-done li.ok { color: #15803d; }
+.acc-scan-done li.bad { color: #b91c1c; }
+
+.acc-scan-rooms { margin-top: 14px; }
+.acc-scan-room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 8px; }
+.acc-scan-room { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; padding: 10px; border-radius: 12px; border: 1.5px solid var(--border-color, #e5e0d5); background: var(--card-bg, #fff); cursor: pointer; font: inherit; color: inherit; text-align: left; }
+.acc-scan-room:hover { border-color: var(--primary, #926c15); }
+.acc-scan-room.on { border-color: var(--primary, #926c15); background: rgba(146,108,21,0.08); box-shadow: 0 0 0 3px rgba(146,108,21,0.15); }
+.acc-scan-room-top { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 6px; }
+.acc-scan-room-top em { font-style: normal; font-size: 0.74rem; color: var(--text-secondary, #777); }
+.acc-scan-room-type { font-size: 0.74rem; font-weight: 700; color: var(--text-secondary, #666); text-transform: uppercase; letter-spacing: 0.02em; }
+.acc-scan-room-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.acc-scan-other { margin-top: 8px; }
+
+.acc-scan-occ { margin-top: 12px; padding: 10px 12px; border-radius: 12px; border: 1px dashed rgba(146,108,21,0.4); }
+.acc-scan-occ > span { font-size: 0.82rem; font-weight: 700; }
+.acc-scan-occ-opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.acc-occ-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; border: 1.5px solid var(--border-color, #ddd); background: var(--card-bg, #fff); font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer; color: inherit; }
+.acc-occ-btn.boys.on { border-color: #2563eb; background: rgba(37,99,235,0.1); color: #1d4ed8; }
+.acc-occ-btn.girls.on { border-color: #db2777; background: rgba(219,39,119,0.1); color: #be185d; }
+.acc-occ-btn.family.on { border-color: #16a34a; background: rgba(22,163,74,0.1); color: #15803d; }
+
+body.dark-mode .acc-scan-hits button,
+body.dark-mode .acc-scan-room,
+body.dark-mode .acc-occ-btn { background: transparent; border-color: #3a3326; }
+body.dark-mode .acc-scan-person { background: rgba(224,180,74,0.08); }
+body.dark-mode .acc-scan-turn.wait { color: #fcd34d; }
+body.dark-mode .acc-scan-turn.ok { color: #4ade80; }
+body.dark-mode .acc-occ-chip.boys { color: #93c5fd; }
+body.dark-mode .acc-occ-chip.girls { color: #f9a8d4; }
+body.dark-mode .acc-occ-chip.family { color: #86efac; }
+
+@media (max-width: 560px) {
+  .acc-scan-person { flex-wrap: wrap; }
+  .acc-scan-room-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Accommodation: the hotel the attendees check in to */
+.acc-hotel { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border-radius: 16px; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #ece5d6); }
+.acc-hotel-icon { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 12px; display: grid; place-items: center; color: #fff; font-size: 1.1rem; background: linear-gradient(135deg, #926c15, #c8961c); }
+.acc-hotel-text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+.acc-hotel-label { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary, #777); }
+.acc-hotel-text b { font-size: 1.02rem; }
+.acc-hotel-text b.acc-hotel-unset { color: var(--text-secondary, #888); }
+.acc-hotel-text em { font-style: normal; font-size: 0.82rem; color: var(--text-secondary, #777); }
+.acc-hotel-text em i { color: var(--primary, #926c15); margin-right: 4px; }
+.acc-hotel-form { flex: 1; min-width: 240px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.acc-hotel-form .form-group { margin: 0; }
+.acc-hotel-form label em { font-style: normal; font-weight: 500; color: var(--text-secondary, #888); }
+.acc-hotel-hint { grid-column: 1 / -1; margin: 0; font-size: 0.78rem; color: var(--text-secondary, #777); }
+.acc-hotel-acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+body.dark-mode .acc-hotel { background: var(--card-bg, #1e1b16); border-color: #332d24; }
+@media (max-width: 640px) {
+  .acc-hotel-form { grid-template-columns: 1fr; }
+  .acc-hotel > .btn-secondary { width: 100%; }
+}

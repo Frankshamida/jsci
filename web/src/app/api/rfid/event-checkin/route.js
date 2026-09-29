@@ -369,15 +369,17 @@ export async function PUT(request) {
       }, { status: 400 });
     }
 
-    // Is this card already somebody else's at this event?
-    const { data: clash } = await supabaseAdmin
+    // Is this card already somebody else's at this event? Every row that
+    // answers to it, not maybeSingle(): with two spellings of one card already
+    // saved, that returned nothing and the card went to a third person too.
+    const { data: holders } = await supabaseAdmin
       .from('rfid_event_cards')
       .select('*')
       .eq('event_id', eventId)
-      .in('uid', uidCandidates(raw))
-      .maybeSingle();
+      .in('uid', uidCandidates(raw));
+    const clash = (holders || []).find((h) => h.registration_id !== registrationId) || null;
 
-    if (clash && clash.registration_id !== registrationId) {
+    if (clash) {
       const { data: other } = await supabaseAdmin
         .from('event_registrations')
         .select('attendee_name')

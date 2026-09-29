@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
-import { BED_TYPES, MAX_PAX, bedsSleep, bedsToText, compareRoomNumbers, parseRoomNumbers, roomEntitlement, roomTypeName } from '@/lib/rooms';
+import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bedsToText, compareRoomNumbers, occupancyLabel, parseRoomNumbers, roomEntitlement, roomTypeName } from '@/lib/rooms';
 import { supabase } from '@/lib/supabase';
-import { normalizeUid, isPlausibleUid, formatUid, sameCard } from '@/lib/rfid';
+import { normalizeUid, isPlausibleUid, formatUid, sameCard, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
+import { sameAddon } from '@/lib/addons';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { printReport, buildPrintHtml, buildXlsx, buildDocx, buildCsv, downloadBlob, safeFilename } from '@/lib/exportDoc';
 import { buildPdf, loadLogoJpeg } from '@/lib/pdfWriter';
@@ -5957,6 +5958,7 @@ export default function DashboardPage() {
     // looking at any more.
     setRoomDesk(null);
     setIdRfidReg(null);
+    setAccScanOpen(false);
     setEvtRoomTypeOpen('');
     setEvtRooms([]);
     setEvtRoomGuests([]);
@@ -6824,11 +6826,23 @@ export default function DashboardPage() {
     const whole = String(r.attendee_name || '').trim().replace(/\s+/g, ' ');
     return formatPersonName(r.attendee_firstname || whole.split(' ').slice(0, -1).join(' ') || whole);
   };
-  const visibleIds = (() => {
+  // Printed / not printed. The counts are taken after the church and search
+  // filters, so "Not printed (12)" is the twelve still to print in what is
+  // on screen - the number the person at the printer actually wants.
+  const [idPrinted, setIdPrinted] = useState('all');   // all | printed | not_printed
+  const idBaseRows = (() => {
     const q = idSearch.trim().toLowerCase();
     let rows = eventRegs.filter((r) => r.status !== 'cancelled');
     if (idChurch !== 'all') rows = rows.filter((r) => (formatChurchName(r.church_name) || 'No church given') === idChurch);
     if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
+    return rows;
+  })();
+  const idPrintedCount = idBaseRows.filter((r) => r.id_printed_at).length;
+  const visibleIds = (() => {
+    const q = idSearch.trim().toLowerCase();
+    let rows = idBaseRows;
+    if (idPrinted === 'printed') rows = rows.filter((r) => r.id_printed_at);
+    else if (idPrinted === 'not_printed') rows = rows.filter((r) => !r.id_printed_at);
     const cmp = (a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' });
     return [...rows].sort((a, b) => {
       if (q) {
@@ -6840,10 +6854,58 @@ export default function DashboardPage() {
       return cmp(idLastOf(a), idLastOf(b)) || cmp(idFirstOf(a), idFirstOf(b));
     });
   })();
-  useEffect(() => { setIdPage(1); }, [idSearch, idChurch, idSort, eventRegsModal?.id]);
+  useEffect(() => { setIdPage(1); }, [idSearch, idChurch, idSort, idPrinted, eventRegsModal?.id]);
   const idPages = Math.max(1, Math.ceil(visibleIds.length / idPageSize));
   const idPageSafe = Math.min(idPage, idPages);
   const pagedIds = visibleIds.slice((idPageSafe - 1) * idPageSize, idPageSafe * idPageSize);
+
+  // ---- Mark a print run as printed ----
+  // Everybody on the list as it is filtered (church, search) who is not
+  // printed yet starts ticked; untick the ones whose card did not come out.
+  // Kept as the set LEFT OUT, so changing the filter mid-way adds the newly
+  // shown attendees ticked rather than silently dropping them.
+  const [idPrintMode, setIdPrintMode] = useState(false);
+  const [idPrintSkip, setIdPrintSkip] = useState(() => new Set());
+  const [idPrintBusy, setIdPrintBusy] = useState(false);
+  const idUnprinted = visibleIds.filter((r) => !r.id_printed_at);
+  const idPrintTargets = idUnprinted.filter((r) => !idPrintSkip.has(r.id));
+  useEffect(() => { setIdPrintMode(false); setIdPrintSkip(new Set()); }, [eventRegsModal?.id, manageTab]);
+  const toggleIdPrintSkip = (id) => setIdPrintSkip((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const markIdsPrinted = () => {
+    const targets = idPrintTargets;
+    if (targets.length === 0) return;
+    const skipped = idUnprinted.length - targets.length;
+    askConfirm(
+      `${targets.length} ID${targets.length === 1 ? '' : 's'} will be marked as printed`
+        + (skipped > 0 ? `, leaving out ${skipped} you unticked.` : '.'),
+      async () => {
+        setIdPrintBusy(true);
+        try {
+          const res = await fetch('/api/events/registrations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: targets.map((r) => r.id), action: 'id_printed', printed: true, actorId: userData?.id || null }),
+          });
+          const data = await res.json();
+          if (!data.success) { showToast(data.message, 'danger'); return; }
+          const byId = new Map((data.data || []).map((x) => [x.id, x]));
+          setEventRegs((regs) => regs.map((x) => (byId.has(x.id) ? { ...x, ...byId.get(x.id) } : x)));
+          showToast(data.message, 'success');
+          setIdPrintMode(false);
+          setIdPrintSkip(new Set());
+        } catch (err) {
+          showToast(err.message, 'danger');
+        } finally {
+          setIdPrintBusy(false);
+        }
+      },
+      { title: 'Mark as printed?', subtitle: eventRegsModal?.title || 'ID Cards', confirmLabel: `Mark ${targets.length} as printed`, icon: 'fa-print' },
+    );
+  };
 
   // Rows that share one call: the same bulk booking on the same number.
   const callGroupKey = (r) => {
@@ -7575,9 +7637,8 @@ export default function DashboardPage() {
   const adminRepLockedAddonIds = (() => {
     const held = adminRepMatch?.addons || [];
     if (held.length === 0) return [];
-    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
     return (eventRegsModal?.event_addons || [])
-      .filter((x) => held.some((h) => h.id === x.id || same(h.question, x.question)))
+      .filter((x) => held.some((h) => sameAddon(h, x)))
       .map((x) => x.id);
   })();
 
@@ -8106,8 +8167,7 @@ export default function DashboardPage() {
   // wording as well as the id, because the extras on a registration are a
   // snapshot and an id can be stale after a rename.
   const regHeldAddons = (reg) => (Array.isArray(reg?.addons) ? reg.addons : []);
-  const regHasAddon = (reg, addon) => regHeldAddons(reg).some((h) => h.id === addon.id
-    || String(h.question || '').trim().toLowerCase() === String(addon.question || '').trim().toLowerCase());
+  const regHasAddon = (reg, addon) => regHeldAddons(reg).some((h) => sameAddon(h, addon));
   const regAddableAddons = (reg) => (eventRegsModal?.event_addons || []).filter((a) => !regHasAddon(reg, a));
 
   const openExtrasModal = (reg) => {
@@ -8297,9 +8357,8 @@ export default function DashboardPage() {
   const memberRepLockedAddonIds = (() => {
     const held = Array.isArray(memberOwnReg?.addons) ? memberOwnReg.addons : [];
     if (!memberRepLocked || held.length === 0) return [];
-    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
     return (registerModal?.event_addons || [])
-      .filter((x) => held.some((h) => h.id === x.id || same(h.question, x.question)))
+      .filter((x) => held.some((h) => sameAddon(h, x)))
       .map((x) => x.id);
   })();
 
@@ -12389,6 +12448,18 @@ Examples:
   const [roomDeskBusy, setRoomDeskBusy] = useState(false);
   const [roomDeskManual, setRoomDeskManual] = useState('');
   const [roomGuestBusy, setRoomGuestBusy] = useState('');
+  // ---- Scan Attendee: the person first, then the room ----
+  // The other way round from the room desk: tap (or search) the attendee, see
+  // who they came with, and pick a room that fits them all.
+  const [accScanOpen, setAccScanOpen] = useState(false);
+  const [accScanRegId, setAccScanRegId] = useState('');
+  const [accScanSearch, setAccScanSearch] = useState('');
+  const [accScanSkip, setAccScanSkip] = useState(() => new Set()); // group members left out
+  const [accScanRoomId, setAccScanRoomId] = useState('');
+  const [accScanBusy, setAccScanBusy] = useState(false);
+  const [accScanMsg, setAccScanMsg] = useState(null);   // { tone, text }
+  const [accScanDone, setAccScanDone] = useState([]);     // [{ name, ok, message }]
+  const [accOccBusy, setAccOccBusy] = useState('');
 
   const loadEvtRooms = useCallback(async (eventId) => {
     if (!eventId) { setEvtRooms([]); return; }
@@ -12511,6 +12582,105 @@ Examples:
       setRoomDeskBusy(false);
     }
   }, [eventRegsModal?.id, eventRegsModal?.event_addons, roomDesk, eventRegs, userData?.id, showToast, loadEvtRoomGuests]);
+
+  // ---- Scan Attendee ----
+  const openAccScan = () => {
+    setAccScanOpen(true);
+    setAccScanRegId('');
+    setAccScanSearch('');
+    setAccScanSkip(new Set());
+    setAccScanRoomId('');
+    setAccScanMsg(null);
+    setAccScanDone([]);
+    setRfidError('');
+  };
+  const pickAccScanReg = (id) => {
+    setAccScanRegId(id);
+    setAccScanSkip(new Set());
+    setAccScanRoomId('');
+    setAccScanMsg(null);
+    setAccScanDone([]);
+  };
+
+  // A card tapped while the popup is open: whose is it? The same lookup every
+  // desk uses. An unpaid attendee is still shown - the desk wants to see who
+  // is standing there and who they came with - and is stopped at "assign".
+  const lookupAccScanCard = useCallback(async (rawUid) => {
+    const eventId = eventRegsModal?.id;
+    const uid = normalizeUid(rawUid);
+    if (!eventId || !isPlausibleUid(uid)) return;
+    setAccScanBusy(true);
+    setAccScanMsg(null);
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventId)}&uid=${encodeURIComponent(uid)}`);
+      const found = await res.json();
+      if (found.success && found.registration?.id) {
+        pickAccScanReg(found.registration.id);
+        return;
+      }
+      setAccScanMsg({ tone: 'bad', text: `${found.message || 'That card is not linked to anyone at this event.'} (UID ${formatUid(uid)})` });
+    } catch (err) {
+      setAccScanMsg({ tone: 'bad', text: err.message });
+    } finally {
+      setAccScanBusy(false);
+    }
+  }, [eventRegsModal?.id]);
+
+  // Who a room is for. Saved on the room straight away, so the next person
+  // at the desk sees it on the suggestion too.
+  const setRoomOccupancy = async (room, occupancy) => {
+    if (!room) return;
+    const next = room.occupancy === occupancy ? null : occupancy;
+    setAccOccBusy(room.id);
+    try {
+      const res = await fetch('/api/events/rooms', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: room.id, actorId: userData?.id || null, occupancy: next }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setEvtRooms((rooms) => rooms.map((r) => (r.id === room.id ? { ...r, occupancy: data.data?.occupancy ?? next } : r)));
+      showToast(next ? `${room.room_number} is now ${occupancyLabel(next)}` : `${room.room_number} label cleared`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setAccOccBusy('');
+    }
+  };
+
+  // Everybody ticked goes into the chosen room, one write each - the API is
+  // the authority on space and turn, and stops the run at the first "full".
+  const assignAccScan = async (targets, room) => {
+    const eventId = eventRegsModal?.id;
+    if (!eventId || !room || targets.length === 0) return;
+    setAccScanBusy(true);
+    setAccScanMsg(null);
+    const done = [];
+    try {
+      for (const reg of targets) {
+        const res = await fetch('/api/events/room-guests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ eventId, roomId: room.id, registrationId: reg.id, actorId: userData?.id || null }),
+        });
+        const data = await res.json();
+        done.push({ name: reg.attendee_name, ok: !!data.success, message: data.message });
+        if (!data.success) break;
+      }
+      setAccScanDone(done);
+      const okCount = done.filter((d) => d.ok).length;
+      if (okCount > 0) {
+        showToast(`${okCount} ${okCount === 1 ? 'person' : 'people'} given ${room.room_number}`, 'success');
+        setAccScanRoomId('');
+        loadEvtRoomGuests(eventId);
+      }
+    } catch (err) {
+      setAccScanMsg({ tone: 'bad', text: err.message });
+    } finally {
+      setAccScanBusy(false);
+    }
+  };
 
   // Somebody in the wrong room. One write, because a remove-then-add is two
   // and the second one gets forgotten.
@@ -12643,12 +12813,13 @@ Examples:
   useEffect(() => {
     if (evtUnlockOpen) rfidSinkRef.current = (uid) => tryUnlockTable(uid);
     else if (idRfidReg) rfidSinkRef.current = (uid) => assignIdRfid(uid);
+    else if (accScanOpen) rfidSinkRef.current = (uid) => lookupAccScanCard(uid);
     else if (roomDesk) rfidSinkRef.current = (uid) => assignRoomCard(uid);
     else if (claimDesk) rfidSinkRef.current = (uid) => lookupClaimCard(uid);
     else if (evtRfidScanOpen) rfidSinkRef.current = (uid, src) => scanEventRfid(uid, src);
     else rfidSinkRef.current = null;
     return () => { rfidSinkRef.current = null; };
-  }, [evtUnlockOpen, tryUnlockTable, idRfidReg, assignIdRfid, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid]);
+  }, [evtUnlockOpen, tryUnlockTable, idRfidReg, assignIdRfid, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid]);
 
   // The claims grid and the attendance grid for the event on screen.
   useEffect(() => {
@@ -13327,7 +13498,7 @@ Examples:
   // RFID Reader section nor an assign/scan dialog somewhere else - a port
   // closed out from under an open dialog would leave it silently dead.
   const rfidInUse = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
-    || !!roomDesk || evtUnlockOpen || !!idRfidReg;
+    || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen;
 
   // The events as the cards show them, filtered by the search box.
   const rfidVisibleEventCards = rfidEventCards.filter((ev) => {
@@ -13550,7 +13721,7 @@ Examples:
     // A wedge reader is a keyboard: listening for it costs nothing when there
     // is none, and not listening for it is indistinguishable from a broken one.
     const wanted = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
-      || !!roomDesk || evtUnlockOpen || !!idRfidReg;
+      || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen;
     if (!wanted) return undefined;
 
     const onKeyDown = (e) => {
@@ -13560,15 +13731,23 @@ Examples:
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
 
+      // One pause in the middle of a tap must not cost the digits before it.
+      // Resetting on any gap over 120ms did exactly that: the page stalled
+      // for a moment during the first tap after a dialog opened, the first
+      // digits were thrown away, and 0011179659 arrived as 79659. So the
+      // digits are kept through a pause, and the tap is judged as a whole
+      // when Enter arrives - see wedgeCapture().
       const now = Date.now();
       const state = rfidKeyRef.current;
-      if (now - state.at > 120) state.buf = '';
+      if (!state.gaps || now - state.at > WEDGE_IDLE_RESET_MS) { state.buf = ''; state.gaps = []; }
+      else if (state.buf || e.key === 'Enter') state.gaps.push(now - state.at);
       state.at = now;
 
       if (e.key === 'Enter') {
-        const captured = state.buf;
+        const captured = wedgeCapture(state.buf, state.gaps);
         state.buf = '';
-        if (isPlausibleUid(captured)) {
+        state.gaps = [];
+        if (captured) {
           e.preventDefault();
           rfidScanRef.current?.(captured, 'keyboard');
         }
@@ -13579,7 +13758,7 @@ Examples:
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg]);
+  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg, accScanOpen]);
 
   // ============================================
   // ACCOMMODATION - the rooms booked for an event
@@ -13650,8 +13829,46 @@ Examples:
     }
   }, [showToast]);
 
+  // The hotel the attendees check in to - often not the event's venue. Shown
+  // to them on their Extras page; set here by an Admin or Super Admin.
+  const [accHotel, setAccHotel] = useState({ hotel: null, address: null });
+  const [accHotelEdit, setAccHotelEdit] = useState(false);
+  const [accHotelForm, setAccHotelForm] = useState({ hotel: '', address: '' });
+  const [accHotelSaving, setAccHotelSaving] = useState(false);
+  const loadAccHotel = useCallback(async (eventId) => {
+    setAccHotel({ hotel: null, address: null });
+    if (!eventId) return;
+    try {
+      const res = await fetch(`/api/events/accommodation?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) setAccHotel(data.data || { hotel: null, address: null });
+    } catch { /* shown as not set; the next open asks again */ }
+  }, []);
+  const saveAccHotel = async () => {
+    if (!accEventId) return;
+    setAccHotelSaving(true);
+    try {
+      const res = await fetch('/api/events/accommodation', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: accEventId, actorId: userData?.id || null, hotel: accHotelForm.hotel, address: accHotelForm.address }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setAccHotel(data.data);
+      setAccHotelEdit(false);
+      showToast(data.message, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setAccHotelSaving(false);
+    }
+  };
+
   const openAccEvent = (eventId) => {
     setAccEventId(eventId);
+    setAccHotelEdit(false);
+    loadAccHotel(eventId);
     setAccTypeOpen('');
     setAccRoomPage(1);
     setAccFormOpen(false);
@@ -13852,7 +14069,20 @@ Examples:
   // type's rooms inside it. Paged either way - the safe page is recomputed
   // rather than stored, so removing the last room on page 4 lands on page 3
   // instead of an empty table.
-  const accTableRooms = accOpenGroup ? accOpenGroup.rooms : accRooms;
+  // The all-rooms table is grouped by type (stable, so the room order inside
+  // a type is kept), because each type ends in a subtotal row.
+  const accTypeKey = (r) => String(r.room_type || '').trim().toLowerCase();
+  const accTableRooms = accOpenGroup
+    ? accOpenGroup.rooms
+    : [...accRooms].sort((a, b) => accTypeKey(a).localeCompare(accTypeKey(b)));
+  // Rooms and pax per type, over the whole table - not just the page shown.
+  const accTypeTotals = accTableRooms.reduce((m, r) => {
+    const k = accTypeKey(r);
+    const t = m.get(k) || { rooms: 0, pax: 0 };
+    t.rooms += 1;
+    t.pax += Number(r.pax) || 0;
+    return m.set(k, t);
+  }, new Map());
   const accRoomPageSafe = Math.min(
     accRoomPage,
     Math.max(1, Math.ceil(accTableRooms.length / accRoomPageSize)),
@@ -14072,6 +14302,78 @@ Examples:
   const roomDeskRoom = roomDesk ? evtRooms.find((r) => r.id === roomDesk.id) || roomDesk : null;
   const roomDeskGuests = roomDeskRoom ? (evtGuestsByRoom.get(roomDeskRoom.id) || []) : [];
   const roomDeskFull = !!roomDeskRoom && roomDeskGuests.length >= (Number(roomDeskRoom.pax) || 1);
+
+  // ---- Scan Attendee: what the popup shows ----
+  const accScanReg = accScanRegId ? eventRegs.find((r) => r.id === accScanRegId) || null : null;
+  const accLive = (r) => r && r.status !== 'cancelled' && !r.deleted_at;
+  const accScanSearchHits = (() => {
+    const q = accScanSearch.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return eventRegs.filter((r) => accLive(r) && regMatchesSearch(r, q))
+      .sort((a, b) => regNameRank(a, q) - regNameRank(b, q))
+      .slice(0, 8);
+  })();
+  const accGuestOf = (regId) => evtRoomGuests.find((g) => g.registration_id === regId) || null;
+  const accRoomOf = (regId) => {
+    const g = accGuestOf(regId);
+    return g ? evtRooms.find((r) => r.id === g.room_id) || null : null;
+  };
+  const accIsRep = (r) => !!r.representative
+    && String(r.representative).trim().toLowerCase() === String(r.attendee_name || '').trim().toLowerCase();
+  // Everyone on the same booking: the whole group for a bulk registration,
+  // the one person otherwise. Representative first.
+  const accScanMembers = !accScanReg ? [] : (accScanReg.group_ref
+    ? eventRegs.filter((r) => accLive(r) && r.group_ref === accScanReg.group_ref)
+    : [accScanReg])
+    .map((r) => {
+      const entitled = roomEntitlement(r.addons, eventRegsModal?.event_addons);
+      const paid = ROOM_QUEUE_STATUSES.includes(r.status);
+      const room = accRoomOf(r.id);
+      return {
+        reg: r,
+        rep: accIsRep(r),
+        entitled,
+        paid,
+        room,
+        // Can be given a room in this go.
+        eligible: entitled.ok && paid && !room,
+      };
+    })
+    .sort((a, b) => (b.rep - a.rep) || String(a.reg.attendee_name).localeCompare(String(b.reg.attendee_name)));
+  const accScanIsBulk = !!accScanReg && (accScanReg.registration_type === 'bulk' || accScanMembers.length > 1);
+  const accScanRepName = accScanReg?.representative || null;
+  const accScanTargets = accScanMembers.filter((m) => m.eligible && !accScanSkip.has(m.reg.id)).map((m) => m.reg);
+  const accBookedAt = accScanReg
+    ? accScanMembers.reduce((t, m) => (!t || String(m.reg.created_at) < t ? String(m.reg.created_at) : t), '')
+    : '';
+
+  // Rooms worth offering, best first:
+  //   1. a room the rest of their group is already in - keep them together
+  //   2. a room with space for everybody being assigned, tightest fit first,
+  //      so a couple does not take the last four-bed room from a family
+  //   3. a Family room for a group, before an unlabelled one
+  //   4. anything else with a free bed, most space first
+  const accScanSuggestions = (() => {
+    if (!accScanReg) return [];
+    const n = Math.max(1, accScanTargets.length);
+    const groupRoomIds = new Set(accScanMembers.map((m) => m.room?.id).filter(Boolean));
+    return evtRooms
+      .map((room) => {
+        const used = (evtGuestsByRoom.get(room.id) || []).length;
+        const free = (Number(room.pax) || 1) - used;
+        return { room, used, free, fits: free >= n, together: groupRoomIds.has(room.id) };
+      })
+      .filter((x) => x.free > 0)
+      .sort((a, b) => (b.together - a.together)
+        || (b.fits - a.fits)
+        || (a.fits && b.fits ? (a.free - n) - (b.free - n) : b.free - a.free)
+        || ((n > 1 ? (a.room.occupancy === 'family' ? 0 : 1) - (b.room.occupancy === 'family' ? 0 : 1) : 0))
+        || compareRoomNumbers(a.room.room_number, b.room.room_number));
+  })();
+  const accScanRoom = accScanRoomId ? evtRooms.find((r) => r.id === accScanRoomId) || null : null;
+  const accScanRoomFree = accScanRoom
+    ? (Number(accScanRoom.pax) || 1) - (evtGuestsByRoom.get(accScanRoom.id) || []).length
+    : 0;
 
   // ---- Moving the queue on at a counter ----
   //
@@ -15604,8 +15906,7 @@ Examples:
                                 {(() => {
                                   const offered = eventRegsModal.event_addons || [];
                                   const taken = Array.isArray(r.addons) ? r.addons : [];
-                                  const has = (x) => taken.some((t) => t.id === x.id
-                                    || String(t.question || '').trim().toLowerCase() === String(x.question || '').trim().toLowerCase());
+                                  const has = (x) => taken.some((t) => sameAddon(t, x));
                                   if (offered.length === 0) return <span className="evt-cell-sub">—</span>;
                                   return (
                                     <div className="evt-extra-marks">
@@ -16596,15 +16897,58 @@ Examples:
                                 ...regChurchOptions.map((c) => ({ value: c.name, label: `${c.name} (${c.count})` })),
                               ]}
                             />
+                            <FilterSelect
+                              value={idPrinted}
+                              onChange={setIdPrinted}
+                              ariaLabel="Filter by printed"
+                              options={[
+                                { value: 'all', label: `Printed & not printed (${idBaseRows.length})` },
+                                { value: 'printed', label: `Printed (${idPrintedCount})` },
+                                { value: 'not_printed', label: `Not printed (${idBaseRows.length - idPrintedCount})` },
+                              ]}
+                            />
+                            <button
+                              type="button"
+                              className={`evt-id-printall-btn ${idPrintMode ? 'on' : ''}`}
+                              onClick={() => { setIdPrintMode((v) => !v); setIdPrintSkip(new Set()); }}
+                              aria-pressed={idPrintMode}
+                            >
+                              <i className={`fas ${idPrintMode ? 'fa-xmark' : 'fa-print'}`}></i>
+                              {idPrintMode ? ' Cancel' : ' Mark as Printed'}
+                            </button>
                           </div>
-                          {(idChurch !== 'all' || idSearch.trim()) && (
+                          {(idChurch !== 'all' || idSearch.trim() || idPrinted !== 'all') && (
                             <span className="evt-filter-count">
                               {visibleIds.length} of {eventRegs.filter((r) => r.status !== 'cancelled').length}
-                              <button type="button" onClick={() => { setIdChurch('all'); setIdSearch(''); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
+                              <button type="button" onClick={() => { setIdChurch('all'); setIdSearch(''); setIdPrinted('all'); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
                             </span>
                           )}
                         </div>
                       </div>
+
+                      {idPrintMode && (
+                        <div className="evt-id-printbar">
+                          <div className="evt-id-printbar-text">
+                            <i className="fas fa-print"></i>
+                            <span>
+                              <b>{idPrintTargets.length}</b> of {idUnprinted.length} not-printed ID{idUnprinted.length === 1 ? '' : 's'} selected
+                              {idChurch !== 'all' || idSearch.trim() ? ' (in this filtered list)' : ''}.
+                              {' '}Untick anyone whose ID was not printed.
+                            </span>
+                          </div>
+                          <div className="evt-id-printbar-acts">
+                            <button type="button" className="btn-small btn-secondary" disabled={idPrintSkip.size === 0} onClick={() => setIdPrintSkip(new Set())}>
+                              Select all
+                            </button>
+                            <button type="button" className="btn-small btn-secondary" disabled={idPrintTargets.length === 0} onClick={() => setIdPrintSkip(new Set(idUnprinted.map((r) => r.id)))}>
+                              Clear
+                            </button>
+                            <button type="button" className="btn-small btn-primary" disabled={idPrintTargets.length === 0 || idPrintBusy} onClick={markIdsPrinted}>
+                              <i className={`fas ${idPrintBusy ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> Mark {idPrintTargets.length} as Printed
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="evt-table-wrapper evt-table-steady">
                         <table className="evt-table evt-call-cards evt-id-cards">
@@ -16625,12 +16969,32 @@ Examples:
                                 <tr key={r.id}>
                                   <td className="evt-cell-name evt-call-who" data-label="Name on the ID">
                                     <div className="evt-call-who-in">
+                                      {idPrintMode && (
+                                        <input
+                                          type="checkbox"
+                                          className="evt-id-printpick"
+                                          checked={!r.id_printed_at && !idPrintSkip.has(r.id)}
+                                          disabled={!!r.id_printed_at || idPrintBusy}
+                                          onChange={() => toggleIdPrintSkip(r.id)}
+                                          title={r.id_printed_at ? 'Already printed' : 'Include in this print run'}
+                                          aria-label={`Mark ${formatPersonName(r.attendee_name)} as printed`}
+                                        />
+                                      )}
                                       <span className={`evt-ravatar g${regAvatarShade(r.attendee_name)}`} aria-hidden="true">{regInitials(r.attendee_name)}</span>
                                       <span className="evt-call-name">
-                                        {/* Last name first, the way the card prints it. */}
-                                        <b>{idLastOf(r)}</b>
-                                        <span className="evt-id-first">{idFirstOf(r)}</span>
-                                        {r.price_tier && <span className="evt-cell-sub">{r.price_tier}</span>}
+                                        {/* Last name first, the way the card prints it:
+                                            "ARANAS, Jocelyn". */}
+                                        <span className="evt-id-fullname">
+                                          <b>{String(idLastOf(r) || '').toUpperCase()}</b>
+                                          {idFirstOf(r) ? <>, {idFirstOf(r)}</> : null}
+                                        </span>
+                                        <span className="evt-id-namemeta">
+                                          <span className={`evt-id-print-tag ${r.id_printed_at ? 'done' : 'todo'}`}>
+                                            <i className={`fas ${r.id_printed_at ? 'fa-circle-check' : 'fa-print'}`}></i>
+                                            {r.id_printed_at ? ' Printed' : ' Not printed'}
+                                          </span>
+                                          {r.price_tier && <span className="evt-cell-sub">{r.price_tier}</span>}
+                                        </span>
                                       </span>
                                     </div>
                                   </td>
@@ -16663,9 +17027,6 @@ Examples:
                                         </span>
                                       </div>
                                     </div>
-                                    {r.id_printed_at && (
-                                      <span className="evt-id-printed-badge"><i className="fas fa-circle-check"></i> Printed</span>
-                                    )}
                                   </td>
                                 </tr>
                               );
@@ -16737,6 +17098,9 @@ Examples:
                                 disabled={evtRoomsLoading}
                               >
                                 <i className="fas fa-rotate"></i> Refresh
+                              </button>
+                              <button type="button" className="btn-primary" onClick={openAccScan}>
+                                <i className="fas fa-id-card"></i> Scan Attendee
                               </button>
                             </div>
                           </div>
@@ -16814,6 +17178,9 @@ Examples:
                                 <div key={r.id} className={`rmn-room ${full ? 'full' : ''} ${guests.length === 0 ? 'empty' : ''}`}>
                                   <div className="rmn-room-top">
                                     <b className="acc-num-chip">{r.room_number}</b>
+                                    {r.occupancy && (
+                                      <span className={`acc-occ-chip ${r.occupancy}`}>{occupancyLabel(r.occupancy)}</span>
+                                    )}
                                     <span className={`rmn-room-count ${full ? 'full' : ''}`}>
                                       {guests.length} / {pax} pax
                                     </span>
@@ -17371,6 +17738,269 @@ Examples:
                     <button type="button" className="btn-primary" onClick={() => setIdRfidReg(null)} disabled={idRfidBusy}>
                       {idRfidResult?.ok ? 'Done' : 'Close'}
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- Scan Attendee ----
+                 Tap or search the attendee, see who they came with, pick a
+                 room that fits them. */}
+            {accScanOpen && (
+              <div className="evt-modal-overlay" onClick={() => !accScanBusy && setAccScanOpen(false)}>
+                <div className="evt-modal evt-claim-modal acc-scan-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3><i className="fas fa-id-card"></i> Scan Attendee</h3>
+                      <p>{eventRegsModal?.title} · Accommodation</p>
+                    </div>
+                    <button type="button" className="evt-modal-close" onClick={() => setAccScanOpen(false)} disabled={accScanBusy}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+
+                  <div className="evt-modal-body">
+                    {/* ---- Find them ---- */}
+                    {!accScanReg ? (
+                      <>
+                        {renderRfidStatus()}
+                        {rfidError && (
+                          <p className="evt-rfid-hint bad"><i className="fas fa-triangle-exclamation"></i> {rfidError}</p>
+                        )}
+                        <div className={`evt-claim-who ${accScanMsg?.tone === 'bad' ? 'bad' : ''}`}>
+                          <i className={`fas ${accScanBusy ? 'fa-spinner fa-spin' : 'fa-id-card'}`}></i>
+                          <div>
+                            <b>{accScanBusy ? 'Reading the card…' : 'Tap the attendee’s ID card'}</b>
+                            <em>{accScanMsg?.text || 'Or search their name below if the card is not on hand.'}</em>
+                          </div>
+                        </div>
+                        <div className="acc-scan-search">
+                          <i className="fas fa-magnifying-glass"></i>
+                          <input
+                            className="form-control"
+                            value={accScanSearch}
+                            onChange={(e) => setAccScanSearch(e.target.value)}
+                            placeholder="Search attendee name or church"
+                            autoComplete="off"
+                            aria-label="Search attendee"
+                          />
+                        </div>
+                        {accScanSearch.trim().length >= 2 && (
+                          accScanSearchHits.length === 0 ? (
+                            <p className="evt-rfid-hint"><i className="fas fa-circle-info"></i> No one matches &ldquo;{accScanSearch.trim()}&rdquo;.</p>
+                          ) : (
+                            <ul className="acc-scan-hits">
+                              {accScanSearchHits.map((r) => {
+                                const room = accRoomOf(r.id);
+                                return (
+                                  <li key={r.id}>
+                                    <button type="button" onClick={() => pickAccScanReg(r.id)}>
+                                      <span className="acc-scan-hit-name">
+                                        <b>{formatPersonName(r.attendee_name)}</b>
+                                        <em>{formatChurchName(r.church_name) || 'No church recorded'}</em>
+                                      </span>
+                                      <span className="acc-scan-hit-tags">
+                                        <span className={`acc-scan-type ${r.group_ref ? 'bulk' : 'solo'}`}>{r.group_ref ? 'Bulk' : 'Individual'}</span>
+                                        {room && <span className="acc-num-chip">{room.room_number}</span>}
+                                      </span>
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {/* ---- Who they are ---- */}
+                        <div className="acc-scan-person">
+                          <div className="rfid-avatar">{personInitials(accScanReg.attendee_name)}</div>
+                          <div className="acc-scan-person-main">
+                            <b>{formatPersonName(accScanReg.attendee_name)}</b>
+                            <em>{formatChurchName(accScanReg.church_name) || 'No church recorded'}</em>
+                            <span className="acc-scan-person-tags">
+                              <span className={`acc-scan-type ${accScanIsBulk ? 'bulk' : 'solo'}`}>
+                                <i className={`fas ${accScanIsBulk ? 'fa-users' : 'fa-user'}`}></i>
+                                {accScanIsBulk ? ` Bulk · ${accScanMembers.length} people` : ' Individual'}
+                              </span>
+                              {accBookedAt && (
+                                <span className="acc-scan-booked">
+                                  <i className="far fa-clock"></i> Booked {new Date(accBookedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <button type="button" className="btn-small btn-secondary" onClick={() => pickAccScanReg('')} disabled={accScanBusy}>
+                            <i className="fas fa-arrow-left"></i> Scan another
+                          </button>
+                        </div>
+
+                        {/* ---- The booking: the group, or the one person ---- */}
+                        <div className="evt-claim-list">
+                          <div className="evt-claim-list-head">
+                            <b>{accScanIsBulk ? 'Group' : 'Attendee'}</b>
+                            {accScanIsBulk && accScanRepName && (
+                              <em>Representative: <b>{formatPersonName(accScanRepName)}</b></em>
+                            )}
+                          </div>
+                          <ul className="acc-scan-members">
+                            {accScanMembers.map((m) => {
+                              const picked = m.eligible && !accScanSkip.has(m.reg.id);
+                              return (
+                                <li key={m.reg.id} className={`${m.reg.id === accScanReg.id ? 'scanned' : ''} ${m.eligible ? '' : 'muted'}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={picked}
+                                    disabled={!m.eligible || accScanBusy}
+                                    onChange={() => setAccScanSkip((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(m.reg.id)) next.delete(m.reg.id); else next.add(m.reg.id);
+                                      return next;
+                                    })}
+                                    aria-label={`Give ${formatPersonName(m.reg.attendee_name)} a room`}
+                                  />
+                                  <span className="acc-scan-member-name">
+                                    <b>{formatPersonName(m.reg.attendee_name)}</b>
+                                    <em>
+                                      {[m.rep ? 'Representative' : null, m.reg.id === accScanReg.id ? 'Scanned' : null, m.reg.price_tier || null]
+                                        .filter(Boolean).join(' · ') || ' '}
+                                    </em>
+                                  </span>
+                                  <span className="acc-scan-member-state">
+                                    {m.room ? (
+                                      <span className="acc-num-chip" title={`${m.room.room_type} ${m.room.room_number}`}>{m.room.room_number}</span>
+                                    ) : !m.entitled.ok ? (
+                                      <span className="acc-scan-flag bad">No accommodation</span>
+                                    ) : !m.paid ? (
+                                      <span className="acc-scan-flag warn">Not paid yet</span>
+                                    ) : (
+                                      <span className="acc-scan-flag">Needs a room</span>
+                                    )}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+
+                        {accScanDone.length > 0 && (
+                          <ul className="acc-scan-done">
+                            {accScanDone.map((d, i) => (
+                              <li key={i} className={d.ok ? 'ok' : 'bad'}>
+                                <i className={`fas ${d.ok ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i> {d.message}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {accScanMsg && <p className="evt-rfid-hint bad"><i className="fas fa-triangle-exclamation"></i> {accScanMsg.text}</p>}
+
+                        {/* ---- Where to put them ---- */}
+                        {accScanTargets.length === 0 ? (
+                          accScanDone.length === 0 && (
+                            <p className="evt-rfid-hint">
+                              <i className="fas fa-circle-info"></i>
+                              {accScanMembers.every((m) => m.room)
+                                ? ' Everyone on this booking already has a room.'
+                                : ' Nobody here can be given a room yet — they need accommodation availed and their payment settled.'}
+                            </p>
+                          )
+                        ) : (
+                          <div className="acc-scan-rooms">
+                            <div className="evt-claim-list-head">
+                              <b>Suggested rooms</b>
+                              <em>for {accScanTargets.length} {accScanTargets.length === 1 ? 'person' : 'people'}</em>
+                            </div>
+                            {accScanSuggestions.length === 0 ? (
+                              <p className="evt-rfid-hint bad"><i className="fas fa-triangle-exclamation"></i> Every room is full.</p>
+                            ) : (
+                              <div className="acc-scan-room-grid">
+                                {accScanSuggestions.slice(0, 8).map((x) => (
+                                  <button
+                                    type="button"
+                                    key={x.room.id}
+                                    className={`acc-scan-room ${accScanRoomId === x.room.id ? 'on' : ''}`}
+                                    onClick={() => setAccScanRoomId(accScanRoomId === x.room.id ? '' : x.room.id)}
+                                  >
+                                    <span className="acc-scan-room-top">
+                                      <b className="acc-num-chip">{x.room.room_number}</b>
+                                      <em>{x.used} / {x.room.pax} pax</em>
+                                    </span>
+                                    <span className="acc-scan-room-type">{x.room.room_type}</span>
+                                    <span className="acc-scan-room-tags">
+                                      {x.room.occupancy && <span className={`acc-occ-chip ${x.room.occupancy}`}>{occupancyLabel(x.room.occupancy)}</span>}
+                                      {x.together && <span className="acc-scan-flag ok">Group is here</span>}
+                                      {x.fits
+                                        ? (accScanTargets.length > 1 && <span className="acc-scan-flag ok">Fits all {accScanTargets.length}</span>)
+                                        : <span className="acc-scan-flag warn">Only {x.free} free</span>}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {accScanSuggestions.length > 8 && (
+                              <select
+                                className="form-control acc-scan-other"
+                                value={accScanSuggestions.slice(0, 8).some((x) => x.room.id === accScanRoomId) ? '' : accScanRoomId}
+                                onChange={(e) => setAccScanRoomId(e.target.value)}
+                                aria-label="Choose another room"
+                              >
+                                <option value="">Another room with space…</option>
+                                {accScanSuggestions.slice(8).map((x) => (
+                                  <option key={x.room.id} value={x.room.id}>
+                                    {x.room.room_number} — {x.room.room_type} ({x.used}/{x.room.pax})
+                                    {x.room.occupancy ? ` · ${occupancyLabel(x.room.occupancy)}` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+
+                            {/* ---- Who the chosen room is for ---- */}
+                            {accScanRoom && (
+                              <div className="acc-scan-occ">
+                                <span>Room {accScanRoom.room_number} is for:</span>
+                                <div className="acc-scan-occ-opts">
+                                  {ROOM_OCCUPANCY.map((o) => (
+                                    <button
+                                      type="button"
+                                      key={o.value}
+                                      className={`acc-occ-btn ${o.value} ${accScanRoom.occupancy === o.value ? 'on' : ''}`}
+                                      disabled={accOccBusy === accScanRoom.id}
+                                      onClick={() => setRoomOccupancy(accScanRoom, o.value)}
+                                    >
+                                      <i className={`fas ${o.icon}`}></i> {o.label}
+                                    </button>
+                                  ))}
+                                </div>
+                                {accScanRoomFree < accScanTargets.length && (
+                                  <p className="evt-rfid-hint bad">
+                                    <i className="fas fa-triangle-exclamation"></i> Only {accScanRoomFree} free in {accScanRoom.room_number} &mdash; the first {accScanRoomFree} ticked will go in, then it stops. Untick some, or pick a bigger room.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="evt-modal-foot">
+                    <button type="button" className="btn-secondary" onClick={() => setAccScanOpen(false)} disabled={accScanBusy}>Close</button>
+                    {accScanReg && accScanTargets.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={!accScanRoom || accScanBusy}
+                        onClick={() => assignAccScan(accScanTargets, accScanRoom)}
+                      >
+                        <i className={`fas ${accScanBusy ? 'fa-spinner fa-spin' : 'fa-bed'}`}></i>
+                        {accScanRoom
+                          ? ` Put ${accScanTargets.length} in ${accScanRoom.room_number}`
+                          : ' Pick a room'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -27597,10 +28227,83 @@ Examples:
                       {(accEvent?.location || accEvent?.loc_city) && (
                         <span>
                           <i className="fas fa-location-dot"></i>
-                          {accEvent.location || accEvent.loc_city}
+                          Venue: {accEvent.location || accEvent.loc_city}
                         </span>
                       )}
                     </div>
+                  </div>
+
+                  {/* ---- Where they sleep ----
+                       Not always the venue. What is typed here is what the
+                       attendees see on their Extras page. */}
+                  <div className="acc-hotel">
+                    <div className="acc-hotel-icon"><i className="fas fa-hotel"></i></div>
+                    {!accHotelEdit ? (
+                      <>
+                        <div className="acc-hotel-text">
+                          <span className="acc-hotel-label">Hotel for check-in</span>
+                          {accHotel.hotel ? (
+                            <>
+                              <b>{accHotel.hotel}</b>
+                              {accHotel.address && <em><i className="fas fa-location-dot"></i> {accHotel.address}</em>}
+                            </>
+                          ) : (
+                            <>
+                              <b className="acc-hotel-unset">{accEvent?.location || 'Not set'}</b>
+                              <em>Not set &mdash; attendees are shown the event venue.</em>
+                            </>
+                          )}
+                        </div>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => {
+                              setAccHotelForm({ hotel: accHotel.hotel || '', address: accHotel.address || '' });
+                              setAccHotelEdit(true);
+                            }}
+                          >
+                            <i className="fas fa-pen"></i> {accHotel.hotel ? 'Edit Hotel' : 'Set Hotel'}
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <form
+                        className="acc-hotel-form"
+                        onSubmit={(e) => { e.preventDefault(); saveAccHotel(); }}
+                      >
+                        <div className="form-group">
+                          <label htmlFor="acc-hotel-name">Hotel name</label>
+                          <input
+                            id="acc-hotel-name"
+                            className="form-control"
+                            value={accHotelForm.hotel}
+                            onChange={(e) => setAccHotelForm((f) => ({ ...f, hotel: e.target.value }))}
+                            placeholder={accEvent?.location || 'e.g. Carlosta Hotel'}
+                            maxLength={160}
+                            autoFocus
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="acc-hotel-addr">Address <em>(optional)</em></label>
+                          <input
+                            id="acc-hotel-addr"
+                            className="form-control"
+                            value={accHotelForm.address}
+                            onChange={(e) => setAccHotelForm((f) => ({ ...f, address: e.target.value }))}
+                            placeholder="Street, city"
+                            maxLength={300}
+                          />
+                        </div>
+                        <p className="acc-hotel-hint">Leave the name blank to show attendees the event venue instead.</p>
+                        <div className="acc-hotel-acts">
+                          <button type="button" className="btn-secondary" onClick={() => setAccHotelEdit(false)} disabled={accHotelSaving}>Cancel</button>
+                          <button type="submit" className="btn-primary" disabled={accHotelSaving}>
+                            <i className={`fas ${accHotelSaving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> Save Hotel
+                          </button>
+                        </div>
+                      </form>
+                    )}
                   </div>
                 </div>
 
@@ -27737,10 +28440,17 @@ Examples:
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {accPagedRooms.map((r) => {
+                                  {accPagedRooms.map((r, i) => {
                                     const busy = accRoomBusy === r.id;
+                                    // The last room of its type (across the whole
+                                    // table, so a type split over two pages gets
+                                    // its subtotal once, where it ends).
+                                    const next = accTableRooms[(accRoomPageSafe - 1) * accRoomPageSize + i + 1];
+                                    const typeEnds = !next || accTypeKey(next) !== accTypeKey(r);
+                                    const tot = accTypeTotals.get(accTypeKey(r));
                                     return (
-                                      <tr key={r.id}>
+                                      <Fragment key={r.id}>
+                                      <tr>
                                         <td className="evt-cell-name evt-td-primary" data-label="Type of Room">{r.room_type}</td>
                                         <td data-label="Room Number"><span className="acc-num-chip">{r.room_number}</span></td>
                                         <td className="evt-td-center" data-label="Pax"><b>{r.pax}</b></td>
@@ -27757,6 +28467,17 @@ Examples:
                                           </button>
                                         </td>
                                       </tr>
+                                      {typeEnds && tot && (
+                                        <tr className="acc-subtotal-row">
+                                          <td colSpan={2} className="acc-subtotal-label">
+                                            <i className="fas fa-calculator"></i> {r.room_type} total
+                                            <em>{tot.rooms} {tot.rooms === 1 ? 'room' : 'rooms'}</em>
+                                          </td>
+                                          <td className="evt-td-center acc-subtotal-pax"><b>{tot.pax}</b> pax</td>
+                                          <td colSpan={3}></td>
+                                        </tr>
+                                      )}
+                                      </Fragment>
                                     );
                                   })}
                                 </tbody>

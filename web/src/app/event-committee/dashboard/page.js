@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { sameAddon } from '@/lib/addons';
 // The main dashboard's stylesheet, not a second one of our own. The committee
 // screen IS the main dashboard as far as the eye is concerned - same sidebar,
 // same hero, same tables, same modals - so it reads from the same file. A
@@ -3439,8 +3440,7 @@ export default function CommitteeDashboardPage() {
                                 {(() => {
                                   const offered = eventRegsModal.event_addons || [];
                                   const taken = Array.isArray(r.addons) ? r.addons : [];
-                                  const has = (x) => taken.some((t) => t.id === x.id
-                                    || String(t.question || '').trim().toLowerCase() === String(x.question || '').trim().toLowerCase());
+                                  const has = (x) => taken.some((t) => sameAddon(t, x));
                                   if (offered.length === 0) return <span className="evt-cell-sub">—</span>;
                                   return (
                                     <div className="evt-extra-marks">

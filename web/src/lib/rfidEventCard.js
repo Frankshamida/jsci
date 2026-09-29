@@ -17,13 +17,20 @@ const VERIFIED_STATUSES = ['registered', 'payment_verified', 'paid_pending_turno
 // card, then whether that member is on this event's list.
 export async function resolveEventCard(eventId, raw, regFields) {
   const candidates = uidCandidates(raw);
+  // More than one row can answer to the same card (two spellings of it saved
+  // before readings were normalised). maybeSingle() turns that into "nobody",
+  // so take them all and prefer the closest spelling - candidates are ordered
+  // most-likely first - then the card given out first.
+  const best = (rows) => (rows || [])
+    .sort((a, b) => candidates.indexOf(a.uid) - candidates.indexOf(b.uid)
+      || String(a.assigned_at || '').localeCompare(String(b.assigned_at || '')))[0] || null;
 
-  const { data: link } = await supabaseAdmin
+  const { data: links } = await supabaseAdmin
     .from('rfid_event_cards')
     .select('*')
     .eq('event_id', eventId)
-    .in('uid', candidates)
-    .maybeSingle();
+    .in('uid', candidates);
+  const link = best(links);
 
   if (link) {
     const { data } = await supabaseAdmin
@@ -34,11 +41,11 @@ export async function resolveEventCard(eventId, raw, regFields) {
     return { registration: data || null, result: data ? 'matched' : 'unknown' };
   }
 
-  const { data: memberCard } = await supabaseAdmin
+  const { data: memberCards } = await supabaseAdmin
     .from('rfid_cards')
     .select('*, users:user_id (id, firstname, lastname)')
-    .in('uid', candidates)
-    .maybeSingle();
+    .in('uid', candidates);
+  const memberCard = best(memberCards);
 
   if (memberCard && memberCard.is_active) {
     const { data } = await supabaseAdmin

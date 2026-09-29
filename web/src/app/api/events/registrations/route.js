@@ -5,6 +5,7 @@ import { cached, cacheInvalidate } from '@/lib/serverCache';
 import { SLOT_HOLDING_STATUSES, CASH_PENDING_STATUS } from '@/lib/eventSlots';
 import { findEventActor, canWorkEvent, actorRoleLabel, staffDeniedMessage } from '@/lib/eventCommittee';
 import { resolveCashPayment } from '@/lib/cashPayment';
+import { sameAddon } from '@/lib/addons';
 import {
   addonFeeFor, baseAmountFor, defaultTier, findTier, hasPriceTiers, isNameOnlyTier,
   registerableTiers, representativeTiers,
@@ -1065,9 +1066,10 @@ export async function POST(request) {
         || (candidates || []).find((r) => normName(r.attendee_name) === repName);
       if (target) {
         const held = Array.isArray(target.addons) ? target.addons : [];
-        const heldIds = new Set(held.map((a) => a.id));
+        // Matched on the wording too (lib/addons): a stale id on the snapshot
+        // must not let the same bed be charged twice.
         const added = (addonRows || [])
-          .filter((a) => topUpIds.includes(a.id) && !heldIds.has(a.id))
+          .filter((a) => topUpIds.includes(a.id) && !held.some((h) => sameAddon(h, a)))
           .map((a) => ({ id: a.id, question: a.question, fee: Number(a.fee) || 0 }));
         if (added.length > 0) {
           const extra = added.reduce((sum, a) => sum + a.fee, 0);
@@ -1285,6 +1287,42 @@ export async function PUT(request) {
     // an extra they forgot to avail are the committee's whole job. So those
     // three keep the Admin-only check, and everything else asks whether this
     // person may work THIS event.
+    // A whole print run marked in one go, from the ID Cards tab. Same rule as
+    // one row - may this person work the event - asked of every event the
+    // batch touches, so a list cannot smuggle in somebody else's attendees.
+    if (action === 'id_printed' && !id && Array.isArray(ids)) {
+      const wanted = [...new Set(ids.map(String).filter(Boolean))].slice(0, 2000);
+      const printed = body.printed !== false;
+      const { data: owners, error: ownErr } = await supabase
+        .from('event_registrations').select('id, event_id').in('id', wanted);
+      if (ownErr) throw ownErr;
+      const who = await findEventActor(actorId);
+      const events = [...new Set((owners || []).map((o) => o.event_id))];
+      if (events.length === 0) return NextResponse.json({ success: false, message: 'None of those registrations were found.' }, { status: 404 });
+      if (!events.every((ev) => canWorkEvent(who, ev))) {
+        return NextResponse.json({ success: false, message: staffDeniedMessage(who) }, { status: 403 });
+      }
+      const { data, error } = await supabase.from('event_registrations')
+        .update(printed
+          ? { id_printed_at: new Date().toISOString(), id_printed_by: who.id }
+          : { id_printed_at: null, id_printed_by: null })
+        .in('id', (owners || []).map((o) => o.id))
+        .select('id, id_printed_at, id_printed_by');
+      if (error) {
+        if (/id_printed|column/i.test(error.message || '')) {
+          return NextResponse.json({ success: false, message: 'Run supabase/migrations/event_id_printed.sql first.' }, { status: 500 });
+        }
+        throw error;
+      }
+      const n = (data || []).length;
+      await logAudit(who, 'event_registration_update', events[0],
+        `${printed ? 'Marked' : 'Unmarked'} ${n} ID${n === 1 ? '' : 's'} as printed`);
+      return NextResponse.json({
+        success: true, data: data || [],
+        message: `${n} ID${n === 1 ? '' : 's'} ${printed ? 'marked as printed' : 'no longer marked as printed'}`,
+      });
+    }
+
     const adminOnly = action === 'soft_delete' || action === 'restore' || action === 'edit_details';
     let actor;
     if (adminOnly) {
@@ -1637,11 +1675,10 @@ export async function PUT(request) {
         } catch { /* no age groups - everyone pays the add-on's own fee */ }
       }
       const held = Array.isArray(reg.addons) ? reg.addons : [];
-      const sameQuestion = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
       // An id on a registration can be stale (the extra was renamed or
       // re-created), so what they already hold is matched on the wording too -
       // otherwise somebody gets charged twice for the same bed.
-      const alreadyHeld = (x) => held.some((h) => h.id === x.id || sameQuestion(h.question, x.question));
+      const alreadyHeld = (x) => held.some((h) => sameAddon(h, x));
       const added = (addonRows || [])
         .filter((a) => wantedIds.includes(a.id) && !alreadyHeld(a))
         .map((a) => ({ id: a.id, question: a.question, fee: addonFeeFor(a, regTier) }));

@@ -47,12 +47,13 @@ export async function POST(request) {
     const uid = normalizeUid(raw);
 
     // Any spelling of the number finds the card it was registered under.
-    const { data: card, error: cardError } = await supabaseAdmin
+    const { data: cardRows, error: cardError } = await supabaseAdmin
       .from('rfid_cards')
       .select(`*, users:user_id (${USER_FIELDS})`)
       .in('uid', uidCandidates(raw))
-      .maybeSingle();
+      .limit(1);
     if (cardError) throw cardError;
+    const card = cardRows?.[0] || null;
 
     const result = !card ? 'unknown' : (card.is_active ? 'matched' : 'inactive');
 
