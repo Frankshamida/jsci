@@ -237,6 +237,79 @@
   .ep-days button { flex: 1 1 0; min-width: 84px; align-items: center; text-align: center; padding: 9px 8px; }
 }
 
+/* ---- Profile: the virtual ID, turned over like a real card ---- */
+.ep-profile { max-width: 420px; margin: 0 auto; }
+.ep-id-stage { position: relative; display: flex; flex-direction: column; align-items: center; padding: 10px 0 6px; }
+.ep-id-lift { width: min(320px, 100%); perspective: 1600px; }
+.ep-id-card {
+  position: relative; display: block; width: 100%; aspect-ratio: 250 / 353;
+  cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; touch-action: pan-y;
+  transform-style: preserve-3d; transform: rotateY(var(--ep-id-turn, 0deg));
+  transition: transform 0.85s cubic-bezier(0.45, 0.05, 0.25, 1);
+}
+.ep-id-card:focus-visible .ep-id-face { box-shadow: 0 0 0 3px var(--ep-gold-2), 0 18px 40px rgba(60,20,0,0.28); }
+.ep-id-face {
+  position: absolute; inset: 0; border-radius: 16px; overflow: hidden; background: #7a0c10;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  box-shadow: 0 18px 40px rgba(60,20,0,0.28), 0 3px 8px rgba(0,0,0,0.12);
+}
+.ep-id-face canvas { display: block; width: 100%; height: 100%; }
+/* A soft sheen across the card, like a laminated ID. */
+.ep-id-face::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(125deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0) 70%, rgba(255,255,255,0.08) 100%);
+}
+.ep-id-back { transform: rotateY(180deg); }
+.ep-id-wait { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 16px; background: rgba(122,12,16,0.85); color: #fff; }
+.ep-id-shadow {
+  width: min(250px, 78%); height: 16px; margin-top: 14px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(60,30,0,0.22), rgba(60,30,0,0));
+}
+.ep-id-dots { display: flex; justify-content: center; gap: 6px; margin: 6px 0 8px; }
+.ep-id-dots span { width: 7px; height: 7px; border-radius: 999px; background: var(--ep-line); transition: width 0.3s, background 0.3s; }
+.ep-id-dots span.active { width: 20px; background: var(--ep-gold); }
+.ep-id-hint { margin: 0 0 16px; text-align: center; font-size: 0.85rem; color: var(--ep-muted); }
+.ep-id-hint i { margin-right: 4px; color: var(--ep-gold); }
+.ep-id-actions { display: flex; justify-content: center; }
+.ep-id-actions .ep-btn { width: min(320px, 100%); justify-content: center; }
+/* View only: no selecting, no long-press "Save image", no dragging it out. */
+.ep-id-protected, .ep-id-protected * {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none;
+}
+.ep-id-lift { position: relative; }
+.ep-id-card { transition: transform 0.85s cubic-bezier(0.45, 0.05, 0.25, 1), filter 0.15s; }
+.ep-id-card.is-covered { filter: blur(22px) brightness(0.4); }
+.ep-id-cover {
+  position: absolute; inset: 0; z-index: 2; border-radius: 16px; display: grid; place-content: center; gap: 8px;
+  text-align: center; color: #fff; font-weight: 700; background: linear-gradient(160deg, #3a0508, #7a0c10);
+}
+.ep-id-cover i { font-size: 1.8rem; opacity: 0.85; }
+/* Over everything - grid, full view, story picker - the moment the page
+   leaves the front or a screenshot key is pressed. No fade: it must be instant. */
+.ep-screen-cover {
+  position: fixed; inset: 0; z-index: 1000; display: grid; place-content: center; gap: 10px;
+  text-align: center; color: #fff; font-weight: 700; font-size: 1.05rem;
+  background: linear-gradient(160deg, #1b1206, #3a2a0a);
+}
+.ep-screen-cover i { font-size: 2.2rem; opacity: 0.85; }
+/* Nothing to print either. */
+@media print {
+  .ep-profile, .ep-photos { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ep-id-card { transition-duration: 0.01s; }
+}
+/* The Profile tab slides in once the password or card has unlocked. */
+.ep-tabs a.ep-tab-new { animation: ep-tab-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes ep-tab-in { from { opacity: 0; transform: translateX(-10px) scale(0.92); } to { opacity: 1; transform: none; } }
+/* Three tabs on a narrow phone: the icon over the word, so all three fit. */
+@media (max-width: 400px) {
+  .ep-tabs { gap: 4px; padding: 8px 10px; }
+  .ep-tabs a { flex-direction: column; gap: 3px; padding: 8px 4px; font-size: 0.8rem; }
+  .ep-tabs a i { font-size: 1rem; }
+  .ep-id-lift { width: min(290px, 100%); }
+}
+
 /* ---- Story maker: pick photos, get a 9:16 story in the ID's red ---- */
 .ep-photos-actions { display: flex; align-items: center; gap: 14px; }
 .ep-btn-story { background: linear-gradient(135deg, #8c0f16, #d4262f); box-shadow: 0 4px 14px rgba(179,18,27,0.3); }
@@ -298,6 +371,8 @@
 .ep-swatch { width: 14px; height: 14px; border-radius: 50%; display: inline-block; border: 1.5px solid rgba(0,0,0,0.15); }
 .ep-swatch-red { background: linear-gradient(135deg, #5a0006, #d4262f); }
 .ep-swatch-white { background: #fff; box-shadow: inset 0 0 0 3px #d4262f; }
+.ep-swatch-crown { background: url('/Template_Generator/parts/emblem.png') center / 80% no-repeat, #fff; box-shadow: inset 0 0 0 1.5px #d4262f; }
+.ep-swatch-classic { background: radial-gradient(circle at 35% 35%, #fff 0 22%, #e0323b 23% 60%, #7a0a10 100%); }
 .ep-story-check { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
 .ep-story-check input { width: 18px; height: 18px; accent-color: #d4262f; }
 .ep-story-hint { margin: 0; font-size: 0.85rem; color: var(--ep-muted); }
@@ -352,3 +427,7 @@
 .dark-mode .ep-foot-sub { color: #FFC300; }
 .dark-mode .ep-story-head .ep-lb-close { background: rgba(255,255,255,0.1); }
 .dark-mode .ep-pickbar { box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
+.dark-mode .ep-id-dots span { background: #3a3326; }
+.dark-mode .ep-id-dots span.active { background: #e0b44a; }
+.dark-mode .ep-id-hint i { color: #e0b44a; }
+.dark-mode .ep-id-shadow { background: radial-gradient(closest-side, rgba(0,0,0,0.5), rgba(0,0,0,0)); }

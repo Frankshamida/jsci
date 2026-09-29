@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { limit, tooManyRequests } from '@/lib/rateLimiter';
 import { supabase } from '@/lib/supabase';
 import bcrypt from 'bcryptjs';
 
@@ -8,6 +9,11 @@ export async function POST(request) {
 
     if (!username || !answer) {
       return NextResponse.json({ success: false, message: 'Username and answer are required' }, { status: 400 });
+    }
+
+    const attempt = await limit(`security-answer:${String(username).trim().toLowerCase()}`, 5, 15 * 60 * 1000, { shared: true });
+    if (!attempt.allowed) {
+      return tooManyRequests(attempt.retryAfterSec, 'Too many attempts. Please wait a few minutes and try again.');
     }
 
     const { data: user, error } = await supabase

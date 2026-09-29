@@ -6,14 +6,17 @@ import {
 } from '@/lib/eventPublic';
 import { normalizeUid, isPlausibleUid } from '@/lib/rfid';
 import {
-  STORY_H, STORY_LOGO_SRC, STORY_MAX, STORY_POS, STORY_THEMES, STORY_W, STORY_ZOOM_MAX,
-  drawStory, loadStoryFonts, loadStoryImage, storyLayouts, storyPan, storyPhotoUrl, storySlotAt, storySlots, storyZoom,
+  STORY_H, STORY_LOGO_SRC, STORY_MAX, STORY_POS, STORY_THEMES, STORY_VIDEO_MAX_S, STORY_VIDEO_SRC, STORY_W, STORY_ZOOM_MAX,
+  canRecordStory, recordStory,
+  drawStory, loadStoryArt, loadStoryFonts, loadStoryImage, storyLayouts, storyThemes, storyPan, storyPhotoUrl, storySlotAt, storySlots, storyZoom,
 } from '@/lib/storyCard';
+import { drawIdBack, drawIdFront, idQrText } from '@/lib/idCard';
 
 // The page an attendee's ID QR opens: /events/cebu-miracle-working-god.
 //
 //   Programme     the default view, open to anyone with the link
 //   Event Photos  behind the attendee's password (LASTNAME@2026) or RFID card
+//   Profile       the attendee's virtual ID, front and back - the same unlock
 //
 // The QR carries ?t=<code>, the attendee's own code. It is remembered per
 // event, so switching tabs or coming back later still says their name, and it
@@ -40,10 +43,13 @@ function useDarkMode() {
   return [dark, toggle];
 }
 
+const VIEWS = ['photos', 'profile'];
 const viewPath = (slug, view, code) => {
-  const base = `/events/${slug}${view === 'photos' ? '/photos' : ''}`;
+  const base = `/events/${slug}${VIEWS.includes(view) ? `/${view}` : ''}`;
   return code ? `${base}?t=${encodeURIComponent(code)}` : base;
 };
+// Which tab an address is: /events/<slug>[/photos|/profile].
+const viewOf = (pathname) => VIEWS.find((v) => pathname.endsWith(`/${v}`)) || 'programme';
 
 // "Fri, Oct 2 - Sun, Oct 4, 2026", from the event's wall-clock dates.
 const dateRange = (evt) => {
@@ -82,8 +88,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
         if (!live) return;
         // Their ID belongs to another event: go to their own event's page.
         if (data.redirect) {
-          const photos = window.location.pathname.endsWith('/photos');
-          window.location.replace(viewPath(data.redirect, photos ? 'photos' : 'programme', t));
+          window.location.replace(viewPath(data.redirect, viewOf(window.location.pathname), t));
           return;
         }
         if (!data.success) { setLoadError(data.message || 'Event not found'); return; }
@@ -95,7 +100,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
 
   // Tabs change the address without reloading, and Back goes back a tab.
   useEffect(() => {
-    const onPop = () => setView(window.location.pathname.endsWith('/photos') ? 'photos' : 'programme');
+    const onPop = () => setView(viewOf(window.location.pathname));
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -112,11 +117,17 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
   const nameKey = `evt-name:${slug}`;
   const [unlockedName, setUnlockedName] = useState('');
   const [forgotten, setForgotten] = useState(false);
+  // Unlocked with the password or card: only then is there a Profile tab.
+  // null until the browser has been asked, so /profile is not sent away early.
+  const [unlocked, setUnlocked] = useState(null);
   useEffect(() => {
-    if (store.get(`evt-pass:${slug}`)) setUnlockedName(store.get(nameKey) || '');
+    const has = !!store.get(`evt-pass:${slug}`);
+    setUnlocked(has);
+    if (has) setUnlockedName(store.get(nameKey) || '');
   }, [slug, nameKey]);
   const onUnlockedName = useCallback((name, unlockedCode) => {
     setForgotten(false);
+    setUnlocked(true);
     setUnlockedName(name || '');
     if (name) store.set(nameKey, name); else store.del(nameKey);
     // Somebody other than the QR's holder unlocked on this phone: remember
@@ -127,6 +138,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
     }
   }, [nameKey, slug]);
   const onLocked = useCallback(() => {
+    setUnlocked(false);
     setUnlockedName('');
     setForgotten(true);
     store.del(nameKey);
@@ -134,6 +146,13 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
     store.del(`evt-code:${slug}`);
     setCode('');
   }, [nameKey, slug]);
+  // /profile while locked (an old link, or Lock pressed there): the photos'
+  // unlock first, and the Profile tab appears once it is done.
+  useEffect(() => {
+    if (unlocked !== false || view !== 'profile') return;
+    window.history.replaceState(null, '', viewPath(slug, 'photos', code));
+    setView('photos');
+  }, [unlocked, view, slug, code]);
   const guestName = unlockedName || (forgotten ? '' : info?.guest?.name) || '';
 
   if (loadError) {
@@ -201,12 +220,21 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
         >
           <i className="fas fa-images"></i> Event Photos
         </a>
+        {unlocked && (
+          <a
+            href={viewPath(slug, 'profile', code)}
+            className={`ep-tab-new ${view === 'profile' ? 'active' : ''}`}
+            onClick={(e) => { e.preventDefault(); go('profile'); }}
+          >
+            <i className="fas fa-id-badge"></i> Profile
+          </a>
+        )}
       </nav>
 
       <section className="ep-body">
-        {view === 'programme'
-          ? <Programme event={event} items={info.programme} />
-          : <Photos event={event} slug={slug} code={code} year={info.passwordYear} name={guestName} onName={onUnlockedName} onLock={onLocked} />}
+        {view === 'programme' && <Programme event={event} items={info.programme} />}
+        {view === 'photos' && <Photos event={event} slug={slug} code={code} year={info.passwordYear} name={guestName} onName={onUnlockedName} onLock={onLocked} />}
+        {view === 'profile' && unlocked && <Profile slug={slug} code={code} year={info.passwordYear} onName={onUnlockedName} onLock={onLocked} />}
       </section>
 
       {/* The same lockup as the top of the dashboard sidebar. */}
@@ -351,6 +379,9 @@ function Photos({ event, slug, code, year, name, onName, onLock }) {
     return cur.length >= STORY_MAX ? cur : [...cur, id];
   });
   const stopPicking = () => { setPicking(false); setPicked([]); };
+  // The grid, the full view and the picker are all covered for screenshots.
+  const covered = useScreenGuard();
+  const block = (e) => e.preventDefault();
 
   useEffect(() => { setPass(store.get(passKey) || ''); }, [passKey]);
 
@@ -410,7 +441,13 @@ function Photos({ event, slug, code, year, name, onName, onLock }) {
   if (!photos) return <div className="ep-loading"><span className="ep-spinner" /> Loading photos…</div>;
 
   return (
-    <div className="ep-photos">
+    <div className="ep-photos ep-id-protected" onContextMenu={block} onDragStart={block}>
+      {covered && (
+        <div className="ep-screen-cover" aria-hidden="true">
+          <i className="fas fa-eye-slash"></i>
+          <span>Photos hidden</span>
+        </div>
+      )}
       <div className="ep-photos-bar">
         {picking ? (
           <p>Pick up to <strong>{STORY_MAX}</strong> photos for your story</p>
@@ -490,7 +527,12 @@ function Photos({ event, slug, code, year, name, onName, onLock }) {
   );
 }
 
-function Unlock({ slug, code, year, onUnlocked }) {
+function Unlock({
+  slug, code, year, onUnlocked,
+  icon = 'fa-lock', title = 'Event Photos',
+  sub = 'For attendees only. Unlock with your password or your RFID card.',
+  cta = 'Open Photos',
+}) {
   const [mode, setMode] = useState('password');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -584,9 +626,9 @@ function Unlock({ slug, code, year, onUnlocked }) {
 
   return (
     <div className="ep-lock">
-      <div className="ep-lock-icon"><i className="fas fa-lock"></i></div>
-      <h2>Event Photos</h2>
-      <p className="ep-lock-sub">For attendees only. Unlock with your password or your RFID card.</p>
+      <div className="ep-lock-icon"><i className={`fas ${icon}`}></i></div>
+      <h2>{title}</h2>
+      <p className="ep-lock-sub">{sub}</p>
 
       <div className="ep-seg" role="tablist">
         <button type="button" className={mode === 'password' ? 'active' : ''} onClick={() => { setMode('password'); setError(''); }}>
@@ -620,7 +662,7 @@ function Unlock({ slug, code, year, onUnlocked }) {
                 : <>Your last name in CAPITAL letters, then <b>@{year}</b> — e.g. Juan Dela Cruz: <b>DELACRUZ@{year}</b></>}
           </p>
           <button type="submit" className="ep-btn" disabled={busy || !password.trim()}>
-            {busy ? <span className="ep-spinner" /> : <i className="fas fa-unlock"></i>} Open Photos
+            {busy ? <span className="ep-spinner" /> : <i className="fas fa-unlock"></i>} {cta}
           </button>
         </form>
       ) : (
@@ -655,6 +697,232 @@ function Unlock({ slug, code, year, onUnlocked }) {
   );
 }
 
+// ============================================================
+// Profile - the attendee's virtual ID, the same card the desk prints
+// (lib/idCard.js). Tap or swipe and it turns over, always left to right.
+// View only: it cannot be saved from here.
+// ============================================================
+
+// The site the QR on the back points at - the same as the printed ID.
+const siteOrigin = () => (process.env.NEXT_PUBLIC_SITE_URL || window.location.origin).replace(/\/+$/, '');
+
+// Drawn at 4x and shown at up to 320px wide: crisp on high-density phones.
+const ID_PREVIEW_SCALE = 4;
+
+function Profile({ slug, code, year, onName, onLock }) {
+  const passKey = `evt-pass:${slug}`;
+  const [pass, setPass] = useState(null); // null until the browser has been asked
+  const [names, setNames] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => { setPass(store.get(passKey) || ''); }, [passKey]);
+
+  useEffect(() => {
+    if (!pass) { setNames(null); return undefined; }
+    let live = true;
+    setError('');
+    fetch(`/api/events/public/profile?slug=${encodeURIComponent(slug)}`, { headers: { 'x-event-pass': pass } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!live) return;
+        if (data.locked) { store.del(passKey); setPass(''); onLock(); return; }
+        if (!data.success) { setError(data.message || 'Could not load your ID.'); return; }
+        setNames({ firstName: data.firstName, lastName: data.lastName });
+      })
+      .catch(() => live && setError('Could not load your ID. Check your connection.'));
+    return () => { live = false; };
+  }, [pass, slug, passKey, onLock]);
+
+  const unlocked = (result) => {
+    store.set(passKey, result.pass);
+    onName(result.name || '', result.code || '');
+    setPass(result.pass);
+  };
+
+  // Locks the photos too: it is one unlock for both.
+  const lock = () => {
+    onLock();
+    store.del(passKey);
+    try { window.sessionStorage.removeItem(`evt-photos:${slug}`); } catch { /* ignore */ }
+    setPass('');
+  };
+
+  if (pass === null) return <div className="ep-loading"><span className="ep-spinner" /> Loading…</div>;
+  if (!pass) {
+    return (
+      <Unlock
+        slug={slug} code={code} year={year} onUnlocked={unlocked}
+        icon="fa-id-badge" title="Your Virtual ID"
+        sub="Unlock with your password or your RFID card to see your ID."
+        cta="Show My ID"
+      />
+    );
+  }
+  if (error) return <div className="ep-empty"><i className="fas fa-triangle-exclamation"></i><p>{error}</p></div>;
+  if (!names) return <div className="ep-loading"><span className="ep-spinner" /> Loading your ID…</div>;
+
+  return <VirtualId slug={slug} names={names} onLock={lock} />;
+}
+
+// A web page cannot stop the phone's own screenshot buttons. What it can do:
+// no saving the card or photos (no long-press / right-click / drag), nothing
+// to print, and them covered whenever the page is not in front - the app switcher,
+// a snipping tool taking focus, Print Screen - so those catch a blank screen.
+function useScreenGuard() {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let timer = null;
+    let until = 0; // a longer cover already running is never cut short
+    const cover = (ms) => {
+      setHidden(true);
+      if (!ms) { clearTimeout(timer); until = Infinity; return; }
+      const end = Date.now() + ms;
+      if (until !== Infinity && end <= until) return;
+      clearTimeout(timer);
+      until = end;
+      timer = setTimeout(() => { until = 0; setHidden(false); }, ms);
+    };
+    const show = () => { clearTimeout(timer); until = 0; setHidden(false); };
+    const isMeta = (e) => e.key === 'Meta' || e.key === 'OS';
+    const onVisibility = () => (document.hidden ? cover() : show());
+    const onBlur = () => cover();
+    const onFocus = () => show();
+    const onKeyDown = (e) => {
+      // The Windows / Cmd key comes first in Win+Shift+S and Cmd+Shift+3/4/5,
+      // so everything is covered while it is held - before the tool opens.
+      if (isMeta(e)) { cover(); return; }
+      if (e.metaKey && e.shiftKey) { cover(4000); return; }
+      if (e.key === 'PrintScreen') snapped();
+    };
+    const onKeyUp = (e) => {
+      if (isMeta(e)) { until = 0; cover(900); return; }
+      if (e.key === 'PrintScreen') snapped();
+    };
+    // Windows only reports Print Screen as it is let go: cover, and replace
+    // what it put on the clipboard, where the browser allows it.
+    const snapped = () => {
+      cover(1500);
+      navigator.clipboard?.writeText?.('').catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+  return hidden;
+}
+
+function VirtualId({ slug, names, onLock }) {
+  const frontRef = useRef(null);
+  const backRef = useRef(null);
+  const liftRef = useRef(null);
+  const touch = useRef(null);
+  const [ready, setReady] = useState(false);
+  const [turns, setTurns] = useState(0);
+  const [error, setError] = useState('');
+  const covered = useScreenGuard();
+  const qrText = useMemo(() => idQrText({ origin: siteOrigin(), eventSlug: slug }), [slug]);
+  const showingBack = turns % 2 === 1;
+
+  useEffect(() => {
+    let live = true;
+    setReady(false);
+    Promise.all([
+      drawIdFront(frontRef.current, names, ID_PREVIEW_SCALE),
+      drawIdBack(backRef.current, { qrText, logo: true }, ID_PREVIEW_SCALE),
+    ])
+      .then(() => live && setReady(true))
+      .catch((e) => live && setError(e.message || 'Could not draw your ID.'));
+    return () => { live = false; };
+  }, [names, qrText]);
+
+  // Every turn goes the same way - the left edge swings over to the right -
+  // and the card lifts off the page while it turns.
+  const flip = () => {
+    setTurns((t) => t + 1);
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    liftRef.current?.animate?.(
+      [
+        { transform: 'translateY(0) scale(1)' },
+        { transform: 'translateY(-10px) scale(1.05)', offset: 0.45 },
+        { transform: 'translateY(0) scale(1)' },
+      ],
+      { duration: 850, easing: 'ease-in-out' },
+    );
+  };
+
+  // A sideways swipe turns it as well; a tap is the card's own click.
+  const onTouchStart = (e) => { const t = e.touches[0]; touch.current = { x: t.clientX, y: t.clientY }; };
+  const onTouchEnd = (e) => {
+    const start = touch.current;
+    touch.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x, dy = t.clientY - start.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { e.preventDefault(); flip(); }
+  };
+
+  const block = (e) => e.preventDefault();
+
+  return (
+    <div className="ep-profile ep-id-protected" onContextMenu={block} onDragStart={block}>
+      <div className="ep-photos-bar">
+        <p><strong>Your Virtual ID</strong></p>
+        <button type="button" className="ep-link" onClick={onLock}><i className="fas fa-lock"></i> Lock</button>
+      </div>
+
+      <div className="ep-id-stage">
+        <div className="ep-id-lift" ref={liftRef}>
+          <div
+            role="button"
+            tabIndex={0}
+            className={`ep-id-card ${covered ? 'is-covered' : ''}`}
+            style={{ '--ep-id-turn': `${turns * 180}deg` }}
+            onClick={flip}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } }}
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+            aria-label={showingBack ? 'ID back with QR code. Tap to see the front.' : 'ID front. Tap to see the back.'}
+          >
+            <span className="ep-id-face ep-id-front"><canvas ref={frontRef} /></span>
+            <span className="ep-id-face ep-id-back"><canvas ref={backRef} /></span>
+            {!ready && !error && <span className="ep-id-wait"><span className="ep-spinner" /></span>}
+          </div>
+          {covered && (
+            <div className="ep-id-cover" aria-hidden="true">
+              <i className="fas fa-eye-slash"></i>
+              <span>ID hidden</span>
+            </div>
+          )}
+        </div>
+        <div className="ep-id-shadow" aria-hidden="true" />
+      </div>
+
+      <div className="ep-id-dots" aria-hidden="true">
+        <span className={showingBack ? '' : 'active'} />
+        <span className={showingBack ? 'active' : ''} />
+      </div>
+      <p className="ep-id-hint"><i className="fas fa-hand-pointer"></i> Tap or swipe the card to see the {showingBack ? 'front' : 'back'}</p>
+
+      <div className="ep-id-actions">
+        <button type="button" className="ep-btn ep-btn-ghost" onClick={flip}>
+          <i className="fas fa-rotate"></i> Flip
+        </button>
+      </div>
+      {error && <p className="ep-error"><i className="fas fa-circle-exclamation"></i> {error}</p>}
+    </div>
+  );
+}
+
 // Loaded once per page: a photo seen before opens from the browser's memory.
 const preloaded = new Set();
 const preload = (url) => {
@@ -681,17 +949,29 @@ const storyImage = (src) => {
 function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
   const canvasRef = useRef(null);
   const [order, setOrder] = useState(photos);
-  const layouts = storyLayouts(photos.length);
+  const themes = storyThemes(event);
+  // The conference artwork is only fetched for the event it belongs to.
+  const hasArt = themes !== STORY_THEMES;
+  const [theme, setTheme] = useState(themes[0].key);
+  const layouts = storyLayouts(photos.length, theme);
   const [layout, setLayout] = useState(layouts[0].key);
-  const [theme, setTheme] = useState('red');
   const [showName, setShowName] = useState(!!name);
-  const [assets, setAssets] = useState(null); // { logo, byId: { [photoId]: img } }
+  const [assets, setAssets] = useState(null); // { logo, art, byId: { [photoId]: img } }
   // Where each photo sits in its box, by photo id - so it keeps its place
   // when the photos swap boxes or the layout changes.
   const [pos, setPos] = useState({});
   const [active, setActive] = useState(-1);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  // Background: the theme's own ('design'), or the hero video ('video'),
+  // which makes the saved story a video.
+  const [bg, setBg] = useState('design');
+  const [videoReady, setVideoReady] = useState(false);
+  const [recorded, setRecorded] = useState(null); // the last video made, until something changes
+  const [progress, setProgress] = useState(0);
+  const videoRef = useRef(null);
+  const recordingRef = useRef(false);
+  const canVideo = typeof window !== 'undefined' && canRecordStory();
 
   useEffect(() => {
     let live = true;
@@ -699,19 +979,21 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
       loadStoryFonts(),
       storyImage(STORY_LOGO_SRC),
       Promise.all(photos.map((p) => storyImage(storyPhotoUrl(p)))),
-    ]).then(([, logo, images]) => {
+      hasArt ? loadStoryArt() : null,
+    ]).then(([, logo, images, art]) => {
       if (!live) return;
       if (images.every((img) => !img)) setError('Could not load the photos. Check your connection and try again.');
-      setAssets({ logo, byId: Object.fromEntries(photos.map((p, i) => [p.id, images[i]])) });
+      setAssets({ logo, art, byId: Object.fromEntries(photos.map((p, i) => [p.id, images[i]])) });
     });
     return () => { live = false; };
-  }, [photos]);
+  }, [photos, hasArt]);
 
-  const slots = storySlots(order.length, layout);
+  const slots = storySlots(order.length, layout, theme);
   const images = assets ? order.map((p) => assets.byId[p.id] || null) : [];
   const positions = order.map((p) => pos[p.id] || STORY_POS);
+  const video = bg === 'video' && videoReady ? videoRef.current : null;
   const drawOpts = (ring) => ({
-    images, logo: assets?.logo, theme, event, layout, positions, active: ring, name: showName ? name : '',
+    images, logo: assets?.logo, art: assets?.art, video, theme, event, layout, positions, active: ring, name: showName ? name : '',
   });
 
   // Redrawn at most once a frame, however fast a finger moves.
@@ -721,9 +1003,57 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
   useEffect(() => {
     if (!assets || !canvasRef.current) return undefined;
     cancelAnimationFrame(frame.current);
-    frame.current = requestAnimationFrame(() => canvasRef.current && drawStory(canvasRef.current, latest.current));
+    frame.current = requestAnimationFrame(() => {
+      if (canvasRef.current && !recordingRef.current) drawStory(canvasRef.current, latest.current);
+    });
     return () => cancelAnimationFrame(frame.current);
   });
+
+  // The video background: loaded when chosen, muted and looping in the preview.
+  useEffect(() => {
+    if (bg !== 'video') return undefined;
+    const v = document.createElement('video');
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.setAttribute('playsinline', '');
+    v.setAttribute('muted', '');
+    const onReady = () => setVideoReady(true);
+    const onError = () => {
+      setError('Could not load the video background. Check your connection and try again.');
+      setBg('design');
+    };
+    v.addEventListener('loadeddata', onReady);
+    v.addEventListener('error', onError);
+    v.src = STORY_VIDEO_SRC;
+    videoRef.current = v;
+    v.play().catch(() => {});
+    return () => {
+      v.removeEventListener('loadeddata', onReady);
+      v.removeEventListener('error', onError);
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+      videoRef.current = null;
+      setVideoReady(false);
+    };
+  }, [bg]);
+
+  // While the video plays, the preview is redrawn every frame.
+  useEffect(() => {
+    if (!assets || !video) return undefined;
+    let id = 0;
+    const loop = () => {
+      if (canvasRef.current && !recordingRef.current) drawStory(canvasRef.current, latest.current);
+      id = requestAnimationFrame(loop);
+    };
+    id = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+  }, [assets, video]);
+
+  // A video made earlier no longer matches once anything on the story changes.
+  useEffect(() => { setRecorded(null); }, [bg, theme, layout, order, pos, showName]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -822,19 +1152,48 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
     } catch (e) { reject(e); }
   });
 
+  // Records the story with its video background, straight off the preview.
+  const makeVideo = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    setBusy('record');
+    setError('');
+    setActive(-1);
+    recordingRef.current = true;
+    try {
+      const file = await recordStory({
+        canvas: canvasRef.current,
+        video: videoRef.current,
+        render: (c) => drawStory(c, { ...latest.current, active: -1 }),
+        name: `${slug}-story`,
+        onProgress: (t) => setProgress(t),
+      });
+      setRecorded(file);
+    } catch {
+      setError('Could not make the video here. Try again, or save it as a photo instead.');
+    } finally {
+      recordingRef.current = false;
+      setProgress(0);
+      setBusy('');
+      videoRef.current?.play().catch(() => {});
+    }
+  };
+
+  const saveFile = (file) => {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  };
+
   const download = async () => {
     setBusy('download');
     setError('');
     try {
-      const file = await toFile();
-      const url = URL.createObjectURL(file);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      saveFile(await toFile());
     } catch {
       setError('Could not save the story. Please try again.');
     } finally {
@@ -844,14 +1203,17 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
 
   // On a phone this opens the share sheet, where Instagram and Facebook
   // offer "Story" straight away.
-  const canShare = typeof navigator !== 'undefined' && !!navigator.canShare
-    && navigator.canShare({ files: [new File([''], 'x.jpg', { type: 'image/jpeg' })] });
-  const share = async () => {
+  const canShareType = (type, ext) => typeof navigator !== 'undefined' && !!navigator.canShare
+    && navigator.canShare({ files: [new File([''], `x.${ext}`, { type })] });
+  const canShare = canShareType('image/jpeg', 'jpg');
+  const canShareVideo = !!recorded && canShareType(recorded.type, recorded.name.split('.').pop());
+  // `file` is a video already made - the share sheet must open straight from
+  // the tap, and a recording takes longer than a browser lets a tap last.
+  const share = async (file) => {
     setBusy('share');
     setError('');
     try {
-      const file = await toFile();
-      await navigator.share({ files: [file], title: event?.title || 'Event story' });
+      await navigator.share({ files: [file || await toFile()], title: event?.title || 'Event story' });
     } catch (e) {
       if (e?.name !== 'AbortError') setError('Sharing did not work here. Download the story, then post it from your gallery.');
     } finally {
@@ -933,7 +1295,7 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
             </div>
             <p className="ep-story-label">Style</p>
             <div className="ep-seg">
-              {STORY_THEMES.map((t) => (
+              {themes.map((t) => (
                 <button
                   type="button"
                   key={t.key}
@@ -944,6 +1306,20 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
                 </button>
               ))}
             </div>
+            {canVideo && (
+              <>
+                <p className="ep-story-label">Background</p>
+                <div className="ep-seg">
+                  <button type="button" className={bg === 'design' ? 'active' : ''} onClick={() => setBg('design')} disabled={busy === 'record'}>
+                    <i className="fas fa-image"></i> Design
+                  </button>
+                  <button type="button" className={bg === 'video' ? 'active' : ''} onClick={() => setBg('video')} disabled={busy === 'record'}>
+                    <i className="fas fa-film"></i> Video
+                  </button>
+                </div>
+                {bg === 'video' && !videoReady && <p className="ep-story-hint"><span className="ep-spinner" /> Loading the video…</p>}
+              </>
+            )}
             {name && (
               <label className="ep-story-check">
                 <input type="checkbox" checked={showName} onChange={(e) => setShowName(e.target.checked)} />
@@ -955,19 +1331,48 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
                 <i className="fas fa-shuffle"></i> Swap photo places
               </button>
             )}
-            <p className="ep-story-hint">9:16 — the size of an Instagram or Facebook story.</p>
+            <p className="ep-story-hint">
+              {bg === 'video'
+                ? `9:16 video, up to ${STORY_VIDEO_MAX_S} seconds. Making it takes as long as the video plays - keep this screen open.`
+                : '9:16 — the size of an Instagram or Facebook story.'}
+            </p>
             {error && <p className="ep-error">{error}</p>}
-            <div className="ep-story-actions">
-              {canShare && (
-                <button type="button" className="ep-btn ep-btn-story" onClick={share} disabled={!ready || !!busy}>
-                  {busy === 'share' ? <span className="ep-spinner" /> : <i className="fas fa-share-nodes"></i>} Share to Story
+            {bg === 'video' ? (
+              <div className="ep-story-actions">
+                {!recorded ? (
+                  <button type="button" className="ep-btn ep-btn-story" onClick={makeVideo} disabled={!ready || !video || !!busy}>
+                    {busy === 'record'
+                      ? <><span className="ep-spinner" /> Making video… {Math.floor(progress)}s</>
+                      : <><i className="fas fa-video"></i> Create video</>}
+                  </button>
+                ) : (
+                  <>
+                    {canShareVideo && (
+                      <button type="button" className="ep-btn ep-btn-story" onClick={() => share(recorded)} disabled={!!busy}>
+                        {busy === 'share' ? <span className="ep-spinner" /> : <i className="fas fa-share-nodes"></i>} Share to Story
+                      </button>
+                    )}
+                    <button type="button" className={`ep-btn ${canShareVideo ? 'ep-btn-ghost' : 'ep-btn-story'}`} onClick={() => saveFile(recorded)} disabled={!!busy}>
+                      <i className="fas fa-download"></i> Download video
+                    </button>
+                  </>
+                )}
+                <button type="button" className="ep-link" onClick={download} disabled={!ready || !!busy}>Save as a photo instead</button>
+                <button type="button" className="ep-link" onClick={onDone}>Done</button>
+              </div>
+            ) : (
+              <div className="ep-story-actions">
+                {canShare && (
+                  <button type="button" className="ep-btn ep-btn-story" onClick={() => share()} disabled={!ready || !!busy}>
+                    {busy === 'share' ? <span className="ep-spinner" /> : <i className="fas fa-share-nodes"></i>} Share to Story
+                  </button>
+                )}
+                <button type="button" className={`ep-btn ${canShare ? 'ep-btn-ghost' : 'ep-btn-story'}`} onClick={download} disabled={!ready || !!busy}>
+                  {busy === 'download' ? <span className="ep-spinner" /> : <i className="fas fa-download"></i>} Download
                 </button>
-              )}
-              <button type="button" className={`ep-btn ${canShare ? 'ep-btn-ghost' : 'ep-btn-story'}`} onClick={download} disabled={!ready || !!busy}>
-                {busy === 'download' ? <span className="ep-spinner" /> : <i className="fas fa-download"></i>} Download
-              </button>
-              <button type="button" className="ep-link" onClick={onDone}>Done</button>
-            </div>
+                <button type="button" className="ep-link" onClick={onDone}>Done</button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -981,7 +1386,6 @@ function Lightbox({ photos, index, onIndex, onClose }) {
   const next = useCallback(() => onIndex((index + 1) % photos.length), [index, photos.length, onIndex]);
   const touch = useRef(null);
   const [loaded, setLoaded] = useState('');
-  const [saving, setSaving] = useState(null); // null = idle, 0-100 = percent, -1 = size unknown
 
   // The neighbours load while this one is looked at, so the next swipe is instant.
   useEffect(() => {
@@ -1001,41 +1405,6 @@ function Lightbox({ photos, index, onIndex, onClose }) {
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = overflow; };
   }, [onClose, prev, next]);
 
-  // Fetched rather than followed as a link, so a 6000 x 4000 file shows
-  // progress and the page never navigates away. If the browser cannot, the
-  // file opens in a new tab instead.
-  const download = async () => {
-    if (saving !== null) return;
-    setSaving(0);
-    try {
-      const res = await fetch(photo.download);
-      if (!res.ok || !res.body) throw new Error('download failed');
-      const total = Number(res.headers.get('content-length')) || 0;
-      const reader = res.body.getReader();
-      const chunks = [];
-      let got = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        got += value.length;
-        setSaving(total ? Math.round((got / total) * 100) : -1);
-      }
-      const url = URL.createObjectURL(new Blob(chunks, { type: 'image/jpeg' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Event-Photo-${index + 1}.jpg`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    } catch {
-      window.open(photo.download, '_blank', 'noopener');
-    } finally {
-      setSaving(null);
-    }
-  };
-
   const ready = loaded === photo.full;
 
   return (
@@ -1053,11 +1422,6 @@ function Lightbox({ photos, index, onIndex, onClose }) {
       <div className="ep-lb-top" onClick={(e) => e.stopPropagation()}>
         <span>{index + 1} / {photos.length}</span>
         <div>
-          <button type="button" className="ep-btn ep-btn-sm" onClick={download} disabled={saving !== null}>
-            {saving === null
-              ? <><i className="fas fa-download"></i> Download</>
-              : <><span className="ep-spinner" /> {saving > 0 ? `${saving}%` : 'Preparing…'}</>}
-          </button>
           <button type="button" className="ep-lb-close" onClick={onClose} aria-label="Close"><i className="fas fa-times"></i></button>
         </div>
       </div>

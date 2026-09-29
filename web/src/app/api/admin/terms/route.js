@@ -45,6 +45,11 @@ const DEFAULT_TERMS = `<h2>Terms and Conditions</h2>
 <h3>11. Contact</h3>
 <p>For questions regarding these terms, please contact church administration through the platform or during church services.</p>`;
 
+export const dynamic = 'force-dynamic';
+
+// Public, rarely edited. An admin's save shows to visitors within ~30 s.
+const PUBLIC_CACHE = { headers: { 'Cache-Control': 'public, max-age=0, s-maxage=30, stale-while-revalidate=3600' } };
+
 // GET - Fetch Terms & Conditions (public)
 export async function GET() {
   try {
@@ -65,7 +70,7 @@ export async function GET() {
           updated_at: null,
           updated_by: 'System',
         },
-      });
+      }, PUBLIC_CACHE);
     }
 
     return NextResponse.json({
@@ -75,7 +80,7 @@ export async function GET() {
         updated_at: data.updated_at,
         updated_by: data.updated_by,
       },
-    });
+    }, PUBLIC_CACHE);
   } catch (error) {
     // Even on unexpected errors, return default content instead of 500
     console.error('Terms fetch error:', error.message);
@@ -86,7 +91,7 @@ export async function GET() {
         updated_at: null,
         updated_by: 'System',
       },
-    });
+    }, PUBLIC_CACHE);
   }
 }
 

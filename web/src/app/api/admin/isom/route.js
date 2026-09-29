@@ -35,12 +35,17 @@ async function getLatestRow() {
   return data;
 }
 
+export const dynamic = 'force-dynamic';
+
+// Public, rarely edited. An admin's save shows to visitors within ~30 s.
+const PUBLIC_CACHE = { headers: { 'Cache-Control': 'public, max-age=0, s-maxage=30, stale-while-revalidate=3600' } };
+
 // GET - Fetch ISOM content (public)
 export async function GET() {
   try {
     const data = await getLatestRow();
     if (!data) {
-      return NextResponse.json({ success: true, data: { ...DEFAULT_ISOM, updated_at: null, updated_by: 'System' } });
+      return NextResponse.json({ success: true, data: { ...DEFAULT_ISOM, updated_at: null, updated_by: 'System' } }, PUBLIC_CACHE);
     }
     return NextResponse.json({
       success: true,
@@ -53,10 +58,10 @@ export async function GET() {
         updated_at: data.updated_at,
         updated_by: data.updated_by,
       },
-    });
+    }, PUBLIC_CACHE);
   } catch (error) {
     console.error('ISOM fetch error:', error.message);
-    return NextResponse.json({ success: true, data: { ...DEFAULT_ISOM, updated_at: null, updated_by: 'System' } });
+    return NextResponse.json({ success: true, data: { ...DEFAULT_ISOM, updated_at: null, updated_by: 'System' } }, PUBLIC_CACHE);
   }
 }
 

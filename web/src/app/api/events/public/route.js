@@ -37,6 +37,11 @@ export async function GET(request) {
       }
     }
 
+    // With ?t= the answer names a person, so it must never sit in a shared cache.
+    const cacheControl = code
+      ? 'private, no-store'
+      : 'public, max-age=0, s-maxage=30, stale-while-revalidate=300';
+
     return NextResponse.json({
       success: true,
       event,
@@ -44,7 +49,7 @@ export async function GET(request) {
       // Missing table = migration not run yet: an empty programme, not an error page.
       programme: programme.error ? [] : (programme.data || []),
       passwordYear: passwordYear(event),
-    });
+    }, { headers: { 'Cache-Control': cacheControl } });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { limit, tooManyRequests } from '@/lib/rateLimiter';
 import { supabase } from '@/lib/supabase';
 import bcrypt from 'bcryptjs';
 
@@ -8,6 +9,13 @@ export async function POST(request) {
 
     if (!email || !password) {
       return NextResponse.json({ success: false, message: 'Email and password are required' }, { status: 400 });
+    }
+
+    // Per-account, across every IP: stops password guessing even when the
+    // attacker rotates addresses. Checked before bcrypt, which is the costly part.
+    const attempt = await limit(`login:${String(email).trim().toLowerCase()}`, 10, 15 * 60 * 1000, { shared: true });
+    if (!attempt.allowed) {
+      return tooManyRequests(attempt.retryAfterSec, 'Too many login attempts for this account. Please wait a few minutes and try again.');
     }
 
     // Find user by email

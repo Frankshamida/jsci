@@ -102,7 +102,9 @@ export async function GET(request) {
       return NextResponse.json({ success: true, data: withUsage, canManage: true });
     }
 
-    return NextResponse.json({ success: true, data: data || [], canManage: false });
+    return NextResponse.json({ success: true, data: data || [], canManage: false }, {
+      headers: { 'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=600' },
+    });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }

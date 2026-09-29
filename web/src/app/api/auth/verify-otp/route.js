@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { limit, tooManyRequests } from '@/lib/rateLimiter';
 import { supabase } from '@/lib/supabase';
 
 export async function POST(request) {
@@ -7,6 +8,12 @@ export async function POST(request) {
 
     if (!email || !otp) {
       return NextResponse.json({ success: false, message: 'Email and OTP are required' }, { status: 400 });
+    }
+
+    // A 6-digit code is guessable without this.
+    const attempt = await limit(`verify-otp:${String(email).trim().toLowerCase()}`, 5, 10 * 60 * 1000, { shared: true });
+    if (!attempt.allowed) {
+      return tooManyRequests(attempt.retryAfterSec, 'Too many wrong codes. Please wait a few minutes and request a new one.');
     }
 
     // Look up the OTP

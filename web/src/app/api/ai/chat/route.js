@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { limit, tooManyRequests } from '@/lib/rateLimiter';
 import { groqChat, groqConfigured } from '@/lib/groq';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,9 @@ const MAX_TOKENS_CEILING = 4000;
 const MAX_MESSAGES = 24;
 const MAX_CHARS = 24000;
 
+// Groq's free tier allows roughly 30 requests a minute per model.
+const AI_CHAT_GLOBAL_PER_MIN = Number(process.env.AI_CHAT_GLOBAL_PER_MIN) || 30;
+
 const ROLES = new Set(['system', 'user', 'assistant']);
 
 export async function POST(request) {
@@ -30,6 +34,13 @@ export async function POST(request) {
         success: false,
         message: 'The AI assistant is not set up on this server yet. Please add GROQ_API_KEY to the environment.',
       }, { status: 503 });
+    }
+
+    // Whole-site ceiling, whoever is asking. The home page chat needs no login,
+    // so without this a single script could spend the day's Groq quota.
+    const global = await limit('ai:chat:global', AI_CHAT_GLOBAL_PER_MIN, 60 * 1000, { shared: true });
+    if (!global.allowed) {
+      return tooManyRequests(global.retryAfterSec, 'The assistant is very busy right now. Please try again in a minute.');
     }
 
     const body = await request.json().catch(() => null);

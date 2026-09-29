@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { limit, tooManyRequests } from '@/lib/rateLimiter';
 import { supabase } from '@/lib/supabase';
 
 export async function POST(request) {
@@ -7,6 +8,11 @@ export async function POST(request) {
 
     if (!email) {
       return NextResponse.json({ success: false, message: 'Email is required' }, { status: 400 });
+    }
+
+    const attempt = await limit(`send-otp:${String(email).trim().toLowerCase()}`, 3, 10 * 60 * 1000, { shared: true });
+    if (!attempt.allowed) {
+      return tooManyRequests(attempt.retryAfterSec, 'A code was sent recently. Please check your email or wait a few minutes before asking for another.');
     }
 
     // Check if user exists
