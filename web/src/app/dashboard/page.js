@@ -1575,7 +1575,7 @@ export default function DashboardPage() {
       status: label ? label.charAt(0).toUpperCase() + label.slice(1) : '',
       attended: r.attended ? 'Yes' : 'No',
       created_at: r.created_at
-        ? new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        ? new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
         : '',
     };
   };
@@ -5956,6 +5956,7 @@ export default function DashboardPage() {
     // keep the card reader pointed at a room belonging to an event nobody is
     // looking at any more.
     setRoomDesk(null);
+    setIdRfidReg(null);
     setEvtRoomTypeOpen('');
     setEvtRooms([]);
     setEvtRoomGuests([]);
@@ -6808,6 +6809,13 @@ export default function DashboardPage() {
   const [idPage, setIdPage] = useState(1);
   const [idPageSize, setIdPageSize] = useState(10);
   const [idModalReg, setIdModalReg] = useState(null);
+  // RFID beside the ID: which card each registration holds at this event
+  // (registration id -> { uid, assigned_at }), and the one being given a card.
+  const [idRfidLinks, setIdRfidLinks] = useState({});
+  const [idRfidReg, setIdRfidReg] = useState(null);
+  const [idRfidResult, setIdRfidResult] = useState(null);
+  const [idRfidBusy, setIdRfidBusy] = useState(false);
+  const [idRfidManual, setIdRfidManual] = useState('');
   const idLastOf = (r) => {
     const whole = String(r.attendee_name || '').trim().replace(/\s+/g, ' ');
     return formatPersonName(r.attendee_lastname || (whole.includes(' ') ? whole.split(' ').slice(-1)[0] : whole));
@@ -8267,10 +8275,18 @@ export default function DashboardPage() {
   // Its existence is what turns a second registration into a group-only one:
   // the seat is theirs already, so it is not booked, counted or charged again -
   // they are only adding other people to it, and possibly extras to their own.
+  //
+  // The name has to match as well as the account. A member can register
+  // somebody else individually from their own account (their child, say), and
+  // that slot is not the representative's - treating it as theirs is what left
+  // the representative off their own group booking.
   const memberOwnReg = (() => {
     if (!registerModal || !userData?.id) return null;
+    const me = memberNameKey(registerForm.attendeeFirstName, registerForm.attendeeLastName);
     return myRegistrations.find((r) => r.event_id === registerModal.id
-      && String(r.user_id || '') === String(userData.id)) || null;
+      && String(r.user_id || '') === String(userData.id)
+      && r.status !== 'cancelled' && !r.deleted_at
+      && memberNameKey(r.attendee_firstname || r.attendee_name, r.attendee_firstname ? r.attendee_lastname : '') === me) || null;
   })();
   const memberRepLocked = memberIsBulk && !!memberOwnReg;
 
@@ -12548,16 +12564,91 @@ Examples:
     );
   };
 
+  // ---- Assign RFID, from the ID Cards tab ----
+  // The card goes out with the printed ID, so it is given here rather than on
+  // the RFID Reader screen. Same link as that screen makes (rfid_event_cards),
+  // so the door, the kit counter and the room desk all know the card at once.
+  const loadIdRfidLinks = useCallback(async (eventId) => {
+    if (!eventId) { setIdRfidLinks({}); return; }
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventId)}&links=1`);
+      const data = await res.json();
+      if (data.success) {
+        setIdRfidLinks(Object.fromEntries((data.data || []).map((l) => [l.registration_id, l])));
+      } else if (/rfid_event_cards/i.test(data.message || '')) {
+        showToast('RFID cards need their migration: run supabase/migrations/rfid_event_checkin.sql', 'warning');
+      }
+    } catch { /* the numbers redraw on the next load */ }
+  }, [showToast]);
+
+  const openIdRfid = (reg) => {
+    setIdRfidResult(null);
+    setIdRfidManual('');
+    setRfidError('');
+    setIdRfidReg(reg);
+  };
+
+  const assignIdRfid = useCallback(async (rawUid) => {
+    const reg = idRfidReg;
+    const uid = normalizeUid(rawUid);
+    if (!reg || !isPlausibleUid(uid) || !eventRegsModal?.id) return;
+    setIdRfidBusy(true);
+    try {
+      const res = await fetch('/api/rfid/event-checkin', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, registrationId: reg.id, eventId: eventRegsModal.id, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setIdRfidResult({ ok: false, uid, message: data.message });
+        return;
+      }
+      setIdRfidLinks((prev) => ({ ...prev, [reg.id]: { registration_id: reg.id, uid: data.data?.uid || uid, assigned_at: data.data?.assigned_at } }));
+      setIdRfidResult({ ok: true, uid: data.data?.uid || uid, message: data.message });
+      showToast(data.message, 'success');
+    } catch (err) {
+      setIdRfidResult({ ok: false, uid, message: err.message });
+    } finally {
+      setIdRfidBusy(false);
+    }
+  }, [idRfidReg, eventRegsModal?.id, userData?.id, showToast]);
+
+  const removeIdRfid = (reg) => {
+    askConfirm(
+      `The card will no longer be ${formatPersonName(reg.attendee_name)}'s at this event. It can then be given to somebody else.`,
+      async () => {
+        try {
+          const res = await fetch(`/api/rfid/event-checkin?registrationId=${encodeURIComponent(reg.id)}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!data.success) { showToast(data.message, 'danger'); return; }
+          setIdRfidLinks((prev) => { const next = { ...prev }; delete next[reg.id]; return next; });
+          setIdRfidResult(null);
+          showToast(data.message, 'warning');
+        } catch (err) {
+          showToast(err.message, 'danger');
+        }
+      },
+      { title: 'Take the card back?', subtitle: eventRegsModal?.title || 'ID Cards', confirmLabel: 'Remove card', icon: 'fa-id-badge' },
+    );
+  };
+
+  // Which card is whose, whenever the ID Cards tab is on screen.
+  useEffect(() => {
+    if (manageTab === 'ids' && eventRegsModal?.id) loadIdRfidLinks(eventRegsModal.id);
+  }, [manageTab, eventRegsModal?.id, loadIdRfidLinks]);
+
   // Point the reader at whichever dialog is open. Cleared on close so taps go
   // back to wherever they were going before.
   useEffect(() => {
     if (evtUnlockOpen) rfidSinkRef.current = (uid) => tryUnlockTable(uid);
+    else if (idRfidReg) rfidSinkRef.current = (uid) => assignIdRfid(uid);
     else if (roomDesk) rfidSinkRef.current = (uid) => assignRoomCard(uid);
     else if (claimDesk) rfidSinkRef.current = (uid) => lookupClaimCard(uid);
     else if (evtRfidScanOpen) rfidSinkRef.current = (uid, src) => scanEventRfid(uid, src);
     else rfidSinkRef.current = null;
     return () => { rfidSinkRef.current = null; };
-  }, [evtUnlockOpen, tryUnlockTable, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid]);
+  }, [evtUnlockOpen, tryUnlockTable, idRfidReg, assignIdRfid, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid]);
 
   // The claims grid and the attendance grid for the event on screen.
   useEffect(() => {
@@ -13236,7 +13327,7 @@ Examples:
   // RFID Reader section nor an assign/scan dialog somewhere else - a port
   // closed out from under an open dialog would leave it silently dead.
   const rfidInUse = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
-    || !!roomDesk || evtUnlockOpen;
+    || !!roomDesk || evtUnlockOpen || !!idRfidReg;
 
   // The events as the cards show them, filtered by the search box.
   const rfidVisibleEventCards = rfidEventCards.filter((ev) => {
@@ -13459,7 +13550,7 @@ Examples:
     // A wedge reader is a keyboard: listening for it costs nothing when there
     // is none, and not listening for it is indistinguishable from a broken one.
     const wanted = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
-      || !!roomDesk || evtUnlockOpen;
+      || !!roomDesk || evtUnlockOpen || !!idRfidReg;
     if (!wanted) return undefined;
 
     const onKeyDown = (e) => {
@@ -13488,7 +13579,7 @@ Examples:
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen]);
+  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg]);
 
   // ============================================
   // ACCOMMODATION - the rooms booked for an event
@@ -15413,12 +15504,12 @@ Examples:
                                       still on the Type column, and in full on
                                       the receipt. */}
                                   <div className="evt-cell-sub evt-rdate">
-                                    {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    {new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
                                   </div>
                                   {/* Phones: the columns that are hidden there,
                                       folded into one line under the name. */}
                                   <span className="evt-rmeta">
-                                    <span><i className="far fa-calendar"></i> {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                    <span><i className="far fa-calendar"></i> {new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                                     {r.price_tier && <span><i className={`fas ${regTierIsChild(r.price_tier) ? 'fa-child-reaching' : 'fa-user'}`}></i> {r.price_tier}</span>}
                                     {r.church_name && (
                                       <span className="evt-rmeta-church" title={formatChurchName(r.church_name)}>
@@ -16552,9 +16643,26 @@ Examples:
                                     </span>
                                   </td>
                                   <td className="evt-td-actions evt-call-act" data-label="ID">
-                                    <button type="button" className="evt-call-btn evt-id-btn" onClick={() => setIdModalReg(r)}>
-                                      <i className="fas fa-id-card"></i> Generate ID
-                                    </button>
+                                    <div className="evt-id-acts">
+                                      <button type="button" className="evt-call-btn evt-id-btn" onClick={() => setIdModalReg(r)}>
+                                        <i className="fas fa-id-card"></i> Generate ID
+                                      </button>
+                                      {/* The card goes out with the printed ID. Its
+                                          number sits under the button so the desk can
+                                          see at a glance who still needs one. */}
+                                      <div className="evt-id-rfid">
+                                        <button
+                                          type="button"
+                                          className={`evt-call-btn evt-id-rfid-btn ${idRfidLinks[r.id] ? 'has' : ''}`}
+                                          onClick={() => openIdRfid(r)}
+                                        >
+                                          <i className="fas fa-wifi"></i> {idRfidLinks[r.id] ? 'Change RFID' : 'Assign RFID'}
+                                        </button>
+                                        <span className={`evt-id-rfid-uid ${idRfidLinks[r.id] ? '' : 'none'}`}>
+                                          {idRfidLinks[r.id] ? <>UID: <b>{formatUid(idRfidLinks[r.id].uid)}</b></> : 'No card yet'}
+                                        </span>
+                                      </div>
+                                    </div>
                                     {r.id_printed_at && (
                                       <span className="evt-id-printed-badge"><i className="fas fa-circle-check"></i> Printed</span>
                                     )}
@@ -17159,6 +17267,115 @@ Examples:
                  checked here and again on the server, and it names the person
                  and what they actually availed, because "not allowed" on its
                  own is the kind of refusal that gets worked around. */}
+            {/* ---- Assign RFID, from the ID Cards tab ----
+                 One person, one tap. The card is linked to this registration
+                 for this event only; the same card can be reused next event. */}
+            {idRfidReg && (
+              <div className="evt-modal-overlay" onClick={() => !idRfidBusy && setIdRfidReg(null)}>
+                <div className="evt-modal evt-claim-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3><i className="fas fa-wifi"></i> Assign RFID</h3>
+                      <p>{formatPersonName(idRfidReg.attendee_name)}{idRfidReg.church_name ? ` · ${formatChurchName(idRfidReg.church_name)}` : ''}</p>
+                    </div>
+                    <button type="button" className="evt-modal-close" onClick={() => setIdRfidReg(null)} disabled={idRfidBusy}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+
+                  <div className="evt-modal-body">
+                    {renderRfidStatus()}
+                    {rfidError && (
+                      <p className="evt-rfid-hint bad">
+                        <i className="fas fa-triangle-exclamation"></i>
+                        {rfidError}
+                      </p>
+                    )}
+
+                    <div className={`evt-claim-who ${idRfidBusy || !idRfidResult ? '' : idRfidResult.ok ? 'ok' : 'bad'}`}>
+                      {idRfidBusy ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <div><b>Reading the card…</b></div>
+                        </>
+                      ) : !idRfidResult ? (
+                        <>
+                          <i className="fas fa-id-card"></i>
+                          <div>
+                            <b>Tap a card</b>
+                            <em>
+                              {idRfidLinks[idRfidReg.id]
+                                ? `${formatPersonName(idRfidReg.attendee_name)} already holds UID ${formatUid(idRfidLinks[idRfidReg.id].uid)}. Tapping another card replaces it.`
+                                : `The card tapped becomes ${formatPersonName(idRfidReg.attendee_name)}'s for this event.`}
+                            </em>
+                          </div>
+                        </>
+                      ) : idRfidResult.ok ? (
+                        <>
+                          <div className="rfid-avatar">{personInitials(idRfidReg.attendee_name)}</div>
+                          <div>
+                            <b>{formatPersonName(idRfidReg.attendee_name)}</b>
+                            <strong className="rmn-ok">
+                              <i className="fas fa-circle-check"></i> {idRfidResult.message}
+                            </strong>
+                            <em>UID: <b>{formatUid(idRfidResult.uid)}</b></em>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-circle-exclamation"></i>
+                          <div>
+                            <b>{idRfidResult.message || 'That card could not be used'}</b>
+                            <em>UID read: {formatUid(idRfidResult.uid)}</em>
+                          </div>
+                          <button type="button" className="btn-small btn-secondary" onClick={() => setIdRfidResult(null)}>
+                            Try again
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Typing a number in, for when the reader is not to hand. */}
+                    {!idRfidResult?.ok && (
+                      <div className="rfid-manual">
+                        <input
+                          className="form-control"
+                          value={idRfidManual}
+                          onChange={(e) => setIdRfidManual(e.target.value)}
+                          placeholder="…or type a card number"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && isPlausibleUid(idRfidManual)) {
+                              assignIdRfid(idRfidManual);
+                              setIdRfidManual('');
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={!isPlausibleUid(idRfidManual) || idRfidBusy}
+                          onClick={() => { assignIdRfid(idRfidManual); setIdRfidManual(''); }}
+                        >
+                          Assign
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="evt-modal-foot">
+                    {idRfidLinks[idRfidReg.id] && (
+                      <button type="button" className="btn-secondary" style={{ marginRight: 'auto' }} disabled={idRfidBusy} onClick={() => removeIdRfid(idRfidReg)}>
+                        <i className="fas fa-link-slash"></i> Remove card
+                      </button>
+                    )}
+                    <button type="button" className="btn-primary" onClick={() => setIdRfidReg(null)} disabled={idRfidBusy}>
+                      {idRfidResult?.ok ? 'Done' : 'Close'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {roomDeskRoom && (
               <div className="evt-modal-overlay" onClick={() => setRoomDesk(null)}>
                 <div className="evt-modal evt-claim-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
@@ -19964,7 +20181,7 @@ Examples:
                               <td className="evt-cell-name evt-td-primary" data-label="Attendee">
                                 {formatPersonName(r.attendee_name)}
                                 <div className="evt-cell-sub">
-                                  Registered {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  Registered {new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
                                   {r.attendee_mobile && <> · {r.attendee_mobile}</>}
                                 </div>
                               </td>
@@ -20073,7 +20290,7 @@ Examples:
                             <div><dt>Contact</dt><dd>{r.attendee_mobile || r.attendee_email || '—'}</dd></div>
                             <div>
                               <dt>Registered</dt>
-                              <dd>{new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</dd>
+                              <dd>{new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</dd>
                             </div>
                             <div><dt>Added By</dt><dd>{formatPersonName(r.added_by || r.representative) || '—'}</dd></div>
                             <div>
@@ -21526,6 +21743,12 @@ Examples:
                           {' · '}
                           <span className={`evt-status evt-status-${editRegModal.status}`}>{statusLabel(editRegModal.status)}</span>
                         </div>
+                        {editRegModal.created_at && (
+                          <div className="evt-cell-sub">
+                            <i className="far fa-clock"></i> Added {new Date(editRegModal.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                            {editRegModal.added_by && <> by {formatPersonName(editRegModal.added_by)}{editRegModal.added_by_role ? ` (${editRegModal.added_by_role})` : ''}</>}
+                          </div>
+                        )}
                       </div>
                     </div>
 

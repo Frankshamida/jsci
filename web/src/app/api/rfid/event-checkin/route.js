@@ -146,6 +146,19 @@ export async function GET(request) {
       return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
     }
 
+    // ?eventId=..&links=1  Just which card is whose, for every registration at
+    // the event - paid or not. The ID Cards tab shows a card number beside
+    // everybody it prints an ID for, and an unpaid attendee's card is still
+    // their card; it is the door that decides whether it lets them in.
+    if (searchParams.get('links')) {
+      const { data: links, error: linkErr } = await supabaseAdmin
+        .from('rfid_event_cards')
+        .select('registration_id, uid, assigned_at')
+        .eq('event_id', eventId);
+      if (linkErr) throw linkErr;
+      return NextResponse.json({ success: true, data: links || [] });
+    }
+
     const { data: regs, error } = await supabaseAdmin
       .from('event_registrations')
       .select(REG_FIELDS)
@@ -339,18 +352,20 @@ export async function PUT(request) {
 
     const { data: reg } = await supabaseAdmin
       .from('event_registrations')
-      .select(REG_FIELDS)
+      .select(`${REG_FIELDS}, deleted_at`)
       .eq('id', registrationId)
       .maybeSingle();
     if (!reg) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
 
-    // The whole point of this feature is that a card gets somebody through the
-    // door. Giving one to a registration that is not settled would hand out
-    // exactly the access the verification step exists to withhold.
-    if (!VERIFIED_STATUSES.includes(reg.status)) {
+    // A card can be handed out with the ID, before the money is in - the ID
+    // desk prints for everybody on the list. That hands out no access: every
+    // tap at the door checks the registration's status again (see POST), so
+    // an unpaid attendee's card still says "not verified" until they pay.
+    // What cannot hold a card is a registration that is no longer a place.
+    if (reg.status === 'cancelled' || reg.deleted_at) {
       return NextResponse.json({
         success: false,
-        message: `${reg.attendee_name} is not verified yet (${reg.status.replace(/_/g, ' ')}). Verify the registration first.`,
+        message: `${reg.attendee_name}'s registration is ${reg.deleted_at ? 'in the Recycle Bin' : 'cancelled'}, so it cannot hold a card.`,
       }, { status: 400 });
     }
 

@@ -541,8 +541,30 @@ function Unlock({
   const [nfcState, setNfcState] = useState('');
   const cardRef = useRef(null);
   const [cardBuf, setCardBuf] = useState('');
+  // On a phone the card is read by the phone itself, over NFC - there is no
+  // desk reader to tap it on - so the tab says NFC and asks for the phone's
+  // NFC instead of waiting for a USB reader that is not there.
+  const [isPhone, setIsPhone] = useState(false);
+  const [noNfcPopup, setNoNfcPopup] = useState(false);
+  const [nfcScanning, setNfcScanning] = useState(false);
+  const nfcCtrlRef = useRef(null);
 
   const hasNfc = typeof window !== 'undefined' && 'NDEFReader' in window;
+  useEffect(() => {
+    const ua = navigator.userAgent || '';
+    setIsPhone(/Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+      // iPadOS reports itself as a Mac; the touch screen gives it away.
+      || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1));
+  }, []);
+  // A scan left running would keep the phone listening after the attendee
+  // switched to the password, or left the page.
+  const stopNfc = useCallback(() => {
+    nfcCtrlRef.current?.abort();
+    nfcCtrlRef.current = null;
+    setNfcScanning(false);
+    setNfcState('');
+  }, []);
+  useEffect(() => stopNfc, [stopNfc]);
   const lowercase = password !== password.toUpperCase();
 
   const submit = useCallback(async (payload) => {
@@ -575,8 +597,9 @@ function Unlock({
   // typing is slower, and their keys are not collected.
   const sendRef = useRef(null);
   useEffect(() => {
-    if (mode !== 'rfid') return undefined;
-    setTimeout(() => cardRef.current?.focus(), 50);
+    if (mode !== 'rfid' || isPhone) return undefined;
+    // preventScroll: focusing the hidden box must never move the page.
+    setTimeout(() => cardRef.current?.focus({ preventScroll: true }), 50);
     const key = { buf: '', at: 0 };
     const onKeyDown = (e) => {
       if (e.target === cardRef.current) return; // the box handles its own
@@ -593,7 +616,7 @@ function Unlock({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [mode]);
+  }, [mode, isPhone]);
 
   const sendCard = (raw) => {
     const uid = normalizeUid(raw);
@@ -603,24 +626,38 @@ function Unlock({
   };
   sendRef.current = sendCard;
 
-  // Android Chrome can read the card on the phone itself.
+  // Android Chrome can read the card on the phone itself. reader.scan() is
+  // what makes the browser ask for NFC permission, so it has to run from the
+  // attendee's own tap - the NFC tab, or the Turn on NFC button.
   const scanWithPhone = async () => {
     setError('');
+    // iPhones, and browsers other than Chrome on Android, cannot read a card
+    // from a web page at all. Saying so plainly beats a button that does nothing.
+    if (!hasNfc) { setNoNfcPopup(true); return; }
+    stopNfc();
     try {
       // eslint-disable-next-line no-undef
       const reader = new NDEFReader();
       const ctrl = new AbortController();
+      nfcCtrlRef.current = ctrl;
       await reader.scan({ signal: ctrl.signal });
+      setNfcScanning(true);
       setNfcState('Hold your ID card against the back of your phone…');
       reader.onreading = (e) => {
-        ctrl.abort();
-        setNfcState('');
+        stopNfc();
         sendCard(e.serialNumber || '');
       };
       reader.onreadingerror = () => setError('The card could not be read. Try holding it still.');
     } catch (e) {
-      setNfcState('');
-      setError(e?.name === 'NotAllowedError' ? 'Allow NFC access to scan your card.' : 'NFC is not available on this phone.');
+      stopNfc();
+      if (e?.name === 'AbortError') return;
+      // Chrome on Android without an NFC chip.
+      if (e?.name === 'NotSupportedError') { setNoNfcPopup(true); return; }
+      setError(e?.name === 'NotAllowedError'
+        ? 'NFC permission was not given. Tap "Turn on NFC" again and choose Allow, or allow NFC for this site in your browser settings.'
+        : e?.name === 'NotReadableError'
+          ? 'NFC is turned off. Turn on NFC in your phone settings, then tap "Turn on NFC" again.'
+          : 'NFC could not be started on this phone. Use your password instead.');
     }
   };
 
@@ -631,11 +668,22 @@ function Unlock({
       <p className="ep-lock-sub">{sub}</p>
 
       <div className="ep-seg" role="tablist">
-        <button type="button" className={mode === 'password' ? 'active' : ''} onClick={() => { setMode('password'); setError(''); }}>
+        <button type="button" className={mode === 'password' ? 'active' : ''} onClick={() => { stopNfc(); setMode('password'); setError(''); }}>
           <i className="fas fa-key"></i> Password
         </button>
-        <button type="button" className={mode === 'rfid' ? 'active' : ''} onClick={() => { setMode('rfid'); setError(''); }}>
-          <i className="fas fa-id-card"></i> RFID Card
+        <button
+          type="button"
+          className={mode === 'rfid' ? 'active' : ''}
+          onClick={() => {
+            setMode('rfid');
+            setError('');
+            // On a phone, choosing NFC is the tap that asks for permission.
+            if (isPhone && !nfcScanning) scanWithPhone();
+          }}
+        >
+          {isPhone
+            ? <><i className="fas fa-wifi ep-nfc-ico"></i> NFC</>
+            : <><i className="fas fa-id-card"></i> RFID Card</>}
         </button>
       </div>
 
@@ -667,32 +715,75 @@ function Unlock({
         </form>
       ) : (
         <div className="ep-form">
-          <div className={`ep-tap ${busy ? 'busy' : ''}`} onClick={() => cardRef.current?.focus()}>
-            <i className="fas fa-wifi"></i>
-            <strong>{busy ? 'Checking your card…' : 'Tap your ID card on the reader'}</strong>
-            <span>{nfcState || 'Keep this page open while you tap.'}</span>
-          </div>
-          {/* Where a USB reader "types" the card number. */}
-          <input
-            ref={cardRef}
-            className="ep-card-input"
-            inputMode="none"
-            autoComplete="off"
-            aria-label="RFID card number"
-            value={cardBuf}
-            onChange={(e) => setCardBuf(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendCard(cardBuf); } }}
-            disabled={busy}
-          />
-          {hasNfc && (
-            <button type="button" className="ep-btn ep-btn-ghost" onClick={scanWithPhone} disabled={busy}>
-              <i className="fas fa-mobile-screen"></i> Scan card with this phone
-            </button>
+          {isPhone ? (
+            <>
+              <div
+                className={`ep-tap ${busy ? 'busy' : ''} ${nfcScanning ? '' : 'idle'}`}
+                onClick={() => { if (!nfcScanning && !busy) scanWithPhone(); }}
+              >
+                <i className="fas fa-wifi"></i>
+                <strong>
+                  {busy ? 'Checking your card…' : nfcScanning ? 'Hold your ID card to your phone' : 'NFC is off'}
+                </strong>
+                <span>
+                  {nfcScanning
+                    ? (nfcState || 'Touch the card to the back of your phone and keep it still.')
+                    : 'Turn on NFC so your phone can read your ID card.'}
+                </span>
+              </div>
+              {!nfcScanning && (
+                <button type="button" className="ep-btn" onClick={scanWithPhone} disabled={busy}>
+                  <i className="fas fa-wifi ep-nfc-ico"></i> Turn on NFC
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className={`ep-tap ${busy ? 'busy' : ''}`} onClick={() => cardRef.current?.focus({ preventScroll: true })}>
+                <i className="fas fa-wifi"></i>
+                <strong>{busy ? 'Checking your card…' : 'Tap your ID card on the reader'}</strong>
+                <span>Keep this page open while you tap.</span>
+              </div>
+              {/* Where a USB reader "types" the card number. */}
+              <input
+                ref={cardRef}
+                className="ep-card-input"
+                inputMode="none"
+                autoComplete="off"
+                aria-label="RFID card number"
+                value={cardBuf}
+                onChange={(e) => setCardBuf(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendCard(cardBuf); } }}
+                disabled={busy}
+              />
+            </>
           )}
         </div>
       )}
 
       {error && <p className="ep-error"><i className="fas fa-circle-exclamation"></i> {error}</p>}
+
+      {noNfcPopup && (
+        <div className="ep-popup-overlay" onClick={() => setNoNfcPopup(false)}>
+          <div className="ep-popup" role="alertdialog" aria-modal="true" aria-labelledby="ep-nonfc-title" onClick={(e) => e.stopPropagation()}>
+            <div className="ep-popup-icon"><i className="fas fa-mobile-screen"></i></div>
+            <h3 id="ep-nonfc-title">Your phone doesn&apos;t have NFC</h3>
+            <p>
+              This phone or browser can&apos;t read your ID card. iPhones can&apos;t read cards from a
+              web page. On Android, open this page in <b>Chrome</b>.
+            </p>
+            <p>You can still unlock with your <b>password</b>.</p>
+            <div className="ep-popup-acts">
+              <button type="button" className="ep-btn" onClick={() => { setNoNfcPopup(false); stopNfc(); setMode('password'); setError(''); }}>
+                <i className="fas fa-key"></i> Use Password
+              </button>
+              <button type="button" className="ep-btn ep-btn-ghost" onClick={() => setNoNfcPopup(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

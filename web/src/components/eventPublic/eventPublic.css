@@ -187,8 +187,32 @@
 .ep-tap span { font-size: 0.82rem; color: var(--ep-muted); }
 .ep-tap.busy i { animation: none; opacity: 0.5; }
 @keyframes ep-pulse { 50% { opacity: 0.35; } }
-/* Present and focusable for a USB reader, but not something to look at. */
-.ep-card-input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+/* Present and focusable for a USB reader, but not something to look at.
+   Pinned inside the form and stripped of the `.ep-form input` sizing - with
+   it, the box stretched past the edge of the screen and focusing it slid
+   the whole page sideways. */
+.ep-form { position: relative; }
+.ep-form .ep-card-input {
+  position: absolute; left: 0; top: 0; width: 1px; height: 1px; min-width: 0;
+  padding: 0; border: 0; margin: 0; opacity: 0; pointer-events: none; overflow: hidden;
+}
+.ep-tap.idle i { animation: none; opacity: 0.45; }
+.ep-nfc-ico { transform: rotate(90deg); }
+
+/* "Your phone doesn't have NFC" */
+.ep-popup-overlay {
+  position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px;
+  background: rgba(20,14,4,0.55); backdrop-filter: blur(2px);
+}
+.ep-popup {
+  width: 100%; max-width: 360px; box-sizing: border-box; background: var(--ep-card); color: var(--ep-ink);
+  border-radius: 20px; padding: 24px 20px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+}
+.ep-popup-icon { width: 56px; height: 56px; margin: 0 auto 10px; border-radius: 50%; display: grid; place-items: center; font-size: 1.4rem; color: #b42318; background: rgba(180,35,24,0.1); }
+.ep-popup h3 { margin: 0 0 8px; font-size: 1.15rem; }
+.ep-popup p { margin: 0 0 8px; font-size: 0.88rem; color: var(--ep-muted); }
+.ep-popup-acts { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.dark-mode .ep-popup-icon { color: #f19a91; background: rgba(180,35,24,0.2); }
 
 /* ---- Photos: gallery ---- */
 .ep-photos-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

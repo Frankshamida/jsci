@@ -932,10 +932,21 @@ export async function POST(request) {
     const repAttending = !(fields.repAttending === false
       || fields.repAttending === '0' || fields.repAttending === 'false');
     const repKey = normName(fields.representative || attendeeName);
+    // The account may already hold a slot under another name - a member who
+    // registered their child individually, then books a group they join
+    // themselves. The representative still gets their row; it just is not
+    // stamped as the account's seat, because one account holds one seat.
+    let accountHoldsSlot = false;
+    if (isBulk && userId && repAttending) {
+      const { data: held } = await supabase.from('event_registrations')
+        .select('id').eq('event_id', eventId).eq('user_id', userId)
+        .neq('status', 'cancelled').is('deleted_at', null).limit(1);
+      accountHoldsSlot = (held || []).length > 0;
+    }
     const rows = isBulk
       ? priced.map((a) => ({
           ...shared,
-          user_id: (userId && repAttending && (a.isRep || normName(`${a.firstName} ${a.lastName}`) === repKey)) ? userId : null,
+          user_id: (userId && repAttending && !accountHoldsSlot && (a.isRep || normName(`${a.firstName} ${a.lastName}`) === repKey)) ? userId : null,
           registered_by_user_id: userId || null,
           attendee_firstname: a.firstName || null,
           attendee_lastname: a.lastName || null,

@@ -32936,6 +32936,16 @@ body.dark-mode .evt-call-who .evt-ravatar, body.dark-mode .evt-call-person .evt-
 .evt-id-first { font-size: 0.86rem; color: var(--text-secondary, #555); }
 .evt-id-btn { background: var(--primary, #926c15); box-shadow: 0 3px 10px rgba(146,108,21,0.25); border: none; cursor: pointer; font: inherit; font-weight: 700; font-size: 0.85rem; }
 .evt-id-btn:hover { background: #7a560c; }
+/* Generate ID and Assign RFID side by side, the card number under its button. */
+.evt-id-acts { display: inline-flex; align-items: flex-start; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.evt-id-rfid { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
+.evt-id-rfid-btn { background: #fff; color: var(--primary, #926c15); border: 1.5px solid var(--primary, #926c15); cursor: pointer; font: inherit; font-weight: 700; font-size: 0.85rem; box-shadow: none; }
+.evt-id-rfid-btn:hover { background: rgba(146,108,21,0.08); }
+.evt-id-rfid-btn.has { color: #15803d; border-color: #16a34a; }
+.evt-id-rfid-btn.has:hover { background: rgba(34,197,94,0.08); }
+.evt-id-rfid-uid { font-size: 0.72rem; color: #15803d; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.evt-id-rfid-uid b { font-weight: 700; letter-spacing: 0.02em; }
+.evt-id-rfid-uid.none { color: var(--text-secondary, #888); font-family: inherit; font-style: italic; }
 .evt-id-printed-badge { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 3px 9px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; color: #16a34a; background: rgba(34,197,94,0.12); white-space: nowrap; }
 @media (max-width: 1024px) {
   .evt-table.evt-id-cards tbody tr { grid-template-areas: "who act" "church church" "acc acc"; }
