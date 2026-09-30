@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { flipListUp } from '@/lib/dropUp';
 
 // The "Ptr. ____" field, with the pastors already given for the church typed
 // above it. Same idea as the church list: a church's pastor is spelled the
@@ -62,7 +63,7 @@ export default function PastorInput({
         />
       </div>
       {open && shown.length > 0 && (
-        <ul className={look.list}>
+        <ul className={look.list} ref={flipListUp}>
           {shown.map((o) => (
             <li key={o.name}>
               <button type="button" onMouseDown={() => { onChange(o.name); setOpen(false); }}>

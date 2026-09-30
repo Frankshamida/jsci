@@ -6,6 +6,7 @@ import { SLOT_HOLDING_STATUSES, CASH_PENDING_STATUS } from '@/lib/eventSlots';
 import { findEventActor, canWorkEvent, actorRoleLabel, staffDeniedMessage } from '@/lib/eventCommittee';
 import { resolveCashPayment } from '@/lib/cashPayment';
 import { sameAddon } from '@/lib/addons';
+import { normalizeUid, isPlausibleUid, uidCandidates } from '@/lib/rfid';
 import {
   addonFeeFor, baseAmountFor, defaultTier, findTier, hasPriceTiers, isNameOnlyTier,
   registerableTiers, representativeTiers,
@@ -130,6 +131,8 @@ const OPTIONAL_COLUMNS = [
   // paid_pending_turnover.sql - who is holding the money. Without them the row
   // is still saved as paid - pending turnover, just without the holder's name.
   'turnover_holder', 'turnover_marked_by', 'turnover_marked_at',
+  // event_late_registration.sql - the "LATE REGISTRATION" label.
+  'late_registration',
 ];
 
 // Of those, the ones a staff-entered registration is meaningless without: they
@@ -658,6 +661,39 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'Registration is closed for this event' }, { status: 400 });
     }
 
+    // Late Registration: an Admin or Super Admin at the desk, one person, on a
+    // card tapped before anything else. The card is checked here, before the
+    // row exists, so a card that is already somebody's stops the entry instead
+    // of leaving a registration with no card behind it.
+    const isLate = fields.lateRegistration === true || fields.lateRegistration === 'true';
+    let lateUid = null;
+    if (isLate) {
+      if (!staffPastDeadline) {
+        return NextResponse.json({ success: false, message: 'Only an Admin or Super Admin can add a late registration.' }, { status: 403 });
+      }
+      if (Array.isArray(fields.attendees) && fields.attendees.length > 0) {
+        return NextResponse.json({ success: false, message: 'A late registration is one person at a time.' }, { status: 400 });
+      }
+      if (!isPlausibleUid(fields.rfidUid)) {
+        return NextResponse.json({ success: false, message: 'Tap the RFID card first.' }, { status: 400 });
+      }
+      lateUid = normalizeUid(fields.rfidUid);
+      const { data: holders } = await supabase
+        .from('rfid_event_cards')
+        .select('registration_id')
+        .eq('event_id', eventId)
+        .in('uid', uidCandidates(fields.rfidUid));
+      if ((holders || []).length > 0) {
+        const { data: other } = await supabase
+          .from('event_registrations').select('attendee_name')
+          .eq('id', holders[0].registration_id).maybeSingle();
+        return NextResponse.json({
+          success: false,
+          message: `That card is already ${other?.attendee_name || 'someone else'}'s at this event. Tap a different card.`,
+        }, { status: 409 });
+      }
+    }
+
     // Capacity check. Counted the same way the "slots available" figure is, or
     // the two would disagree about whether the event is full.
     if (event.max_participants) {
@@ -898,6 +934,7 @@ export async function POST(request) {
         return bare ? `Ptr. ${bare}` : null;
       })(),
       registration_type: registrationType,
+      ...(isLate ? { late_registration: true } : {}),
       added_by: addedByName,
       added_by_role: addedByRole,
       // 'flexible' means this will be settled over several payments, recorded
@@ -1022,8 +1059,9 @@ export async function POST(request) {
     // itself saved - so their absence gets its own, plainer warning.
     const TURNOVER_COLUMNS = ['turnover_holder', 'turnover_marked_by', 'turnover_marked_at'];
     const lostTurnover = droppedColumns.some((c) => TURNOVER_COLUMNS.includes(c));
+    const lostLate = droppedColumns.includes('late_registration');
     for (let i = droppedColumns.length - 1; i >= 0; i -= 1) {
-      if (TURNOVER_COLUMNS.includes(droppedColumns[i])) droppedColumns.splice(i, 1);
+      if (TURNOVER_COLUMNS.includes(droppedColumns[i]) || droppedColumns[i] === 'late_registration') droppedColumns.splice(i, 1);
     }
     if (droppedColumns.length > 0) {
       // A guest registering for themselves is not blocked by a missing label
@@ -1043,6 +1081,26 @@ export async function POST(request) {
     if (lostTurnover) {
       columnWarning = `${columnWarning ? `${columnWarning} ` : ''}Saved as Paid - Pending Turnover, but who is holding `
         + 'the money was not recorded: run supabase/migrations/paid_pending_turnover.sql.';
+    }
+    if (lostLate) {
+      columnWarning = `${columnWarning ? `${columnWarning} ` : ''}Saved, but not labelled as a late registration: `
+        + 'run supabase/migrations/event_late_registration.sql.';
+    }
+
+    // The card tapped at the start of a late registration becomes theirs.
+    // Checked free above; if the link still fails the registration stands and
+    // the card can be given again from the ID Cards tab.
+    if (lateUid && inserted.length === 1) {
+      const { error: cardError } = await supabase
+        .from('rfid_event_cards')
+        .upsert(
+          { uid: lateUid, registration_id: inserted[0].id, event_id: eventId, assigned_by: adminActor?.id || null, assigned_at: new Date().toISOString() },
+          { onConflict: 'registration_id' },
+        );
+      if (cardError) {
+        columnWarning = `${columnWarning ? `${columnWarning} ` : ''}Registered, but the RFID card was not linked (${cardError.message}). `
+          + 'Assign it from the ID Cards tab.';
+      }
     }
 
     // The representative may be availing an extra on a slot they already hold -

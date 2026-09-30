@@ -28,6 +28,7 @@ import { HERO_MEDIA_DEFAULT, HERO_VIDEO_DIR, heroVideoWeight, normalizeHeroMedia
 import ProofDrop from '@/components/ProofDrop';
 import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
 import PastorInput from '@/components/PastorInput';
+import { flipListUp } from '@/lib/dropUp';
 import AttendeeIdModal from '@/components/eventDesk/AttendeeIdModal';
 import EventProgrammeTab from '@/components/eventDesk/EventProgrammeTab';
 import EventPhotosTab from '@/components/eventDesk/EventPhotosTab';
@@ -922,6 +923,120 @@ function DateTimePicker({ date, time, onDate, onTime, min, invalid = false }) {
   );
 }
 
+// Last-name range for the ID Cards desk: one box that reads "Last name A – F (31)"
+// and opens a two-handle slider over the alphabet. Tapping a letter moves the
+// nearer handle to it. countFor(from, to) gives the head count for any span.
+const ID_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+function LetterRange({ from, to, onChange, countFor }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const panelRef = useRef(null);
+  const lo = ID_LETTERS.indexOf(from);
+  const hi = ID_LETTERS.indexOf(to);
+
+  const place = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = Math.min(340, window.innerWidth - 16);
+    const up = window.innerHeight - r.bottom < 200 && r.top > window.innerHeight - r.bottom;
+    setPos({
+      left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
+      width,
+      ...(up ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }),
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => {
+      if (btnRef.current?.contains(e.target) || panelRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const esc = (e) => { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); } };
+    const scroll = (e) => { if (!panelRef.current?.contains(e.target)) setOpen(false); };
+    const resize = () => setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    document.addEventListener('keydown', esc);
+    window.addEventListener('scroll', scroll, true);
+    window.addEventListener('resize', resize);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('touchstart', away);
+      document.removeEventListener('keydown', esc);
+      window.removeEventListener('scroll', scroll, true);
+      window.removeEventListener('resize', resize);
+    };
+  }, [open]);
+
+  const setLo = (i) => onChange(ID_LETTERS[Math.min(i, hi)], to);
+  const setHi = (i) => onChange(from, ID_LETTERS[Math.max(i, lo)]);
+  const pick = (i) => {
+    if (Math.abs(i - lo) <= Math.abs(i - hi) && i <= hi) setLo(i);
+    else setHi(i);
+  };
+  const pct = (i) => `${(i / (ID_LETTERS.length - 1)) * 100}%`;
+  const label = `Last name ${from} – ${to} (${countFor(from, to)})`;
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className={`evt-filter-select evt-fsel ${open ? 'open' : ''}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Last name range"
+        onClick={() => { if (!open) place(); setOpen((v) => !v); }}
+      >
+        {label}
+      </button>
+      {open && pos && typeof document !== 'undefined' && createPortal(
+        <div ref={panelRef} className="evt-lrange" role="dialog" aria-label="Last name range" style={pos}>
+          <div className="evt-lrange-head">
+            <span>Last name <b>{from} – {to}</b></span>
+            <span className="evt-lrange-count">{countFor(from, to)} attendee{countFor(from, to) === 1 ? '' : 's'}</span>
+          </div>
+          <div className="evt-lrange-slider">
+            <div className="evt-lrange-track" />
+            <div className="evt-lrange-fill" style={{ left: pct(lo), width: `calc(${pct(hi)} - ${pct(lo)})` }} />
+            <input
+              type="range" min={0} max={ID_LETTERS.length - 1} step={1} value={lo}
+              onChange={(e) => setLo(Number(e.target.value))}
+              aria-label="Last name from"
+              style={{ zIndex: lo >= ID_LETTERS.length - 2 ? 5 : 3 }}
+            />
+            <input
+              type="range" min={0} max={ID_LETTERS.length - 1} step={1} value={hi}
+              onChange={(e) => setHi(Number(e.target.value))}
+              aria-label="Last name to"
+              style={{ zIndex: 4 }}
+            />
+          </div>
+          <div className="evt-lrange-letters">
+            {ID_LETTERS.map((l, i) => (
+              <button
+                key={l}
+                type="button"
+                className={`${i >= lo && i <= hi ? 'in' : ''} ${i === lo || i === hi ? 'end' : ''}`}
+                onClick={() => pick(i)}
+                title={`${l} (${countFor(l, l)})`}
+              >{l}</button>
+            ))}
+          </div>
+          <div className="evt-lrange-foot">
+            <button type="button" className="evt-lrange-reset" onClick={() => onChange('A', 'Z')} disabled={from === 'A' && to === 'Z'}>A – Z</button>
+            <button type="button" className="evt-lrange-done" onClick={() => setOpen(false)}>Done</button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 // A filter dropdown in the dashboard's own look. A native <select> opens a list
 // the browser draws - system font, system blue - which is the one thing on
 // these screens that ignored the gold theme. The trigger keeps the
@@ -1326,6 +1441,14 @@ export default function DashboardPage() {
   const [showAdminAddReg, setShowAdminAddReg] = useState(false);
   const [adminAddRegForm, setAdminAddRegForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '', markVerified: true });
   const [adminAddRegSubmitting, setAdminAddRegSubmitting] = useState(false);
+  // Late Registration: the same dialog, but a card is tapped before anything
+  // else and becomes theirs when the registration is saved.
+  const [adminLate, setAdminLate] = useState(false);
+  const [adminLateUid, setAdminLateUid] = useState('');
+  const [adminLateScan, setAdminLateScan] = useState(null);   // { busy } | { ok: false, uid, message }
+  const [adminLateManual, setAdminLateManual] = useState('');
+  const [adminCashGiven, setAdminCashGiven] = useState('');     // cash handed over, for the change
+  const [addAttendeeMenu, setAddAttendeeMenu] = useState(null);   // null | { left, top, width }
   // Same shape as the public form: church details, paid extras, PH mobile.
   const [adminAddRegAddons, setAdminAddRegAddons] = useState([]);
   const [adminChurchOptions, setAdminChurchOptions] = useState([]);
@@ -6353,57 +6476,6 @@ export default function DashboardPage() {
   })();
   const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
 
-  // ---- Copy Report ----
-  // The banner's figures as plain text, for pasting into Messenger, a phone
-  // message or an email. Plain lines only - no tabs, bullets or markdown -
-  // because every one of those apps shows them differently.
-  const buildCollectionReport = (evt) => {
-    if (!evt) return '';
-    const place = provinceLabel(evt);
-    const when = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-    const regCount = eventRegs.filter((r) => r.status !== 'cancelled').length;
-    const by = userData?.firstname ? `${userData.firstname} ${userData.lastname || ''}`.trim() : '';
-    const lines = [
-      `${place ? `${place} - ` : ''}${evt.title}`,
-      'Collection Report',
-      `As of ${when}`,
-      '',
-      'COLLECTED',
-      `Cash Collected: ${peso(eventMoney.cash)}`,
-      `Online Collected: ${peso(eventMoney.online)}`,
-      `Total Collected: ${peso(eventMoney.total)}`,
-      '',
-      'STILL TO COME IN',
-      `Cash to Collect: ${peso(eventMoney.cashDue)}`,
-      `Paid - Pending Turnover: ${peso(eventMoney.turnover)}`,
-      `Awaiting Verification: ${peso(eventMoney.pending)}`,
-      ...(eventMoney.planDue > 0 ? [`Installment Balances: ${peso(eventMoney.planDue)}`] : []),
-      '',
-      `Registrations: ${regCount}`,
-      ...(by ? [`Prepared by: ${by}`] : []),
-    ];
-    return lines.join('\n');
-  };
-  const copyCollectionReport = async (evt) => {
-    const text = buildCollectionReport(evt);
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Older phones and non-HTTPS pages have no clipboard API.
-      const box = document.createElement('textarea');
-      box.value = text;
-      box.setAttribute('readonly', '');
-      box.style.position = 'fixed';
-      box.style.opacity = '0';
-      document.body.appendChild(box);
-      box.select();
-      try { document.execCommand('copy'); } catch { /* shown below */ }
-      document.body.removeChild(box);
-    }
-    showToast('Report copied — paste it into Messenger, a text or an email', 'success');
-  };
-
   // What a status is called on screen. 'payment_verified' is the end of the
   // road for money - there is nothing left to check - so it reads as "paid"
   // rather than describing the checking that got it there.
@@ -6805,12 +6877,29 @@ export default function DashboardPage() {
   // One printable ID per attendee: name on the front, their check-in QR on the
   // back. Drawn by lib/idCard.js; this is only the list to pick them from.
   const [idSearch, setIdSearch] = useState('');
-  const [idChurch, setIdChurch] = useState('all');
-  const [idSort, setIdSort] = useState('last');   // last | first | newest
+  const [idRfid, setIdRfid] = useState('all');     // all | with | without
+  const [idFrom, setIdFrom] = useState('A');       // last-name range, From..To
+  const [idTo, setIdTo] = useState('Z');
+  const idRangeOn = idFrom !== 'A' || idTo !== 'Z';
+  const idSort = 'last';   // the list reads as the IDs print: last name A-Z
   const [idFiltersOpen, setIdFiltersOpen] = useState(false);
   const [idPage, setIdPage] = useState(1);
   const [idPageSize, setIdPageSize] = useState(10);
   const [idModalReg, setIdModalReg] = useState(null);
+  // The "More" tab menu on the event page: { left, top, width } while open.
+  const [moreTabsMenu, setMoreTabsMenu] = useState(null);
+  // A card tapped anywhere on the ID Cards tab: whose it is, read-only.
+  // { seq, uid, busy, reg, message }. seq changes on every tap so the card
+  // animates in again even when the same card is tapped twice.
+  const [idTapView, setIdTapView] = useState(null);
+  // Cards handed back at the end of the event (rfid_card_returns), newest
+  // first, and the desk that takes them: { seq, uid, busy, reg, message, done }.
+  const [cardReturns, setCardReturns] = useState([]);
+  const [cardReturnsLoading, setCardReturnsLoading] = useState(false);
+  const [returnDeskOpen, setReturnDeskOpen] = useState(false);
+  const [returnScan, setReturnScan] = useState(null);
+  const [returnBusy, setReturnBusy] = useState(false);
+  const [returnSearch, setReturnSearch] = useState('');
   // RFID beside the ID: which card each registration holds at this event
   // (registration id -> { uid, assigned_at }), and the one being given a card.
   const [idRfidLinks, setIdRfidLinks] = useState({});
@@ -6818,6 +6907,9 @@ export default function DashboardPage() {
   const [idRfidResult, setIdRfidResult] = useState(null);
   const [idRfidBusy, setIdRfidBusy] = useState(false);
   const [idRfidManual, setIdRfidManual] = useState('');
+  // The card just tapped, waiting for "Assign this new UID". Nothing changes
+  // on a tap alone. { uid, holder: registration|null, busy }
+  const [idRfidPending, setIdRfidPending] = useState(null);
   const idLastOf = (r) => {
     const whole = String(r.attendee_name || '').trim().replace(/\s+/g, ' ');
     return formatPersonName(r.attendee_lastname || (whole.includes(' ') ? whole.split(' ').slice(-1)[0] : whole));
@@ -6830,13 +6922,29 @@ export default function DashboardPage() {
   // filters, so "Not printed (12)" is the twelve still to print in what is
   // on screen - the number the person at the printer actually wants.
   const [idPrinted, setIdPrinted] = useState('all');   // all | printed | not_printed
-  const idBaseRows = (() => {
+  // Last-name range (A–C, D–F, ...) so a desk can take one slice of the
+  // alphabet, then RFID assigned / not. Each dropdown counts what is left
+  // after the filters before it.
+  const idSearchRows = (() => {
     const q = idSearch.trim().toLowerCase();
     let rows = eventRegs.filter((r) => r.status !== 'cancelled');
-    if (idChurch !== 'all') rows = rows.filter((r) => (formatChurchName(r.church_name) || 'No church given') === idChurch);
     if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
     return rows;
   })();
+  const idLetterOf = (r) => {
+    const c = idLastOf(r).charAt(0).toUpperCase();
+    return c >= 'A' && c <= 'Z' ? c : '#';
+  };
+  // A–Z keeps everyone, including names that do not start with a letter.
+  const idInRange = (r, from, to) => {
+    if (from === 'A' && to === 'Z') return true;
+    const c = idLetterOf(r);
+    return c !== '#' && c >= from && c <= to;
+  };
+  const idRangeRows = idSearchRows.filter((r) => idInRange(r, idFrom, idTo));
+  const idRfidCount = idRangeRows.filter((r) => idRfidLinks[r.id]).length;
+  const idBaseRows = idRfid === 'all' ? idRangeRows
+    : idRangeRows.filter((r) => (idRfid === 'with' ? !!idRfidLinks[r.id] : !idRfidLinks[r.id]));
   const idPrintedCount = idBaseRows.filter((r) => r.id_printed_at).length;
   const visibleIds = (() => {
     const q = idSearch.trim().toLowerCase();
@@ -6854,7 +6962,7 @@ export default function DashboardPage() {
       return cmp(idLastOf(a), idLastOf(b)) || cmp(idFirstOf(a), idFirstOf(b));
     });
   })();
-  useEffect(() => { setIdPage(1); }, [idSearch, idChurch, idSort, idPrinted, eventRegsModal?.id]);
+  useEffect(() => { setIdPage(1); }, [idSearch, idRfid, idFrom, idTo, idSort, idPrinted, eventRegsModal?.id]);
   const idPages = Math.max(1, Math.ceil(visibleIds.length / idPageSize));
   const idPageSafe = Math.min(idPage, idPages);
   const pagedIds = visibleIds.slice((idPageSafe - 1) * idPageSize, idPageSafe * idPageSize);
@@ -6905,6 +7013,26 @@ export default function DashboardPage() {
       },
       { title: 'Mark as printed?', subtitle: eventRegsModal?.title || 'ID Cards', confirmLabel: `Mark ${targets.length} as printed`, icon: 'fa-print' },
     );
+  };
+
+  // A printed row's ID button opens a small menu: generate again, or undo the
+  // printed mark. { reg, left, top, width } while open.
+  const [idActMenu, setIdActMenu] = useState(null);
+  useEffect(() => { setIdActMenu(null); }, [eventRegsModal?.id, manageTab]);
+  const markIdNotPrinted = async (reg) => {
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: reg.id, action: 'id_printed', printed: false, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setEventRegs((regs) => regs.map((x) => (x.id === reg.id ? { ...x, id_printed_at: null, id_printed_by: null } : x)));
+      showToast(`${formatPersonName(reg.attendee_name)}'s ID marked as not printed`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
   };
 
   // Rows that share one call: the same bulk booking on the same number.
@@ -7546,7 +7674,12 @@ export default function DashboardPage() {
   // -- Admin/Super Admin: manually add a registration (walk-in / offline sign-up) --
   // Same form fields as the public registration flow, just entered on the attendee's
   // behalf. No userId is attached since there's no logged-in account for this entry.
-  const openAdminAddReg = () => {
+  const openAdminAddReg = (late = false) => {
+    setAdminLate(!!late);
+    setAdminLateUid('');
+    setAdminLateScan(null);
+    setAdminLateManual('');
+    setAdminCashGiven('');
     setAdminAddRegForm({
       attendeeFirstName: '', attendeeLastName: '', churchName: '', churchPastor: '',
       attendeeEmail: '', attendeeMobile: '',
@@ -7860,6 +7993,7 @@ export default function DashboardPage() {
   // Step 1 of the walk-in form: who is coming.
   const adminStepOneErrors = () => {
     const errs = {};
+    if (adminLate && !adminLateUid) errs.rfid = 'Tap the RFID card first.';
     if (!adminAddRegForm.attendeeFirstName?.trim()) errs.firstName = 'First name is required.';
     if (!adminAddRegForm.attendeeLastName?.trim()) errs.lastName = 'Last name is required.';
     if (adminIsKidSolo) {
@@ -7993,6 +8127,11 @@ export default function DashboardPage() {
     if (owed > 0 && adminAddRegForm.paymentPlan === 'full' && !adminAddRegForm.paymentMethod) { showToast('Choose how the payment was made', 'danger'); return; }
     const adminTurnover = owed > 0 && adminAddRegForm.paymentPlan === 'full' && adminAddRegForm.payStatus === 'turnover';
     if (adminTurnover && !adminAddRegForm.turnoverHolder?.trim()) { showToast('Enter who is holding the money', 'danger'); return; }
+    if (owed > 0 && adminAddRegForm.paymentPlan === 'full' && adminAddRegForm.payStatus === 'verified'
+      && isCashMethod(adminAddRegForm.paymentMethod) && adminCashGiven !== '' && Number(adminCashGiven) < owed) {
+      showToast(`Cash received is ₱${Number(owed) - Number(adminCashGiven)} short of the ₱${owed} total`, 'danger');
+      return;
+    }
     const firstPay = Number(adminAddRegForm.initialPayment) || 0;
     if (adminAddRegForm.paymentPlan === 'flexible' && firstPay > owed) { showToast(`The first payment cannot be more than the ₱${owed} total`, 'danger'); return; }
     // This registration is recorded against whoever is signed in. Without an
@@ -8025,6 +8164,7 @@ export default function DashboardPage() {
           paymentPlan: adminAddRegForm.paymentPlan || 'full',
           initialPayment: adminAddRegForm.paymentPlan === 'flexible' ? firstPay : 0,
           addedByAdmin: true,
+          ...(adminLate ? { lateRegistration: true, rfidUid: adminLateUid } : {}),
           // Who is doing this. The server reads the name and the role off this
           // account and labels the row with them, so the attribution cannot be
           // whatever the browser felt like claiming.
@@ -8055,9 +8195,10 @@ export default function DashboardPage() {
       // they are paying - say so rather than leaving a silently wrong table.
       if (data.warning) showToast(data.warning, 'danger');
 
-      showToast('Registration added', 'success');
+      showToast(adminLate ? `Late registration added · card ${formatUid(adminLateUid)}` : 'Registration added', 'success');
       setShowAdminAddReg(false);
       openEventRegistrations(eventRegsModal, manageTab);
+      if (adminLate) loadIdRfidLinks(eventRegsModal.id);
       loadPendingRegAlerts();
     } catch (e) {
       showToast('Error: ' + e.message, 'danger');
@@ -12753,6 +12894,7 @@ Examples:
 
   const openIdRfid = (reg) => {
     setIdRfidResult(null);
+    setIdRfidPending(null);
     setIdRfidManual('');
     setRfidError('');
     setIdRfidReg(reg);
@@ -12776,6 +12918,7 @@ Examples:
       }
       setIdRfidLinks((prev) => ({ ...prev, [reg.id]: { registration_id: reg.id, uid: data.data?.uid || uid, assigned_at: data.data?.assigned_at } }));
       setIdRfidResult({ ok: true, uid: data.data?.uid || uid, message: data.message });
+      setIdRfidPending(null);
       showToast(data.message, 'success');
     } catch (err) {
       setIdRfidResult({ ok: false, uid, message: err.message });
@@ -12783,6 +12926,24 @@ Examples:
       setIdRfidBusy(false);
     }
   }, [idRfidReg, eventRegsModal?.id, userData?.id, showToast]);
+
+  // A tap on the Assign RFID dialog only reads the card: whose it is, if
+  // anyone's. The link is made by the button, never by the tap.
+  const checkIdRfidCard = useCallback(async (rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!idRfidReg || !isPlausibleUid(uid) || !eventRegsModal?.id) return;
+    setIdRfidResult(null);
+    setIdRfidPending({ uid, busy: true });
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventRegsModal.id)}&uid=${encodeURIComponent(uid)}`);
+      const data = await res.json();
+      if (!data.success) { setIdRfidPending(null); setIdRfidResult({ ok: false, uid, message: data.message }); return; }
+      setIdRfidPending({ uid: data.uid || uid, holder: data.registration || null });
+    } catch (err) {
+      setIdRfidPending(null);
+      setIdRfidResult({ ok: false, uid, message: err.message });
+    }
+  }, [idRfidReg, eventRegsModal?.id]);
 
   const removeIdRfid = (reg) => {
     askConfirm(
@@ -12805,21 +12966,192 @@ Examples:
 
   // Which card is whose, whenever the ID Cards tab is on screen.
   useEffect(() => {
-    if (manageTab === 'ids' && eventRegsModal?.id) loadIdRfidLinks(eventRegsModal.id);
+    if ((manageTab === 'ids' || manageTab === 'returns') && eventRegsModal?.id) loadIdRfidLinks(eventRegsModal.id);
   }, [manageTab, eventRegsModal?.id, loadIdRfidLinks]);
+
+  // ---- Return RFID ----
+  // At the end of an event the cards come back. A tap shows whose card it is;
+  // "Mark as Returned" takes it off them and logs the return.
+  const loadCardReturns = useCallback(async (eventId) => {
+    if (!eventId) { setCardReturns([]); return; }
+    setCardReturnsLoading(true);
+    try {
+      const res = await fetch(`/api/rfid/card-returns?eventId=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      if (data.success) setCardReturns(data.data || []);
+      else if (/rfid_card_returns/i.test(data.message || '')) showToast(data.message, 'warning');
+    } catch { /* redrawn on the next load */ } finally {
+      setCardReturnsLoading(false);
+    }
+  }, [showToast]);
+  useEffect(() => {
+    if ((manageTab === 'ids' || manageTab === 'returns') && eventRegsModal?.id) loadCardReturns(eventRegsModal.id);
+  }, [manageTab, eventRegsModal?.id, loadCardReturns]);
+  useEffect(() => { setReturnDeskOpen(false); setReturnScan(null); }, [eventRegsModal?.id]);
+
+  // The latest return for each attendee - what makes a row read "ID Returned".
+  const latestReturnByReg = useMemo(() => {
+    const out = {};
+    for (const r of cardReturns) if (!out[r.registration_id]) out[r.registration_id] = r;
+    return out;
+  }, [cardReturns]);
+
+  const openReturnDesk = () => {
+    setReturnScan(null);
+    setRfidError('');
+    setReturnDeskOpen(true);
+  };
+
+  const lookupReturnCard = useCallback(async (rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid) || !eventRegsModal?.id) return;
+    const seq = Date.now();
+    setReturnScan((prev) => ({ ...(prev || {}), seq: prev?.seq || seq, uid, busy: true, done: false }));
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventRegsModal.id)}&uid=${encodeURIComponent(uid)}`);
+      const data = await res.json();
+      setReturnScan({
+        seq,
+        uid: data.uid || uid,
+        reg: data.success ? data.registration || null : null,
+        message: data.success ? '' : data.message,
+      });
+    } catch (err) {
+      setReturnScan({ seq, uid, reg: null, message: err.message });
+    }
+  }, [eventRegsModal?.id]);
+
+  const markCardReturned = async (reg) => {
+    if (!reg || !eventRegsModal?.id) return;
+    setReturnBusy(true);
+    try {
+      const res = await fetch('/api/rfid/card-returns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationId: reg.id, eventId: eventRegsModal.id, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setCardReturns((prev) => [data.data, ...prev]);
+      setIdRfidLinks((prev) => { const next = { ...prev }; delete next[reg.id]; return next; });
+      setReturnScan((prev) => (prev ? { ...prev, done: true } : prev));
+      showToast(data.message, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setReturnBusy(false);
+    }
+  };
+
+  const revertCardReturn = (ret) => {
+    askConfirm(
+      `Card ${formatUid(ret.uid)} will be ${formatPersonName(ret.attendee_name)}'s again, and this return is taken off the log.`,
+      async () => {
+        try {
+          const res = await fetch('/api/rfid/card-returns', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: ret.id, actorId: userData?.id || null }),
+          });
+          const data = await res.json();
+          if (!data.success) { showToast(data.message, 'danger'); return; }
+          setCardReturns((prev) => prev.filter((x) => x.id !== ret.id));
+          setIdRfidLinks((prev) => ({ ...prev, [ret.registration_id]: { registration_id: ret.registration_id, uid: data.data?.uid || ret.uid, assigned_at: data.data?.assigned_at } }));
+          showToast(data.message, 'success');
+        } catch (err) {
+          showToast(err.message, 'danger');
+        }
+      },
+      { title: 'Revert the return?', subtitle: eventRegsModal?.title || 'ID Cards', confirmLabel: 'Assign card back', icon: 'fa-rotate-left' },
+    );
+  };
+
+  const deleteCardReturn = (ret) => {
+    askConfirm(
+      `The return of card ${formatUid(ret.uid)} by ${formatPersonName(ret.attendee_name)} will be removed from the log. The card stays unassigned.`,
+      async () => {
+        try {
+          const res = await fetch(`/api/rfid/card-returns?id=${encodeURIComponent(ret.id)}&actorId=${encodeURIComponent(userData?.id || '')}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!data.success) { showToast(data.message, 'danger'); return; }
+          setCardReturns((prev) => prev.filter((x) => x.id !== ret.id));
+          showToast(data.message, 'warning');
+        } catch (err) {
+          showToast(err.message, 'danger');
+        }
+      },
+      { title: 'Delete this record?', subtitle: eventRegsModal?.title || 'Returned IDs', confirmLabel: 'Delete', icon: 'fa-trash' },
+    );
+  };
+
+  // Late Registration starts with a card. Only a card nobody holds at this
+  // event is accepted; the link itself is made when the registration saves.
+  const checkLateCard = useCallback(async (rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid) || !eventRegsModal?.id) return;
+    setAdminLateScan({ busy: true });
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventRegsModal.id)}&uid=${encodeURIComponent(uid)}`);
+      const data = await res.json();
+      if (!data.success) { setAdminLateScan({ ok: false, uid, message: data.message }); return; }
+      if (data.registration) {
+        setAdminLateScan({ ok: false, uid, message: `This card is already ${formatPersonName(data.registration.attendee_name)}'s at this event.` });
+        return;
+      }
+      setAdminLateUid(data.uid || uid);
+      setAdminLateScan(null);
+      setAdminAddErrors({});
+    } catch (err) {
+      setAdminLateScan({ ok: false, uid, message: err.message });
+    }
+  }, [eventRegsModal?.id]);
+
+  // The ID Cards tab listens for cards on its own: a tap shows who holds the
+  // card. Nothing is changed by it - assigning stays in the Assign RFID dialog.
+  const idsTabScan = canEditRegistrations && !!eventRegsModal?.id && manageTab === 'ids'
+    && (activeSection === 'events' || activeSection === 'events-management')
+    && !idModalReg && !showAdminAddReg && !returnDeskOpen;
+  // The Return RFID tab listens too: a tap opens the return desk on that card,
+  // even after the desk was closed.
+  const returnsTabScan = canEditRegistrations && !!eventRegsModal?.id && manageTab === 'returns'
+    && (activeSection === 'events' || activeSection === 'events-management')
+    && !idModalReg && !showAdminAddReg && !idRfidReg;
+  const lookupIdTap = useCallback(async (rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid) || !eventRegsModal?.id) return;
+    const seq = Date.now();
+    setIdTapView((prev) => ({ ...(prev || {}), seq: prev?.seq || seq, uid, busy: true }));
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventRegsModal.id)}&uid=${encodeURIComponent(uid)}`);
+      const data = await res.json();
+      setIdTapView({
+        seq,
+        uid: data.uid || uid,
+        reg: data.success ? data.registration || null : null,
+        message: data.success ? '' : data.message,
+      });
+    } catch (err) {
+      setIdTapView({ seq, uid, reg: null, message: err.message });
+    }
+  }, [eventRegsModal?.id]);
+  useEffect(() => { if (!idsTabScan) setIdTapView(null); }, [idsTabScan]);
 
   // Point the reader at whichever dialog is open. Cleared on close so taps go
   // back to wherever they were going before.
+  const lateScanOpen = showAdminAddReg && adminLate && !adminLateUid;
   useEffect(() => {
     if (evtUnlockOpen) rfidSinkRef.current = (uid) => tryUnlockTable(uid);
-    else if (idRfidReg) rfidSinkRef.current = (uid) => assignIdRfid(uid);
+    else if (lateScanOpen) rfidSinkRef.current = (uid) => checkLateCard(uid);
+    else if (returnDeskOpen || returnsTabScan) rfidSinkRef.current = (uid) => { setReturnDeskOpen(true); lookupReturnCard(uid); };
+    else if (idRfidReg) rfidSinkRef.current = (uid) => { if (!idRfidBusy) checkIdRfidCard(uid); };
     else if (accScanOpen) rfidSinkRef.current = (uid) => lookupAccScanCard(uid);
     else if (roomDesk) rfidSinkRef.current = (uid) => assignRoomCard(uid);
     else if (claimDesk) rfidSinkRef.current = (uid) => lookupClaimCard(uid);
     else if (evtRfidScanOpen) rfidSinkRef.current = (uid, src) => scanEventRfid(uid, src);
+    else if (idsTabScan) rfidSinkRef.current = (uid) => lookupIdTap(uid);
     else rfidSinkRef.current = null;
     return () => { rfidSinkRef.current = null; };
-  }, [evtUnlockOpen, tryUnlockTable, idRfidReg, assignIdRfid, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid]);
+  }, [evtUnlockOpen, tryUnlockTable, lateScanOpen, checkLateCard, returnDeskOpen, returnsTabScan, lookupReturnCard, idRfidReg, idRfidBusy, checkIdRfidCard, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid, idsTabScan, lookupIdTap]);
 
   // The claims grid and the attendance grid for the event on screen.
   useEffect(() => {
@@ -13498,7 +13830,7 @@ Examples:
   // RFID Reader section nor an assign/scan dialog somewhere else - a port
   // closed out from under an open dialog would leave it silently dead.
   const rfidInUse = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
-    || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen;
+    || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen || lateScanOpen || idsTabScan || returnDeskOpen || returnsTabScan;
 
   // The events as the cards show them, filtered by the search box.
   const rfidVisibleEventCards = rfidEventCards.filter((ev) => {
@@ -13721,7 +14053,7 @@ Examples:
     // A wedge reader is a keyboard: listening for it costs nothing when there
     // is none, and not listening for it is indistinguishable from a broken one.
     const wanted = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
-      || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen;
+      || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen || lateScanOpen || idsTabScan || returnDeskOpen || returnsTabScan;
     if (!wanted) return undefined;
 
     const onKeyDown = (e) => {
@@ -13758,7 +14090,7 @@ Examples:
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg, accScanOpen]);
+  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg, accScanOpen, lateScanOpen, idsTabScan, returnDeskOpen, returnsTabScan]);
 
   // ============================================
   // ACCOMMODATION - the rooms booked for an event
@@ -15372,11 +15704,6 @@ Examples:
                           <button type="button" className="evt-rhead-link" onClick={() => setEventDetail(ev)}>
                             View details <i className="fas fa-arrow-right"></i>
                           </button>
-                          {ev.has_fee && (
-                            <button type="button" className="evt-rhead-link" onClick={() => copyCollectionReport(ev)}>
-                              <i className="fas fa-copy"></i> Copy Report
-                            </button>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -15472,23 +15799,44 @@ Examples:
                           <i className="fas fa-arrow-left"></i> Back to Events
                         </button>
                         {manageTab === 'registrations' && (
-                          <button
-                            className="evt-hero-action"
-                            disabled={isEventOver(eventRegsModal)}
-                            title={isEventOver(eventRegsModal) ? 'This event has already ended' : ''}
-                            onClick={openAdminAddReg}
-                          >
-                            <i className="fas fa-user-plus"></i> Add Attendee
-                          </button>
-                        )}
-                        {eventRegsModal.has_fee && (
-                          <button
-                            className="evt-hero-action ghost evt-hero-copy"
-                            onClick={() => copyCollectionReport(eventRegsModal)}
-                            title="Copy the collection figures as text"
-                          >
-                            <i className="fas fa-copy"></i> Copy Report
-                          </button>
+                          <div className="evt-hero-addwrap">
+                            <button
+                              className="evt-hero-action"
+                              disabled={isEventOver(eventRegsModal)}
+                              title={isEventOver(eventRegsModal) ? 'This event has already ended' : ''}
+                              aria-haspopup="menu"
+                              aria-expanded={!!addAttendeeMenu}
+                              onClick={(e) => {
+                                // Fixed and portalled: the banner clips anything
+                                // that hangs out of it.
+                                const r = e.currentTarget.getBoundingClientRect();
+                                const width = Math.max(r.width, 260);
+                                setAddAttendeeMenu((v) => (v ? null : {
+                                  left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)), top: r.bottom + 8, width,
+                                }));
+                              }}
+                            >
+                              <i className="fas fa-user-plus"></i> Add Attendee <i className={`fas fa-chevron-${addAttendeeMenu ? 'up' : 'down'} evt-hero-caret`}></i>
+                            </button>
+                            {addAttendeeMenu && typeof document !== 'undefined' && createPortal(
+                              <>
+                                <div className="evt-hero-addmenu-scrim" onClick={() => setAddAttendeeMenu(null)} onWheel={() => setAddAttendeeMenu(null)} onTouchMove={() => setAddAttendeeMenu(null)} />
+                                <div className="evt-hero-addmenu" role="menu" style={addAttendeeMenu}>
+                                  <button type="button" role="menuitem" onClick={() => { setAddAttendeeMenu(null); openAdminAddReg(false); }}>
+                                    <i className="fas fa-user-plus"></i>
+                                    <span><b>Early Registration</b><small>Add a walk-in or offline sign-up.</small></span>
+                                  </button>
+                                  {(userRole === 'Admin' || userRole === 'Super Admin') && (
+                                    <button type="button" role="menuitem" onClick={() => { setAddAttendeeMenu(null); openAdminAddReg(true); }}>
+                                      <i className="fas fa-wifi"></i>
+                                      <span><b>Late Registration</b><small>Tap an RFID card first, then fill in the details.</small></span>
+                                    </button>
+                                  )}
+                                </div>
+                              </>,
+                              document.body,
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -15631,13 +15979,6 @@ Examples:
                         <i className="fas fa-id-card"></i> ID Cards
                       </button>
                     )}
-                    {/* Shown for any event that charges, so a plan can be found
-                        even before anybody is on one. */}
-                    {(eventRegsModal.has_fee || hasFlexiblePlans) && (
-                      <button className={`evt-tab ${manageTab === 'installments' ? 'active' : ''}`} onClick={() => { setManageTab('installments'); loadInstallments(eventRegsModal.id); }}>
-                        <i className="fas fa-calendar-day"></i> Flexible Installment {installments.length > 0 && <span className="evt-tab-count">{installments.length}</span>}
-                      </button>
-                    )}
                     {/* Accommodation, for an event that sells any paid
                         extra. No extras means nobody can be entitled to a
                         bed, so there would be nothing here to do. */}
@@ -15655,26 +15996,82 @@ Examples:
                         {evtRoomGuests.length > 0 && <span className="evt-tab-count">{evtRoomGuests.length}</span>}
                       </button>
                     )}
-                    {/* The public page the ID's QR opens: its programme and its photos. */}
-                    {canEditRegistrations && (
-                      <>
-                        <button className={`evt-tab ${manageTab === 'programme' ? 'active' : ''}`} onClick={() => setManageTab('programme')}>
-                          <i className="fas fa-list-ol"></i> Programme
-                        </button>
-                        <button className={`evt-tab ${manageTab === 'photos' ? 'active' : ''}`} onClick={() => setManageTab('photos')}>
-                          <i className="fas fa-images"></i> Photos
-                        </button>
-                      </>
-                    )}
-                    {/* Only worth a tab once something is actually in it. */}
-                    {deletedRegs.length > 0 && (
-                      <button
-                        className={`evt-tab ${manageTab === 'bin' ? 'active' : ''}`}
-                        onClick={() => { setManageTab('bin'); setBinPage(1); loadDeletedRegs(eventRegsModal.id); }}
-                      >
-                        <i className="fas fa-trash-can"></i> Recycle Bin <span className="evt-tab-count">{deletedRegs.length}</span>
-                      </button>
-                    )}
+                    {/* The tabs used less often, behind one "More" button so the
+                        row stays short. Fixed and portalled: the tab row
+                        scrolls sideways and would clip a menu hanging from it. */}
+                    {(() => {
+                      const moreTabs = [
+                        (eventRegsModal.has_fee || hasFlexiblePlans) && {
+                          key: 'installments', icon: 'fa-calendar-day', label: 'Flexible Installment',
+                          hint: 'Payment plans and partial payments', count: installments.length,
+                          open: () => { setManageTab('installments'); loadInstallments(eventRegsModal.id); },
+                        },
+                        canEditRegistrations && {
+                          key: 'programme', icon: 'fa-list-ol', label: 'Programme',
+                          hint: 'Schedule shown on the event page', open: () => setManageTab('programme'),
+                        },
+                        canEditRegistrations && {
+                          key: 'photos', icon: 'fa-images', label: 'Photos',
+                          hint: 'Gallery shown on the event page', open: () => setManageTab('photos'),
+                        },
+                        canEditRegistrations && {
+                          key: 'returns', icon: 'fa-rotate-left', label: 'Return RFID',
+                          hint: 'Collect cards and log who returned them', count: cardReturns.length,
+                          open: () => { setManageTab('returns'); openReturnDesk(); },
+                        },
+                        deletedRegs.length > 0 && {
+                          key: 'bin', icon: 'fa-trash-can', label: 'Recycle Bin',
+                          hint: 'Removed registrations you can restore', count: deletedRegs.length,
+                          open: () => { setManageTab('bin'); setBinPage(1); loadDeletedRegs(eventRegsModal.id); },
+                        },
+                      ].filter(Boolean);
+                      if (moreTabs.length === 0) return null;
+                      const current = moreTabs.find((t) => t.key === manageTab);
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            className={`evt-tab evt-tab-more ${current ? 'active' : ''}`}
+                            aria-haspopup="menu"
+                            aria-expanded={!!moreTabsMenu}
+                            onClick={(e) => {
+                              const r = e.currentTarget.getBoundingClientRect();
+                              const width = 280;
+                              setMoreTabsMenu((v) => (v ? null : {
+                                left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)), top: r.bottom + 6, width,
+                              }));
+                            }}
+                          >
+                            {current
+                              ? <><i className={`fas ${current.icon}`}></i> {current.label}</>
+                              : <><i className="fas fa-ellipsis"></i> More</>}
+                            <i className={`fas fa-chevron-${moreTabsMenu ? 'up' : 'down'} evt-hero-caret`}></i>
+                          </button>
+                          {moreTabsMenu && typeof document !== 'undefined' && createPortal(
+                            <>
+                              <div className="evt-hero-addmenu-scrim" onClick={() => setMoreTabsMenu(null)} onWheel={() => setMoreTabsMenu(null)} onTouchMove={() => setMoreTabsMenu(null)} />
+                              <div className="evt-hero-addmenu evt-more-menu" role="menu" style={moreTabsMenu}>
+                                <div className="evt-more-menu-head">Event Tools &amp; Records</div>
+                                {moreTabs.map((t) => (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    key={t.key}
+                                    className={manageTab === t.key ? 'on' : ''}
+                                    onClick={() => { setMoreTabsMenu(null); t.open(); }}
+                                  >
+                                    <i className={`fas ${t.icon}`}></i>
+                                    <span><b>{t.label}</b><small>{t.hint}</small></span>
+                                    {t.count > 0 && <em className="evt-tab-count">{t.count}</em>}
+                                  </button>
+                                ))}
+                              </div>
+                            </>,
+                            document.body,
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {manageTab === 'registrations' && (
@@ -15806,12 +16203,13 @@ Examples:
                                       still on the Type column, and in full on
                                       the receipt. */}
                                   <div className="evt-cell-sub evt-rdate">
+                                    {r.late_registration && <span className="evt-late-tag evt-late-line">LATE REGISTRATION</span>}
                                     {new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
                                   </div>
                                   {/* Phones: the columns that are hidden there,
                                       folded into one line under the name. */}
                                   <span className="evt-rmeta">
-                                    <span><i className="far fa-calendar"></i> {new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                                    <span><i className="far fa-calendar"></i> {r.late_registration && <b className="evt-late-tag">LATE - </b>}{new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                                     {r.price_tier && <span><i className={`fas ${regTierIsChild(r.price_tier) ? 'fa-child-reaching' : 'fa-user'}`}></i> {r.price_tier}</span>}
                                     {r.church_name && (
                                       <span className="evt-rmeta-church" title={formatChurchName(r.church_name)}>
@@ -16250,7 +16648,7 @@ Examples:
                           type="button"
                           className="evt-rbottom-add"
                           disabled={isEventOver(eventRegsModal)}
-                          onClick={openAdminAddReg}
+                          onClick={() => openAdminAddReg(false)}
                         ><i className="fas fa-plus"></i> Add Attendee</button>
                       </div>
                     </>
@@ -16878,23 +17276,20 @@ Examples:
                             ><i className="fas fa-sliders"></i> Filter</button>
                           </div>
                           <div className="evt-filter-row evt-filter-row-wrap">
-                            <FilterSelect
-                              value={idSort}
-                              onChange={setIdSort}
-                              ariaLabel="Sort attendees"
-                              options={[
-                                { value: 'last', label: 'Last name A–Z' },
-                                { value: 'first', label: 'First name A–Z' },
-                                { value: 'newest', label: 'Newest first' },
-                              ]}
+                            <LetterRange
+                              from={idFrom}
+                              to={idTo}
+                              onChange={(f, t) => { setIdFrom(f); setIdTo(t); }}
+                              countFor={(f, t) => idSearchRows.filter((r) => idInRange(r, f, t)).length}
                             />
                             <FilterSelect
-                              value={idChurch}
-                              onChange={setIdChurch}
-                              ariaLabel="Filter by church"
+                              value={idRfid}
+                              onChange={setIdRfid}
+                              ariaLabel="Filter by RFID"
                               options={[
-                                { value: 'all', label: `All churches (${eventRegs.filter((r) => r.status !== 'cancelled').length})` },
-                                ...regChurchOptions.map((c) => ({ value: c.name, label: `${c.name} (${c.count})` })),
+                                { value: 'all', label: `All RFID (${idRangeRows.length})` },
+                                { value: 'with', label: `With RFID (${idRfidCount})` },
+                                { value: 'without', label: `No RFID (${idRangeRows.length - idRfidCount})` },
                               ]}
                             />
                             <FilterSelect
@@ -16917,10 +17312,10 @@ Examples:
                               {idPrintMode ? ' Cancel' : ' Mark as Printed'}
                             </button>
                           </div>
-                          {(idChurch !== 'all' || idSearch.trim() || idPrinted !== 'all') && (
+                          {(idRfid !== 'all' || idRangeOn || idSearch.trim() || idPrinted !== 'all') && (
                             <span className="evt-filter-count">
                               {visibleIds.length} of {eventRegs.filter((r) => r.status !== 'cancelled').length}
-                              <button type="button" onClick={() => { setIdChurch('all'); setIdSearch(''); setIdPrinted('all'); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
+                              <button type="button" onClick={() => { setIdRfid('all'); setIdFrom('A'); setIdTo('Z'); setIdSearch(''); setIdPrinted('all'); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
                             </span>
                           )}
                         </div>
@@ -16932,7 +17327,7 @@ Examples:
                             <i className="fas fa-print"></i>
                             <span>
                               <b>{idPrintTargets.length}</b> of {idUnprinted.length} not-printed ID{idUnprinted.length === 1 ? '' : 's'} selected
-                              {idChurch !== 'all' || idSearch.trim() ? ' (in this filtered list)' : ''}.
+                              {idRfid !== 'all' || idRangeOn || idSearch.trim() ? ' (in this filtered list)' : ''}.
                               {' '}Untick anyone whose ID was not printed.
                             </span>
                           </div>
@@ -17008,23 +17403,80 @@ Examples:
                                   </td>
                                   <td className="evt-td-actions evt-call-act" data-label="ID">
                                     <div className="evt-id-acts">
-                                      <button type="button" className="evt-call-btn evt-id-btn" onClick={() => setIdModalReg(r)}>
-                                        <i className="fas fa-id-card"></i> Generate ID
-                                      </button>
+                                      {r.id_printed_at ? (
+                                        <button
+                                          type="button"
+                                          className="evt-call-btn evt-id-btn printed"
+                                          aria-haspopup="menu"
+                                          aria-expanded={idActMenu?.reg.id === r.id && idActMenu.kind === 'printed'}
+                                          onClick={(e) => {
+                                            // Fixed and portalled: the table clips anything hanging out of it.
+                                            const b = e.currentTarget.getBoundingClientRect();
+                                            const width = Math.max(b.width, 220);
+                                            const below = window.innerHeight - b.bottom > 130;
+                                            setIdActMenu((v) => (v?.reg.id === r.id && v.kind === 'printed' ? null : {
+                                              kind: 'printed',
+                                              reg: r,
+                                              left: Math.max(8, Math.min(b.right - width, window.innerWidth - width - 8)),
+                                              top: below ? b.bottom + 6 : b.top - 6,
+                                              width,
+                                              up: !below,
+                                            }));
+                                          }}
+                                        >
+                                          <i className="fas fa-circle-check"></i> ID Printed <i className={`fas fa-chevron-${idActMenu?.reg.id === r.id && idActMenu.kind === 'printed' ? 'up' : 'down'} evt-hero-caret`}></i>
+                                        </button>
+                                      ) : (
+                                        <button type="button" className="evt-call-btn evt-id-btn" onClick={() => setIdModalReg(r)}>
+                                          <i className="fas fa-id-card"></i> Generate ID
+                                        </button>
+                                      )}
                                       {/* The card goes out with the printed ID. Its
                                           number sits under the button so the desk can
                                           see at a glance who still needs one. */}
                                       <div className="evt-id-rfid">
-                                        <button
-                                          type="button"
-                                          className={`evt-call-btn evt-id-rfid-btn ${idRfidLinks[r.id] ? 'has' : ''}`}
-                                          onClick={() => openIdRfid(r)}
-                                        >
-                                          <i className="fas fa-wifi"></i> {idRfidLinks[r.id] ? 'Change RFID' : 'Assign RFID'}
-                                        </button>
-                                        <span className={`evt-id-rfid-uid ${idRfidLinks[r.id] ? '' : 'none'}`}>
-                                          {idRfidLinks[r.id] ? <>UID: <b>{formatUid(idRfidLinks[r.id].uid)}</b></> : 'No card yet'}
-                                        </span>
+                                        {!idRfidLinks[r.id] && latestReturnByReg[r.id] ? (
+                                          <>
+                                            <button
+                                              type="button"
+                                              className="evt-call-btn evt-id-rfid-btn returned"
+                                              aria-haspopup="menu"
+                                              aria-expanded={idActMenu?.reg.id === r.id && idActMenu.kind === 'returned'}
+                                              onClick={(e) => {
+                                                const b = e.currentTarget.getBoundingClientRect();
+                                                const width = Math.max(b.width, 240);
+                                                const below = window.innerHeight - b.bottom > 130;
+                                                setIdActMenu((v) => (v?.reg.id === r.id && v.kind === 'returned' ? null : {
+                                                  kind: 'returned',
+                                                  reg: r,
+                                                  ret: latestReturnByReg[r.id],
+                                                  left: Math.max(8, Math.min(b.right - width, window.innerWidth - width - 8)),
+                                                  top: below ? b.bottom + 6 : b.top - 6,
+                                                  width,
+                                                  up: !below,
+                                                }));
+                                              }}
+                                            >
+                                              <i className="fas fa-rotate-left"></i> ID Returned <i className="fas fa-chevron-down evt-hero-caret"></i>
+                                            </button>
+                                            <span className="evt-id-rfid-uid returned">
+                                              Returned {new Date(latestReturnByReg[r.id].returned_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                                            </span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <button
+                                              type="button"
+                                              className={`evt-call-btn evt-id-rfid-btn ${idRfidLinks[r.id] ? 'has' : ''}`}
+                                              onClick={() => openIdRfid(r)}
+                                            >
+                                              <i className="fas fa-wifi"></i> {idRfidLinks[r.id] ? 'Change RFID' : 'Assign RFID'}
+                                            </button>
+                                            <span className={`evt-id-rfid-uid ${idRfidLinks[r.id] ? '' : 'none'}`}>
+                                              {idRfidLinks[r.id] ? <>UID: <b>{formatUid(idRfidLinks[r.id].uid)}</b></> : 'No card yet'}
+                                            </span>
+                                          </>
+                                        )}
                                       </div>
                                     </div>
                                   </td>
@@ -17042,6 +17494,41 @@ Examples:
                         onSize={(n) => { setIdPageSize(n); setIdPage(1); }}
                         label="attendees"
                       />
+                      {idActMenu && typeof document !== 'undefined' && createPortal(
+                        <>
+                          <div className="evt-hero-addmenu-scrim" onClick={() => setIdActMenu(null)} onWheel={() => setIdActMenu(null)} onTouchMove={() => setIdActMenu(null)} />
+                          <div
+                            className="evt-hero-addmenu"
+                            role="menu"
+                            style={{ left: idActMenu.left, top: idActMenu.top, width: idActMenu.width, transform: idActMenu.up ? 'translateY(-100%)' : undefined }}
+                          >
+                            {idActMenu.kind === 'returned' ? (
+                              <>
+                                <button type="button" role="menuitem" onClick={() => { const reg = idActMenu.reg; setIdActMenu(null); openIdRfid(reg); }}>
+                                  <i className="fas fa-wifi"></i>
+                                  <span><b>Assign RFID</b><small>Give them a new card.</small></span>
+                                </button>
+                                <button type="button" role="menuitem" onClick={() => { const ret = idActMenu.ret; setIdActMenu(null); revertCardReturn(ret); }}>
+                                  <i className="fas fa-rotate-left"></i>
+                                  <span><b>Revert the Assigned UID</b><small>Give back card {formatUid(idActMenu.ret.uid)}.</small></span>
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button type="button" role="menuitem" onClick={() => { const reg = idActMenu.reg; setIdActMenu(null); setIdModalReg(reg); }}>
+                                  <i className="fas fa-id-card"></i>
+                                  <span><b>Generate ID</b><small>Open the ID again to reprint.</small></span>
+                                </button>
+                                <button type="button" role="menuitem" onClick={() => { const reg = idActMenu.reg; setIdActMenu(null); markIdNotPrinted(reg); }}>
+                                  <i className="fas fa-rotate-left"></i>
+                                  <span><b>Mark as not printed</b><small>Put it back in the print run.</small></span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </>,
+                        document.body,
+                      )}
                     </>
                   )}
 
@@ -17634,6 +18121,151 @@ Examples:
                  checked here and again on the server, and it names the person
                  and what they actually availed, because "not allowed" on its
                  own is the kind of refusal that gets worked around. */}
+            {/* ---- Card holder, from a tap on the ID Cards tab ----
+                 Read-only on purpose: it answers "whose card is this?" and
+                 nothing else. Changing a card stays behind Change RFID. Each
+                 new tap slides the next person in over the last. */}
+            {idTapView && idsTabScan && !idRfidReg && (() => {
+              const holder = idTapView.reg
+                ? { ...idTapView.reg, ...(eventRegs.find((x) => x.id === idTapView.reg.id) || {}) }
+                : null;
+              return (
+                <div className="evt-modal-overlay" onClick={() => setIdTapView(null)}>
+                  <div className="evt-modal evt-claim-modal evt-tapview" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                    <div className="evt-modal-head">
+                      <div>
+                        <h3><i className="fas fa-wifi"></i> Card Holder</h3>
+                        <p>{eventRegsModal?.title} · Tap another card to check it</p>
+                      </div>
+                      <button type="button" className="evt-modal-close" onClick={() => setIdTapView(null)}>
+                        <i className="fas fa-times"></i>
+                      </button>
+                    </div>
+                    <div className="evt-modal-body">
+                      <div key={idTapView.seq} className={`evt-tapview-card ${idTapView.busy ? 'busy' : ''}`}>
+                        {holder ? (
+                          <>
+                            <div className="evt-tapview-avatar">{personInitials(holder.attendee_name)}</div>
+                            <span className="evt-tapview-lead">This card is assigned to</span>
+                            <div className="evt-tapview-name">{formatPersonName(holder.attendee_name)}</div>
+                            {holder.church_name && (
+                              <div className="evt-tapview-church"><i className="fas fa-church"></i> {formatChurchName(holder.church_name)}</div>
+                            )}
+                            <div className="evt-tapview-tags">
+                              <span className={`evt-id-print-tag ${holder.id_printed_at ? 'done' : 'todo'}`}>
+                                <i className={`fas ${holder.id_printed_at ? 'fa-circle-check' : 'fa-print'}`}></i>
+                                {holder.id_printed_at ? ' ID printed' : ' ID not printed'}
+                              </span>
+                              {holder.price_tier && <span className="evt-tapview-tag">{holder.price_tier}</span>}
+                              {idTapView.reg.status && !['registered', 'payment_verified', 'paid_pending_turnover'].includes(idTapView.reg.status) && (
+                                <span className="evt-tapview-tag warn">{String(idTapView.reg.status).replace(/_/g, ' ')}</span>
+                              )}
+                            </div>
+                          </>
+                        ) : idTapView.busy ? (
+                          <>
+                            <div className="evt-tapview-avatar none"><i className="fas fa-spinner fa-spin"></i></div>
+                            <span className="evt-tapview-lead">Reading the card&hellip;</span>
+                          </>
+                        ) : (
+                          <>
+                            <div className="evt-tapview-avatar none"><i className="fas fa-id-card"></i></div>
+                            <span className="evt-tapview-lead">{idTapView.message ? 'Could not read this card' : 'Not assigned'}</span>
+                            <div className="evt-tapview-name muted">{idTapView.message || 'No attendee holds this card at this event.'}</div>
+                          </>
+                        )}
+                        <div className="evt-late-scan-uid">
+                          <span>UID</span>
+                          <code>{formatUid(idTapView.uid)}</code>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ---- Return RFID desk ----
+                 Same calm screen as Late Registration. A tap only shows whose
+                 card it is; the button is what takes it back. The next tap
+                 slides the next person in. */}
+            {returnDeskOpen && eventRegsModal && (
+              <div className="evt-modal-overlay" onClick={() => !returnBusy && setReturnDeskOpen(false)}>
+                <div className="evt-modal evt-claim-modal evt-tapview" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                  <div className="evt-modal-head">
+                    <div>
+                      <h3><i className="fas fa-rotate-left"></i> Return RFID</h3>
+                      <p>{eventRegsModal.title}</p>
+                    </div>
+                    <button type="button" className="evt-modal-close" onClick={() => setReturnDeskOpen(false)} disabled={returnBusy}>
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                  <div className="evt-modal-body">
+                    {!returnScan ? (
+                      <div className="evt-late-scan">
+                        <div className="evt-late-scan-ring"><i className="fas fa-wifi"></i></div>
+                        <h4>Tap the card being returned</h4>
+                        <p>The attendee holding it will show here.</p>
+                      </div>
+                    ) : (
+                      <div key={returnScan.seq} className={`evt-tapview-card ${returnScan.busy ? 'busy' : ''}`}>
+                        {returnScan.reg ? (
+                          <>
+                            <div className={`evt-tapview-avatar ${returnScan.done ? 'ok' : ''}`}>
+                              {returnScan.done ? <i className="fas fa-check"></i> : personInitials(returnScan.reg.attendee_name)}
+                            </div>
+                            <span className="evt-tapview-lead">{returnScan.done ? 'Returned by' : 'This card is assigned to'}</span>
+                            <div className="evt-tapview-name">{formatPersonName(returnScan.reg.attendee_name)}</div>
+                            {returnScan.reg.church_name && (
+                              <div className="evt-tapview-church"><i className="fas fa-church"></i> {formatChurchName(returnScan.reg.church_name)}</div>
+                            )}
+                            <div className={`evt-late-scan-uid ${returnScan.done ? 'ok' : ''}`}>
+                              <span>UID</span>
+                              <code>{formatUid(returnScan.uid)}</code>
+                            </div>
+                            {returnScan.done ? (
+                              <p className="evt-late-scan-good" style={{ marginTop: 8 }}>
+                                <i className="fas fa-circle-check"></i> Marked as returned. Tap the next card.
+                              </p>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-primary evt-ret-mark"
+                                disabled={returnBusy || returnScan.busy}
+                                onClick={() => markCardReturned(returnScan.reg)}
+                              >
+                                <i className={`fas ${returnBusy ? 'fa-spinner fa-spin' : 'fa-rotate-left'}`}></i> Mark as Returned
+                              </button>
+                            )}
+                          </>
+                        ) : returnScan.busy ? (
+                          <>
+                            <div className="evt-tapview-avatar none"><i className="fas fa-spinner fa-spin"></i></div>
+                            <span className="evt-tapview-lead">Reading the card&hellip;</span>
+                          </>
+                        ) : (
+                          <>
+                            <div className="evt-tapview-avatar none"><i className="fas fa-id-card"></i></div>
+                            <span className="evt-tapview-lead">{returnScan.message ? 'Could not read this card' : 'Not assigned'}</span>
+                            <div className="evt-tapview-name muted">{returnScan.message || 'Nobody holds this card at this event - nothing to return.'}</div>
+                            <div className="evt-late-scan-uid"><span>UID</span><code>{formatUid(returnScan.uid)}</code></div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {rfidError && (
+                      <p className="evt-rfid-hint bad"><i className="fas fa-triangle-exclamation"></i>{rfidError}</p>
+                    )}
+                    <details className="evt-late-scan-more">
+                      <summary><i className="fas fa-sliders"></i> Reader not working? Check the reader</summary>
+                      {renderRfidStatus()}
+                    </details>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ---- Assign RFID, from the ID Cards tab ----
                  One person, one tap. The card is linked to this registration
                  for this event only; the same card can be reused next event. */}
@@ -17651,82 +18283,109 @@ Examples:
                   </div>
 
                   <div className="evt-modal-body">
-                    {renderRfidStatus()}
-                    {rfidError && (
-                      <p className="evt-rfid-hint bad">
-                        <i className="fas fa-triangle-exclamation"></i>
-                        {rfidError}
-                      </p>
-                    )}
+                    {/* Same calm screen as Late Registration: the person, their
+                        card, and a tap. A tap only reads the card - the button
+                        makes it theirs. Reader details only on request. */}
+                    {(() => {
+                      const current = idRfidLinks[idRfidReg.id]?.uid;
+                      const pend = idRfidPending;
+                      const takenBy = pend?.holder && pend.holder.id !== idRfidReg.id ? pend.holder : null;
+                      const alreadyTheirs = !!pend?.holder && pend.holder.id === idRfidReg.id;
+                      const ready = !!pend && !pend.busy && !pend.holder;
+                      const ringCls = idRfidBusy || pend?.busy ? 'busy'
+                        : idRfidResult?.ok || ready || alreadyTheirs ? 'ok'
+                          : takenBy || idRfidResult ? 'bad' : '';
+                      return (
+                        <div className="evt-late-scan">
+                          <div className={`evt-late-scan-ring ${ringCls}`}>
+                            <i className={`fas ${ringCls === 'busy' ? 'fa-spinner fa-spin'
+                              : idRfidResult?.ok ? 'fa-circle-check'
+                                : ringCls === 'bad' ? 'fa-circle-exclamation'
+                                  : ready || alreadyTheirs ? 'fa-id-card' : 'fa-wifi'}`}></i>
+                          </div>
+                          <div className="evt-late-scan-name">{formatPersonName(idRfidReg.attendee_name)}</div>
+                          {current ? (
+                            <div className={`evt-late-scan-uid ${idRfidResult?.ok ? 'ok' : ''}`}>
+                              <span>{idRfidResult?.ok ? 'Assigned UID' : 'Current UID'}</span>
+                              <code>{formatUid(current)}</code>
+                            </div>
+                          ) : (
+                            <div className="evt-late-scan-uid none"><span>No card yet</span></div>
+                          )}
 
-                    <div className={`evt-claim-who ${idRfidBusy || !idRfidResult ? '' : idRfidResult.ok ? 'ok' : 'bad'}`}>
-                      {idRfidBusy ? (
-                        <>
-                          <i className="fas fa-spinner fa-spin"></i>
-                          <div><b>Reading the card…</b></div>
-                        </>
-                      ) : !idRfidResult ? (
-                        <>
-                          <i className="fas fa-id-card"></i>
-                          <div>
-                            <b>Tap a card</b>
-                            <em>
-                              {idRfidLinks[idRfidReg.id]
-                                ? `${formatPersonName(idRfidReg.attendee_name)} already holds UID ${formatUid(idRfidLinks[idRfidReg.id].uid)}. Tapping another card replaces it.`
-                                : `The card tapped becomes ${formatPersonName(idRfidReg.attendee_name)}'s for this event.`}
-                            </em>
-                          </div>
-                        </>
-                      ) : idRfidResult.ok ? (
-                        <>
-                          <div className="rfid-avatar">{personInitials(idRfidReg.attendee_name)}</div>
-                          <div>
-                            <b>{formatPersonName(idRfidReg.attendee_name)}</b>
-                            <strong className="rmn-ok">
-                              <i className="fas fa-circle-check"></i> {idRfidResult.message}
-                            </strong>
-                            <em>UID: <b>{formatUid(idRfidResult.uid)}</b></em>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-circle-exclamation"></i>
-                          <div>
-                            <b>{idRfidResult.message || 'That card could not be used'}</b>
-                            <em>UID read: {formatUid(idRfidResult.uid)}</em>
-                          </div>
-                          <button type="button" className="btn-small btn-secondary" onClick={() => setIdRfidResult(null)}>
-                            Try again
-                          </button>
-                        </>
-                      )}
-                    </div>
+                          {idRfidResult?.ok ? (
+                            <p className="evt-late-scan-good">{idRfidResult.message}</p>
+                          ) : pend?.busy ? (
+                            <p>Reading the card&hellip;</p>
+                          ) : takenBy ? (
+                            <div className="evt-late-scan-found bad">
+                              <span>Card <code>{formatUid(pend.uid)}</code> is already assigned to</span>
+                              <b>{formatPersonName(takenBy.attendee_name)}</b>
+                              {takenBy.church_name && <em>{formatChurchName(takenBy.church_name)}</em>}
+                              <small>Tap a different card.</small>
+                            </div>
+                          ) : alreadyTheirs ? (
+                            <div className="evt-late-scan-found">
+                              <span>That is already {formatPersonName(idRfidReg.attendee_name)}&apos;s card.</span>
+                              <small>Tap a different card to replace it.</small>
+                            </div>
+                          ) : ready ? (
+                            <div className="evt-late-scan-found ok">
+                              <span>New card read</span>
+                              <code className="big">{formatUid(pend.uid)}</code>
+                              <div className="evt-late-scan-acts">
+                                <button type="button" className="btn-secondary" disabled={idRfidBusy} onClick={() => setIdRfidPending(null)}>
+                                  Cancel
+                                </button>
+                                <button type="button" className="btn-primary" disabled={idRfidBusy} onClick={() => assignIdRfid(pend.uid)}>
+                                  <i className={`fas ${idRfidBusy ? 'fa-spinner fa-spin' : 'fa-link'}`}></i> Assign this new UID
+                                </button>
+                              </div>
+                            </div>
+                          ) : idRfidResult ? (
+                            <>
+                              <p className="evt-late-scan-bad">{idRfidResult.message || 'That card could not be used'}</p>
+                              {idRfidResult.uid && <p>Card read: <code>{formatUid(idRfidResult.uid)}</code></p>}
+                              <p>Tap another card.</p>
+                            </>
+                          ) : (
+                            <p>{current ? 'Tap a new RFID card to replace it.' : 'Tap an RFID card to make it theirs for this event.'}</p>
+                          )}
 
-                    {/* Typing a number in, for when the reader is not to hand. */}
-                    {!idRfidResult?.ok && (
-                      <div className="rfid-manual">
-                        <input
-                          className="form-control"
-                          value={idRfidManual}
-                          onChange={(e) => setIdRfidManual(e.target.value)}
-                          placeholder="…or type a card number"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && isPlausibleUid(idRfidManual)) {
-                              assignIdRfid(idRfidManual);
-                              setIdRfidManual('');
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          disabled={!isPlausibleUid(idRfidManual) || idRfidBusy}
-                          onClick={() => { assignIdRfid(idRfidManual); setIdRfidManual(''); }}
-                        >
-                          Assign
-                        </button>
-                      </div>
-                    )}
+                          {rfidError && (
+                            <p className="evt-rfid-hint bad"><i className="fas fa-triangle-exclamation"></i>{rfidError}</p>
+                          )}
+                          {!idRfidResult?.ok && !ready && (
+                            <details className="evt-late-scan-more">
+                              <summary><i className="fas fa-sliders"></i> Reader not working? Type the card number</summary>
+                              <div className="rfid-manual">
+                                <input
+                                  className="form-control"
+                                  value={idRfidManual}
+                                  onChange={(e) => setIdRfidManual(e.target.value)}
+                                  placeholder="Card number"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && isPlausibleUid(idRfidManual)) {
+                                      checkIdRfidCard(idRfidManual);
+                                      setIdRfidManual('');
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  disabled={!isPlausibleUid(idRfidManual) || !!pend?.busy}
+                                  onClick={() => { checkIdRfidCard(idRfidManual); setIdRfidManual(''); }}
+                                >
+                                  Check card
+                                </button>
+                              </div>
+                              {renderRfidStatus()}
+                            </details>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="evt-modal-foot">
@@ -20720,6 +21379,99 @@ Examples:
             })()}
 
             {/* ---- Recycle Bin: the attendees that were removed, and the way back ---- */}
+            {/* ---- Return RFID: the log of cards handed back ---- */}
+            {eventRegsModal && manageTab === 'returns' && canEditRegistrations && (
+              <>
+                {/* Where the event's cards are: still out with attendees, or
+                    back at the desk. Someone who returned a card and was later
+                    given another counts as holding one. */}
+                {(() => {
+                  const holding = Object.keys(idRfidLinks).length;
+                  const returned = Object.keys(latestReturnByReg).filter((id) => !idRfidLinks[id]).length;
+                  const issued = holding + returned;
+                  const pct = issued > 0 ? Math.round((returned / issued) * 100) : 0;
+                  return (
+                    <div className="evt-ret-stats">
+                      {/* Everyone who still holds an assigned card on the ID Cards tab. */}
+                      <div className="evt-ret-stat out">
+                        <i className="fas fa-hourglass-half"></i>
+                        <div><b>{holding}</b><span>Total of Registered RFID not yet returned</span></div>
+                      </div>
+                      <div className="evt-ret-stat back">
+                        <i className="fas fa-circle-check"></i>
+                        <div><b>{returned}</b><span>Returned</span></div>
+                      </div>
+                      <div className="evt-ret-progress" title={`${returned} of ${issued} cards returned`}>
+                        <div className="evt-ret-progress-bar"><span style={{ width: `${pct}%` }}></span></div>
+                        <em>{pct}% of cards returned</em>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="evt-viewbar evt-ret-bar">
+                  <div className="evt-search">
+                    <i className="fas fa-magnifying-glass"></i>
+                    <input
+                      type="search"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-form-type="other"
+                      value={returnSearch}
+                      onChange={(e) => setReturnSearch(e.target.value)}
+                      placeholder="Search name, church or UID"
+                      aria-label="Search returned cards"
+                    />
+                  </div>
+                </div>
+                <div className="evt-table-wrapper">
+                  <table className="evt-table">
+                    <thead>
+                      <tr>
+                        <th>Attendee Name</th>
+                        <th>Date &amp; Time Returned</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cardReturnsLoading && cardReturns.length === 0 ? (
+                        <tr><td colSpan={3}>Loading…</td></tr>
+                      ) : cardReturns.length === 0 ? (
+                        <tr><td colSpan={3}>No cards have been returned yet.</td></tr>
+                      ) : (() => {
+                        const q = returnSearch.trim().toLowerCase();
+                        // Only a query that looks like a card number is matched against the UID.
+                        const qHex = /^[0-9a-f\s:-]+$/.test(q) ? q.replace(/[^0-9a-f]/g, '') : '';
+                        const rows = !q ? cardReturns : cardReturns.filter((ret) => (
+                          `${ret.attendee_name} ${ret.church_name}`.toLowerCase().includes(q)
+                          || (qHex.length >= 2 && String(ret.uid || '').toLowerCase().includes(qHex))
+                        ));
+                        return rows.length === 0 ? (
+                          <tr><td colSpan={3}>No returned card matches &ldquo;{returnSearch.trim()}&rdquo;.</td></tr>
+                        ) : rows.map((ret) => (
+                        <tr key={ret.id}>
+                          <td className="evt-cell-name evt-td-primary" data-label="Attendee Name">
+                            {formatPersonName(ret.attendee_name) || '—'}
+                            <div className="evt-cell-sub">
+                              UID {formatUid(ret.uid)}{ret.church_name && <> · {formatChurchName(ret.church_name)}</>}
+                            </div>
+                          </td>
+                          <td data-label="Date & Time Returned">
+                            {new Date(ret.returned_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                          </td>
+                          <td className="evt-td-actions" data-label="Actions">
+                            <button type="button" className="evt-mini-btn danger" onClick={() => deleteCardReturn(ret)}>
+                              <i className="fas fa-trash"></i> Delete
+                            </button>
+                          </td>
+                        </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
             {eventRegsModal && manageTab === 'bin' && (() => {
               const binTotal = deletedRegs.length;
               const binPageSafe = Math.min(binPage, Math.max(1, Math.ceil(binTotal / binPageSize)));
@@ -21669,10 +22421,64 @@ Examples:
               <div className="evt-modal-overlay" onClick={() => setShowAdminAddReg(false)}>
                 <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="evt-modal-head">
-                    <div><h3>Add Attendee</h3><p>{eventRegsModal.title}</p></div>
+                    <div><h3>{adminLate ? <><i className="fas fa-wifi"></i> Late Registration</> : 'Add Attendee'}</h3><p>{eventRegsModal.title}</p></div>
                     <button className="evt-modal-close" onClick={() => setShowAdminAddReg(false)}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
+                    {/* Late Registration, before a card: nothing but the tap.
+                        Steps, notes and reader details wait until a free card
+                        has been read. */}
+                    {adminLate && !adminLateUid ? (
+                      <div className="evt-late-scan">
+                        <div className={`evt-late-scan-ring ${adminLateScan?.busy ? 'busy' : adminLateScan ? 'bad' : ''}`}>
+                          <i className={`fas ${adminLateScan?.busy ? 'fa-spinner fa-spin' : adminLateScan ? 'fa-circle-exclamation' : 'fa-wifi'}`}></i>
+                        </div>
+                        {adminLateScan?.busy ? (
+                          <>
+                            <h4>Reading the card&hellip;</h4>
+                            <p>One moment.</p>
+                          </>
+                        ) : adminLateScan ? (
+                          <>
+                            <h4>{adminLateScan.message || 'That card could not be used'}</h4>
+                            <p>Card read: <code>{formatUid(adminLateScan.uid)}</code></p>
+                            <button type="button" className="btn-primary evt-late-scan-retry" onClick={() => setAdminLateScan(null)}>
+                              <i className="fas fa-rotate-left"></i> Tap another card
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <h4>Tap the attendee&apos;s RFID card</h4>
+                            <p>Hold a new card on the reader. The form opens once it is read.</p>
+                          </>
+                        )}
+                        {rfidError && (
+                          <p className="evt-rfid-hint bad"><i className="fas fa-triangle-exclamation"></i>{rfidError}</p>
+                        )}
+                        <details className="evt-late-scan-more">
+                          <summary><i className="fas fa-sliders"></i> Reader not working? Type the card number</summary>
+                          <div className="rfid-manual">
+                            <input
+                              className="form-control"
+                              value={adminLateManual}
+                              onChange={(e) => setAdminLateManual(e.target.value)}
+                              placeholder="Card number"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && isPlausibleUid(adminLateManual)) { checkLateCard(adminLateManual); setAdminLateManual(''); }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={!isPlausibleUid(adminLateManual) || !!adminLateScan?.busy}
+                              onClick={() => { checkLateCard(adminLateManual); setAdminLateManual(''); }}
+                            >Use card</button>
+                          </div>
+                          {renderRfidStatus()}
+                        </details>
+                      </div>
+                    ) : (
+                    <>
                     {/* Who is coming, then how they are paying - the second half
                         changes shape entirely depending on the plan chosen. */}
                     <div className="evt-steps">
@@ -21692,7 +22498,10 @@ Examples:
                     {adminAddStep === 0 && (
                       <>
                         <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
-                          <i className="fas fa-circle-info"></i> Use this to record a walk-in or offline sign-up on the attendee&apos;s behalf.
+                          <i className="fas fa-circle-info"></i>{' '}
+                          {adminLate
+                            ? <>For someone arriving after registration closed. The card below becomes theirs when you save.</>
+                            : <>Use this to record a walk-in or offline sign-up on the attendee&apos;s behalf.</>}
                         </p>
 
                         {/* Whose name goes on the row, shown before it is typed.
@@ -21708,8 +22517,21 @@ Examples:
                           </span>
                         </div>
 
+                        {adminLate && adminLateUid && (
+                          <div className="evt-late-card">
+                            <i className="fas fa-circle-check"></i>
+                            <span>RFID card <b>{formatUid(adminLateUid)}</b> will be theirs</span>
+                            <button type="button" className="evt-mini-btn" onClick={() => { setAdminLateUid(''); setAdminLateScan(null); }}>
+                              <i className="fas fa-rotate-left"></i> Change card
+                            </button>
+                          </div>
+                        )}
+
+                        {(!adminLate || adminLateUid) && (
+                        <>
                         {/* One person, or a group on one payment - the same choice
-                            the public form offers. */}
+                            the public form offers. Late registration is one person. */}
+                        {!adminLate && (
                         <div className="evt-plan-pick" style={{ marginTop: 0 }}>
                           <div className="evt-plan-head">Registration Type</div>
                           <div className="evt-type-choice">
@@ -21731,6 +22553,7 @@ Examples:
                             </button>
                           </div>
                         </div>
+                        )}
 
                         {adminIsBulk && (
                           <p className="evt-muted" style={{ margin: '0 0 12px', fontSize: '0.82rem' }}>
@@ -21877,7 +22700,7 @@ Examples:
                             autoComplete="off"
                           />
                           {adminChurchOpen && adminChurchOptions.length > 0 && (
-                            <ul className="evt-church-list">
+                            <ul className="evt-church-list" ref={flipListUp}>
                               {adminChurchOptions.map((c) => (
                                 <li key={c.name}>
                                   <button type="button" onMouseDown={() => { setAdminAddRegForm((f) => ({ ...f, churchName: c.name })); setAdminChurchOpen(false); }}>
@@ -21974,6 +22797,8 @@ Examples:
                         <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={adminAddNext}>
                           {adminIsBulk ? 'Add the People' : 'Continue to Payment'} <i className="fas fa-arrow-right"></i>
                         </button>
+                        </>
+                        )}
                       </>
                     )}
 
@@ -22284,7 +23109,47 @@ Examples:
                                     ariaLabel="Payment method"
                                   />
                                 </div>
-                                <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={adminAddRegForm.paymentReference} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentReference: e.target.value })} placeholder={/^cash$/i.test(adminAddRegForm.paymentMethod) ? 'Not needed for cash' : ''} /></div>
+                                {isCashMethod(adminAddRegForm.paymentMethod) ? (() => {
+                                  // Cash at the desk: what is owed, what was handed
+                                  // over, and the change to give back.
+                                  const total = adminTotalAmount(eventRegsModal);
+                                  const given = Number(adminCashGiven) || 0;
+                                  const diff = given - total;
+                                  return (
+                                    <div className="evt-cash-calc">
+                                      <div className="evt-cash-row"><span>Total</span><b>{peso(total)}</b></div>
+                                      <label className="evt-cash-row evt-cash-in">
+                                        <span>Cash received</span>
+                                        <span className="evt-cash-input">
+                                          <em>₱</em>
+                                          <input
+                                            inputMode="numeric"
+                                            value={adminCashGiven}
+                                            onChange={(e) => setAdminCashGiven(onlyDigits(e.target.value))}
+                                            placeholder="0"
+                                            aria-label="Cash received"
+                                          />
+                                        </span>
+                                      </label>
+                                      <div className="evt-cash-quick">
+                                        {[total, ...[100, 200, 500, 1000].map((n) => Math.ceil(total / n) * n)]
+                                          .filter((v, i, arr) => v > 0 && arr.indexOf(v) === i)
+                                          .slice(0, 4)
+                                          .map((v) => (
+                                            <button type="button" key={v} className={given === v ? 'on' : ''} onClick={() => setAdminCashGiven(String(v))}>
+                                              {v === total ? 'Exact' : peso(v)}
+                                            </button>
+                                          ))}
+                                      </div>
+                                      <div className={`evt-cash-row evt-cash-change ${adminCashGiven === '' ? '' : diff < 0 ? 'short' : 'ok'}`}>
+                                        <span>{diff < 0 && adminCashGiven !== '' ? 'Still short' : 'Change'}</span>
+                                        <b>{adminCashGiven === '' ? '—' : peso(Math.abs(diff))}</b>
+                                      </div>
+                                    </div>
+                                  );
+                                })() : (
+                                  <div className="form-group"><label>Reference / Txn Number</label><input className="form-control" value={adminAddRegForm.paymentReference} onChange={(e) => setAdminAddRegForm({ ...adminAddRegForm, paymentReference: e.target.value })} /></div>
+                                )}
                                 <PayStatusPicker
                                   value={adminAddRegForm.payStatus}
                                   holder={adminAddRegForm.turnoverHolder}
@@ -22341,6 +23206,8 @@ Examples:
                           </button>
                         </div>
                       </>
+                    )}
+                    </>
                     )}
                   </div>
                 </div>
@@ -22441,7 +23308,7 @@ Examples:
                         autoComplete="off"
                       />
                       {editChurchOpen && editChurchOptions.length > 0 && (
-                        <ul className="evt-church-list">
+                        <ul className="evt-church-list" ref={flipListUp}>
                           {editChurchOptions.map((c) => (
                             <li key={c.name}>
                               <button type="button" onMouseDown={() => { setEditRegForm((f) => ({ ...f, churchName: c.name })); setEditChurchOpen(false); }}>
@@ -23073,7 +23940,7 @@ Examples:
                         autoComplete="off"
                       />
                       {memberChurchOpen && memberChurchOptions.length > 0 && (
-                        <ul className="evt-church-list">
+                        <ul className="evt-church-list" ref={flipListUp}>
                           {memberChurchOptions.map((c) => (
                             <li key={c.name}>
                               <button type="button" onMouseDown={() => { setRegisterForm((f) => ({ ...f, churchName: c.name })); setMemberChurchOpen(false); }}>
