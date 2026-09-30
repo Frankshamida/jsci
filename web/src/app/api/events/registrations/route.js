@@ -1381,14 +1381,14 @@ export async function PUT(request) {
       });
     }
 
-    const adminOnly = action === 'soft_delete' || action === 'restore' || action === 'edit_details';
+    const adminOnly = action === 'soft_delete' || action === 'restore' || action === 'edit_details' || action === 'late_registration';
     let actor;
     if (adminOnly) {
       actor = await verifyEventManager(actorId);
       if (!actor) return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
       // Only the bin actions work on a batch - everything else is one row, and
       // the branch below has nothing to look up without an id.
-      if (action === 'edit_details' && !id) {
+      if ((action === 'edit_details' || action === 'late_registration') && !id) {
         return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
       }
     } else {
@@ -1427,6 +1427,25 @@ export async function PUT(request) {
       await logAudit(actor, 'event_registration_update', id,
         `${printed ? 'Marked the ID as printed' : 'Unmarked the printed ID'}: ${data.attendee_name}`);
       return NextResponse.json({ success: true, data, message: printed ? 'Marked as printed' : 'No longer marked as printed' });
+    }
+
+    // Labelling an existing registration as a late one - or taking the label
+    // off. Only the flag changes; the card, money and status stay as they are.
+    // Admin-only, like adding a late registration at the desk.
+    if (action === 'late_registration') {
+      const late = body.late !== false;
+      const { data, error } = await supabase.from('event_registrations')
+        .update({ late_registration: late })
+        .eq('id', id).select().single();
+      if (error) {
+        if (/late_registration|column/i.test(error.message || '')) {
+          return NextResponse.json({ success: false, message: 'Run supabase/migrations/event_late_registration.sql first.' }, { status: 500 });
+        }
+        throw error;
+      }
+      await logAudit(actor, 'event_registration_update', id,
+        `${late ? 'Marked as late registration' : 'Removed the late registration label'}: ${data.attendee_name}`);
+      return NextResponse.json({ success: true, data, message: late ? 'Marked as late registration' : 'No longer a late registration' });
     }
 
     // Moving a registration to the Recycle Bin, or bringing it back out. Nothing

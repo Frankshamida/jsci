@@ -828,7 +828,14 @@ export const canRecordStory = () => typeof window !== 'undefined'
   && typeof HTMLCanvasElement.prototype.captureStream === 'function';
 
 // MP4 first - it is what phone galleries, Instagram and Facebook all take.
-// Chrome on older versions only records WebM.
+// Chrome on older versions only records WebM. With music, a type that names
+// an audio codec is asked for first, so the sound is not silently dropped.
+const RECORD_TYPES_WITH_AUDIO = [
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4;codecs=avc1,mp4a.40.2',
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+];
 const RECORD_TYPES = [
   'video/mp4;codecs=avc1.42E01E',
   'video/mp4;codecs=avc1',
@@ -841,31 +848,60 @@ const RECORD_TYPES = [
 export const STORY_VIDEO_MAX_S = 15;
 
 /**
- * Records the story as a video: `video` is played once from the start (up to
- * STORY_VIDEO_MAX_S seconds) while `render(canvas)` draws each frame.
+ * Records the story as a video while `render(canvas)` draws each frame.
  * Resolves with the file.
+ *
+ * Without music it lasts as long as the background video (up to
+ * STORY_VIDEO_MAX_S). With music it lasts as long as the chosen part of the
+ * song, the background video looping underneath (or the still design, when
+ * there is no video) - the way Instagram puts music on a story.
  *
  * @param {object} o
  * @param {HTMLCanvasElement} o.canvas   drawn on and recorded
- * @param {HTMLVideoElement}  o.video    the background video
+ * @param {HTMLVideoElement}  [o.video]  the background video, if any
  * @param {(canvas: HTMLCanvasElement) => void} o.render
  * @param {string} o.name                file name without extension
  * @param {(seconds: number, total: number) => void} [o.onProgress]
+ * @param {{ ctx: AudioContext, buffer: AudioBuffer, start: number, duration: number }} [o.music]
  */
-export async function recordStory({ canvas, video, render, name, onProgress }) {
-  const mimeType = RECORD_TYPES.find((t) => window.MediaRecorder.isTypeSupported(t)) || '';
-  const total = Math.min(STORY_VIDEO_MAX_S, Number.isFinite(video.duration) && video.duration > 0 ? video.duration : STORY_VIDEO_MAX_S);
+export async function recordStory({ canvas, video, render, name, onProgress, music }) {
+  const types = music ? [...RECORD_TYPES_WITH_AUDIO, ...RECORD_TYPES] : RECORD_TYPES;
+  const mimeType = types.find((t) => window.MediaRecorder.isTypeSupported(t)) || '';
+  const videoLength = video && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : STORY_VIDEO_MAX_S;
+  const total = music ? music.duration : Math.min(STORY_VIDEO_MAX_S, videoLength);
 
-  video.pause();
-  await new Promise((resolve) => {
-    if (video.currentTime === 0) { resolve(); return; }
-    video.addEventListener('seeked', resolve, { once: true });
-    video.currentTime = 0;
-  });
+  if (video) {
+    video.pause();
+    video.loop = true; // a 60s song over a shorter video
+    await new Promise((resolve) => {
+      if (video.currentTime === 0) { resolve(); return; }
+      video.addEventListener('seeked', resolve, { once: true });
+      video.currentTime = 0;
+    });
+  }
   render(canvas);
 
-  const stream = canvas.captureStream(30);
-  const recorder = new window.MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: 6_000_000 });
+  const canvasStream = canvas.captureStream(30);
+  let stream = canvasStream;
+  let source = null;
+  let musicGain = null;
+  if (music) {
+    const ac = music.ctx;
+    if (ac.state === 'suspended') await ac.resume();
+    const dest = ac.createMediaStreamDestination();
+    musicGain = ac.createGain();
+    musicGain.connect(dest);
+    musicGain.connect(ac.destination); // heard while it records, like a preview
+    source = ac.createBufferSource();
+    source.buffer = music.buffer;
+    source.connect(musicGain);
+    stream = new MediaStream([...canvasStream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+  }
+  const recorder = new window.MediaRecorder(stream, {
+    ...(mimeType ? { mimeType } : {}),
+    videoBitsPerSecond: 6_000_000,
+    ...(music ? { audioBitsPerSecond: 128_000 } : {}),
+  });
   const chunks = [];
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   const stopped = new Promise((resolve, reject) => {
@@ -874,7 +910,19 @@ export async function recordStory({ canvas, video, render, name, onProgress }) {
   });
 
   recorder.start(250);
-  await video.play();
+  if (video) await video.play();
+  if (source) {
+    // A short fade in and out, so the cut does not click.
+    const ac = music.ctx;
+    const t0 = ac.currentTime + 0.02;
+    const fade = Math.min(0.6, total / 6);
+    const g = musicGain.gain;
+    g.setValueAtTime(0, t0);
+    g.linearRampToValueAtTime(1, t0 + fade);
+    g.setValueAtTime(1, t0 + total - fade);
+    g.linearRampToValueAtTime(0, t0 + total);
+    source.start(t0, music.start, total);
+  }
   const started = performance.now();
   await new Promise((resolve) => {
     const tick = () => {
@@ -887,10 +935,99 @@ export async function recordStory({ canvas, video, render, name, onProgress }) {
     requestAnimationFrame(tick);
   });
   recorder.stop();
+  try { source?.stop(); } catch { /* already ended */ }
+  source?.disconnect();
+  musicGain?.disconnect();
   await stopped;
   stream.getTracks().forEach((track) => track.stop());
+  canvasStream.getTracks().forEach((track) => track.stop());
 
   const type = (recorder.mimeType || mimeType || 'video/webm').split(';')[0];
   const ext = type.includes('mp4') ? 'mp4' : 'webm';
   return new File(chunks, `${name}.${ext}`, { type });
+}
+
+// ---- Music ----
+
+/** How long the music on a story can be, in seconds - Instagram's choices. */
+export const STORY_MUSIC_LENGTHS = [10, 15, 30, 60];
+
+function pillPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function fitText(ctx, text, max) {
+  if (ctx.measureText(text).width <= max) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(`${t}…`).width > max) t = t.slice(0, -1);
+  return `${t.trimEnd()}…`;
+}
+
+/**
+ * The music sticker along the bottom of the story: the song's cover, its
+ * title and artist, and three equaliser bars - Instagram's music sticker.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{ title: string, artist: string, cover?: HTMLImageElement }} music
+ */
+export function drawMusicSticker(ctx, { title, artist, cover }) {
+  const h = 96;
+  const y = 1800;
+  const pad = 14;
+  const art = h - pad * 2;
+  const gap = 18;
+  const bars = 34;
+  ctx.save();
+  ctx.font = `800 30px ${FONT}`;
+  const maxText = 620;
+  const t = fitText(ctx, String(title || ''), maxText);
+  const tw = ctx.measureText(t).width;
+  ctx.font = `600 24px ${FONT}`;
+  const a = fitText(ctx, String(artist || ''), maxText);
+  const aw = ctx.measureText(a).width;
+  const w = pad + art + gap + Math.max(tw, aw) + gap + bars + pad + 6;
+  const x = (STORY_W - w) / 2;
+
+  ctx.shadowColor = 'rgba(0,0,0,0.28)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 6;
+  ctx.fillStyle = 'rgba(255,255,255,0.96)';
+  pillPath(ctx, x, y, w, h, 22);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+
+  // cover
+  ctx.save();
+  pillPath(ctx, x + pad, y + pad, art, art, 12);
+  ctx.clip();
+  if (cover) ctx.drawImage(cover, x + pad, y + pad, art, art);
+  else { ctx.fillStyle = RED; ctx.fillRect(x + pad, y + pad, art, art); }
+  ctx.restore();
+
+  // title and artist
+  const tx = x + pad + art + gap;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#1f1a12';
+  ctx.font = `800 30px ${FONT}`;
+  ctx.fillText(t, tx, y + 44);
+  ctx.fillStyle = '#6f6656';
+  ctx.font = `600 24px ${FONT}`;
+  ctx.fillText(a, tx, y + 76);
+
+  // equaliser
+  ctx.fillStyle = RED;
+  const bx = x + w - pad - bars - 4;
+  [0.55, 1, 0.75].forEach((k, i) => {
+    const bh = 40 * k;
+    pillPath(ctx, bx + i * 13, y + h / 2 + 20 - bh, 8, bh, 4);
+    ctx.fill();
+  });
+  ctx.restore();
 }

@@ -7,10 +7,13 @@ import {
 import { normalizeUid, isPlausibleUid, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
 import {
   STORY_H, STORY_LOGO_SRC, STORY_MAX, STORY_POS, STORY_THEMES, STORY_VIDEO_MAX_S, STORY_VIDEO_SRC, STORY_W, STORY_ZOOM_MAX,
-  canRecordStory, recordStory,
+  canRecordStory, recordStory, drawMusicSticker,
   drawStory, loadStoryArt, loadStoryFonts, loadStoryImage, storyLayouts, storyThemes, storyPan, storyPhotoUrl, storySlotAt, storySlots, storyZoom,
 } from '@/lib/storyCard';
 import { drawIdBack, drawIdFront, idQrText } from '@/lib/idCard';
+import { useSongPlayer } from '@/components/songPlayer/useSongPlayer';
+import { PlayerControls, SongRow, VinylStage } from '@/components/songPlayer/PlayerParts';
+import { MusicCard, MusicPicker, makeAudioContext, useSegmentPreview } from './StoryMusic';
 
 // The page an attendee's ID QR opens: /events/cebu-miracle-working-god.
 //
@@ -44,6 +47,7 @@ function useDarkMode() {
 }
 
 const VIEWS = ['photos', 'profile', 'extras'];
+const NO_SONGS = [];
 const viewPath = (slug, view, code) => {
   const base = `/events/${slug}${VIEWS.includes(view) ? `/${view}` : ''}`;
   return code ? `${base}?t=${encodeURIComponent(code)}` : base;
@@ -183,6 +187,29 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
   }, [view, unlocked, extrasInfo, hasExtras, slug, code]);
   const guestName = unlockedName || (forgotten ? '' : info?.guest?.name) || '';
 
+  // Songs on Worship items, played the way Spotify plays a playlist: one
+  // player for the whole page (the music keeps going across tabs), a full
+  // Now Playing screen, and a bar at the bottom when that is minimised.
+  // `lineup` is the Worship item being played - next / previous move through
+  // its songs, and the player says which service it is playing from.
+  const songs = info?.songs || NO_SONGS;
+  const songsById = useMemo(() => new Map(songs.map((x) => [x.id, x])), [songs]);
+  const [lineup, setLineup] = useState(null); // null | { item, ids }
+  const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
+  const player = useSongPlayer({ songs, order: lineup?.ids || NO_SONGS });
+  const playLineup = (item, ids, songId) => {
+    setLineup({ item, ids });
+    player.playSong(songId || ids[0]);
+    setNowPlayingOpen(true);
+  };
+  const stopLineup = () => {
+    player.pause();
+    setLineup(null);
+    setNowPlayingOpen(false);
+  };
+  const closeNowPlaying = useCallback(() => setNowPlayingOpen(false), []);
+  const showMiniPlayer = !!lineup && !!player.current && !nowPlayingOpen;
+
   if (loadError) {
     return (
       <main className="ep-page ep-center">
@@ -208,7 +235,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
   const when = dateRange(event);
 
   return (
-    <main className="ep-page">
+    <main className={`ep-page ${showMiniPlayer ? 'has-mini-player' : ''}`}>
       <header className="ep-hero">
         {event.image_url && <div className="ep-hero-bg" style={{ backgroundImage: `url("${event.image_url}")` }} />}
         <button
@@ -269,11 +296,29 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
       </nav>
 
       <section className="ep-body">
-        {view === 'programme' && <Programme event={event} items={info.programme} />}
+        {view === 'programme' && (
+          <Programme
+            event={event}
+            items={info.programme}
+            songsById={songsById}
+            songsPaused={!!info.songsPaused}
+            player={player}
+            lineup={lineup}
+            onPlayLineup={playLineup}
+          />
+        )}
         {view === 'photos' && <Photos event={event} slug={slug} code={code} year={info.passwordYear} name={guestName} onName={onUnlockedName} onLock={onLocked} />}
         {view === 'profile' && unlocked && <Profile slug={slug} code={code} year={info.passwordYear} onName={onUnlockedName} onLock={onLocked} />}
         {view === 'extras' && unlocked && <Extras info={extrasInfo} />}
       </section>
+
+      <audio {...player.audioProps} />
+      {showMiniPlayer && (
+        <MiniPlayer player={player} lineup={lineup} onOpen={() => setNowPlayingOpen(true)} onClose={stopLineup} />
+      )}
+      {nowPlayingOpen && lineup && player.current && (
+        <NowPlaying player={player} lineup={lineup} songsById={songsById} onClose={closeNowPlaying} />
+      )}
 
       {/* The same lockup as the top of the dashboard sidebar. */}
       <footer className="ep-foot">
@@ -325,7 +370,171 @@ function DayTabs({ days, value, onChange, all }) {
   );
 }
 
-function Programme({ event, items }) {
+const lineupLength = (list) => {
+  const total = list.reduce((sum, x) => sum + (Number(x.duration_seconds) || 0), 0);
+  if (!total) return '';
+  const min = Math.round(total / 60);
+  return min >= 60 ? `${Math.floor(min / 60)} hr ${min % 60} min` : `${min} min`;
+};
+
+const lineupWhen = (item) => [formatClock(item.start_time), item.day_date ? shortDay(item.day_date) : ''].filter(Boolean).join(' · ');
+
+// The songs on a Worship item - its lineup. A button drops the list down;
+// Play (or any song) starts the lineup and opens the Now Playing screen.
+function WorshipSongs({ item, songsById, paused, player, lineup, onPlayLineup }) {
+  const [open, setOpen] = useState(false);
+  const list = useMemo(
+    () => (item.song_ids || []).map((id) => songsById.get(id)).filter(Boolean),
+    [item.song_ids, songsById],
+  );
+  const ids = useMemo(() => list.map((x) => x.id), [list]);
+  // This service's lineup is the one on the record.
+  const isThisLineup = lineup?.item?.id === item.id && ids.includes(player.currentId);
+  const playingHere = isThisLineup && player.playing;
+
+  if (!paused && !list.length) return null;
+
+  const playAll = () => (isThisLineup ? player.togglePlay() : onPlayLineup(item, ids, ids[0]));
+  const rowPlayer = {
+    ...player,
+    playSong: (id) => {
+      if (isThisLineup && id === player.currentId) { player.togglePlay(); return; }
+      onPlayLineup(item, ids, id);
+    },
+  };
+
+  return (
+    <div className={`ep-songs ${open ? 'is-open' : ''} ${isThisLineup ? 'is-live' : ''}`}>
+      <button type="button" className="ep-songs-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <i className="fas fa-music"></i>
+        <span>{paused ? 'Song lineup' : `Song lineup · ${list.length}`}</span>
+        {playingHere && <span className="sp-eq" aria-label="Playing"><i /><i /><i /></span>}
+        <i className="fas fa-chevron-down ep-songs-chevron"></i>
+      </button>
+
+      {open && (paused ? (
+        <p className="ep-songs-paused">
+          <i className="fas fa-circle-pause"></i> Song playback is paused for now. Please sing along with the worship team!
+        </p>
+      ) : (
+        <div className="ep-lineup sp-scope">
+          <div className="ep-lineup-head">
+            <img src={(isThisLineup ? player.current : list[0])?.cover_thumb_url || list[0].cover_url} alt="" />
+            <div className="ep-lineup-info">
+              <small>Worship lineup</small>
+              <strong>{item.title}</strong>
+              <span>{list.length} {list.length === 1 ? 'song' : 'songs'}{lineupLength(list) ? ` · ${lineupLength(list)}` : ''}</span>
+            </div>
+            <button type="button" className="ep-lineup-play" onClick={playAll} aria-label={playingHere ? 'Pause' : 'Play lineup'}>
+              <i className={`fas ${playingHere ? 'fa-pause' : 'fa-play'}`}></i>
+            </button>
+          </div>
+          {isThisLineup && (
+            <p className="ep-lineup-now">
+              <span className="sp-eq"><i /><i /><i /></span>
+              {player.playing ? 'Now playing from this lineup' : 'Paused'} &middot; song {ids.indexOf(player.currentId) + 1} of {ids.length}
+            </p>
+          )}
+          <ul className="sp-list ep-lineup-list">
+            {list.map((song, i) => <SongRow key={song.id} song={song} index={i} player={rowPlayer} />)}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Full-screen on a phone, a sheet on a wide screen: the spinning record, the
+// controls, and the rest of the lineup - with the service it is playing from
+// at the top, the way Spotify says "Playing from playlist".
+function NowPlaying({ player, lineup, songsById, onClose }) {
+  const touchY = useRef(null);
+  const list = lineup.ids.map((id) => songsById.get(id)).filter(Boolean);
+  const pos = list.findIndex((x) => x.id === player.currentId);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  // Swipe down on the top part to minimise.
+  const swipe = {
+    onTouchStart: (e) => { touchY.current = e.touches[0].clientY; },
+    onTouchEnd: (e) => {
+      if (touchY.current !== null && e.changedTouches[0].clientY - touchY.current > 80) onClose();
+      touchY.current = null;
+    },
+  };
+
+  return (
+    <div className="ep-np-backdrop" onClick={onClose}>
+      <div className="ep-np sp-scope sp-compact" role="dialog" aria-modal="true" aria-label="Now playing" onClick={(e) => e.stopPropagation()}>
+        <div className="ep-np-top" {...swipe}>
+          <span className="ep-np-grab" aria-hidden="true" />
+          <div className="ep-np-head">
+            <button type="button" className="ep-np-down" onClick={onClose} aria-label="Minimise player">
+              <i className="fas fa-chevron-down"></i>
+            </button>
+            <div className="ep-np-from">
+              <small>Playing from lineup</small>
+              <strong>{lineup.item.title}</strong>
+              <span>{lineupWhen(lineup.item)}</span>
+            </div>
+            <span className="ep-np-count">{pos + 1}/{list.length}</span>
+          </div>
+          <div className="ep-np-stage">
+            <VinylStage song={player.current} playing={player.playing} />
+          </div>
+        </div>
+
+        <PlayerControls player={player} canStep={list.length > 1} />
+
+        <div className="ep-np-queue">
+          <h4><i className="fas fa-list-ol"></i> {lineup.item.title} lineup <em>{list.length}</em></h4>
+          <ul className="sp-list">
+            {list.map((song, i) => <SongRow key={song.id} song={song} index={i} player={player} />)}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The bar at the bottom while the Now Playing screen is minimised - playing or
+// paused, like Spotify's. Tap it to open the screen again; x stops the lineup.
+function MiniPlayer({ player, lineup, onOpen, onClose }) {
+  const song = player.current;
+  const busy = player.loadingPct !== null;
+  const pct = player.duration > 0 ? Math.min(100, (player.time / player.duration) * 100) : 0;
+  return (
+    <div className="ep-mini sp-scope" role="region" aria-label="Now playing">
+      <span className="ep-mini-bar" style={{ width: `${pct}%` }} />
+      <button type="button" className="ep-mini-open" onClick={onOpen} aria-label="Open player">
+        <span className={`ep-mini-disc ${player.playing ? 'is-playing' : ''}`}>
+          <img src="/Playlist/Vinyl.png" alt="" />
+          <img className="ep-mini-label" src={song.cover_label_url || song.cover_url} alt="" />
+        </span>
+        <span className="ep-mini-text">
+          <strong>{song.title}</strong>
+          <small>{busy ? 'Loading song...' : `${song.artist} · ${lineup.item.title}`}</small>
+        </span>
+      </button>
+      <button type="button" className="ep-mini-play" onClick={player.togglePlay} aria-label={busy ? 'Cancel' : player.playing ? 'Pause' : 'Play'}>
+        <i className={`fas ${busy ? 'fa-spinner fa-spin' : player.playing ? 'fa-pause' : 'fa-play'}`}></i>
+      </button>
+      <button type="button" onClick={() => player.step(1)} disabled={lineup.ids.length < 2} aria-label="Next"><i className="fas fa-forward-step"></i></button>
+      <button type="button" className="ep-mini-close" onClick={onClose} aria-label="Stop"><i className="fas fa-times"></i></button>
+    </div>
+  );
+}
+
+function Programme({ event, items, songsById, songsPaused = false, player, lineup, onPlayLineup }) {
   // Every day the event runs has a tab, even one with nothing on it yet.
   const days = useMemo(() => {
     const grouped = new Map(groupProgramme(items).map((g) => [g.day, g.rows]));
@@ -388,6 +597,16 @@ function Programme({ event, items }) {
                 {it.speaker && <p className="ep-speaker"><i className="fas fa-user"></i> {it.speaker}</p>}
                 {it.venue && <p className="ep-venue"><i className="fas fa-location-dot"></i> {it.venue}</p>}
                 {it.notes && <p className="ep-notes">{it.notes}</p>}
+                {kind.key === 'worship' && it.song_ids?.length > 0 && player && songsById && (
+                  <WorshipSongs
+                    item={it}
+                    songsById={songsById}
+                    paused={songsPaused}
+                    player={player}
+                    lineup={lineup}
+                    onPlayLineup={onPlayLineup}
+                  />
+                )}
               </div>
             </li>
           );
@@ -1212,6 +1431,29 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
   const videoRef = useRef(null);
   const recordingRef = useRef(false);
   const canVideo = typeof window !== 'undefined' && canRecordStory();
+  // Music, Instagram-style: a part of a Song Playlist song (StoryMusic.jsx).
+  // With music the story is saved as a video as long as that part.
+  const [music, setMusic] = useState(null); // { song, buffer, peaks, cover, start, duration }
+  const [pickingMusic, setPickingMusic] = useState(false);
+  const [audioCtx, setAudioCtx] = useState(null);
+  const preview = useSegmentPreview(audioCtx);
+  // Made on the tap that opens the music, so the browser lets it play.
+  const openMusic = () => {
+    if (!audioCtx) setAudioCtx(makeAudioContext());
+    else if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    preview.stop();
+    setPickingMusic(true);
+  };
+  useEffect(() => () => { audioCtx?.close?.().catch(() => {}); }, [audioCtx]);
+  const musicRef = useRef(null);
+  musicRef.current = music ? { title: music.song.title, artist: music.song.artist, cover: music.cover } : null;
+  // The story as drawn everywhere - preview, photo, video - with the music
+  // sticker on top when there is music.
+  const paint = (canvas, opts) => {
+    drawStory(canvas, opts);
+    if (musicRef.current) drawMusicSticker(canvas.getContext('2d'), musicRef.current);
+  };
+  const isVideo = bg === 'video' || !!music;
 
   useEffect(() => {
     let live = true;
@@ -1244,7 +1486,7 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
     if (!assets || !canvasRef.current) return undefined;
     cancelAnimationFrame(frame.current);
     frame.current = requestAnimationFrame(() => {
-      if (canvasRef.current && !recordingRef.current) drawStory(canvasRef.current, latest.current);
+      if (canvasRef.current && !recordingRef.current) paint(canvasRef.current, latest.current);
     });
     return () => cancelAnimationFrame(frame.current);
   });
@@ -1285,7 +1527,7 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
     if (!assets || !video) return undefined;
     let id = 0;
     const loop = () => {
-      if (canvasRef.current && !recordingRef.current) drawStory(canvasRef.current, latest.current);
+      if (canvasRef.current && !recordingRef.current) paint(canvasRef.current, latest.current);
       id = requestAnimationFrame(loop);
     };
     id = requestAnimationFrame(loop);
@@ -1293,7 +1535,7 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
   }, [assets, video]);
 
   // A video made earlier no longer matches once anything on the story changes.
-  useEffect(() => { setRecorded(null); }, [bg, theme, layout, order, pos, showName]);
+  useEffect(() => { setRecorded(null); }, [bg, theme, layout, order, pos, showName, music]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -1383,7 +1625,7 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
   const toFile = () => new Promise((resolve, reject) => {
     try {
       const out = document.createElement('canvas');
-      drawStory(out, drawOpts(-1));
+      paint(out, drawOpts(-1));
       out.toBlob(
         (blob) => (blob ? resolve(new File([blob], `${slug}-story.jpg`, { type: 'image/jpeg' })) : reject(new Error('empty'))),
         'image/jpeg',
@@ -1394,7 +1636,9 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
 
   // Records the story with its video background, straight off the preview.
   const makeVideo = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!canvasRef.current || (bg === 'video' && !videoRef.current)) return;
+    preview.stop();
+    if (audioCtx?.state === 'suspended') audioCtx.resume().catch(() => {});
     setBusy('record');
     setError('');
     setActive(-1);
@@ -1402,8 +1646,9 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
     try {
       const file = await recordStory({
         canvas: canvasRef.current,
-        video: videoRef.current,
-        render: (c) => drawStory(c, { ...latest.current, active: -1 }),
+        video: bg === 'video' ? videoRef.current : null,
+        music: music && audioCtx ? { ctx: audioCtx, buffer: music.buffer, start: music.start, duration: music.duration } : null,
+        render: (c) => paint(c, { ...latest.current, active: -1 }),
         name: `${slug}-story`,
         onProgress: (t) => setProgress(t),
       });
@@ -1560,6 +1805,24 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
                 {bg === 'video' && !videoReady && <p className="ep-story-hint"><span className="ep-spinner" /> Loading the video…</p>}
               </>
             )}
+            {canVideo && (
+              <>
+                <p className="ep-story-label">Music</p>
+                {music ? (
+                  <MusicCard
+                    music={music}
+                    preview={preview}
+                    disabled={busy === 'record'}
+                    onEdit={openMusic}
+                    onRemove={() => { preview.stop(); setMusic(null); }}
+                  />
+                ) : (
+                  <button type="button" className="ep-btn ep-btn-ghost ep-btn-sm ep-music-add" onClick={openMusic} disabled={busy === 'record'}>
+                    <i className="fas fa-music"></i> Add music
+                  </button>
+                )}
+              </>
+            )}
             {name && (
               <label className="ep-story-check">
                 <input type="checkbox" checked={showName} onChange={(e) => setShowName(e.target.checked)} />
@@ -1572,18 +1835,20 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
               </button>
             )}
             <p className="ep-story-hint">
-              {bg === 'video'
-                ? `9:16 video, up to ${STORY_VIDEO_MAX_S} seconds. Making it takes as long as the video plays - keep this screen open.`
-                : '9:16 — the size of an Instagram or Facebook story.'}
+              {music
+                ? `9:16 video with music, ${music.duration} seconds. Making it takes as long as the music plays - keep this screen open.`
+                : bg === 'video'
+                  ? `9:16 video, up to ${STORY_VIDEO_MAX_S} seconds. Making it takes as long as the video plays - keep this screen open.`
+                  : '9:16 — the size of an Instagram or Facebook story.'}
             </p>
             {error && <p className="ep-error">{error}</p>}
-            {bg === 'video' ? (
+            {isVideo ? (
               <div className="ep-story-actions">
                 {!recorded ? (
-                  <button type="button" className="ep-btn ep-btn-story" onClick={makeVideo} disabled={!ready || !video || !!busy}>
+                  <button type="button" className="ep-btn ep-btn-story" onClick={makeVideo} disabled={!ready || (bg === 'video' && !video) || !!busy}>
                     {busy === 'record'
                       ? <><span className="ep-spinner" /> Making video… {Math.floor(progress)}s</>
-                      : <><i className="fas fa-video"></i> Create video</>}
+                      : <><i className={`fas ${music ? 'fa-music' : 'fa-video'}`}></i> {music ? 'Create video with music' : 'Create video'}</>}
                   </button>
                 ) : (
                   <>
@@ -1597,7 +1862,9 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
                     </button>
                   </>
                 )}
-                <button type="button" className="ep-link" onClick={download} disabled={!ready || !!busy}>Save as a photo instead</button>
+                <button type="button" className="ep-link" onClick={download} disabled={!ready || !!busy}>
+                  {music ? 'Save as a photo instead (no music)' : 'Save as a photo instead'}
+                </button>
                 <button type="button" className="ep-link" onClick={onDone}>Done</button>
               </div>
             ) : (
@@ -1615,6 +1882,14 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
             )}
           </div>
         </div>
+        {pickingMusic && audioCtx && (
+          <MusicPicker
+            ctx={audioCtx}
+            initial={music}
+            onClose={() => setPickingMusic(false)}
+            onDone={(m) => { setMusic(m); setPickingMusic(false); }}
+          />
+        )}
       </div>
     </div>
   );

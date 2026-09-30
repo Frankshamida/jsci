@@ -2,12 +2,114 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PROGRAMME_KINDS, daysWith, formatClock, formatDay, groupProgramme, programmeKind, shortDay } from '@/lib/eventPublic';
+import './programmeSongs.css';
 
 // The event's programme flow - sessions, speakers, meals - as the public page
 // (/events/<province>-<event>) shows it. Admins build it here, one item at a time.
+// A Worship item can carry songs from the Song Playlist, which attendees then
+// play from the public page.
 
 const dayOf = (v) => (String(v || '').match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
-const EMPTY = { dayDate: '', startTime: '', endTime: '', title: '', speaker: '', kind: 'session', venue: '', notes: '' };
+const EMPTY = { dayDate: '', startTime: '', endTime: '', title: '', speaker: '', kind: 'session', venue: '', notes: '', songIds: [] };
+
+// Picks songs from the Song Playlist for a Worship item. The picked list is
+// in play order: added to the end, moved with the arrows.
+function SongPicker({ value, onChange }) {
+  const [songs, setSongs] = useState(null); // null = loading
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/song-playlist')
+      .then((r) => r.json())
+      .then((json) => {
+        if (!alive) return;
+        if (!json.success) throw new Error(json.message);
+        setSongs(json.data || []);
+      })
+      .catch((e) => { if (alive) { setError(e.message || 'Could not load the Song Playlist.'); setSongs([]); } });
+    return () => { alive = false; };
+  }, []);
+
+  const byId = useMemo(() => new Map((songs || []).map((s) => [s.id, s])), [songs]);
+  const picked = value.map((id) => byId.get(id)).filter(Boolean);
+  const q = query.trim().toLowerCase();
+  const matches = (songs || []).filter((s) => !q || `${s.title} ${s.artist}`.toLowerCase().includes(q));
+  const groups = useMemo(() => {
+    const map = new Map();
+    matches.forEach((s) => {
+      const key = s.artist || 'Other';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(s);
+    });
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [matches]);
+
+  const toggle = (id) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  const move = (i, dir) => {
+    const next = [...value];
+    const j = i + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+
+  return (
+    <div className="form-group evt-songs">
+      <label>Songs from the Playlist <em>{picked.length}</em></label>
+      <p className="evt-songs-hint">Attendees open this Worship item on the event page and play these songs.</p>
+
+      {picked.length > 0 && (
+        <ol className="evt-songs-picked">
+          {picked.map((song, i) => (
+            <li key={song.id}>
+              <span className="evt-songs-num">{i + 1}</span>
+              <img src={song.cover_thumb_url || song.cover_url} alt="" />
+              <span className="evt-songs-text"><strong>{song.title}</strong><small>{song.artist}</small></span>
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} title="Move up" aria-label="Move up"><i className="fas fa-chevron-up"></i></button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === picked.length - 1} title="Move down" aria-label="Move down"><i className="fas fa-chevron-down"></i></button>
+              <button type="button" className="danger" onClick={() => toggle(song.id)} title="Remove" aria-label={`Remove ${song.title}`}><i className="fas fa-times"></i></button>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {songs === null ? (
+        <p className="evt-songs-hint"><i className="fas fa-spinner fa-spin"></i> Loading the Song Playlist...</p>
+      ) : error ? (
+        <p className="evt-field-error-msg">{error}</p>
+      ) : songs.length === 0 ? (
+        <p className="evt-songs-hint">The Song Playlist is empty. Add artists and songs under Worship &amp; Schedule &gt; Song Playlist first.</p>
+      ) : (
+        <div className="evt-songs-browse">
+          <div className="evt-songs-search">
+            <i className="fas fa-magnifying-glass"></i>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search songs or artists" />
+          </div>
+          <div className="evt-songs-list">
+            {groups.length === 0 && <p className="evt-songs-hint">No song matches &ldquo;{query}&rdquo;.</p>}
+            {groups.map(([artist, list]) => (
+              <div key={artist} className="evt-songs-group">
+                <h6>{artist}</h6>
+                {list.map((song) => {
+                  const on = value.includes(song.id);
+                  return (
+                    <button type="button" key={song.id} className={`evt-songs-option ${on ? 'is-on' : ''}`} onClick={() => toggle(song.id)} aria-pressed={on}>
+                      <img src={song.cover_thumb_url || song.cover_url} alt="" loading="lazy" />
+                      <span className="evt-songs-text"><strong>{song.title}</strong><small>{song.artist}</small></span>
+                      <i className={`fas ${on ? 'fa-circle-check' : 'fa-circle-plus'}`}></i>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function EventProgrammeTab({ event, actorId, publicUrl, showToast }) {
   const [items, setItems] = useState([]);
@@ -66,6 +168,7 @@ export default function EventProgrammeTab({ event, actorId, publicUrl, showToast
     kind: it.kind || 'session',
     venue: it.venue || '',
     notes: it.notes || '',
+    songIds: Array.isArray(it.song_ids) ? it.song_ids : [],
   });
 
   const save = async (e) => {
@@ -171,6 +274,9 @@ export default function EventProgrammeTab({ event, actorId, publicUrl, showToast
                       <strong>{it.title}</strong>
                       <span>
                         {[kind.label, it.speaker, it.venue].filter(Boolean).join(' · ')}
+                        {kind.key === 'worship' && it.song_ids?.length > 0 && (
+                          <em className="evt-prog-songs"><i className="fas fa-music"></i> {it.song_ids.length} {it.song_ids.length === 1 ? 'song' : 'songs'}</em>
+                        )}
                       </span>
                     </div>
                     <div className="evt-prog-actions">
@@ -224,6 +330,9 @@ export default function EventProgrammeTab({ event, actorId, publicUrl, showToast
                   <input type="time" className="form-control" value={form.endTime} onChange={set('endTime')} />
                 </div>
               </div>
+              {form.kind === 'worship' && (
+                <SongPicker value={form.songIds || []} onChange={(songIds) => setForm((f) => ({ ...f, songIds }))} />
+              )}
               <div className="form-group">
                 <label>Speaker</label>
                 <input className="form-control" value={form.speaker} onChange={set('speaker')} placeholder="e.g. Ptr. Juan Dela Cruz" />

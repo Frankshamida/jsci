@@ -17,6 +17,7 @@ import SmartImage from '@/components/SmartImage';
 import AgeGroupPicker from '@/components/AgeGroupPicker';
 import GuardianPicker from '@/components/GuardianPicker';
 import RegisteredNameMatches from '@/components/RegisteredNameMatches';
+import SongPlaylist from '@/components/SongPlaylist';
 import './dashboard.css';
 import { withTitleCase } from '@/lib/eventTitle';
 import {
@@ -7030,6 +7031,24 @@ export default function DashboardPage() {
       if (!data.success) { showToast(data.message, 'danger'); return; }
       setEventRegs((regs) => regs.map((x) => (x.id === reg.id ? { ...x, id_printed_at: null, id_printed_by: null } : x)));
       showToast(`${formatPersonName(reg.attendee_name)}'s ID marked as not printed`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
+  };
+
+  // Label an existing registration as late (or take the label off). The flag
+  // is what prints "LATE REGISTRATION" under the attendee's name.
+  const setLateRegistration = async (reg, late) => {
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: reg.id, action: 'late_registration', late, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setEventRegs((regs) => regs.map((x) => (x.id === reg.id ? { ...x, late_registration: late } : x)));
+      showToast(`${formatPersonName(reg.attendee_name)} ${late ? 'marked as late registration' : 'is no longer a late registration'}`, 'success');
     } catch (err) {
       showToast(err.message, 'danger');
     }
@@ -14458,7 +14477,7 @@ Examples:
   // 'home' stays pinned at top, 'profile' pinned at bottom; everything else groups.
   const SIDEBAR_GROUPS = [
     { key: 'people',    label: 'People & Roles',    icon: 'fas fa-users-cog',      ids: ['users', 'roles', 'ministries', 'attendance'] },
-    { key: 'worship',   label: 'Worship & Schedule', icon: 'fas fa-hands-praying',  ids: ['schedule', 'praise-worship', 'lineup', 'meetings'] },
+    { key: 'worship',   label: 'Worship & Schedule', icon: 'fas fa-hands-praying',  ids: ['schedule', 'praise-worship', 'song-playlist', 'lineup', 'meetings'] },
     // 'rfid' sits with Events on purpose: the screen is a list of events and
     // the cards handed out at each one, so it is found by looking for the
     // event rather than by looking for the hardware.
@@ -15971,14 +15990,6 @@ Examples:
                   <div className="evt-tabs evt-manage-tabs">
                     <button className={`evt-tab ${manageTab === 'registrations' ? 'active' : ''}`} onClick={() => setManageTab('registrations')}><i className="fas fa-clipboard-list"></i> Registrations {eventRegs.length > 0 && <span className="evt-tab-count">{eventRegs.length}</span>}</button>
                     <button className={`evt-tab ${manageTab === 'attendance' ? 'active' : ''}`} onClick={() => setManageTab('attendance')}><i className="fas fa-user-check"></i> Attendance {attendedCount > 0 && <span className="evt-tab-count">{attendedCount}</span>}</button>
-                    <button className={`evt-tab ${manageTab === 'calls' ? 'active' : ''}`} onClick={() => setManageTab('calls')}>
-                      <i className="fas fa-phone"></i> Call Attendee {callDoneCount > 0 && <span className="evt-tab-count">{callDoneCount}</span>}
-                    </button>
-                    {canEditRegistrations && (
-                      <button className={`evt-tab ${manageTab === 'ids' ? 'active' : ''}`} onClick={() => setManageTab('ids')}>
-                        <i className="fas fa-id-card"></i> ID Cards
-                      </button>
-                    )}
                     {/* Accommodation, for an event that sells any paid
                         extra. No extras means nobody can be entitled to a
                         bed, so there would be nothing here to do. */}
@@ -16001,6 +16012,15 @@ Examples:
                         scrolls sideways and would clip a menu hanging from it. */}
                     {(() => {
                       const moreTabs = [
+                        {
+                          key: 'calls', icon: 'fa-phone', label: 'Call Attendee',
+                          hint: 'Phone attendees and log the outcome', count: callDoneCount,
+                          open: () => setManageTab('calls'),
+                        },
+                        canEditRegistrations && {
+                          key: 'ids', icon: 'fa-id-card', label: 'ID Cards',
+                          hint: 'Print and assign attendee ID cards', open: () => setManageTab('ids'),
+                        },
                         (eventRegsModal.has_fee || hasFlexiblePlans) && {
                           key: 'installments', icon: 'fa-calendar-day', label: 'Flexible Installment',
                           hint: 'Payment plans and partial payments', count: installments.length,
@@ -16531,6 +16551,31 @@ Examples:
                                             <button role="menuitem" onClick={() => { setOpenRowMenu(null); setIdModalReg(r); }}>
                                               <i className="fas fa-id-card"></i> Generate ID
                                             </button>
+                                          )}
+                                          {canEditRegistrations && r.status !== 'cancelled' && (
+                                            r.late_registration ? (
+                                              <button role="menuitem" className="warn" onClick={() => {
+                                                setOpenRowMenu(null);
+                                                askConfirm(
+                                                  `Remove the LATE REGISTRATION label from ${name}?`,
+                                                  () => setLateRegistration(r, false),
+                                                  { title: 'Remove Late Registration?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Remove label', icon: 'fa-clock' },
+                                                );
+                                              }}>
+                                                <i className="fas fa-clock-rotate-left"></i> Remove Late Registration
+                                              </button>
+                                            ) : (
+                                              <button role="menuitem" onClick={() => {
+                                                setOpenRowMenu(null);
+                                                askConfirm(
+                                                  `Mark ${name} as a late registration? "LATE REGISTRATION" will show under their name.`,
+                                                  () => setLateRegistration(r, true),
+                                                  { title: 'Mark as Late Registration?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Mark as late', icon: 'fa-clock' },
+                                                );
+                                              }}>
+                                                <i className="fas fa-clock"></i> Late Registration
+                                              </button>
+                                            )
                                           )}
                                           {canEditRegistrations && canMoveToTurnover(r) && (
                                             <button role="menuitem" onClick={() => { setOpenRowMenu(null); openToTurnover(r); }}>
@@ -31247,6 +31292,14 @@ Examples:
               ))}
               {allUserEventsForPastor.length === 0 && <p style={{ color: '#6c757d' }}>No user-created events found.</p>}
             </div>
+          </section>
+
+          {/* ========== SONG PLAYLIST SECTION ========== */}
+          <section className={`content-section ${activeSection === 'song-playlist' ? 'active' : ''}`}>
+            {/* Mounted only while open: leaving the section stops the music. */}
+            {activeSection === 'song-playlist' && (
+              <SongPlaylist actorId={userData?.id} canManage={userRole === ROLES.ADMIN || userRole === ROLES.SUPER_ADMIN} />
+            )}
           </section>
 
           {/* ========== PRAISE & WORSHIP SECTION ========== */}

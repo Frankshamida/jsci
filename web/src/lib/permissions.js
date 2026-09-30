@@ -362,6 +362,7 @@ export function getSidebarMenu(role, userData) {
       { id: 'ministries', icon: 'fas fa-church', label: 'Ministry Management', section: 'ministry-management' },
       { id: 'schedule', icon: 'fas fa-calendar-week', label: 'Weekly Schedule', section: 'weekly-schedule' },
       { id: 'praise-worship', icon: 'fas fa-hands-praying', label: 'Praise & Worship', section: 'praise-worship' },
+      { id: 'song-playlist', icon: 'fas fa-compact-disc', label: 'Song Playlist', section: 'song-playlist' },
       { id: 'lineup', icon: 'fas fa-music', label: 'Assign Lineup', section: 'create-lineup' },
       { id: 'meetings', icon: 'fas fa-handshake', label: 'Ministry Meetings', section: 'ministry-meetings' },
       { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events-management' },
@@ -397,6 +398,7 @@ export function getSidebarMenu(role, userData) {
     { id: 'home', icon: 'fas fa-home', label: 'Home', section: 'home' },
     { id: 'schedule', icon: 'fas fa-calendar-week', label: 'Weekly Schedule', section: 'weekly-schedule' },
     { id: 'praise-worship', icon: 'fas fa-hands-praying', label: 'Praise & Worship', section: 'praise-worship' },
+    { id: 'song-playlist', icon: 'fas fa-compact-disc', label: 'Song Playlist', section: 'song-playlist' },
     { id: 'lineup', icon: 'fas fa-music', label: 'Assign Lineup', section: 'create-lineup' },
     { id: 'meetings', icon: 'fas fa-handshake', label: 'Ministry Meetings', section: 'ministry-meetings' },
     { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events' },
@@ -478,6 +480,7 @@ export const FEATURE_CONTROLS = {
   // --- Sidebar Sections (hide/show entire sidebar items) ---
   'sidebar.schedule': { label: 'Weekly Schedule', category: 'Sidebar Sections', icon: 'fas fa-calendar-week', description: 'Show Weekly Schedule in sidebar' },
   'sidebar.praise_worship': { label: 'Praise & Worship', category: 'Sidebar Sections', icon: 'fas fa-hands-praying', description: 'Show Praise & Worship in sidebar' },
+  'sidebar.song_playlist': { label: 'Song Playlist', category: 'Sidebar Sections', icon: 'fas fa-compact-disc', description: 'Show Song Playlist in sidebar' },
   'sidebar.lineup': { label: 'Create / Assign Lineup', category: 'Sidebar Sections', icon: 'fas fa-music', description: 'Show Create/Assign Lineup in sidebar' },
   'sidebar.meetings': { label: 'Ministry Meetings', category: 'Sidebar Sections', icon: 'fas fa-handshake', description: 'Show Ministry Meetings in sidebar' },
   'sidebar.events': { label: 'Events', category: 'Sidebar Sections', icon: 'fas fa-calendar-alt', description: 'Show Events in sidebar' },
@@ -636,6 +639,7 @@ export const GUEST_BLOCKED_SECTIONS = new Set(['community-hub']);
 export const SIDEBAR_FEATURE_MAP = {
   'weekly-schedule': 'sidebar.schedule',
   'praise-worship': 'sidebar.praise_worship',
+  'song-playlist': 'sidebar.song_playlist',
   'create-lineup': 'sidebar.lineup',
   'ministry-meetings': 'sidebar.meetings',
   'events': 'sidebar.events',
