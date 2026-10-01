@@ -9,7 +9,7 @@ import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bed
 import { supabase } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, formatUid, sameCard, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
 import { sameAddon } from '@/lib/addons';
-import { publishQrDisplay } from '@/lib/qrDisplay';
+import { deskCode, publishQrDisplay } from '@/lib/qrDisplay';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { printReport, buildPrintHtml, buildXlsx, buildDocx, buildCsv, downloadBlob, safeFilename } from '@/lib/exportDoc';
 import { buildPdf, loadLogoJpeg } from '@/lib/pdfWriter';
@@ -14643,11 +14643,12 @@ Examples:
   };
 
   // The attendee's screen (/qr-display): the channel they are paying into.
+  // Only its id is sent; the screen looks the QR and account up itself.
   const deskShowQr = (dp, methodId = dp?.methodId) => {
     const m = dp?.mode === 'online' ? deskOnlineMethods.find((x) => x.id === methodId) : null;
     if (!m) { publishQrDisplay(null); return; }
     publishQrDisplay({
-      method: { id: m.id, name: m.name, account_name: m.account_name, account_number: m.account_number, qr_url: m.qr_url, logo_url: m.logo_url, logo_color: m.logo_color, notes: m.notes },
+      methodId: m.id,
       amount: deskTotalOf(dp),
       names: deskRowsOf(dp).map((r) => formatPersonName(r.attendee_name)),
     });
@@ -16860,8 +16861,9 @@ Examples:
                   <b>{method.name}</b>
                   <small>{[method.account_name, method.account_number].filter(Boolean).join(' · ')}</small>
                   <small className="evt-desk-qrnote"><i className="fas fa-display"></i> Showing on the QR screen for the attendee</small>
+                  <small>On a tablet, open /qr-display and enter desk code <b className="evt-desk-code">{deskCode()}</b></small>
                 </span>
-                <button type="button" className="evt-chip-btn" onClick={() => window.open('/qr-display', 'jsci-qr-display')}>
+                <button type="button" className="evt-chip-btn" onClick={() => window.open(`/qr-display?desk=${deskCode()}`, 'jsci-qr-display')}>
                   <i className="fas fa-up-right-from-square"></i> QR screen
                 </button>
               </div>

@@ -34290,6 +34290,7 @@ body.dark-mode .evt-status.evt-verify-registered { background: rgba(74,222,128,0
 .evt-desk-chosen > span { display: flex; flex-direction: column; min-width: 0; }
 .evt-desk-chosen small { font-size: 0.76rem; color: var(--text-muted, #888); }
 .evt-desk-chosen .evt-desk-qrnote { color: #15803d; font-weight: 700; }
+.evt-desk-chosen .evt-desk-code { color: var(--text-primary, inherit); font-size: 0.85rem; letter-spacing: 0.12em; }
 .evt-desk-cash { display: flex; gap: 8px; align-items: stretch; }
 .evt-desk-cash .form-control { flex: 1; min-width: 0; }
 .evt-desk-cash .evt-chip-btn { flex-shrink: 0; }
