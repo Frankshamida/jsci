@@ -1,0 +1,59 @@
+.pl { position: relative; min-width: 0; width: 100%; }
+.pl-btn {
+  width: 100%; min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 12px; border-radius: 10px; border: 1px solid #e6c873; background: #fff; cursor: pointer;
+  font: inherit; color: inherit; text-align: left; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pl-btn:hover:not(:disabled), .pl-btn.open { border-color: #c8960f; box-shadow: 0 0 0 3px rgba(200, 150, 15, 0.15); }
+.pl-btn:disabled { cursor: not-allowed; opacity: 0.6; background: #f7f7f7; }
+.pl-btn > i { flex-shrink: 0; font-size: 0.72rem; color: #8a6510; }
+.pl-ph { color: var(--text-muted, #888); font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-val { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.pl-val b, .pl-opt-text b { font-weight: 800; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-val em, .pl-opt-text em { font-style: normal; font-size: 0.74rem; color: var(--text-muted, #777); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-sm .pl-btn { min-height: 34px; padding: 3px 10px; }
+.pl-sm .pl-val em { display: none; }
+
+.pl-scrim { position: fixed; inset: 0; z-index: 15990; }
+.pl-pop {
+  position: fixed; z-index: 16000; display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 14px; background: var(--bg-card, #fff); border: 1px solid #ecdcae;
+  box-shadow: 0 18px 44px rgba(60, 40, 0, 0.22); animation: pl-in 0.16s ease both;
+}
+@keyframes pl-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.pl-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #f1e7cc; }
+.pl-search i { color: #b8a77a; font-size: 0.85rem; }
+.pl-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 0.88rem; color: inherit; }
+.pl-list { overflow-y: auto; padding: 6px; scrollbar-width: thin; scrollbar-color: #c8960f transparent; }
+.pl-head {
+  position: sticky; top: -6px; z-index: 1; margin: 4px -6px 2px; padding: 6px 14px;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #8a6510;
+  background: #fbf6ea; border-top: 1px solid #f1e7cc; border-bottom: 1px solid #f1e7cc;
+}
+.pl-head:first-child { margin-top: -6px; border-top: none; }
+.pl-opt {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 1px 0;
+  border: none; background: none; border-radius: 9px; cursor: pointer; font: inherit; color: inherit; text-align: left;
+}
+.pl-opt:hover:not(.off) { background: #fbf6ea; }
+.pl-opt.on { background: #f0fdf4; }
+.pl-opt.off { cursor: not-allowed; opacity: 0.55; }
+.pl-opt.off .pl-opt-text b { font-weight: 600; }
+.pl-opt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.pl-badge {
+  flex-shrink: 0; padding: 2px 8px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; white-space: nowrap;
+  background: #f1f1f1; color: #666;
+}
+.pl-badge.is-ok { background: #dcfce7; color: #15803d; }
+.pl-badge.is-warn { background: #fef3c7; color: #b45309; }
+.pl-badge.is-info { background: #e0ecff; color: #1d4ed8; }
+.pl-badge.is-muted { background: #f1f1f1; color: #888; }
+.pl-tick { color: #15803d; flex-shrink: 0; }
+.pl-empty { margin: 0; padding: 14px; text-align: center; font-size: 0.85rem; color: var(--text-muted, #888); }
+
+body.dark-mode .pl-btn { background: rgba(255, 255, 255, 0.03); border-color: rgba(224, 180, 74, 0.35); }
+body.dark-mode .pl-pop { background: #1f1a10; border-color: rgba(224, 180, 74, 0.3); }
+body.dark-mode .pl-head { background: rgba(224, 180, 74, 0.08); border-color: rgba(224, 180, 74, 0.15); color: #e0b44a; }
+body.dark-mode .pl-opt:hover:not(.off) { background: rgba(255, 255, 255, 0.05); }
+body.dark-mode .pl-opt.on { background: rgba(74, 222, 128, 0.1); }
+body.dark-mode .pl-search { border-color: rgba(224, 180, 74, 0.15); }

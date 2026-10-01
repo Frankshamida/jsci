@@ -251,7 +251,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
           {event.image_url && <img className="ep-hero-poster" src={event.image_url} alt="" />}
           <div className="ep-hero-text">
             <h1>{publicEventTitle(event)}</h1>
-            {guestName && <p className="ep-welcome">Welcome {guestName},</p>}
+            {guestName && <p className="ep-welcome"><i className="fas fa-hand-sparkles"></i> Welcome, {guestName}!</p>}
             <div className="ep-meta">
               {when && <span><i className="fas fa-calendar-days"></i> {when}</span>}
               {event.location && <span><i className="fas fa-location-dot"></i> {event.location}</span>}
@@ -266,14 +266,14 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
           className={view === 'programme' ? 'active' : ''}
           onClick={(e) => { e.preventDefault(); go('programme'); }}
         >
-          <i className="fas fa-list-ol"></i> Programme
+          <i className="fas fa-list-ol"></i><span>Programme</span>
         </a>
         <a
           href={viewPath(slug, 'photos', code)}
           className={view === 'photos' ? 'active' : ''}
           onClick={(e) => { e.preventDefault(); go('photos'); }}
         >
-          <i className="fas fa-images"></i> Event Photos
+          <i className="fas fa-images"></i><span><span className="ep-tab-long">Event </span>Photos</span>
         </a>
         {unlocked && (
           <a
@@ -281,7 +281,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
             className={`ep-tab-new ${view === 'profile' ? 'active' : ''}`}
             onClick={(e) => { e.preventDefault(); go('profile'); }}
           >
-            <i className="fas fa-id-badge"></i> Profile
+            <i className="fas fa-id-badge"></i><span>Profile</span>
           </a>
         )}
         {unlocked && hasExtras && (
@@ -290,7 +290,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
             className={`ep-tab-new ${view === 'extras' ? 'active' : ''}`}
             onClick={(e) => { e.preventDefault(); go('extras'); }}
           >
-            <i className="fas fa-gift"></i> Extras
+            <i className="fas fa-gift"></i><span>Extras</span>
           </a>
         )}
       </nav>
@@ -313,6 +313,13 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
       </section>
 
       <audio {...player.audioProps} />
+      {/* Spotify's own player, for the lineup's Spotify songs. Always on the
+          page (moving an iframe would stop the song), shown while one is on. */}
+      <div
+        ref={player.spotifyHostRef}
+        className={`ep-spotify-dock ${nowPlayingOpen ? 'is-np' : 'is-mini'}`}
+        hidden={!(lineup && player.isSpotify)}
+      />
       {showMiniPlayer && (
         <MiniPlayer player={player} lineup={lineup} onOpen={() => setNowPlayingOpen(true)} onClose={stopLineup} />
       )}
@@ -381,6 +388,8 @@ const lineupWhen = (item) => [formatClock(item.start_time), item.day_date ? shor
 
 // The songs on a Worship item - its lineup. A button drops the list down;
 // Play (or any song) starts the lineup and opens the Now Playing screen.
+// Uploaded songs and songs saved from Spotify make one lineup, in the order
+// the Admin set; a Spotify song carries the Spotify logo.
 function WorshipSongs({ item, songsById, paused, player, lineup, onPlayLineup }) {
   const [open, setOpen] = useState(false);
   const list = useMemo(
@@ -407,16 +416,17 @@ function WorshipSongs({ item, songsById, paused, player, lineup, onPlayLineup })
     <div className={`ep-songs ${open ? 'is-open' : ''} ${isThisLineup ? 'is-live' : ''}`}>
       <button type="button" className="ep-songs-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <i className="fas fa-music"></i>
-        <span>{paused ? 'Song lineup' : `Song lineup · ${list.length}`}</span>
+        <span>{paused && !list.length ? 'Song lineup' : `Song lineup · ${list.length}`}</span>
         {playingHere && <span className="sp-eq" aria-label="Playing"><i /><i /><i /></span>}
         <i className="fas fa-chevron-down ep-songs-chevron"></i>
       </button>
 
-      {open && (paused ? (
+      {open && paused && !list.length && (
         <p className="ep-songs-paused">
           <i className="fas fa-circle-pause"></i> Song playback is paused for now. Please sing along with the worship team!
         </p>
-      ) : (
+      )}
+      {open && list.length > 0 && (
         <div className="ep-lineup sp-scope">
           <div className="ep-lineup-head">
             <img src={(isThisLineup ? player.current : list[0])?.cover_thumb_url || list[0].cover_url} alt="" />
@@ -439,7 +449,7 @@ function WorshipSongs({ item, songsById, paused, player, lineup, onPlayLineup })
             {list.map((song, i) => <SongRow key={song.id} song={song} index={i} player={rowPlayer} />)}
           </ul>
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -474,7 +484,7 @@ function NowPlaying({ player, lineup, songsById, onClose }) {
 
   return (
     <div className="ep-np-backdrop" onClick={onClose}>
-      <div className="ep-np sp-scope sp-compact" role="dialog" aria-modal="true" aria-label="Now playing" onClick={(e) => e.stopPropagation()}>
+      <div className={`ep-np sp-scope sp-compact ${player.isSpotify ? 'has-spotify' : ''}`} role="dialog" aria-modal="true" aria-label="Now playing" onClick={(e) => e.stopPropagation()}>
         <div className="ep-np-top" {...swipe}>
           <span className="ep-np-grab" aria-hidden="true" />
           <div className="ep-np-head">

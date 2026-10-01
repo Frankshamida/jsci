@@ -113,7 +113,10 @@ export function SongRow({ song, index, player, actions }) {
         </span>
         <img className="sp-row-cover" src={song.cover_thumb_url || song.cover_url} alt="" loading="lazy" />
         <span className="sp-row-text">
-          <span className="sp-row-title">{song.title}</span>
+          <span className="sp-row-title">
+            {song.source === 'spotify' && <i className="fab fa-spotify sp-row-spotify" title="Plays from Spotify" aria-label="Spotify"></i>}
+            {song.title}
+          </span>
           <span className="sp-row-artist">{song.artist}</span>
         </span>
         {player.cachedUrls.has(song.stream_url) && (

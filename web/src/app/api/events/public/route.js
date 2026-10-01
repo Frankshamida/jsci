@@ -48,7 +48,9 @@ export async function GET(request) {
     if (songIds.length) {
       const used = await cloudinaryCreditsUsedPercent();
       songsPaused = used !== null && used >= SONG_BUDGET_PAUSE_PERCENT;
-      if (!songsPaused) songs = await songsForIds(supabaseAdmin, songIds);
+      songs = await songsForIds(supabaseAdmin, songIds);
+      // Spotify songs stream from Spotify, so the Cloudinary budget does not pause them.
+      if (songsPaused) songs = songs.filter((s) => s.source === 'spotify');
     }
 
     // An ID opens only the event its holder is registered in. A QR code from

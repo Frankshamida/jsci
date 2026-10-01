@@ -49,6 +49,45 @@ const explain = (error) => {
 };
 
 const GUEST_FIELDS = 'id, room_id, registration_id, event_id, assigned_at, assigned_by, notes';
+
+// A room nobody is in any more is nobody's: its All Boys / All Girls / Family
+// label goes with the last guest, so the next people are not turned away by
+// a label left over from somebody who has gone. Returns whether it cleared.
+// Who a room is for, as people say it.
+const OCC_LABEL = { boys: 'All Boys', girls: 'All Girls', family: 'Family' };
+
+// Moving somebody keeps them with their own kind: a guest out of an All Boys
+// room goes into another All Boys room, an empty unlabelled one (which then
+// becomes All Boys), or a Family room - never into an All Girls room, and the
+// other way round. Returns a refusal message, or '' when the move is fine.
+function moveRefusal(fromOcc, toRoom, name) {
+  const toOcc = toRoom?.occupancy || null;
+  if (!fromOcc || !toOcc || toOcc === fromOcc || toOcc === 'family') return '';
+  return `${toRoom.room_number} is ${OCC_LABEL[toOcc] || toOcc} - ${name} is from an ${OCC_LABEL[fromOcc] || fromOcc} room. `
+    + `Choose an ${OCC_LABEL[fromOcc] || fromOcc}, Family or empty room.`;
+}
+
+// The label goes with them into an unlabelled room.
+async function carryLabel(fromOcc, toRoom) {
+  if (!fromOcc || fromOcc === 'family' || !toRoom || toRoom.occupancy) return null;
+  try {
+    const { data } = await supabaseAdmin.from('event_rooms')
+      .update({ occupancy: fromOcc }).eq('id', toRoom.id).is('occupancy', null).select('id, occupancy');
+    return data?.[0] || null;
+  } catch { return null; }
+}
+
+async function releaseIfEmpty(roomId) {
+  if (!roomId) return false;
+  try {
+    const { count } = await supabaseAdmin
+      .from('event_room_guests').select('id', { count: 'exact', head: true }).eq('room_id', roomId);
+    if ((count || 0) > 0) return false;
+    const { data } = await supabaseAdmin
+      .from('event_rooms').update({ occupancy: null }).eq('id', roomId).not('occupancy', 'is', null).select('id');
+    return (data || []).length > 0;
+  } catch { return false; /* no occupancy column yet: nothing to clear */ }
+}
 // Enough of the registration to show a name at the desk and to judge whether
 // somebody is entitled to the bed. addons is the snapshot of the extras they
 // ticked - see event_addons.sql.
@@ -220,8 +259,10 @@ export async function POST(request) {
     if (error) throw error;
 
     const from = prior?.room?.room_number;
+    const clearedRooms = prior?.room_id && prior.room_id !== roomId && (await releaseIfEmpty(prior.room_id)) ? [prior.room_id] : [];
     return NextResponse.json({
       success: true,
+      clearedRooms,
       result: from ? 'moved' : 'assigned',
       data,
       room,
@@ -262,12 +303,22 @@ export async function PATCH(request) {
     const patch = {};
     if (body.notes !== undefined) patch.notes = String(body.notes || '').trim().slice(0, 300) || null;
 
+    let moveFromOcc = null;
+    let moveToRoom = null;
     if (body.roomId && body.roomId !== guest.room_id) {
-      const { data: room } = await supabaseAdmin
+      let { data: room } = await supabaseAdmin
         .from('event_rooms')
-        .select('id, event_id, room_type, room_number, pax')
+        .select('id, event_id, room_type, room_number, pax, occupancy')
         .eq('id', body.roomId)
         .maybeSingle();
+      if (room === null) {
+        // Before event_room_occupancy.sql: no labels to keep.
+        ({ data: room } = await supabaseAdmin.from('event_rooms')
+          .select('id, event_id, room_type, room_number, pax').eq('id', body.roomId).maybeSingle());
+      }
+      const { data: fromRoom } = await supabaseAdmin.from('event_rooms').select('occupancy').eq('id', guest.room_id).maybeSingle();
+      moveFromOcc = fromRoom?.occupancy || null;
+      moveToRoom = room;
       if (!room) {
         return NextResponse.json({ success: false, message: 'That room could not be found' }, { status: 404 });
       }
@@ -284,6 +335,8 @@ export async function PATCH(request) {
           message: `${room.room_type} ${room.room_number} is full — ${count} of ${room.pax} pax.`,
         }, { status: 409 });
       }
+      const refusal = moveRefusal(moveFromOcc, room, guest.registration?.attendee_name || 'This guest');
+      if (refusal) return NextResponse.json({ success: false, result: 'wrong_room', message: refusal }, { status: 409 });
       patch.room_id = body.roomId;
       patch.assigned_by = actor.id;
       patch.assigned_at = new Date().toISOString();
@@ -301,9 +354,13 @@ export async function PATCH(request) {
       .single();
     if (error) throw error;
 
+    const labelled = patch.room_id ? await carryLabel(moveFromOcc, moveToRoom) : null;
+    const clearedRooms = patch.room_id && (await releaseIfEmpty(guest.room_id)) ? [guest.room_id] : [];
     return NextResponse.json({
       success: true,
       data,
+      clearedRooms,
+      labelled,
       message: `${data.registration?.attendee_name || 'Guest'} updated`,
     });
   } catch (error) {
@@ -329,7 +386,7 @@ export async function DELETE(request) {
 
     const { data: guest } = await supabaseAdmin
       .from('event_room_guests')
-      .select('id, registration:event_registrations (attendee_name), room:event_rooms (room_number)')
+      .select('id, room_id, registration:event_registrations (attendee_name), room:event_rooms (room_number)')
       .eq('id', id)
       .maybeSingle();
     if (!guest) {
@@ -339,9 +396,12 @@ export async function DELETE(request) {
     const { error } = await supabaseAdmin.from('event_room_guests').delete().eq('id', id);
     if (error) throw error;
 
+    const cleared = await releaseIfEmpty(guest.room_id);
     return NextResponse.json({
       success: true,
-      message: `${guest.registration?.attendee_name || 'Guest'} taken out of ${guest.room?.room_number || 'the room'}`,
+      clearedRooms: cleared ? [guest.room_id] : [],
+      message: `${guest.registration?.attendee_name || 'Guest'} taken out of ${guest.room?.room_number || 'the room'}`
+        + (cleared ? ' - the room is empty, so its label was cleared' : ''),
     });
   } catch (error) {
     return NextResponse.json({ success: false, message: explain(error) }, { status: 500 });

@@ -129,3 +129,6 @@ body.dark-mode .evt-songs-search { border-color: rgba(255, 255, 255, 0.08); }
 body.dark-mode .evt-songs-option:hover { background: rgba(255, 255, 255, 0.05); }
 body.dark-mode .evt-songs-option.is-on { background: rgba(146, 108, 21, 0.18); }
 body.dark-mode .evt-prog-songs { background: rgba(182, 144, 234, 0.14); color: #b690ea; }
+
+/* a song saved from Spotify */
+.evt-songs-spotify { color: #1db954; margin-right: 5px; font-size: 0.85em; }

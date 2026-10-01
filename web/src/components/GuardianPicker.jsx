@@ -20,6 +20,7 @@ export default function GuardianPicker({
   invalid = false,
   label = 'Parent or Guardian *',
   hint = 'Search for the person bringing them — they must already be registered for this event.',
+  placeholder = "Type the parent's name, e.g. Juan Dela Cruz",
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -78,7 +79,7 @@ export default function GuardianPicker({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type the parent's name, e.g. Juan Dela Cruz"
+          placeholder={placeholder}
           autoComplete="off"
         />
       </div>

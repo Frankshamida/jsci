@@ -5,10 +5,11 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
-import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bedsToText, compareRoomNumbers, occupancyLabel, parseRoomNumbers, roomEntitlement, roomTypeName } from '@/lib/rooms';
+import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bedsToText, compareRoomNumbers, occupancyLabel, parseRoomNumbers, roomEntitlement, roomTypeName, accommodationAddons } from '@/lib/rooms';
 import { supabase } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, formatUid, sameCard, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
 import { sameAddon } from '@/lib/addons';
+import { publishQrDisplay } from '@/lib/qrDisplay';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { printReport, buildPrintHtml, buildXlsx, buildDocx, buildCsv, downloadBlob, safeFilename } from '@/lib/exportDoc';
 import { buildPdf, loadLogoJpeg } from '@/lib/pdfWriter';
@@ -18,11 +19,12 @@ import AgeGroupPicker from '@/components/AgeGroupPicker';
 import GuardianPicker from '@/components/GuardianPicker';
 import RegisteredNameMatches from '@/components/RegisteredNameMatches';
 import SongPlaylist from '@/components/SongPlaylist';
+import { SpotifyPickerModal } from '@/components/spotify/SpotifyBrowser';
 import './dashboard.css';
 import { withTitleCase } from '@/lib/eventTitle';
 import {
   STARTER_TIERS, addonFeeFor, addonShortLabel, baseAmountFor, defaultTier, eventFeeLabel,
-  eventTiers, findTier, hasPriceTiers, isNameOnlyTier, nameOnlyTiers, tierAgeLabel, tierKey,
+  eventTiers, findTier, hasPriceTiers, isNameOnlyTier, nameOnlyTiers, tierAgeLabel, tierFee, tierKey,
 } from '@/lib/eventPricing';
 import { eventSlugFor, findEventBySlug, eventShareUrl } from '@/lib/eventSlug';
 import { HERO_MEDIA_DEFAULT, HERO_VIDEO_DIR, heroVideoWeight, normalizeHeroMedia } from '@/lib/heroMedia';
@@ -31,6 +33,7 @@ import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
 import PastorInput from '@/components/PastorInput';
 import { flipListUp } from '@/lib/dropUp';
 import AttendeeIdModal from '@/components/eventDesk/AttendeeIdModal';
+import PickList from '@/components/eventDesk/PickList';
 import EventProgrammeTab from '@/components/eventDesk/EventProgrammeTab';
 import EventPhotosTab from '@/components/eventDesk/EventPhotosTab';
 import { publicEventSlugFor } from '@/lib/eventPublic';
@@ -188,6 +191,7 @@ const EventLocationPicker = dynamic(() => import('@/components/EventLocationPick
 // visible is what tells somebody they are meant to be filled in.
 const BLANK_ROOM_FORM = {
   roomType: '',
+  floor: '',
   roomNumbers: '',
   // Left blank means "however many the beds sleep" - the server works it out.
   pax: '',
@@ -286,7 +290,9 @@ const EXPORT_COLUMNS = [
 ];
 
 // What a registration desk asks for nine times out of ten.
-const EXPORT_COLUMNS_DEFAULT = ['no', 'attendee_name', 'price_tier', 'type', 'church_name', 'church_pastor', 'amount', 'status'];
+// Payment Method is in by default because the Status column says only
+// "Registered" for a paid row - how they paid is told there instead.
+const EXPORT_COLUMNS_DEFAULT = ['no', 'attendee_name', 'price_tier', 'type', 'church_name', 'church_pastor', 'amount', 'payment_method', 'status'];
 
 const EXPORT_FORMATS = [
   { id: 'pdf', label: 'PDF', icon: 'fa-file-pdf', note: 'Print-ready', paged: true },
@@ -294,6 +300,45 @@ const EXPORT_FORMATS = [
   { id: 'docx', label: 'Word', icon: 'fa-file-word', note: '.docx, editable', paged: true },
   { id: 'csv', label: 'CSV', icon: 'fa-file-csv', note: 'Plain data', paged: false },
 ];
+
+// ---- Row colours in an attendee export ----
+//
+// Three things a registration desk looks for at a glance, each shaded its own
+// colour in the PDF, Excel and Word files (and named in a "Highlight" column
+// in a CSV), with a legend of the colours actually used. The first rule that
+// fits a row wins, in this order. An Admin or Super Admin picks the colours
+// and which rules are on; everybody else exports with what they chose last on
+// this browser, or these defaults.
+const EXPORT_HIGHLIGHT_KEY = 'jsci-export-row-colours-v1';
+const EXPORT_HIGHLIGHT_RULES = [
+  { key: 'kid', label: 'Kid - free', hint: 'A child in a free age group', color: '#D6F2DC' },
+  { key: 'accPaid', label: 'Accommodation - paid', hint: 'Adults / 6-10 yrs old who availed accommodation and are paid', color: '#F6E6B4' },
+  { key: 'accUnpaid', label: 'Accommodation - not yet paid', hint: 'Adults / 6-10 yrs old who availed accommodation but are not paid yet', color: '#F7C9C9' },
+];
+// The same three the export's "Paid only" filter counts as paid.
+const EXPORT_PAID_STATUSES = ['payment_verified', 'registered', 'paid_pending_turnover'];
+const exportHighlightDefaults = () => ({
+  on: true,
+  rules: Object.fromEntries(EXPORT_HIGHLIGHT_RULES.map((r) => [r.key, { on: true, color: r.color }])),
+});
+const readExportHighlight = () => {
+  const base = exportHighlightDefaults();
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(EXPORT_HIGHLIGHT_KEY) || 'null');
+    if (!saved || typeof saved !== 'object') return base;
+    const rules = { ...base.rules };
+    Object.keys(rules).forEach((k) => {
+      const r = saved.rules?.[k];
+      if (r && typeof r === 'object') {
+        rules[k] = {
+          on: r.on !== false,
+          color: /^#[0-9a-f]{6}$/i.test(String(r.color || '')) ? r.color : rules[k].color,
+        };
+      }
+    });
+    return { on: saved.on !== false, rules };
+  } catch { return base; }
+};
 
 const ALL_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor', 'Admin', 'Super Admin'];
 const ALL_MINISTRIES = ['Praise And Worship', 'Media', 'Dancers', 'Ashers', 'Pastors', 'Teachers'];
@@ -1263,6 +1308,7 @@ export default function DashboardPage() {
   const [lineupSelectedDate, setLineupSelectedDate] = useState(null);
   const [lineupCalendarMonth, setLineupCalendarMonth] = useState(new Date());
   const [lineupTab, setLineupTab] = useState('assign'); // 'assign' | 'all' | 'paw-logs'
+  const [lineupSpotifyPick, setLineupSpotifyPick] = useState(null); // { type, i } while the Spotify picker is open
 
   // PAW Logs
   const [pawLogsSearch, setPawLogsSearch] = useState('');
@@ -1438,6 +1484,63 @@ export default function DashboardPage() {
   const [eventRegs, setEventRegs] = useState([]);
   const [eventRegsLoading, setEventRegsLoading] = useState(false);
   const [manageTab, setManageTab] = useState('registrations'); // 'registrations' | 'attendance' | 'accommodation' | 'installments' | 'programme' | 'photos' | 'bin'
+  // Registration Verification (see renderRegVerification): the staff member
+  // verifying at the desk, the list they are on, and the card-tap popups.
+  const [regVerifier, setRegVerifier] = useState(null); // { eventId, staff: { id, name, role, duty, picture }, since }
+  const [verifyScanOpen, setVerifyScanOpen] = useState(false);
+  const [verifyScan, setVerifyScan] = useState(null);   // { busy } | { ok, staff } | { ok: false, message }
+  const [verifyTab, setVerifyTab] = useState('early');  // 'early' | 'late' | 'walkin'
+  const [verifySearch, setVerifySearch] = useState('');
+  const [verifyPage, setVerifyPage] = useState(1);
+  const [verifyPageSize, setVerifyPageSize] = useState(10);
+  const [verifyTap, setVerifyTap] = useState(null);     // { busy } | { regId, reg, uid } | { message }
+  const [verifyAnim, setVerifyAnim] = useState('');     // 'out' while the tabs fade, 'in' / 'back' after
+  const [verifyEndAsk, setVerifyEndAsk] = useState(false); // the End verification confirmation
+  const [verifySub, setVerifySub] = useState(null);        // Substitute dialog: { regId, firstname, lastname, busy, error }
+  const [verifyBusy, setVerifyBusy] = useState(false);     // Verify (check-in) in flight
+  const [verifyCloseAsk, setVerifyCloseAsk] = useState(false); // "Close this attendee?" before the popup goes
+  const [verifyAddonMenu, setVerifyAddonMenu] = useState(null); // registration id whose Add-extra list is open
+  const [verifyAddonBusy, setVerifyAddonBusy] = useState('');  // `${regId}:${addonId}` being added / removed
+  // The desk's own payment step: { key, rows, returnTap, mode: 'cash'|'online', methodId, menuOpen, reference, tendered, changeLater, saving, error }
+  const [deskPay, setDeskPay] = useState(null);
+  const [deskParked, setDeskParked] = useState([]);           // payments minimised while an online transfer comes through
+  const deskParkedRef = useRef([]);
+  const verifyBoxRef = useRef(null);                            // the verification section, for the tab bar's edges
+  const [parkBox, setParkBox] = useState(null);                 // { left, width } of that section on screen
+  const deskRestoredRef = useRef('');                          // event whose saved tabs were already brought back
+  const [idQueue, setIdQueue] = useState({});                  // registration id -> its /id-queue request
+  const [idQueueBusy, setIdQueueBusy] = useState('');
+  const [extraCancel, setExtraCancel] = useState(null);         // { regId, addonId, addonQuestion, mode, reason, recipient, sentTo, number, busy, error }
+  const [extraCancelAsk, setExtraCancelAsk] = useState(false);
+  const [verifyRefunds, setVerifyRefunds] = useState(null);
+  const [verifyRefundBusy, setVerifyRefundBusy] = useState('');
+  const [guardianEdit, setGuardianEdit] = useState('');         // child's registration id whose guardian is being changed
+  const [guardianBusy, setGuardianBusy] = useState('');
+  const deskRestoreRef = useRef(() => {});
+  const deskLiveKeyRef = useRef(null);
+  const deskParkLiveRef = useRef(() => {});
+  const [verifyChange, setVerifyChange] = useState(null);     // change still to give back (null = not loaded)
+  const [verifyChangeBusy, setVerifyChangeBusy] = useState('');
+  // Verification Logs (Events > More)
+  const [verifyLogs, setVerifyLogs] = useState(null);
+  const [verifyLogsError, setVerifyLogsError] = useState('');
+  const [verifyLogBusy, setVerifyLogBusy] = useState(null);
+  const [verifyLogSearch, setVerifyLogSearch] = useState('');
+  const [verifyLogAction, setVerifyLogAction] = useState('all');
+  const [verifyLogWho, setVerifyLogWho] = useState('all');
+  const [verifyLogPage, setVerifyLogPage] = useState(1);
+  const [verifyLogPageSize, setVerifyLogPageSize] = useState(25);
+  const [verifyPw, setVerifyPw] = useState(null);       // TEMPORARY test sign-in: null | { value, busy, error }
+  // Registration Verifiers, managed under Events RFID: who may start
+  // verification, by the card they tap.
+  const [regVerifiers, setRegVerifiers] = useState(null); // null = not loaded
+  const [regVerifiersError, setRegVerifiersError] = useState('');
+  const [cardStock, setCardStock] = useState(null);             // the stored blank cards (Events RFID), by number
+  const [cardStockOpen, setCardStockOpen] = useState(false);    // the "tap blank cards" dialog
+  const [cardStockScan, setCardStockScan] = useState(null);     // { busy } | { tone, text } - what the last tap did
+  const [cardStockAdded, setCardStockAdded] = useState([]);     // added in this sitting, newest first
+  const [cardStockManual, setCardStockManual] = useState('');
+  const [verifierForm, setVerifierForm] = useState(null); // null | { step: 'scan'|'details', id?, uid, firstname, lastname, busy, error }
   // Admin/Super Admin manually adding a walk-in / offline registration
   const [showAdminAddReg, setShowAdminAddReg] = useState(false);
   const [adminAddRegForm, setAdminAddRegForm] = useState({ attendeeName: '', attendeeEmail: '', attendeeMobile: '', paymentMethod: '', paymentReference: '', markVerified: true });
@@ -1445,6 +1548,15 @@ export default function DashboardPage() {
   // Late Registration: the same dialog, but a card is tapped before anything
   // else and becomes theirs when the registration is saved.
   const [adminLate, setAdminLate] = useState(false);
+  const [adminWalkIn, setAdminWalkIn] = useState(false);
+  const [walkinCardMenu, setWalkinCardMenu] = useState(false);   // the walk-in's card dropdown
+  const [kitSearch, setKitSearch] = useState('');
+  const [kitDraft, setKitDraft] = useState({});                  // regId -> the kit items ticked but not saved yet
+  const [kitBusy, setKitBusy] = useState('');
+  const [accAssign, setAccAssign] = useState({});                // group key -> { roomId, occ } on the waiting list
+  const [accAssignBusy, setAccAssignBusy] = useState('');
+  const [roomAddPick, setRoomAddPick] = useState({});
+  const [roomExport, setRoomExport] = useState(null);             // { format, occ, orient, busy } - the room list export            // roomId -> registration id chosen to go into it       // the add form opened as a Walk-In (on an event day)
   const [adminLateUid, setAdminLateUid] = useState('');
   const [adminLateScan, setAdminLateScan] = useState(null);   // { busy } | { ok: false, uid, message }
   const [adminLateManual, setAdminLateManual] = useState('');
@@ -1526,6 +1638,19 @@ export default function DashboardPage() {
   const [exportError, setExportError] = useState('');
   const [exportCols, setExportCols] = useState(EXPORT_COLUMNS_DEFAULT);
   const [exportChurches, setExportChurches] = useState([]); // empty = every church
+  const [exportTiers, setExportTiers] = useState([]);       // empty = every age group
+  const [exportHighlight, setExportHighlight] = useState(exportHighlightDefaults);
+  // Only an Admin or Super Admin decides what the colours are.
+  const canPickExportColours = userRole === 'Admin' || userRole === 'Super Admin';
+  useEffect(() => { setExportHighlight(readExportHighlight()); }, []);
+  const changeExportHighlight = (fn) => {
+    if (!canPickExportColours) return;
+    setExportHighlight((cur) => {
+      const next = fn(cur);
+      try { window.localStorage.setItem(EXPORT_HIGHLIGHT_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  };
   const [exportStatus, setExportStatus] = useState('all');
   const [exportType, setExportType] = useState('all');
   const [exportFormat, setExportFormat] = useState('pdf');
@@ -1606,13 +1731,14 @@ export default function DashboardPage() {
     setExportError('');
     setExportCols(EXPORT_COLUMNS_DEFAULT);
     setExportChurches([]);
+    setExportTiers([]);
     setExportStatus('all');
     setExportType('all');
     setExportFormat('pdf');
     setExportOrient('portrait');
     (async () => {
       try {
-        const res = await fetch(`/api/events/registrations?eventId=${evt.id}`);
+        const res = await fetch(`/api/events/registrations?eventId=${evt.id}`, { cache: 'no-store' });
         const data = await res.json();
         if (!data.success) { setExportError(data.message || 'Could not load the registrations for this event.'); setExportRows([]); return; }
         setExportRows(data.data || []);
@@ -1629,6 +1755,55 @@ export default function DashboardPage() {
   const exportToggleChurch = (name) => setExportChurches((list) => (list.includes(name)
     ? list.filter((n) => n !== name)
     : [...list, name]));
+
+  const exportTierName = (r) => String(r.price_tier || '').trim() || 'No age group';
+  const exportToggleTier = (name) => setExportTiers((list) => (list.includes(name)
+    ? list.filter((n) => n !== name)
+    : [...list, name]));
+  // Every age group on this event's registrations - Kids, 6-10, Adults -
+  // with how many each has.
+  const exportTierOptions = () => {
+    const counts = new Map();
+    (exportRows || []).filter((r) => r.status !== 'cancelled').forEach((r) => {
+      const name = exportTierName(r);
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return [...counts.entries()].map(([name, count]) => ({ name, count }));
+  };
+
+  // Which colour rule a registration falls under, or null.
+  //   kid        a child in a free age group (the "Kids (5 Below)" kind)
+  //   accPaid    anyone else who availed accommodation and is paid
+  //   accUnpaid  anyone else who availed accommodation and is not paid yet
+  // Accommodation is an extra worded like accommodation - the same test the
+  // Accommodation tab uses. An event with no such extra has no accommodation
+  // rows, rather than counting every paid extra as a room.
+  // Availed accommodation: an extra worded like accommodation, on the event or
+  // on the registration's own saved extras.
+  const exportHasRoom = (r) => {
+    const wanted = accommodationAddons(exportEvent?.event_addons || []);
+    const theirs = Array.isArray(r.addons) ? r.addons : [];
+    return accommodationAddons(theirs).length > 0
+      || (wanted.length > 0 && theirs.some((a) => wanted.some((w) => sameAddon(a, w))));
+  };
+  const exportHasExtra = (r) => (Array.isArray(r.addons) ? r.addons : []).some((a) => a && (a.question || a.id));
+
+  const exportRowRule = (r) => {
+    const evt = exportEvent;
+    const tier = findTier(evt, r.price_tier);
+    const childName = /kid|child|toddler|infant|baby/i.test(String(r.price_tier || ''));
+    const isKid = tier
+      ? tierFee(evt, tier) === 0 && (tier.nameOnly || childName)
+      : childName && !(Number(r.amount) > 0);
+    if (isKid) return 'kid';
+    if (!exportHasRoom(r)) return null;
+    return EXPORT_PAID_STATUSES.includes(r.status) ? 'accPaid' : 'accUnpaid';
+  };
+  const exportRuleFor = (r) => {
+    if (!exportHighlight.on) return null;
+    const key = exportRowRule(r);
+    return key && exportHighlight.rules[key]?.on ? key : null;
+  };
 
   // Every church on this event, with how many rows each one brought.
   //
@@ -1664,12 +1839,15 @@ export default function DashboardPage() {
       else if (exportStatus === 'unpaid') rows = rows.filter((r) => ['pending_cash', 'pending_payment', 'installment'].includes(r.status));
       else if (exportStatus === 'verify') rows = rows.filter((r) => r.status === 'payment_submitted');
       else if (exportStatus === 'attended') rows = rows.filter((r) => r.attended);
+      else if (exportStatus === 'accommodation') rows = rows.filter(exportHasRoom);
+      else if (exportStatus === 'extras') rows = rows.filter(exportHasExtra);
     }
 
     if (exportType !== 'all') rows = rows.filter((r) => regTypeOf(r) === exportType);
     if (exportChurches.length) {
       rows = rows.filter((r) => exportChurches.includes(formatChurchName(r.church_name) || 'No church given'));
     }
+    if (exportTiers.length) rows = rows.filter((r) => exportTiers.includes(exportTierName(r)));
     return rows.sort((a, b) => String(a.attendee_name || '').localeCompare(String(b.attendee_name || '')));
   };
 
@@ -1679,7 +1857,12 @@ export default function DashboardPage() {
   const exportRowValues = (r, index) => {
     const owed = Number(r.amount) || 0;
     const paid = Number(r.amount_paid) || 0;
-    const label = regStatusLabel(r);
+    // Paid - online or in cash - is simply "Registered" on an export; the
+    // Payment Method column says which ("Cash", "MAYA (online)").
+    const verified = r.status === 'payment_verified';
+    const label = verified ? 'registered' : regStatusLabel(r);
+    const method = String(r.payment_method || '').trim();
+    const methodText = !method ? '' : isCashMethod(method) ? 'Cash' : (verified ? `${method} (online)` : method);
     return {
       no: index + 1,
       attendee_name: formatPersonName(r.attendee_name),
@@ -1695,7 +1878,7 @@ export default function DashboardPage() {
       amount: owed,
       amount_paid: paid,
       balance: Math.max(0, owed - paid),
-      payment_method: r.payment_method || '',
+      payment_method: methodText,
       payment_reference: r.payment_reference || '',
       status: label ? label.charAt(0).toUpperCase() + label.slice(1) : '',
       attended: r.attended ? 'Yes' : 'No',
@@ -1711,6 +1894,8 @@ export default function DashboardPage() {
     unpaid: 'Still to pay',
     verify: 'Awaiting verification',
     attended: 'Marked attended',
+    accommodation: 'With accommodation',
+    extras: 'With extras availed',
     cancelled: 'Cancelled registrations',
   }[exportStatus] || 'All attendees');
 
@@ -1718,7 +1903,13 @@ export default function DashboardPage() {
     const evt = exportEvent;
     const picked = exportSelectedRows();
     const columns = EXPORT_COLUMNS.filter((c) => exportCols.includes(c.key));
-    const rows = picked.map((r, i) => exportRowValues(r, i));
+    const rules = picked.map(exportRuleFor);
+    const hexOf = (key) => String(exportHighlight.rules[key]?.color || '').replace('#', '');
+    const rows = picked.map((r, i) => ({ ...exportRowValues(r, i), _fill: rules[i] ? hexOf(rules[i]) : '' }));
+    // A legend of the colours this file actually uses, with how many rows each.
+    const legend = EXPORT_HIGHLIGHT_RULES
+      .map((rule) => ({ color: hexOf(rule.key), label: rule.label, count: rules.filter((k) => k === rule.key).length }))
+      .filter((l) => l.count > 0);
     const totalDue = rows.reduce((t, r) => t + (Number(r.amount) || 0), 0);
     const totalPaid = rows.reduce((t, r) => t + (Number(r.amount_paid) || 0), 0);
 
@@ -1728,11 +1919,13 @@ export default function DashboardPage() {
       orientation: exportOrient,
       columns,
       rows,
+      legend,
       meta: [
         ['Date', formatEventSpan(evt.event_date, evt.end_date)],
         ['Venue', [evt.location, evt.loc_city].filter(Boolean).join(', ')],
         ['Province', provinceLabel(evt) || evt.loc_province || ''],
         ['Churches', exportChurches.length ? exportChurches.join(', ') : 'All churches'],
+        ['Age Group', exportTiers.length ? exportTiers.join(', ') : ''],
         ['Registration Type', exportType === 'all' ? 'All' : (exportType === 'bulk' ? 'Bulk' : 'Individual')],
         ['Total Due', `PHP ${totalDue.toLocaleString()}`],
         ['Total Paid', `PHP ${totalPaid.toLocaleString()}`],
@@ -3222,6 +3415,25 @@ export default function DashboardPage() {
       if (data.success) setPendingRegAlerts(data.data || []);
     } catch { /* silent */ }
   }, [userData?.id, userRole]);
+
+  // The open event's registrations, re-read quietly so every money card and
+  // list stays current when payments are taken on another device. Skipped
+  // while a dialog is open, so nothing moves under somebody mid-way through.
+  const refreshOpenEventRegs = async () => {
+    const evt = eventRegsModal;
+    if (!evt?.id || collectCash || turnoverModal || showAdminAddReg) return;
+    try {
+      const res = await fetch(`/api/events/registrations?eventId=${evt.id}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) setEventRegs(data.data);
+    } catch { /* next tick */ }
+  };
+  useSmartPoll(
+    refreshOpenEventRegs,
+    POLL_MS.eventRegsOpen,
+    // hasPermission, not canManage: that helper is declared further down the body.
+    { enabled: !!eventRegsModal?.id && hasPermission(userRole, MODULES.UPDATE_EVENTS) }
+  );
 
   useSmartPoll(
     loadPendingRegAlerts,
@@ -6018,7 +6230,7 @@ export default function DashboardPage() {
     setManageTab(tab);
     setEventRegsLoading(true);
     try {
-      const res = await fetch(`/api/events/registrations?eventId=${evt.id}`);
+      const res = await fetch(`/api/events/registrations?eventId=${evt.id}`, { cache: 'no-store' });
       const data = await res.json();
       const regs = data.success ? data.data : [];
       setEventRegs(regs);
@@ -6043,7 +6255,8 @@ export default function DashboardPage() {
   const refreshEventRegs = async (eventId = eventRegsModal?.id) => {
     if (!eventId) return;
     try {
-      const res = await fetch(`/api/events/registrations?eventId=${eventId}`);
+      // Never the browser's copy: this is how the desk sees new walk-ins.
+      const res = await fetch(`/api/events/registrations?eventId=${eventId}&_=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       if (data.success) setEventRegs(data.data || []);
     } catch { /* the rows on screen stay as they were */ }
@@ -6473,7 +6686,11 @@ export default function DashboardPage() {
       else if (r.status === 'paid_pending_turnover') turnover += owed;
       else pending += owed;
     });
-    return { cash, online, total: cash + online, pending, cashDue, planDue, expected, turnover };
+    // Everything still to come into the cash box: cash owed at the desk, and
+    // money already paid but not yet turned over. Receiving a turnover moves it
+    // out of here and into Cash (or Online) Collected.
+    const toCollect = cashDue + turnover;
+    return { cash, online, total: cash + online, pending, cashDue, planDue, expected, turnover, toCollect };
   })();
   const peso = (n) => `₱${(Number(n) || 0).toLocaleString('en-PH')}`;
 
@@ -6676,6 +6893,8 @@ export default function DashboardPage() {
       // went through - so failures are counted rather than rolled back.
       let ok = 0;
       const failed = [];
+      const verifyEntries = [];
+      const paidRows = {};
       for (const id of collectSelected) {
         try {
           const res = await fetch('/api/events/registrations', {
@@ -6687,8 +6906,26 @@ export default function DashboardPage() {
           });
           const data = await res.json();
           if (data.success && data.warning) showToast(data.warning, 'warning');
-          if (data.success) ok += 1;
-          else failed.push(collectCash.rows.find((r) => r.id === id)?.attendee_name || id);
+          if (data.success) {
+            ok += 1;
+            if (data.data) paidRows[id] = data.data;
+            // At the verification desk: on the record, with the verifier's name.
+            const row = collectCash.rows.find((r) => r.id === id);
+            if (verifyMode && row) {
+              verifyEntries.push({
+                action: 'payment',
+                registrationId: id,
+                attendeeName: row.attendee_name,
+                details: {
+                  from: row.status,
+                  to: turnover ? 'paid_pending_turnover' : 'payment_verified',
+                  amount: regCashDue(row),
+                  mode: turnover ? 'turnover' : 'onhand',
+                  ...(turnover ? { holder: collectHolder.trim() } : {}),
+                },
+              });
+            }
+          } else failed.push(collectCash.rows.find((r) => r.id === id)?.attendee_name || id);
         } catch { failed.push(collectCash.rows.find((r) => r.id === id)?.attendee_name || id); }
       }
       if (ok) {
@@ -6700,6 +6937,11 @@ export default function DashboardPage() {
         );
       }
       if (failed.length) showToast(`Could not collect for: ${failed.join(', ')}`, 'danger');
+      if (verifyEntries.length) logVerification(verifyEntries);
+      if (collectCash.returnTap && ok) {
+        setEventRegs((list) => list.map((r) => (paidRows[r.id] ? { ...r, ...paidRows[r.id] } : r)));
+        setVerifyTap({ ...collectCash.returnTap, reading: false, tapError: '' });
+      }
       setCollectCash(null);
       setCollectSelected([]);
       setCollectTendered('');
@@ -6765,7 +7007,7 @@ export default function DashboardPage() {
         if (regMoneyFilter === 'online') return counted && !isCash;
         // Money still to be taken at the desk: no payment has been made, so
         // these are not "awaiting verification" and no longer answer to it.
-        if (regMoneyFilter === 'cashdue') return r.status === 'pending_cash';
+        if (regMoneyFilter === 'cashdue') return r.status === 'pending_cash' || r.status === 'paid_pending_turnover';
         if (regMoneyFilter === 'turnover') return r.status === 'paid_pending_turnover';
         // A payment has been made and nobody has checked it yet.
         return r.payment_plan !== 'flexible'
@@ -6889,6 +7131,37 @@ export default function DashboardPage() {
   const [idModalReg, setIdModalReg] = useState(null);
   // The "More" tab menu on the event page: { left, top, width } while open.
   const [moreTabsMenu, setMoreTabsMenu] = useState(null);
+  // The More menu is fixed and portalled, so it is placed from its button -
+  // again on every scroll and resize - rather than left where it opened.
+  const moreTabsBtnRef = useRef(null);
+  const placeMoreTabsMenu = useCallback((open = false) => {
+    const btn = moreTabsBtnRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    // The button scrolled out of sight: close rather than float over the page.
+    if (r.bottom < 0 || r.top > vh) { setMoreTabsMenu(null); return; }
+    const width = Math.min(300, vw - 16);
+    const left = Math.max(8, Math.min(r.left, vw - width - 8));
+    const below = vh - r.bottom - 14;
+    const above = r.top - 14;
+    // Below when there is room for a useful list, above when there is more room there.
+    const next = below >= 260 || below >= above
+      ? { left, width, top: r.bottom + 6, bottom: 'auto', maxHeight: Math.max(160, below) }
+      : { left, width, top: 'auto', bottom: vh - r.top + 6, maxHeight: Math.max(160, above) };
+    setMoreTabsMenu((cur) => (cur || open ? next : cur));
+  }, []);
+  useLayoutEffect(() => {
+    if (!moreTabsMenu) return undefined;
+    const onMove = () => placeMoreTabsMenu(false);
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [!!moreTabsMenu, placeMoreTabsMenu]); // eslint-disable-line react-hooks/exhaustive-deps
   // A card tapped anywhere on the ID Cards tab: whose it is, read-only.
   // { seq, uid, busy, reg, message }. seq changes on every tap so the card
   // animates in again even when the same card is tapped twice.
@@ -7314,6 +7587,14 @@ export default function DashboardPage() {
       const data = await res.json();
       if (!data.success) { showToast(data.message, 'danger'); return; }
       showToast(`₱${Number(reg.amount) || 0} turned over — ${formatPersonName(reg.attendee_name)} is now paid in full`, 'success');
+      if (verifyMode) {
+        logVerification([{
+          action: 'payment',
+          registrationId: reg.id,
+          attendeeName: reg.attendee_name,
+          details: { from: 'paid_pending_turnover', to: 'payment_verified', amount: Number(reg.amount) || 0, mode: 'turnover_received', holder: reg.turnover_holder || '' },
+        }]);
+      }
       if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
       loadPendingRegAlerts();
       loadEvents();
@@ -7385,21 +7666,16 @@ export default function DashboardPage() {
   const [turnoverModal, setTurnoverModal] = useState(null);
   const [turnoverSelected, setTurnoverSelected] = useState([]);
   const [turnoverSaving, setTurnoverSaving] = useState(false);
+  // How the turned-over money came in: cash in hand, or sent online.
+  const [turnoverPay, setTurnoverPay] = useState({ mode: 'cash', method: '', reference: '' });
 
   const openConfirmTurnover = (reg) => {
     const rows = collectGroupFor(reg);
     const pending = rows.filter((r) => r.status === 'paid_pending_turnover');
-    // One person with nothing else in their group pending: a plain yes/no.
-    if (pending.length <= 1) {
-      const owed = Number(reg.amount) || 0;
-      askConfirm(
-        `Has the ₱${owed} for ${formatPersonName(reg.attendee_name)} been turned over${reg.turnover_holder ? ` by ${formatPersonName(reg.turnover_holder)}` : ''}? It moves into Cash Collected.`,
-        () => confirmTurnover(reg),
-        { title: 'Confirm Turnover?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Money Received', icon: 'fa-hand-holding-dollar' },
-      );
-      return;
-    }
-    setTurnoverSelected(pending.map((r) => r.id));
+    // Always the full dialog - even for one person - because it is where the
+    // mode of payment (cash or online) is chosen.
+    setTurnoverPay({ mode: 'cash', method: '', reference: '' });
+    setTurnoverSelected(pending.length ? pending.map((r) => r.id) : [reg.id]);
     setTurnoverModal({
       rows,
       clickedId: reg.id,
@@ -7415,26 +7691,53 @@ export default function DashboardPage() {
 
   const submitConfirmTurnover = async () => {
     if (!turnoverModal || turnoverSelected.length === 0) return;
+    const online = turnoverPay.mode === 'online';
+    if (online && !turnoverPay.method) { showToast('Choose how it was sent online', 'danger'); return; }
+    const payMethod = online ? turnoverPay.method : 'Cash';
+    const payRef = online ? turnoverPay.reference.trim() : '';
     setTurnoverSaving(true);
     try {
       // One request per registration, as Collect Cash does: money handed in
       // for the ones that went through is recorded even if one fails.
       let ok = 0;
       const failed = [];
+      const verifyEntries = [];
+      const paidRows = {};
       for (const id of turnoverSelected) {
         const row = turnoverModal.rows.find((r) => r.id === id);
         try {
           const res = await fetch('/api/events/registrations', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, actorId: userData?.id, status: 'payment_verified', turnedOver: true }),
+            body: JSON.stringify({ id, actorId: userData?.id, status: 'payment_verified', turnedOver: true, paymentMethod: payMethod, paymentReference: payRef }),
           });
           const data = await res.json();
-          if (data.success) ok += 1; else failed.push(formatPersonName(row?.attendee_name));
+          if (data.success) {
+            ok += 1;
+            if (data.data) paidRows[id] = data.data;
+            if (verifyMode && row) {
+              verifyEntries.push({
+                action: 'payment',
+                registrationId: id,
+                attendeeName: row.attendee_name,
+                details: {
+                  from: 'paid_pending_turnover', to: 'payment_verified', amount: Number(row.amount) || 0,
+                  mode: 'turnover_received', holder: row.turnover_holder || '',
+                  method: payMethod, ...(payRef ? { reference: payRef } : {}),
+                  previousMethod: row.payment_method || '',
+                },
+              });
+            }
+          } else failed.push(formatPersonName(row?.attendee_name));
         } catch { failed.push(formatPersonName(row?.attendee_name)); }
       }
-      if (ok > 0) showToast(`₱${turnoverTotal} turned over — ${ok} ${ok === 1 ? 'registration' : 'registrations'} now paid in full`, 'success');
+      if (verifyEntries.length) logVerification(verifyEntries);
+      if (ok > 0) showToast(`₱${turnoverTotal} turned over${online ? ` (${payMethod})` : ' in cash'} — ${ok} ${ok === 1 ? 'registration' : 'registrations'} now paid in full`, 'success');
       if (failed.length > 0) showToast(`Could not confirm: ${failed.join(', ')}`, 'danger');
+      if (turnoverModal.returnTap && ok > 0) {
+        setEventRegs((list) => list.map((r) => (paidRows[r.id] ? { ...r, ...paidRows[r.id] } : r)));
+        setVerifyTap({ ...turnoverModal.returnTap, reading: false, tapError: '' });
+      }
       setTurnoverModal(null);
       if (eventRegsModal) openEventRegistrations(eventRegsModal, manageTab);
       loadPendingRegAlerts();
@@ -7507,6 +7810,28 @@ export default function DashboardPage() {
     } finally {
       setProofSaving(false);
     }
+  };
+
+  // ---- Reverting a payment ----
+  // Paid in cash goes back to Cash To Collect; paid online goes back to
+  // awaiting payment. Only this person - a bulk booking's other rows are left
+  // as they are (the server does not cascade these statuses).
+  const PAID_REVERTIBLE = ['payment_verified', 'registered', 'paid_pending_turnover'];
+  const canRevertPayment = (r) => canEditRegistrations && PAID_REVERTIBLE.includes(r.status)
+    && r.payment_plan !== 'flexible' && Number(r.amount) > 0;
+  const revertTargetOf = (r) => (r.status === 'paid_pending_turnover' || isCashMethod(r.payment_method) ? 'pending_cash' : 'pending_payment');
+  const askRevertPayment = (r) => {
+    const name = formatPersonName(r.attendee_name);
+    const to = revertTargetOf(r);
+    const toLabel = to === 'pending_cash' ? 'Cash To Collect' : 'Awaiting payment (unpaid)';
+    const when = r.verified_at
+      ? ` It was marked paid ${new Date(r.verified_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}.`
+      : '';
+    askConfirm(
+      `Put ${name}'s ₱${(Number(r.amount) || 0).toLocaleString()} back to "${toLabel}"?${when} Only ${name} changes${regTypeOf(r) === 'bulk' ? ' - the rest of the bulk booking stays as it is' : ''}.`,
+      () => verifyRegistration(r.id, to),
+      { title: 'Revert Payment?', subtitle: eventRegsModal?.title || 'Event Registrations', confirmLabel: 'Revert payment', icon: 'fa-clock-rotate-left' },
+    );
   };
 
   const verifyRegistration = async (regId, status) => {
@@ -7693,8 +8018,19 @@ export default function DashboardPage() {
   // -- Admin/Super Admin: manually add a registration (walk-in / offline sign-up) --
   // Same form fields as the public registration flow, just entered on the attendee's
   // behalf. No userId is attached since there's no logged-in account for this entry.
-  const openAdminAddReg = (late = false) => {
+  useEffect(() => {
+    if (!adminWalkIn || !adminLateUid || !cardStock) return;
+    if (cardStock.some((c) => c.uid === adminLateUid && c.used)) {
+      setAdminLateUid('');
+      showToast('That card was just given to somebody else - choose another one.', 'warning');
+    }
+  }, [cardStock]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openAdminAddReg = (late = false, walkIn = false) => {
+    setWalkinCardMenu(false);
     setAdminLate(!!late);
+    setAdminWalkIn(!late && !!walkIn);
+    if (!late && walkIn) { loadCardStock(); setAdminRegType('individual'); }
+    if (eventRegsModal?.id) loadEvtRooms(eventRegsModal.id);
     setAdminLateUid('');
     setAdminLateScan(null);
     setAdminLateManual('');
@@ -8013,6 +8349,7 @@ export default function DashboardPage() {
   const adminStepOneErrors = () => {
     const errs = {};
     if (adminLate && !adminLateUid) errs.rfid = 'Tap the RFID card first.';
+    if (adminWalkIn && !adminLateUid) errs.rfid = 'Choose the RFID card first.';
     if (!adminAddRegForm.attendeeFirstName?.trim()) errs.firstName = 'First name is required.';
     if (!adminAddRegForm.attendeeLastName?.trim()) errs.lastName = 'Last name is required.';
     if (adminIsKidSolo) {
@@ -8142,11 +8479,13 @@ export default function DashboardPage() {
       return;
     }
     const owed = adminTotalAmount(eventRegsModal);
-    if (owed > 0 && !adminAddRegForm.paymentPlan) { showToast('Choose Pay in Full or a Flexible Payment Plan', 'danger'); return; }
-    if (owed > 0 && adminAddRegForm.paymentPlan === 'full' && !adminAddRegForm.paymentMethod) { showToast('Choose how the payment was made', 'danger'); return; }
-    const adminTurnover = owed > 0 && adminAddRegForm.paymentPlan === 'full' && adminAddRegForm.payStatus === 'turnover';
+    // A walk-in is added and that is all: the verifier takes the money at the
+    // desk, so nothing about payment is asked here.
+    if (!adminWalkIn && owed > 0 && !adminAddRegForm.paymentPlan) { showToast('Choose Pay in Full or a Flexible Payment Plan', 'danger'); return; }
+    if (!adminWalkIn && owed > 0 && adminAddRegForm.paymentPlan === 'full' && !adminAddRegForm.paymentMethod) { showToast('Choose how the payment was made', 'danger'); return; }
+    const adminTurnover = !adminWalkIn && owed > 0 && adminAddRegForm.paymentPlan === 'full' && adminAddRegForm.payStatus === 'turnover';
     if (adminTurnover && !adminAddRegForm.turnoverHolder?.trim()) { showToast('Enter who is holding the money', 'danger'); return; }
-    if (owed > 0 && adminAddRegForm.paymentPlan === 'full' && adminAddRegForm.payStatus === 'verified'
+    if (!adminWalkIn && owed > 0 && adminAddRegForm.paymentPlan === 'full' && adminAddRegForm.payStatus === 'verified'
       && isCashMethod(adminAddRegForm.paymentMethod) && adminCashGiven !== '' && Number(adminCashGiven) < owed) {
       showToast(`Cash received is ₱${Number(owed) - Number(adminCashGiven)} short of the ₱${owed} total`, 'danger');
       return;
@@ -8177,20 +8516,23 @@ export default function DashboardPage() {
           // from the database, so this only says WHICH group, never what it costs.
           priceTier: adminAddRegTier || null,
           ...(adminIsKidSolo && adminGuardian ? { guardianRegistrationId: adminGuardian.id } : {}),
-          paymentMethod: adminAddRegForm.paymentMethod,
-          paymentReference: adminAddRegForm.paymentReference,
+          paymentMethod: adminWalkIn ? 'Cash' : adminAddRegForm.paymentMethod,
+          paymentReference: adminWalkIn ? '' : adminAddRegForm.paymentReference,
           // entered on the attendee's behalf, so the table can say who by
-          paymentPlan: adminAddRegForm.paymentPlan || 'full',
-          initialPayment: adminAddRegForm.paymentPlan === 'flexible' ? firstPay : 0,
+          paymentPlan: adminWalkIn ? 'full' : (adminAddRegForm.paymentPlan || 'full'),
+          initialPayment: !adminWalkIn && adminAddRegForm.paymentPlan === 'flexible' ? firstPay : 0,
           addedByAdmin: true,
           ...(adminLate ? { lateRegistration: true, rfidUid: adminLateUid } : {}),
+          ...(adminWalkIn && adminLateUid ? { walkInCard: true, rfidUid: adminLateUid } : {}),
+          // At the verification desk: the verifier on duty added them.
+          ...(verifyMode && regVerifier?.staff?.name ? { verifierName: regVerifier.staff.name } : {}),
           // Who is doing this. The server reads the name and the role off this
           // account and labels the row with them, so the attribution cannot be
           // whatever the browser felt like claiming.
           actorId: userData.id,
           // Staff recording a walk-in have the money in hand, so the row is
           // saved as paid unless this was unticked.
-          markVerified: adminAddRegForm.payStatus === 'verified',
+          markVerified: !adminWalkIn && adminAddRegForm.payStatus === 'verified',
           // Paid, but the money is still with whoever took it.
           ...(adminTurnover ? { paidPendingTurnover: true, turnoverHolder: adminAddRegForm.turnoverHolder.trim() } : {}),
           // A group: the person in step 1 is the representative, the roster is who is coming.
@@ -8214,7 +8556,30 @@ export default function DashboardPage() {
       // they are paying - say so rather than leaving a silently wrong table.
       if (data.warning) showToast(data.warning, 'danger');
 
-      showToast(adminLate ? `Late registration added · card ${formatUid(adminLateUid)}` : 'Registration added', 'success');
+      showToast(adminLate ? `Late registration added · card ${formatUid(adminLateUid)}`
+        : adminWalkIn && adminLateUid ? `Walk-in added · card #${(cardStock || []).find((c) => c.uid === adminLateUid)?.number || ''} ${formatUid(adminLateUid)}`
+          : 'Registration added', 'success');
+      if (adminWalkIn) loadCardStock();
+      try {
+        const ch = new BroadcastChannel('jsci-event-regs');
+        ch.postMessage({ eventId: eventRegsModal.id, at: Date.now() });
+        ch.close();
+      } catch { /* older browser: the desk's own refresh still picks it up */ }
+      if (verifyMode) {
+        const added = (Array.isArray(data.data) ? data.data : [data.data]).filter((x) => x && x.id);
+        logVerification(added.map((x) => ({
+          action: 'added',
+          registrationId: x.id,
+          attendeeName: x.attendee_name,
+          details: {
+            kind: adminLate ? 'late' : 'walkin',
+            status: x.status,
+            amount: Number(x.amount) || 0,
+            type: x.registration_type || '',
+            ...(adminLate && adminLateUid ? { uid: adminLateUid } : {}),
+          },
+        })));
+      }
       setShowAdminAddReg(false);
       openEventRegistrations(eventRegsModal, manageTab);
       if (adminLate) loadIdRfidLinks(eventRegsModal.id);
@@ -10527,6 +10892,25 @@ Examples:
       }
     }
   };
+
+  // A song picked on Spotify fills the title the way the YouTube auto-fill
+  // does (SONG - ARTIST) and keeps the Spotify link with the song.
+  const applySpotifySong = (type, i, track) => {
+    const title = `${track.title} - ${track.artists.split(', ')[0]}`.toUpperCase().slice(0, 150);
+    setLineupForm((p) => {
+      const songs = [...p[type]];
+      songs[i] = { ...songs[i], title, spotify: { id: track.id, url: track.url, image: track.imageSmall || track.image || null } };
+      return { ...p, [type]: songs };
+    });
+    setLineupSpotifyPick(null);
+    scanSongContent(type, i, title, lineupForm[type][i]?.link || '');
+  };
+  const clearSpotifySong = (type, i) => setLineupForm((p) => {
+    const songs = [...p[type]];
+    const { spotify: _drop, ...rest } = songs[i]; // eslint-disable-line no-unused-vars
+    songs[i] = rest;
+    return { ...p, [type]: songs };
+  });
 
   // Manual re-scan trigger
   const rescanSong = (type, i) => {
@@ -12844,6 +13228,17 @@ Examples:
 
   // Somebody in the wrong room. One write, because a remove-then-add is two
   // and the second one gets forgotten.
+  // A room left empty has lost its label on the server; drop it here too.
+  const applyClearedRooms = (data) => {
+    const ids = Array.isArray(data?.clearedRooms) ? data.clearedRooms : [];
+    const lab = data?.labelled;
+    if (ids.length || lab?.id) {
+      setEvtRooms((rooms) => rooms.map((r) => {
+        if (lab?.id === r.id) return { ...r, occupancy: lab.occupancy };
+        return ids.includes(r.id) ? { ...r, occupancy: null } : r;
+      }));
+    }
+  };
   const moveRoomGuest = async (guest, roomId) => {
     if (!roomId || roomId === guest.room_id) return;
     setRoomGuestBusy(guest.id);
@@ -12856,6 +13251,7 @@ Examples:
       const data = await res.json();
       if (!data.success) { showToast(data.message, 'danger'); return; }
       showToast(data.message, 'success');
+      applyClearedRooms(data);
       loadEvtRoomGuests(eventRegsModal?.id);
     } catch (err) {
       showToast(err.message, 'danger');
@@ -12879,6 +13275,7 @@ Examples:
           if (!data.success) { showToast(data.message, 'danger'); return; }
           showToast(data.message, 'warning');
           setEvtRoomGuests((prev) => prev.filter((g) => g.id !== guest.id));
+          applyClearedRooms(data);
         } catch (err) {
           showToast(err.message, 'danger');
         } finally {
@@ -13103,6 +13500,3548 @@ Examples:
     );
   };
 
+  // ---- Verification Logs (Events > More) ----
+  // Everything the verification desk did, and who was verifying when it did.
+  // Payments can be reverted: the registration goes back to the status it had,
+  // and the log keeps who reverted it and why.
+  const logVerification = (entries) => {
+    if (!regVerifier || !eventRegsModal?.id || !entries.length) return;
+    const staff = regVerifier.staff;
+    fetch('/api/events/verification/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        actorId: userData?.id,
+        eventId: eventRegsModal.id,
+        entries: entries.map((e) => ({ ...e, verifier: { id: staff.id, name: staff.name, duty: staff.duty } })),
+      }),
+    }).catch(() => {});
+  };
+
+  const loadVerifyLogs = useCallback(async (eventId) => {
+    if (!eventId) return;
+    setVerifyLogs(null);
+    try {
+      const res = await fetch(`/api/events/verification/logs?eventId=${encodeURIComponent(eventId)}&actorId=${encodeURIComponent(userData?.id || '')}`);
+      const data = await res.json();
+      if (!data.success) { setVerifyLogsError(data.message || 'Could not load the logs.'); setVerifyLogs([]); return; }
+      setVerifyLogsError('');
+      setVerifyLogs(data.data || []);
+    } catch (err) {
+      setVerifyLogsError(err.message);
+      setVerifyLogs([]);
+    }
+  }, [userData?.id]);
+
+  const VERIFY_LOG_ACTIONS = {
+    session_start: { icon: 'fa-right-to-bracket', label: 'Signed in' },
+    session_end: { icon: 'fa-right-from-bracket', label: 'Signed out' },
+    card_tap: { icon: 'fa-wifi', label: 'Card tapped' },
+    payment: { icon: 'fa-money-bill-wave', label: 'Payment' },
+    substitute: { icon: 'fa-user-pen', label: 'Substituted' },
+    added: { icon: 'fa-user-plus', label: 'Added' },
+    verified: { icon: 'fa-circle-check', label: 'Verified' },
+    extra_added: { icon: 'fa-circle-plus', label: 'Extra added' },
+    extra_removed: { icon: 'fa-circle-minus', label: 'Extra removed' },
+    extra_cancelled: { icon: 'fa-ban', label: 'Extra cancelled' },
+    refund: { icon: 'fa-rotate-left', label: 'Refund requested' },
+    refund_sent: { icon: 'fa-paper-plane', label: 'Refund sent' },
+  };
+  const REVERTIBLE_LOGS = ['payment', 'substitute'];
+  const verifyLogStatus = (st) => (st ? (statusLabel(st) || st).replace(/^\w/, (c) => c.toUpperCase()) : '');
+
+  // Revert a payment: back to the status it came from, through the same PUT
+  // "Revert to cash" uses - then the log is marked reverted.
+  // A substitute goes back to the name before it (the registered name clears
+  // the substitute altogether).
+  const revertSubstituteLog = async (log) => {
+    const d = log.details || {};
+    const reg = eventRegs.find((r) => r.id === log.registration_id);
+    if (!log.registration_id || !d.from) { showToast('This log has nothing to revert to.', 'danger'); return; }
+    if (reg && d.to && String(reg.attendee_name || '').toLowerCase() !== String(d.to).toLowerCase()) {
+      showToast(`The name has changed since - it is now ${formatPersonName(reg.attendee_name)} - so it cannot be reverted from here.`, 'warning');
+      return;
+    }
+    const reason = window.prompt(`Put the name back to "${formatPersonName(d.from)}"?\n\nReason (optional):`, '');
+    if (reason === null) return;
+    setVerifyLogBusy(log.id);
+    try {
+      const toOriginal = d.original && String(d.from).toLowerCase() === String(d.original).toLowerCase();
+      const words = String(d.from).trim().split(/\s+/);
+      const lastname = words.length > 1 ? words.pop() : '';
+      const res = await fetch('/api/events/registrations/substitute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toOriginal
+          ? { actorId: userData?.id, registrationId: log.registration_id, restore: true }
+          : { actorId: userData?.id, registrationId: log.registration_id, firstname: words.join(' '), lastname }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Could not put the name back.');
+      const mark = await fetch('/api/events/verification/logs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, id: log.id, reason }),
+      }).then((r) => r.json());
+      if (!mark.success) showToast(`Reverted, but the log could not be updated: ${mark.message}`, 'warning');
+      else showToast(`Name put back to ${formatPersonName(d.from)}`, 'success');
+      setEventRegs((list) => list.map((r) => (r.id === data.data.id ? { ...r, ...data.data } : r)));
+      loadVerifyLogs(eventRegsModal?.id);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setVerifyLogBusy(null);
+    }
+  };
+
+  const revertVerifyLog = async (log) => {
+    if (log.action === 'substitute') { revertSubstituteLog(log); return; }
+    const from = log.details?.from;
+    const to = log.details?.to;
+    const reg = eventRegs.find((r) => r.id === log.registration_id);
+    if (!from || !log.registration_id) { showToast('This log has nothing to revert to.', 'danger'); return; }
+    if (reg && to && reg.status !== to) {
+      showToast(`${formatPersonName(log.attendee_name)} has changed since - now ${verifyLogStatus(reg.status)} - so it cannot be reverted from here.`, 'warning');
+      return;
+    }
+    const reason = window.prompt(`Revert ${formatPersonName(log.attendee_name)}'s payment back to "${verifyLogStatus(from)}"?\n\nReason (optional):`, '');
+    if (reason === null) return;
+    setVerifyLogBusy(log.id);
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(from === 'paid_pending_turnover'
+          ? {
+            id: log.registration_id, actorId: userData?.id, status: from, turnoverHolder: log.details?.holder || 'Not recorded',
+            ...(log.details?.previousMethod ? { paymentMethod: log.details.previousMethod } : {}),
+          }
+          : { id: log.registration_id, actorId: userData?.id, status: from }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Could not revert the registration.');
+      const mark = await fetch('/api/events/verification/logs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, id: log.id, reason }),
+      }).then((r) => r.json());
+      if (!mark.success) showToast(`Reverted, but the log could not be updated: ${mark.message}`, 'warning');
+      else showToast(`${formatPersonName(log.attendee_name)} reverted to ${verifyLogStatus(from)}`, 'success');
+      loadVerifyLogs(eventRegsModal?.id);
+      if (eventRegsModal) openEventRegistrations(eventRegsModal, 'verifylogs');
+      loadEvents();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setVerifyLogBusy(null);
+    }
+  };
+
+  const renderVerifyLogs = () => {
+    const all = verifyLogs || [];
+    const verifiers = [...new Set(all.map((l) => l.verifier_name))].sort();
+    const q = verifyLogSearch.trim().toLowerCase();
+    const shown = all.filter((l) => (verifyLogAction === 'all' || l.action === verifyLogAction)
+      && (verifyLogWho === 'all' || l.verifier_name === verifyLogWho)
+      && (!q || `${l.attendee_name || ''} ${l.verifier_name || ''} ${l.details?.uid || ''}`.toLowerCase().includes(q)));
+    const pages = Math.max(1, Math.ceil(shown.length / verifyLogPageSize));
+    const page = Math.min(verifyLogPage, pages);
+    const rows = shown.slice((page - 1) * verifyLogPageSize, page * verifyLogPageSize);
+    const payments = all.filter((l) => l.action === 'payment');
+    const collected = payments.filter((l) => !l.reverted_at).reduce((t, l) => t + (Number(l.details?.amount) || 0), 0);
+
+    return (
+      <div className="evt-vlogs">
+        <div className="evt-vlogs-head">
+          <div>
+            <h4><i className="fas fa-clipboard-list"></i> Registration Verification Logs</h4>
+            <p>Every sign-in, card tap, payment, substitute and walk-in at the verification desk, with the verifier&apos;s name.</p>
+          </div>
+          <div className="evt-vlogs-sums">
+            <span><b>{payments.length}</b> payments</span>
+            <span><b>₱{collected.toLocaleString()}</b> collected</span>
+            <span><b>{payments.filter((l) => l.reverted_at).length}</b> reverted</span>
+          </div>
+          <button type="button" className="btn-secondary" onClick={() => loadVerifyLogs(eventRegsModal?.id)}>
+            <i className="fas fa-rotate"></i> Refresh
+          </button>
+        </div>
+
+        <div className="evt-vlogs-tools">
+          <div className="evt-verify-search">
+            <i className="fas fa-magnifying-glass"></i>
+            <input value={verifyLogSearch} onChange={(e) => { setVerifyLogSearch(e.target.value); setVerifyLogPage(1); }} placeholder="Search attendee, verifier or card" />
+          </div>
+          <select className="form-control" value={verifyLogAction} onChange={(e) => { setVerifyLogAction(e.target.value); setVerifyLogPage(1); }}>
+            <option value="all">All actions</option>
+            {Object.entries(VERIFY_LOG_ACTIONS).map(([k, a]) => <option key={k} value={k}>{a.label}</option>)}
+          </select>
+          <select className="form-control" value={verifyLogWho} onChange={(e) => { setVerifyLogWho(e.target.value); setVerifyLogPage(1); }}>
+            <option value="all">All verifiers</option>
+            {verifiers.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </div>
+
+        {verifyLogsError && <p className="evt-field-error-msg">{verifyLogsError}</p>}
+        <div className="evt-table-wrapper evt-table-steady">
+          <table className="evt-table evt-vlogs-table">
+            <thead>
+              <tr><th>When</th><th>Verifier</th><th>Action</th><th>Attendee</th><th>Details</th><th style={{ textAlign: 'right' }}>Revert</th></tr>
+            </thead>
+            <tbody>
+              {verifyLogs === null && <tr><td colSpan={6}>Loading…</td></tr>}
+              {verifyLogs !== null && rows.length === 0 && (
+                <tr><td colSpan={6} className="evt-verify-empty">{all.length ? 'Nothing matches these filters.' : 'No verification activity yet.'}</td></tr>
+              )}
+              {rows.map((l) => {
+                const a = VERIFY_LOG_ACTIONS[l.action] || { icon: 'fa-circle', label: l.action };
+                const d = l.details || {};
+                const reg = eventRegs.find((r) => r.id === l.registration_id);
+                const stale = !l.reverted_at && reg && d.to && (l.action === 'payment'
+                  ? reg.status !== d.to
+                  : l.action === 'substitute' && String(reg.attendee_name || '').toLowerCase() !== String(d.to).toLowerCase());
+                return (
+                  <tr key={l.id} className={l.reverted_at ? 'is-reverted' : ''}>
+                    <td data-label="When" className="evt-vlogs-when">
+                      {new Date(l.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    </td>
+                    <td data-label="Verifier" className="evt-td-primary">
+                      <b>{l.verifier_name}</b>
+                      {l.verifier_duty && <small className="evt-cell-sub">{l.verifier_duty}</small>}
+                    </td>
+                    <td data-label="Action">
+                      <span className={`evt-vlogs-action a-${l.action}`}><i className={`fas ${a.icon}`}></i> {a.label}</span>
+                    </td>
+                    <td data-label="Attendee">{l.attendee_name ? formatPersonName(l.attendee_name) : <span className="evt-muted">—</span>}</td>
+                    <td data-label="Details">
+                      <div className="evt-vlogs-details">
+                      {l.action === 'payment' && (
+                        <>
+                          <span>{verifyLogStatus(d.from)} <i className="fas fa-arrow-right"></i> <b>{verifyLogStatus(d.to)}</b></span>
+                          <small>
+                            ₱{(Number(d.amount) || 0).toLocaleString()}
+                            {d.mode === 'turnover_received'
+                              ? ` · turnover received${d.holder ? ` from ${formatPersonName(d.holder)}` : ''}${d.method ? ` · ${isCashMethod(d.method) ? 'Cash' : `${d.method} (online)`}` : ''}${d.reference ? ` · ref ${d.reference}` : ''}`
+                              : (d.holder ? ` · with ${d.holder}` : '')}
+                          </small>
+                        </>
+                      )}
+                      {l.action === 'card_tap' && <small>{d.uid ? `Card ${formatUid(d.uid)}` : ''}{d.found === false ? ' · not linked' : ''}</small>}
+                      {l.reverted_at && (
+                        <small className="evt-vlogs-reverted">
+                          <i className="fas fa-rotate-left"></i> Reverted by {l.reverted_by_name || 'Admin'} · {new Date(l.reverted_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                          {l.revert_reason ? ` · “${l.revert_reason}”` : ''}
+                        </small>
+                      )}
+                      {l.action === 'added' && (
+                        <>
+                          <span><b>{d.kind === 'late' ? 'Late Registration' : 'Walk-In'}</b>{d.type === 'bulk' ? ' · Bulk' : ''}</span>
+                          <small>{verifyLogStatus(d.status)}{Number(d.amount) > 0 ? ` · ₱${Number(d.amount).toLocaleString()}` : ' · Free'}{d.uid ? ` · card ${formatUid(d.uid)}` : ''}</small>
+                        </>
+                      )}
+                      {l.action === 'substitute' && (
+                        <>
+                          <span>{formatPersonName(d.from)} <i className="fas fa-arrow-right"></i> <b>{formatPersonName(d.to)}</b></span>
+                          {d.original && <small>Registered as {formatPersonName(d.original)}</small>}
+                        </>
+                      )}
+                      {['extra_added', 'extra_removed', 'extra_cancelled'].includes(l.action) && (
+                        <>
+                          <span><b>{d.extra}</b>{Number(d.fee) > 0 ? ` · ${l.action === 'extra_added' ? '+' : '−'}₱${Number(d.fee).toLocaleString()}` : ''}</span>
+                          <small>{d.totalAfter !== undefined ? `Total now ₱${Number(d.totalAfter).toLocaleString()}` : ''}{d.reason ? ` · “${d.reason}”` : ''}{d.roomFreed ? ' · room freed' : ''}</small>
+                        </>
+                      )}
+                      {['refund', 'refund_sent'].includes(l.action) && (
+                        <>
+                          <span><b>₱{(Number(d.amount) || 0).toLocaleString()}</b> · {d.extra}</span>
+                          <small>To {d.recipient} · {d.sentTo}{d.number ? ` ${d.number}` : ''}{d.reason ? ` · “${d.reason}”` : ''}</small>
+                        </>
+                      )}
+                      </div>
+                    </td>
+                    <td data-label="Revert" style={{ textAlign: 'right' }}>
+                      {REVERTIBLE_LOGS.includes(l.action) && !l.reverted_at && (
+                        <button
+                          type="button"
+                          className="evt-vlogs-revert"
+                          onClick={() => revertVerifyLog(l)}
+                          disabled={verifyLogBusy === l.id || stale}
+                          title={stale ? 'The registration has changed since' : 'Put the registration back to how it was'}
+                        >
+                          <i className={`fas ${verifyLogBusy === l.id ? 'fa-spinner fa-spin' : 'fa-rotate-left'}`}></i> Revert
+                        </button>
+                      )}
+                      {REVERTIBLE_LOGS.includes(l.action) && l.reverted_at && <span className="evt-vlogs-done">Reverted</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {shown.length > 0 && (
+          <TablePager page={page} pageSize={verifyLogPageSize} total={shown.length} onPage={setVerifyLogPage} onSize={setVerifyLogPageSize} label="logs" />
+        )}
+      </div>
+    );
+  };
+
+  // ============================================
+  // REGISTRATION VERIFICATION - the desk at the door
+  // ============================================
+  // An Admin opens it; the person doing the verification taps their own staff
+  // card, which must be assigned to Registration for this event (see
+  // /api/events/verification). From then on the event's tabs give way to
+  // Early / Late / Walk-In lists, a search across all three, and a card tap on
+  // an attendee's card pops up that attendee - with payment one tap away.
+  //
+  //   early    registered before the event, not marked Late Registration
+  //   late     marked Late Registration
+  //   walkin   not late, but registered on one of the event's own days
+  const verifyMode = !!regVerifier && regVerifier.eventId === eventRegsModal?.id;
+  // Kept on this device until End verification (or 12 hours), so refreshing
+  // the page does not ask for the card or the password again.
+  const VERIFIER_KEY = 'jsci-reg-verifier-v1';
+  const VERIFIER_MAX_MS = 12 * 60 * 60 * 1000;
+  const storeVerifierSession = (v) => { try { window.localStorage.setItem(VERIFIER_KEY, JSON.stringify(v)); } catch { /* private mode */ } };
+  const forgetVerifier = () => { try { window.localStorage.removeItem(VERIFIER_KEY); } catch { /* private mode */ } };
+  // The desk's tabs, kept per event so a refresh does not lose them.
+  const deskStoreKey = (eventId) => `jsci-verify-desk-v1:${eventId}`;
+  useEffect(() => {
+    // Another event, or the event closed: off screen, but still signed in on
+    // this device - opening the event again brings the verifier back.
+    if (regVerifier && regVerifier.eventId !== eventRegsModal?.id) setRegVerifier(null);
+  }, [eventRegsModal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!eventRegsModal?.id || regVerifier || !canEditRegistrations) return;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(VERIFIER_KEY) || 'null');
+      if (!saved || saved.eventId !== eventRegsModal.id || !saved.staff?.name) return;
+      if (!saved.since || Date.now() - new Date(saved.since).getTime() > VERIFIER_MAX_MS) { forgetVerifier(); return; }
+      setRegVerifier(saved);
+      setVerifyAnim('in');
+    } catch { /* nothing saved */ }
+  }, [eventRegsModal?.id, canEditRegistrations]); // eslint-disable-line react-hooks/exhaustive-deps
+  // After a refresh the page lands back on the events list: with a verifier
+  // still signed in, their event's desk is opened again by itself, once.
+  const verifierReopenedRef = useRef(false);
+  useEffect(() => {
+    if (verifierReopenedRef.current || eventRegsModal || !canEditRegistrations || !events.length) return;
+    if (activeSection !== 'events' && activeSection !== 'events-management') return;
+    let saved = null;
+    try { saved = JSON.parse(window.localStorage.getItem(VERIFIER_KEY) || 'null'); } catch { /* nothing saved */ }
+    verifierReopenedRef.current = true;
+    if (!saved?.eventId || !saved.since || Date.now() - new Date(saved.since).getTime() > VERIFIER_MAX_MS) return;
+    const evt = events.find((e) => e.id === saved.eventId);
+    if (evt) openEventRegistrations(evt, 'registrations');
+  }, [events, activeSection, canEditRegistrations, eventRegsModal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openRegVerification = () => {
+    setVerifyScan(null);
+    setVerifyScanOpen(true);
+  };
+  const startRegVerification = (staff) => {
+    setVerifyScanOpen(false);
+    setVerifyScan(null);
+    // The tabs fade away first, then the verification lists come in.
+    setVerifyAnim('out');
+    setTimeout(() => {
+      const session = { eventId: eventRegsModal?.id, staff, since: new Date().toISOString() };
+      storeVerifierSession(session);
+      setRegVerifier(session);
+      fetch('/api/events/verification/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, eventId: session.eventId, entries: [{ action: 'session_start', verifier: { id: staff.id, name: staff.name, duty: staff.duty } }] }),
+      }).catch(() => {});
+      setVerifyTab('early');
+      setVerifySearch('');
+      setVerifyAnim('in');
+      setManageTab('registrations');
+    }, 280);
+  };
+  const endRegVerification = () => setVerifyEndAsk(true);
+  const confirmEndRegVerification = () => {
+    logVerification([{ action: 'session_end', details: { since: regVerifier?.since } }]);
+    forgetVerifier();
+    // Ended on purpose: the tabs go with the session.
+    try { if (eventRegsModal?.id) window.localStorage.removeItem(deskStoreKey(eventRegsModal.id)); } catch { /* private mode */ }
+    deskRestoredRef.current = '';
+    setVerifyEndAsk(false);
+    setVerifyTap(null);
+    setRegVerifier(null);
+    setVerifyAnim('back');
+  };
+  // "Miracle Working God - Cebu": the same event runs in several provinces.
+  const verifyEventName = (() => {
+    const title = eventRegsModal?.title || '';
+    const prov = eventRegsModal ? provinceLabel(eventRegsModal) : '';
+    return prov && !title.toLowerCase().includes(prov.toLowerCase()) ? `${title} - ${prov}` : title;
+  })();
+  const verifierInitials = (name) => String(name || '?').split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+  const verifySinceText = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '');
+
+  // "Logged in as Verifier": who is on the desk, in the hero row where the
+  // Registration Verification button was.
+  const renderVerifierBadge = () => {
+    if (!verifyMode) return null;
+    const staff = regVerifier.staff;
+    return (
+      <div className="evt-hero-verifier" role="status" aria-label={`Logged in as verifier: ${staff.name}`}>
+        {staff.picture
+          ? <img src={staff.picture} alt="" />
+          : <span className="evt-hero-verifier-avatar">{verifierInitials(staff.name)}</span>}
+        <span className="evt-hero-verifier-text">
+          <small><i className="fas fa-circle-check"></i> Logged in as Verifier</small>
+          <b>{staff.name}</b>
+          <em>{staff.duty}{regVerifier.since ? ` · since ${verifySinceText(regVerifier.since)}` : ''}</em>
+        </span>
+        <button type="button" className="evt-hero-verifier-end" onClick={endRegVerification}>
+          <i className="fas fa-right-from-bracket"></i> End
+        </button>
+      </div>
+    );
+  };
+
+  const renderVerifyEndConfirm = () => {
+    if (!verifyEndAsk || !regVerifier) return null;
+    const staff = regVerifier.staff;
+    const mins = regVerifier.since ? Math.max(0, Math.round((Date.now() - new Date(regVerifier.since).getTime()) / 60000)) : 0;
+    const took = mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} hr ${mins % 60} min`;
+    const close = () => setVerifyEndAsk(false);
+    return createPortal(
+      <div className="evt-modal-overlay" onClick={close}>
+        <div className="evt-modal evt-verify-pop evt-verify-endask" onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-labelledby="verify-end-title">
+          <div className="evt-modal-body">
+            <div className="evt-verify-scan">
+              {staff.picture
+                ? <img className="evt-verify-scan-photo" src={staff.picture} alt="" />
+                : <div className="evt-verify-scan-ring ok"><span className="evt-verify-endask-initials">{verifierInitials(staff.name)}</span></div>}
+              <h4 id="verify-end-title">End Registration Verification?</h4>
+              <p className="evt-muted">
+                <b>{staff.name}</b> will be logged out as the verifier for <b>{verifyEventName}</b>.
+              </p>
+              <div className="evt-verify-endask-facts">
+                <span><i className="fas fa-user-shield"></i> {staff.duty}</span>
+                {regVerifier.since && <span><i className="fas fa-clock"></i> Since {verifySinceText(regVerifier.since)} · {took}</span>}
+              </div>
+              <p className="evt-muted evt-verify-endask-note">The next verifier taps their card to start again.</p>
+              <div className="evt-verify-pop-actions">
+                <button type="button" className="evt-pill-btn evt-pill-ghost" onClick={close} autoFocus>
+                  <i className="fas fa-shield-halved"></i> Keep verifying
+                </button>
+                <button type="button" className="evt-pill-btn evt-pill-danger" onClick={confirmEndRegVerification}>
+                  <i className="fas fa-right-from-bracket"></i> End verification
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  const checkVerifierCard = useCallback(async (rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid) || !eventRegsModal?.id) return;
+    setVerifyScan({ busy: true, uid });
+    try {
+      const res = await fetch(`/api/events/verification?eventId=${encodeURIComponent(eventRegsModal.id)}&uid=${encodeURIComponent(uid)}&actorId=${encodeURIComponent(userData?.id || '')}`);
+      const data = await res.json();
+      if (!data.success) { setVerifyScan({ ok: false, uid, message: data.message }); return; }
+      if (!data.ok) { setVerifyScan({ ok: false, uid, message: data.message }); return; }
+      setVerifyScan({ ok: true, uid, staff: data.staff });
+    } catch (err) {
+      setVerifyScan({ ok: false, uid, message: err.message });
+    }
+  }, [eventRegsModal?.id, userData?.id]);
+
+  // The right card: a welcome, then the desk opens on its own - no button.
+  // It fades out just before verification starts, so the two feel like one step.
+  const verifyWelcomeStaff = verifyScanOpen && verifyScan?.ok ? verifyScan.staff : null;
+  useEffect(() => {
+    if (!verifyWelcomeStaff) return undefined;
+    const fade = setTimeout(() => setVerifyScan((cur) => (cur?.ok ? { ...cur, leaving: true } : cur)), 1150);
+    const go = setTimeout(() => startRegVerification(verifyWelcomeStaff), 1500);
+    return () => { clearTimeout(fade); clearTimeout(go); };
+  }, [verifyWelcomeStaff]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // TEMPORARY: start verification with the test password instead of a card.
+  const submitVerifyPassword = async () => {
+    if (!verifyPw?.value || !eventRegsModal?.id) return;
+    setVerifyPw((p) => ({ ...p, busy: true, error: '' }));
+    try {
+      const res = await fetch('/api/events/verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: eventRegsModal.id, actorId: userData?.id, password: verifyPw.value }),
+      });
+      const data = await res.json();
+      if (!data.success || !data.ok) { setVerifyPw((p) => ({ ...p, busy: false, error: data.message || 'Wrong password.' })); return; }
+      setVerifyPw(null);
+      setVerifyScan({ ok: true, staff: data.staff });
+    } catch (err) {
+      setVerifyPw((p) => ({ ...p, busy: false, error: err.message }));
+    }
+  };
+
+  // ---- Registration Verifiers (Events RFID) ----
+  const loadRegVerifiers = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/rfid/verifiers?actorId=${encodeURIComponent(userData?.id || '')}`);
+      const data = await res.json();
+      if (!data.success) { setRegVerifiersError(data.message || 'Could not load the verifiers.'); setRegVerifiers([]); return; }
+      setRegVerifiersError('');
+      setRegVerifiers(data.data || []);
+    } catch (err) {
+      setRegVerifiersError(err.message);
+      setRegVerifiers([]);
+    }
+  }, [userData?.id]);
+  useEffect(() => {
+    if (activeSection === 'rfid-reader' && canEditRegistrations && userData?.id) loadRegVerifiers();
+  }, [activeSection, canEditRegistrations, userData?.id, loadRegVerifiers]);
+
+  // Add: the card first, then the name.
+  const openAddVerifier = () => setVerifierForm({ step: 'scan', uid: '', firstname: '', lastname: '', busy: false, error: '' });
+  const openEditVerifier = (v) => setVerifierForm({ step: 'details', id: v.id, uid: v.uid, firstname: v.firstname, lastname: v.lastname, busy: false, error: '' });
+  const onVerifierCard = useCallback((rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+    const taken = (regVerifiers || []).find((v) => sameCard(v.uid, uid));
+    if (taken) {
+      setVerifierForm((f) => (f ? { ...f, error: `This card is already ${taken.firstname} ${taken.lastname}'s.` } : f));
+      return;
+    }
+    setVerifierForm((f) => (f ? { ...f, step: 'details', uid, error: '' } : f));
+  }, [regVerifiers]);
+  const saveVerifier = async () => {
+    const f = verifierForm;
+    if (!f) return;
+    if (!f.firstname.trim() || !f.lastname.trim()) { setVerifierForm({ ...f, error: 'Enter the first name and the last name.' }); return; }
+    setVerifierForm({ ...f, busy: true, error: '' });
+    try {
+      const res = await fetch('/api/rfid/verifiers', {
+        method: f.id ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, id: f.id, uid: f.uid, firstname: f.firstname, lastname: f.lastname }),
+      });
+      const data = await res.json();
+      if (!data.success) { setVerifierForm({ ...f, busy: false, error: data.message }); return; }
+      setVerifierForm(null);
+      showToast(f.id ? 'Verifier updated' : `${data.data.firstname} ${data.data.lastname} added as a verifier`, 'success');
+      loadRegVerifiers();
+    } catch (err) {
+      setVerifierForm({ ...f, busy: false, error: err.message });
+    }
+  };
+  const toggleVerifier = async (v) => {
+    try {
+      const res = await fetch('/api/rfid/verifiers', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, id: v.id, isActive: !v.is_active }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      loadRegVerifiers();
+    } catch (err) { showToast(err.message, 'danger'); }
+  };
+  const deleteVerifier = async (v) => {
+    if (!window.confirm(`Remove ${v.firstname} ${v.lastname} as a Registration Verifier? Their card will no longer start verification.`)) return;
+    try {
+      const res = await fetch(`/api/rfid/verifiers?id=${encodeURIComponent(v.id)}&actorId=${encodeURIComponent(userData?.id || '')}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      showToast('Verifier removed', 'success');
+      loadRegVerifiers();
+    } catch (err) { showToast(err.message, 'danger'); }
+  };
+
+  // ---- RFID card stock ----
+  // Blank cards tapped in one after another, numbered 1, 2, 3 in that order -
+  // the number to write on the card. A Walk-In Registration picks one.
+  const loadCardStock = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/rfid/stock?actorId=${encodeURIComponent(userData?.id || '')}`);
+      const data = await res.json();
+      setCardStock(data.success ? (data.data || []) : []);
+      if (!data.success && /migration/i.test(data.message || '')) showToast(data.message, 'warning');
+    } catch { setCardStock([]); }
+  }, [userData?.id, showToast]);
+  const addStockCard = useCallback(async (rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+    setCardStockScan({ busy: true });
+    try {
+      const res = await fetch('/api/rfid/stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, uid }),
+      });
+      const data = await res.json();
+      if (!data.success) { setCardStockScan({ tone: data.already ? 'warn' : 'bad', text: data.message, uid }); return; }
+      setCardStock((list) => [...(list || []), data.data].sort((a, b) => a.number - b.number));
+      setCardStockAdded((list) => [data.data, ...list].slice(0, 30));
+      setCardStockScan({ tone: 'ok', text: `Card #${data.data.number} stored`, uid: data.data.uid });
+    } catch (err) {
+      setCardStockScan({ tone: 'bad', text: err.message, uid });
+    }
+  }, [userData?.id]);
+  const removeStockCard = async (row) => {
+    if (!window.confirm(`Take card #${row.number} (${formatUid(row.uid)}) out of the stock?`)) return;
+    try {
+      const res = await fetch(`/api/rfid/stock?id=${encodeURIComponent(row.id)}&actorId=${encodeURIComponent(userData?.id || '')}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setCardStock((list) => (list || []).filter((x) => x.id !== row.id));
+      showToast(`Card #${row.number} taken out of the stock`, 'success');
+    } catch (err) { showToast(err.message, 'danger'); }
+  };
+  useEffect(() => {
+    if (activeSection === 'rfid-reader' && canEditRegistrations && userData?.id) loadCardStock();
+  }, [activeSection, canEditRegistrations, userData?.id, loadCardStock]);
+  const openCardStockScan = () => {
+    setCardStockScan(null);
+    setCardStockAdded([]);
+    setCardStockManual('');
+    setCardStockOpen(true);
+    if (cardStock === null) loadCardStock();
+  };
+
+  const renderCardStockPanel = () => {
+    if (!canEditRegistrations) return null;
+    const list = cardStock || [];
+    const free = list.filter((c) => !c.used).length;
+    return (
+      <div className="rfid-verifiers rfid-stock">
+        <div className="rfid-verifiers-head">
+          <div>
+            <h3>
+              <i className="fas fa-layer-group"></i> RFID Card Stock <span className="evt-tab-count">{free}</span>
+              {list.length > 0 && <small className="rfid-stock-sub">{free} free of {list.length}</small>}
+            </h3>
+            <p>Blank cards for Walk-In Registration. Tap them in one after another - each gets the next number.</p>
+          </div>
+          <button type="button" className="btn-primary" onClick={openCardStockScan}>
+            <i className="fas fa-wifi"></i> Add Cards
+          </button>
+        </div>
+        {cardStock === null && <p className="rfid-verifiers-note"><i className="fas fa-spinner fa-spin"></i> Loading…</p>}
+        {cardStock !== null && list.length === 0 && <p className="rfid-verifiers-note">No cards stored yet. Press Add Cards and tap the blank cards.</p>}
+        {list.length > 0 && (
+          <ul className="rfid-stock-list">
+            {list.map((c) => (
+              <li key={c.id} className={c.used ? 'is-used' : ''} title={c.used ? `Given to ${formatPersonName(c.used.name)}${c.used.event ? ` · ${c.used.event}` : ''}` : 'Free'}>
+                <span className="rfid-stock-num">{c.number}</span>
+                <span className="rfid-stock-text">
+                  <span className="rfid-stock-uid">{formatUid(c.uid)}</span>
+                  <small className={c.used ? '' : 'is-free'}>
+                    {c.used ? <><i className="fas fa-lock"></i> {formatPersonName(c.used.name)}</> : <><i className="fas fa-circle"></i> Free</>}
+                  </small>
+                </span>
+                {/* Given to somebody: it stays - only a free card can be taken out. */}
+                {!c.used && (
+                  <button type="button" onClick={() => removeStockCard(c)} title="Take out of the stock" aria-label={`Remove card ${c.number}`}>
+                    <i className="fas fa-xmark"></i>
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  };
+
+  const renderCardStockScan = () => {
+    if (!cardStockOpen) return null;
+    const close = () => setCardStockOpen(false);
+    const st = cardStockScan;
+    const next = ((cardStock || []).reduce((m, c) => Math.max(m, c.number), 0)) + 1;
+    return createPortal(
+      <div className="evt-modal-overlay" onClick={close}>
+        <div className="evt-modal evt-verify-pop rfid-stock-scan" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div className="evt-modal-head">
+            <div><h3><i className="fas fa-layer-group"></i> Add Cards to Stock</h3><p>Tap the blank cards one after another</p></div>
+            <button type="button" className="evt-modal-close" onClick={close} aria-label="Close"><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            <div className="evt-verify-scan">
+              <div className={`evt-verify-scan-ring ${st?.busy ? 'busy' : st?.tone === 'ok' ? 'ok' : ''}`}>
+                <i className={`fas ${st?.busy ? 'fa-spinner fa-spin' : st?.tone === 'ok' ? 'fa-check' : 'fa-wifi'}`}></i>
+              </div>
+              <h4>{st?.busy ? 'Reading the card…' : <>Next card will be <b className="rfid-stock-next">#{next}</b></>}</h4>
+              {st && !st.busy && (
+                <p className={`rfid-stock-msg is-${st.tone}`}>
+                  <i className={`fas ${st.tone === 'ok' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i> {st.text}
+                  {st.uid ? <span> · {formatUid(st.uid)}</span> : null}
+                </p>
+              )}
+              <div className="rfid-manual">
+                <input
+                  className="form-control"
+                  value={cardStockManual}
+                  onChange={(e) => setCardStockManual(e.target.value)}
+                  placeholder="Or type the card number"
+                  onKeyDown={(e) => { if (e.key === 'Enter' && isPlausibleUid(cardStockManual)) { addStockCard(cardStockManual); setCardStockManual(''); } }}
+                />
+                <button type="button" className="btn-secondary" disabled={!isPlausibleUid(cardStockManual) || !!st?.busy} onClick={() => { addStockCard(cardStockManual); setCardStockManual(''); }}>Add</button>
+              </div>
+            </div>
+            {cardStockAdded.length > 0 && (
+              <ul className="rfid-stock-list rfid-stock-recent">
+                {cardStockAdded.map((c) => (
+                  <li key={c.id}>
+                    <span className="rfid-stock-num">{c.number}</span>
+                    <span className="rfid-stock-text">
+                      <span className="rfid-stock-uid">{formatUid(c.uid)}</span>
+                      <small className="is-free"><i className="fas fa-circle-check"></i> Just added</small>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="btn-primary" onClick={close}><i className="fas fa-check"></i> Done</button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  const renderRegVerifiersPanel = () => {
+    if (!canEditRegistrations) return null;
+    const list = regVerifiers || [];
+    return (
+      <div className="rfid-verifiers">
+        <div className="rfid-verifiers-head">
+          <div>
+            <h3><i className="fas fa-shield-halved"></i> Registration Verifiers <span className="evt-tab-count">{list.length}</span></h3>
+            <p>Committee members who start Registration Verification at the door by tapping their card.</p>
+          </div>
+          <button type="button" className="btn-primary" onClick={openAddVerifier}>
+            <i className="fas fa-plus"></i> Add Verifier
+          </button>
+        </div>
+        {regVerifiers === null && <p className="rfid-verifiers-note"><i className="fas fa-spinner fa-spin"></i> Loading…</p>}
+        {regVerifiersError && <p className="rfid-verifiers-note error">{regVerifiersError}</p>}
+        {regVerifiers !== null && !regVerifiersError && list.length === 0 && (
+          <p className="rfid-verifiers-note">No verifiers yet. Add one: tap their card, then type their name.</p>
+        )}
+        {list.length > 0 && (
+          <ul className="rfid-verifiers-list">
+            {list.map((v) => (
+              <li key={v.id} className={v.is_active ? '' : 'is-off'}>
+                <span className="rfid-verifiers-avatar">{`${v.firstname[0] || ''}${v.lastname[0] || ''}`.toUpperCase()}</span>
+                <span className="rfid-verifiers-text">
+                  <b>{v.firstname} {v.lastname}</b>
+                  <small><i className="fas fa-id-card"></i> {formatUid(v.uid)}{v.is_active ? '' : ' · switched off'}</small>
+                </span>
+                <label className="rfid-verifiers-switch" title={v.is_active ? 'On - can start verification' : 'Off'}>
+                  <input type="checkbox" checked={v.is_active} onChange={() => toggleVerifier(v)} /> {v.is_active ? 'On' : 'Off'}
+                </label>
+                <button type="button" onClick={() => openEditVerifier(v)} title="Edit" aria-label={`Edit ${v.firstname}`}><i className="fas fa-pen"></i></button>
+                <button type="button" className="danger" onClick={() => deleteVerifier(v)} title="Delete" aria-label={`Delete ${v.firstname}`}><i className="fas fa-trash"></i></button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  };
+
+  const renderVerifierForm = () => {
+    const f = verifierForm;
+    if (!f) return null;
+    const close = () => { if (!f.busy) setVerifierForm(null); };
+    const set = (k) => (e) => setVerifierForm({ ...f, [k]: e.target.value, error: '' });
+    return createPortal(
+      <div className="evt-modal-overlay" onClick={close}>
+        <form className="evt-modal evt-verify-pop" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); saveVerifier(); }}>
+          <div className="evt-modal-head">
+            <div><h3><i className="fas fa-shield-halved"></i> {f.id ? 'Edit Verifier' : 'Add Verifier'}</h3><p>Registration Verification</p></div>
+            <button type="button" className="evt-modal-close" onClick={close}><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            {f.step === 'scan' ? (
+              <div className="evt-verify-scan">
+                <div className="evt-verify-scan-ring"><i className="fas fa-wifi"></i></div>
+                <h4>Tap the verifier&apos;s RFID card</h4>
+                <p className="evt-muted">Use the card they will carry at the door. Their name comes next.</p>
+                {f.error && <p className="evt-verify-scan-error"><i className="fas fa-circle-exclamation"></i> {f.error}</p>}
+              </div>
+            ) : (
+              <>
+                <p className="rfid-verifiers-card"><i className="fas fa-id-card"></i> Card <b>{formatUid(f.uid)}</b></p>
+                <div className="evt-form-grid">
+                  <div className="form-group">
+                    <label>First name *</label>
+                    <input className="form-control" value={f.firstname} onChange={set('firstname')} placeholder="e.g. Maykka Reneeth" autoFocus />
+                  </div>
+                  <div className="form-group">
+                    <label>Last name *</label>
+                    <input className="form-control" value={f.lastname} onChange={set('lastname')} placeholder="e.g. Arquillano" />
+                  </div>
+                </div>
+                {f.error && <p className="evt-verify-scan-error"><i className="fas fa-circle-exclamation"></i> {f.error}</p>}
+              </>
+            )}
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="btn-secondary" onClick={close} disabled={f.busy}>Cancel</button>
+            {f.step === 'details' && !f.id && (
+              <button type="button" className="btn-secondary" onClick={() => setVerifierForm({ ...f, step: 'scan', uid: '', error: '' })} disabled={f.busy}>
+                <i className="fas fa-rotate-left"></i> Scan another card
+              </button>
+            )}
+            {f.step === 'details' && (
+              <button type="submit" className="btn-primary" disabled={f.busy}>
+                <i className={`fas ${f.busy ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> Save
+              </button>
+            )}
+          </div>
+        </form>
+      </div>,
+      document.body,
+    );
+  };
+
+  // The event's own days, as YYYY-MM-DD, for telling a walk-in from an early bird.
+  const verifyEventDays = (() => {
+    const day = (v) => (String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/) || []).slice(1).map(Number);
+    const [ay, am, ad] = day(eventRegsModal?.event_date);
+    if (!ay) return new Set();
+    const [by, bm, bd] = day(eventRegsModal?.end_date || eventRegsModal?.event_date);
+    const out = new Set();
+    const d = new Date(Date.UTC(ay, am - 1, ad));
+    const end = new Date(Date.UTC(by || ay, (bm || am) - 1, bd || ad));
+    for (let i = 0; i < 31 && d <= end; i += 1) {
+      out.add(d.toISOString().slice(0, 10));
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return out;
+  })();
+  // The calendar day in the Philippines a registration was made on.
+  const manilaDay = (iso) => {
+    try { return iso ? new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) : ''; } catch { return ''; }
+  };
+  const verifyBucketOf = (r) => {
+    if (r.late_registration) return 'late';
+    return verifyEventDays.has(manilaDay(r.created_at)) ? 'walkin' : 'early';
+  };
+
+  // "Cassiopeia Hope Balais" -> ["BALAIS", "Cassiopeia Hope"]. Particles stay
+  // with the surname ("De Leon", "Dela Cruz"), and so do suffixes (Jr., III).
+  const SURNAME_PARTICLES = new Set(['de', 'dela', 'del', 'delos', 'de los', 'los', 'la', 'las', 'san', 'sta', 'sta.', 'santa', 'santo', 'van', 'von', 'di', 'da', 'du', 'mc']);
+  const splitPersonName = (raw) => {
+    const words = formatPersonName(raw || '').split(/\s+/).filter(Boolean);
+    if (words.length < 2) return { last: (words[0] || '').toUpperCase(), first: '' };
+    let end = words.length;
+    const suffix = /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(words[end - 1]) ? words[--end] : '';
+    let start = end - 1;
+    while (start > 1 && SURNAME_PARTICLES.has(words[start - 1].toLowerCase())) start -= 1;
+    const last = words.slice(start, end).join(' ');
+    return { last: `${last}${suffix ? ` ${suffix}` : ''}`.toUpperCase(), first: words.slice(0, start).join(' ') };
+  };
+  const verifyNameKey = (r) => {
+    const n = splitPersonName(r.attendee_name);
+    return `${n.last}, ${n.first}`;
+  };
+
+  const verifyAll = eventRegs.filter((r) => r.status !== 'cancelled');
+  const verifyQuery = verifySearch.trim().toLowerCase();
+  const verifyMatches = (r) => !verifyQuery
+    || `${r.attendee_name || ''} ${r.original_attendee_name || ''} ${verifyNameKey(r)} ${r.church_name || ''} ${r.representative || ''} ${r.attendee_mobile || ''} ${r.payment_reference || ''}`
+      .toLowerCase().includes(verifyQuery);
+  const verifyLists = { early: [], late: [], walkin: [] };
+  verifyAll.forEach((r) => { if (verifyMatches(r)) verifyLists[verifyBucketOf(r)].push(r); });
+  Object.values(verifyLists).forEach((list) => list.sort((a, b) => verifyNameKey(a).localeCompare(verifyNameKey(b))));
+  const verifyTotals = { early: 0, late: 0, walkin: 0 };
+  verifyAll.forEach((r) => { verifyTotals[verifyBucketOf(r)] += 1; });
+
+  // Searching goes to wherever the person is: if nobody on this tab matches
+  // but somebody on another tab does, that tab opens.
+  useEffect(() => {
+    if (!verifyMode || !verifyQuery || verifyTab === 'change' || verifyTab === 'refunds') return;
+    if (verifyLists[verifyTab].length > 0) return;
+    const next = ['early', 'late', 'walkin'].find((k) => verifyLists[k].length > 0);
+    if (next) setVerifyTab(next);
+  }, [verifyQuery, verifyMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { setVerifyPage(1); }, [verifyTab, verifyQuery]);
+
+  // A tap on an attendee's card: who they are, and what is left to do.
+  const verifyAttendeeScan = verifyMode && !verifyScanOpen && !collectCash && !deskPay && !verifyCloseAsk && !extraCancel && !turnoverModal && !showAdminAddReg
+    && (activeSection === 'events' || activeSection === 'events-management');
+  const lookupVerifyTap = useCallback(async (rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid) || !eventRegsModal?.id) return;
+    // An attendee already open: keep them on screen while the card is read -
+    // it may be somebody from the same booking, who is added to them.
+    setVerifyTap((cur) => (cur?.regId ? { ...cur, reading: true } : { busy: true, uid }));
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventRegsModal.id)}&uid=${encodeURIComponent(uid)}`);
+      const data = await res.json();
+      if (!data.success) { setVerifyTap((cur) => (cur?.regId ? { ...cur, reading: false, tapError: data.message || 'Could not read that card.' } : { uid, message: data.message || 'Could not read that card.' })); return; }
+      if (!data.registration) {
+        setVerifyTap((cur) => (cur?.regId
+          ? { ...cur, reading: false, tapError: `Card ${formatUid(data.uid || uid)} is not linked to anybody at this event.` }
+          : { uid, message: 'This card is not linked to anybody at this event.' }));
+        logVerification([{ action: 'card_tap', details: { uid: data.uid || uid, found: false } }]);
+        return;
+      }
+      // The full row from the table, so the popup and the payment agree with it.
+      const reg = eventRegs.find((r) => r.id === data.registration.id) || data.registration;
+      // Already in a payment that was minimised (an online transfer coming
+      // through): that payment comes back, with them highlighted, instead of
+      // a second popup that could charge them twice.
+      const parked = deskParkedRef.current.find((dp) => dp.kind !== 'tap' && dp.rows.includes(reg.id))
+        || deskParkedRef.current.find((dp) => dp.kind === 'tap' && dp.rows.includes(reg.id));
+      if (parked && parked.key !== deskLiveKeyRef.current) {
+        // A minimised attendee popup comes back with this card ticked, the
+        // same as tapping it while the popup was open.
+        deskRestoreRef.current(parked.key, reg.id, { tapped: true, uid: data.uid || uid });
+        logVerification([{ action: 'card_tap', registrationId: reg.id, attendeeName: reg.attendee_name, details: { uid: data.uid || uid, found: true, status: reg.status, ongoing: true } }]);
+        return;
+      }
+      // Not this booking: the open tab keeps what it had before the popup changes.
+      if (!parked) deskParkLiveRef.current();
+      setVerifyTap((cur) => {
+        const open = cur?.regId ? (eventRegs.find((r) => r.id === cur.regId) || cur.reg) : null;
+        const sameBooking = open && regTypeOf(open) === 'bulk' && collectGroupFor(open).some((g) => g.id === reg.id);
+        if (sameBooking) {
+          // Same booking: ticked, not opened. Nobody is ticked by hand - only by their card.
+          const picked = [...new Set([...(cur.picked || [cur.regId]), reg.id])];
+          return { ...cur, reading: false, tapError: '', picked, lastTapped: reg.id, uids: { ...(cur.uids || {}), [reg.id]: data.uid || uid } };
+        }
+        return { uid: data.uid || uid, regId: reg.id, reg, picked: [reg.id], lastTapped: reg.id, uids: { [reg.id]: data.uid || uid } };
+      });
+      setVerifyTab(verifyBucketOf(reg));
+      logVerification([{ action: 'card_tap', registrationId: reg.id, attendeeName: reg.attendee_name, details: { uid: data.uid || uid, found: true, status: reg.status } }]);
+    } catch (err) {
+      setVerifyTap({ uid, message: err.message });
+    }
+  }, [eventRegsModal?.id, eventRegs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Straight to payment, for the person in front of the desk only. In a bulk
+  // booking the others are listed in the payment step but left unticked, so
+  // one member can pay for themselves; tick the rest there if they pay too.
+  // Paid - Pending Turnover: the money is still with somebody. Receiving it is
+  // the same Confirm Turnover step as the Registrations tab - and, like cash,
+  // only the person at the desk is ticked in a group.
+  // Everybody whose card has been tapped is ticked - and nobody else.
+  // At the desk the step lists ONLY the people whose card was tapped - the
+  // rest of the booking is not there to be ticked by mistake.
+  const verifyReceiveTurnover = (reg, ids = [reg.id]) => {
+    setVerifyTap(null);
+    openConfirmTurnover(reg);
+    setTurnoverModal((m) => (m ? { ...m, rows: m.rows.filter((r) => ids.includes(r.id)), tappedOnly: true, returnTap: verifyTap } : m));
+    setTurnoverSelected(ids);
+  };
+
+  // The desk's payment step, for the people whose card was tapped - and only
+  // them: the list cannot be changed here. Edit (or Cancel) goes back to the
+  // attendee, where somebody can be unticked.
+  const verifyProceedToPayment = (reg, ids = [reg.id]) => {
+    const tabKey = verifyTap?.tabKey;
+    const pay = {
+      key: tabKey || `${Date.now()}-${reg.id}`, rows: ids, returnTap: verifyTap,
+      mode: 'cash', methodId: '', menuOpen: false, reference: '', tendered: '', changeLater: false, saving: false, error: '',
+    };
+    if (tabKey) setDeskParked((list) => list.map((x) => (x.key === tabKey ? { ...pay, kind: 'pay' } : x)));
+    setDeskPay(pay);
+    setVerifyTap(null);
+  };
+
+  // ---- Extras at the desk ----
+  // Accommodation counts every registration holding it, paid or not: each
+  // has a bed reserved. What is left is what the desk can still give out.
+  const deskBeds = accommodationAddons(eventRegsModal?.event_addons || []);
+  const isBedAddon = (a) => deskBeds.some((b) => sameAddon(a, b));
+  const deskBedCapacity = evtRooms.reduce((t, r) => t + (Number(r.pax) || 0), 0);
+  const deskBedReserved = eventRegs.filter((r) => !r.deleted_at && r.status !== 'cancelled'
+    && (Array.isArray(r.addons) ? r.addons : []).some((h) => isBedAddon(h))).length;
+  const deskBedsLeft = Math.max(0, deskBedCapacity - deskBedReserved);
+  const regExtrasOf = (r) => (Array.isArray(r?.addons) ? r.addons : []).filter((a) => a && (a.question || a.id));
+  const regExtrasTotal = (r) => regExtrasOf(r).reduce((t, a) => t + (Number(a.fee) || 0), 0);
+  const deskCanEditExtras = (r) => r.payment_plan !== 'flexible' && ['pending_cash', 'pending_payment', 'payment_verified', 'registered'].includes(r.status);
+  const deskAddonFee = (a, r) => addonFeeFor(a, findTier(eventRegsModal, r.price_tier) || defaultTier(eventRegsModal));
+  const deskAddon = async (reg, addonId, remove = false) => {
+    if (verifyAddonBusy) return;
+    setVerifyAddonBusy(`${reg.id}:${addonId}`);
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: reg.id, actorId: userData?.id, action: 'desk_addons', ...(remove ? { removeIds: [addonId] } : { addIds: [addonId] }) }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setEventRegs((list) => list.map((r) => (r.id === reg.id ? { ...r, ...data.data } : r)));
+      setVerifyAddonMenu(null);
+      const what = (remove ? data.removed : data.added)?.map((a) => a.question).join(', ');
+      markTapDirty();
+      logVerification([{
+        action: remove ? 'extra_removed' : 'extra_added', registrationId: reg.id, attendeeName: reg.attendee_name,
+        details: { extra: what, fee: (remove ? data.removed : data.added)?.reduce((t, a) => t + (Number(a.fee) || 0), 0) || 0, totalAfter: Number(data.data?.amount) || 0 },
+      }]);
+      showToast(`${what} ${remove ? 'removed' : 'added'} for ${formatPersonName(reg.attendee_name)}`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setVerifyAddonBusy('');
+    }
+  };
+
+  // ---- Paying at the desk ----
+  const deskOnlineMethods = (() => {
+    const picked = eventPaymentChannels(eventRegsModal);
+    return (picked.length ? picked : activePaymentMethods).filter((m) => m.category !== 'cash' && m.is_active !== false);
+  })();
+  // A minimised payment holds the people being paid for; a minimised attendee
+  // popup holds the whole booking (so any card from it brings it back), and
+  // its tab is named after the people ticked in it.
+  const parkedIds = (dp) => (dp?.kind === 'tap' ? (dp.tap?.picked || [dp.tap?.regId]) : (dp?.rows || []));
+  const deskRowsOf = (dp) => parkedIds(dp).map((id) => eventRegs.find((r) => r.id === id)).filter(Boolean);
+  const deskTotalOf = (dp) => deskRowsOf(dp).reduce((t, r) => t + regCashDue(r), 0);
+  const deskTabLabel = (dp) => {
+    const rows = deskRowsOf(dp);
+    if (!rows.length) return 'Payment';
+    return rows.length > 1 ? `${verifyNameKey(rows[0])} (+${rows.length - 1})` : verifyNameKey(rows[0]);
+  };
+  // ---- Cancelling an extra, and refunding it ----
+  // Any extra can be dropped at the desk. Not paid yet: a reason, and it comes
+  // off what they owe. Already paid: the money goes back - who receives it,
+  // where, and the number - sent within 2-3 business days. Nothing changes on
+  // the registration until the form is sent, so walking away from it leaves
+  // the attendee exactly as they were.
+  const isPaidStatus = (r) => ['payment_verified', 'registered', 'paid_pending_turnover'].includes(r.status);
+  const deskCanCancelExtra = (r) => verifyMode && r.payment_plan !== 'flexible'
+    && ['pending_cash', 'pending_payment', 'payment_verified', 'registered', 'paid_pending_turnover'].includes(r.status);
+  const extraRefundFor = (r, a) => {
+    const fee = Number(a?.fee) || 0;
+    const amountWas = Number(r.amount) || 0;
+    const amount = Math.max(0, amountWas - fee);
+    const paid = isPaidStatus(r) ? (Number(r.amount_paid) > 0 ? Number(r.amount_paid) : amountWas) : (Number(r.amount_paid) || 0);
+    return { fee, amount, refund: Math.max(0, Math.min(fee, paid - amount)) };
+  };
+  const REFUND_CHANNELS = (() => {
+    const names = ['GCash', 'Maya', ...deskOnlineMethods.map((m) => m.name), 'Bank Transfer', 'Cash (handed back)'];
+    return [...new Set(names.filter(Boolean).map((n) => String(n).trim()))];
+  })();
+  const openExtraCancel = (reg, addon) => {
+    const { refund } = extraRefundFor(reg, addon);
+    setVerifyAddonMenu(null);
+    setExtraCancel({
+      regId: reg.id, addonId: addon.id || '', addonQuestion: addon.question || '',
+      mode: refund > 0 ? 'refund' : 'cancel',
+      reason: '', recipient: '', sentTo: '', number: '', busy: false, error: '',
+    });
+  };
+  const extraCancelDirty = (x) => !!x && !!(x.reason.trim() || x.recipient.trim() || x.sentTo || x.number.trim());
+  const closeExtraCancel = (force = false) => {
+    if (!extraCancel || extraCancel.busy) return;
+    if (!force && extraCancelDirty(extraCancel)) { setExtraCancelAsk(true); return; }
+    setExtraCancelAsk(false);
+    setExtraCancel(null);
+  };
+  // Recipients already used in this booking - a family refunding two beds
+  // usually sends both to the same person.
+  const bookingRecipients = (reg) => {
+    const ids = new Set((regTypeOf(reg) === 'bulk' ? collectGroupFor(reg) : [reg]).map((g) => g.id));
+    const seen = new Map();
+    (verifyRefunds || []).filter((x) => ids.has(x.registration_id)).forEach((x) => {
+      const key = `${x.recipient_name}|${x.sent_to}|${x.account_number || ''}`.toLowerCase();
+      if (!seen.has(key)) seen.set(key, { recipient: x.recipient_name, sentTo: x.sent_to, number: x.account_number || '' });
+    });
+    return [...seen.values()];
+  };
+  const submitExtraCancel = async () => {
+    const x = extraCancel;
+    if (!x || x.busy) return;
+    const reg = eventRegs.find((r) => r.id === x.regId);
+    const addon = reg && regExtrasOf(reg).find((a) => (x.addonId && a.id === x.addonId) || a.question === x.addonQuestion);
+    if (!reg || !addon) { setExtraCancel({ ...x, error: 'That extra is no longer on this registration.' }); return; }
+    const { refund, amount } = extraRefundFor(reg, addon);
+    const set = (patch) => setExtraCancel((cur) => (cur ? { ...cur, ...patch } : cur));
+    if (refund > 0) {
+      if (!x.recipient.trim()) { set({ error: 'Enter the name of who receives the refund.' }); return; }
+      if (!x.sentTo) { set({ error: 'Choose where the refund is sent.' }); return; }
+      if (!/cash/i.test(x.sentTo) && !x.number.trim()) { set({ error: `Enter the ${x.sentTo} number.` }); return; }
+    }
+    if (!x.reason.trim()) { set({ error: 'Say why the extra is being cancelled.' }); return; }
+    set({ busy: true, error: '' });
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: reg.id, actorId: userData?.id, action: 'cancel_addon',
+          addonId: addon.id || null, addonQuestion: addon.question, reason: x.reason.trim(),
+          refund: refund > 0 ? { recipientName: x.recipient.trim(), sentTo: x.sentTo, accountNumber: x.number.trim() } : null,
+          verifier: regVerifier ? { id: regVerifier.staff.id, name: regVerifier.staff.name } : null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { set({ busy: false, error: data.message }); return; }
+      setEventRegs((list) => list.map((r) => (r.id === reg.id ? { ...r, ...data.data } : r)));
+      if (data.refund) setVerifyRefunds((list) => [data.refund, ...(list || [])]);
+      markTapDirty();
+      logVerification([{
+        action: data.refund ? 'refund' : 'extra_cancelled',
+        registrationId: reg.id,
+        attendeeName: reg.attendee_name,
+        details: {
+          extra: addon.question, fee: Number(addon.fee) || 0, totalAfter: amount, reason: x.reason.trim(), status: reg.status,
+          ...(data.refund ? { amount: data.refundAmount, recipient: data.refund.recipient_name, sentTo: data.refund.sent_to, number: data.refund.account_number || '' } : {}),
+          ...(data.roomFreed ? { roomFreed: true } : {}),
+        },
+      }]);
+      setExtraCancelAsk(false);
+      setExtraCancel(null);
+      showToast(data.refund
+        ? `${addon.question} cancelled - ₱${Number(data.refundAmount).toLocaleString()} refund to ${data.refund.recipient_name} within 2-3 business days`
+        : `${addon.question} cancelled for ${formatPersonName(reg.attendee_name)} - total now ₱${amount.toLocaleString()}`, 'success');
+    } catch (err) {
+      set({ busy: false, error: err.message });
+    }
+  };
+  const loadVerifyRefunds = useCallback(async (eventId) => {
+    if (!eventId) return;
+    try {
+      const res = await fetch(`/api/events/verification/refunds?eventId=${encodeURIComponent(eventId)}&actorId=${encodeURIComponent(userData?.id || '')}`);
+      const data = await res.json();
+      setVerifyRefunds(data.success ? (data.data || []) : []);
+    } catch { setVerifyRefunds([]); }
+  }, [userData?.id]);
+  const markRefundSent = async (row) => {
+    if (verifyRefundBusy) return;
+    setVerifyRefundBusy(row.id);
+    try {
+      const res = await fetch('/api/events/verification/refunds', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, id: row.id, verifier: { name: regVerifier?.staff?.name || '' } }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); loadVerifyRefunds(eventRegsModal?.id); return; }
+      setVerifyRefunds((list) => (list || []).map((x) => (x.id === row.id ? data.data : x)));
+      logVerification([{
+        action: 'refund_sent', registrationId: row.registration_id, attendeeName: row.attendee_name,
+        details: { extra: row.extra, amount: Number(row.amount), recipient: row.recipient_name, sentTo: row.sent_to, number: row.account_number || '' },
+      }]);
+      showToast(`₱${Number(row.amount).toLocaleString()} refund to ${row.recipient_name} marked sent`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setVerifyRefundBusy('');
+    }
+  };
+
+  // The attendee's screen (/qr-display): the channel they are paying into.
+  const deskShowQr = (dp, methodId = dp?.methodId) => {
+    const m = dp?.mode === 'online' ? deskOnlineMethods.find((x) => x.id === methodId) : null;
+    if (!m) { publishQrDisplay(null); return; }
+    publishQrDisplay({
+      method: { id: m.id, name: m.name, account_name: m.account_name, account_number: m.account_number, qr_url: m.qr_url, logo_url: m.logo_url, logo_color: m.logo_color, notes: m.notes },
+      amount: deskTotalOf(dp),
+      names: deskRowsOf(dp).map((r) => formatPersonName(r.attendee_name)),
+    });
+  };
+  const deskSet = (patch) => setDeskPay((dp) => (dp ? { ...dp, ...patch, error: '' } : dp));
+  // The attendee popup as a tab: what was on screen, and the booking it covers.
+  const tapParkItem = (tap) => {
+    const reg = eventRegs.find((r) => r.id === tap.regId) || tap.reg;
+    const group = reg && regTypeOf(reg) === 'bulk' ? collectGroupFor(reg) : [reg].filter(Boolean);
+    const key = tap.tabKey || `tap-${Date.now()}-${tap.regId}`;
+    return {
+      key, kind: 'tap',
+      tap: { ...tap, tabKey: key, reading: false, tapError: '', lastTapped: null },
+      rows: group.map((g) => g.id),
+    };
+  };
+  // What is on screen, as a tab, and the key of the tab it is (if it is one).
+  const liveTab = () => {
+    if (deskPay) return { ...deskPay, kind: 'pay', menuOpen: false, saving: false, error: '' };
+    if (verifyTap?.regId) return tapParkItem(verifyTap);
+    return null;
+  };
+  const liveKey = deskPay?.key || verifyTap?.tabKey || null;
+  const deskActiveKey = liveKey && deskParked.some((x) => x.key === liveKey) ? liveKey : null;
+  // Put a tab in its place: where it already is, else at the end.
+  const upsertTab = (list, item) => (list.some((x) => x.key === item.key)
+    ? list.map((x) => (x.key === item.key ? item : x))
+    : [...list, item]);
+  const dropTab = (key) => { if (key) setDeskParked((list) => list.filter((x) => x.key !== key)); };
+  const deskMinimise = () => {
+    if (!deskPay || deskPay.saving) return;
+    setDeskParked((list) => upsertTab(list, { ...deskPay, kind: 'pay', menuOpen: false }));
+    setDeskPay(null);
+    publishQrDisplay(null);
+  };
+  const verifyTapMinimise = () => {
+    if (!verifyTap?.regId) return;
+    setDeskParked((list) => upsertTab(list, tapParkItem(verifyTap)));
+    setVerifyTap(null);
+    setVerifyAddonMenu(null);
+    setVerifyCloseAsk(false);
+  };
+  // Bring a tab back. It stays where it is in the bar - only lit up - and
+  // whatever was open goes back into its own place first.
+  const deskRestore = (key, highlight = null, opts = {}) => {
+    const item = deskParked.find((x) => x.key === key);
+    if (!item || deskPay?.saving) return;
+    if (key === liveKey) return; // already the one on screen
+    const live = liveTab();
+    if (live) setDeskParked((list) => upsertTab(list, live));
+    setVerifyCloseAsk(false);
+    setVerifyAddonMenu(null);
+    if (item.kind === 'tap') {
+      setDeskPay(null);
+      publishQrDisplay(null);
+      const t = item.tap;
+      const picked = t.picked || [t.regId];
+      // Only a card ticks somebody; a click just opens the popup again.
+      const tick = opts.tapped && highlight && !picked.includes(highlight);
+      setVerifyTap({
+        ...t,
+        tabKey: item.key,
+        picked: tick ? [...picked, highlight] : picked,
+        lastTapped: highlight,
+        ...(tick && opts.uid ? { uids: { ...(t.uids || {}), [highlight]: opts.uid } } : {}),
+      });
+      return;
+    }
+    setVerifyTap(null);
+    // highlightAt re-runs the pulse when the same person is tapped twice.
+    setDeskPay({ ...item, highlight, highlightAt: highlight ? Date.now() : null });
+    deskShowQr(item);
+  };
+  // A row clicked in the list: their tab if they are in one, else the popup.
+  const openVerifyRow = (r) => {
+    const parked = deskParked.find((dp) => dp.kind !== 'tap' && dp.rows.includes(r.id))
+      || deskParked.find((dp) => dp.kind === 'tap' && dp.rows.includes(r.id));
+    if (parked) { deskRestore(parked.key, r.id); return; }
+    // Somebody new over an open tab: that tab keeps what it had.
+    const live = liveTab();
+    if (live && deskActiveKey) setDeskParked((list) => upsertTab(list, live));
+    setVerifyTap({ regId: r.id, reg: r });
+  };
+  // The card reader's callback is memoised; these keep it on the live list.
+  deskParkedRef.current = deskParked;
+  deskRestoreRef.current = deskRestore;
+  deskLiveKeyRef.current = liveKey;
+  deskParkLiveRef.current = () => {
+    const live = liveTab();
+    if (live && deskActiveKey) setDeskParked((list) => upsertTab(list, live));
+  };
+  // In a minimised payment: shown as an ongoing transaction, and not offered
+  // for payment again until it is finished or cancelled.
+  const deskParkedFor = (id) => deskParked.find((dp) => dp.kind !== 'tap' && dp.rows.includes(id)) || null;
+  const deskBack = () => {
+    const dp = deskPay;
+    if (!dp || dp.saving) return;
+    const inBar = deskParked.some((x) => x.key === dp.key);
+    setDeskPay(null);
+    publishQrDisplay(null);
+    const back = dp.returnTap ? { ...dp.returnTap, picked: dp.returnTap.picked || dp.rows, reading: false, tapError: '', dirty: true, ...(inBar ? { tabKey: dp.key } : {}) } : null;
+    if (inBar) {
+      if (back) setDeskParked((list) => list.map((x) => (x.key === dp.key ? tapParkItem(back) : x)));
+      else dropTab(dp.key);
+    }
+    setVerifyTap(back);
+  };
+
+  const loadVerifyChange = useCallback(async (eventId) => {
+    if (!eventId) return;
+    try {
+      const res = await fetch(`/api/events/verification/change?eventId=${encodeURIComponent(eventId)}&actorId=${encodeURIComponent(userData?.id || '')}`);
+      const data = await res.json();
+      setVerifyChange(data.success ? (data.data || []) : []);
+      if (!data.success && /migration/i.test(data.message || '')) showToast(data.message, 'warning');
+    } catch { setVerifyChange([]); }
+  }, [userData?.id, showToast]);
+  const markChangeGiven = async (row) => {
+    if (verifyChangeBusy || !regVerifier) return;
+    setVerifyChangeBusy(row.id);
+    try {
+      const res = await fetch('/api/events/verification/change', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, id: row.id, verifier: { id: regVerifier.staff.id, name: regVerifier.staff.name } }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); loadVerifyChange(eventRegsModal?.id); return; }
+      setVerifyChange((list) => (list || []).map((c) => (c.id === row.id ? data.data : c)));
+      showToast(`₱${Number(row.amount).toLocaleString()} change given to ${row.attendee_names}`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setVerifyChangeBusy('');
+    }
+  };
+
+  // Take the money, then verify everybody it covered. Cash needs what was
+  // handed over; online needs the channel and at least the last 6 of the
+  // reference. Change the desk cannot give now is written down to give later.
+  const submitDeskPay = async () => {
+    const dp = deskPay;
+    if (!dp || dp.saving) return;
+    const rows = deskRowsOf(dp);
+    const total = deskTotalOf(dp);
+    const tendered = Number(dp.tendered) || 0;
+    const method = dp.mode === 'online' ? deskOnlineMethods.find((m) => m.id === dp.methodId) : null;
+    const ref = String(dp.reference || '').trim();
+    if (!rows.length) { deskSet({ error: 'Nobody left to pay for.' }); return; }
+    if (dp.mode === 'cash' && dp.tendered === '') { deskSet({ error: 'Enter the cash received.' }); return; }
+    if (dp.mode === 'cash' && tendered < total) { deskSet({ error: `That is ₱${(total - tendered).toLocaleString()} short of the total.` }); return; }
+    if (dp.mode === 'online' && !method) { deskSet({ error: 'Choose the online payment it was sent to.' }); return; }
+    if (dp.mode === 'online' && ref.replace(/[^A-Za-z0-9]/g, '').length < 6) { deskSet({ error: 'Enter at least the last 6 digits of the reference number.' }); return; }
+    setDeskPay({ ...dp, saving: true, error: '' });
+
+    const paid = [];
+    const failed = [];
+    for (const r of rows) {
+      try {
+        const res = await fetch('/api/events/registrations', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: r.id, actorId: userData?.id, status: 'payment_verified', deskPayment: true,
+            paymentMethod: method ? method.name : 'Cash', paymentReference: method ? ref : '',
+          }),
+        });
+        const data = await res.json();
+        if (data.success) paid.push({ before: r, after: { ...r, ...(data.data || {}), status: 'payment_verified' } });
+        else failed.push(`${formatPersonName(r.attendee_name)} (${data.message})`);
+      } catch (err) { failed.push(`${formatPersonName(r.attendee_name)} (${err.message})`); }
+    }
+    if (paid.length) {
+      setEventRegs((list) => list.map((x) => paid.find((p) => p.after.id === x.id)?.after || x));
+      logVerification(paid.map(({ before }) => ({
+        action: 'payment',
+        registrationId: before.id,
+        attendeeName: before.attendee_name,
+        details: {
+          from: before.status, to: 'payment_verified', amount: regCashDue(before),
+          mode: method ? 'online' : 'onhand', method: method ? method.name : 'Cash', ...(method ? { reference: ref } : {}),
+        },
+      })));
+      const change = dp.mode === 'cash' ? tendered - total : 0;
+      if (change > 0 && dp.changeLater && regVerifier) {
+        try {
+          const res = await fetch('/api/events/verification/change', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              actorId: userData?.id, eventId: eventRegsModal?.id,
+              registrationIds: paid.map((p) => p.before.id),
+              attendeeNames: paid.map((p) => formatPersonName(p.before.attendee_name)).join(', '),
+              amount: change, cashReceived: tendered, totalDue: total,
+              verifier: { id: regVerifier.staff.id, name: regVerifier.staff.name },
+            }),
+          });
+          const data = await res.json();
+          if (data.success) setVerifyChange((list) => [data.data, ...(list || [])]);
+          else showToast(`Change of ₱${change} not recorded: ${data.message}`, 'danger');
+        } catch (err) { showToast(`Change of ₱${change} not recorded: ${err.message}`, 'danger'); }
+      }
+      await verifyCheckIn(paid.map((p) => p.after));
+    }
+    if (failed.length) {
+      setDeskPay((cur) => (cur ? { ...cur, saving: false, rows: cur.rows.filter((id) => !paid.some((p) => p.before.id === id)), error: `Could not take payment for: ${failed.join(', ')}` } : cur));
+      return;
+    }
+    dropTab(dp.key);
+    setDeskPay(null);
+    publishQrDisplay(null);
+  };
+
+  // What the desk needs once a verifier is signed in: the rooms (for the beds
+  // left), the online channels, and the change still owed.
+  useEffect(() => {
+    if (!verifyMode || !eventRegsModal?.id) return;
+    loadEvtRooms(eventRegsModal.id);
+    loadActivePaymentMethods();
+    loadVerifyChange(eventRegsModal.id);
+    loadVerifyRefunds(eventRegsModal.id);
+  }, [verifyMode, eventRegsModal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Signed out: nothing left half-paid on screen.
+  useEffect(() => {
+    if (verifyMode) return;
+    setDeskPay(null);
+    setDeskParked([]);
+    setVerifyCloseAsk(false);
+    publishQrDisplay(null);
+  }, [verifyMode]);
+
+  // ---- The ID queue (/id-queue) ----
+  // The card icon asks the ID box to find an attendee's printed ID. The desk
+  // keeps an eye on the queue so the icon follows along: looking (eye), found,
+  // and claimed once they are verified.
+  const loadIdQueue = useCallback(async (eventId) => {
+    if (!eventId || !userData?.id) return;
+    try {
+      const res = await fetch(`/api/events/id-queue?eventId=${encodeURIComponent(eventId)}&actorId=${encodeURIComponent(userData.id)}`);
+      const data = await res.json();
+      if (!data.success) return;
+      const map = {};
+      // Oldest first, so a newer request for the same person wins.
+      (data.data || []).forEach((q) => { map[q.registration_id] = q; });
+      setIdQueue(map);
+    } catch { /* the next poll tries again */ }
+  }, [userData?.id]);
+  useEffect(() => {
+    if (!verifyMode || !eventRegsModal?.id) { setIdQueue({}); return undefined; }
+    loadIdQueue(eventRegsModal.id);
+    const t = setInterval(() => { if (!document.hidden) loadIdQueue(eventRegsModal.id); }, 4000);
+    return () => clearInterval(t);
+  }, [verifyMode, eventRegsModal?.id, loadIdQueue]);
+  const requestId = async (r) => {
+    if (idQueueBusy) return;
+    setIdQueueBusy(r.id);
+    try {
+      const res = await fetch('/api/events/id-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, registrationId: r.id, by: regVerifier?.staff?.name || '' }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setIdQueue((m) => ({ ...m, [r.id]: data.data }));
+      showToast(data.already ? `${formatPersonName(r.attendee_name)}'s ID is already being looked for` : `Looking for ${formatPersonName(r.attendee_name)}'s ID`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setIdQueueBusy('');
+    }
+  };
+  const cancelIdRequest = async (r, q) => {
+    if (idQueueBusy) return;
+    setIdQueueBusy(r.id);
+    try {
+      const res = await fetch('/api/events/id-queue', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorId: userData?.id, id: q.id, action: 'cancel' }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); loadIdQueue(eventRegsModal?.id); return; }
+      setIdQueue((m) => { const next = { ...m }; delete next[r.id]; return next; });
+      showToast(`Stopped looking for ${formatPersonName(r.attendee_name)}'s ID`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setIdQueueBusy('');
+    }
+  };
+  const claimIds = (ids) => {
+    if (!ids.length) return;
+    fetch('/api/events/id-queue', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actorId: userData?.id, registrationIds: ids, action: 'claimed' }),
+    }).then(() => loadIdQueue(eventRegsModal?.id)).catch(() => {});
+  };
+  // A walk-in's card from the stock, by its number.
+  const stockNumberOf = (regId) => (cardStock || []).find((c) => c.used?.registrationId === regId)?.number || null;
+  // The RFID Card column: ask, looking, found, claimed.
+  const renderIdCell = (r) => {
+    const q = idQueue[r.id];
+    if (verifyIsIn(r) || q?.claimed_at) {
+      return <span className="evt-idq-chip is-claimed" title="Verified - the ID is theirs"><i className="fas fa-id-card"></i> Claimed</span>;
+    }
+    if (q?.found_at) {
+      return <span className="evt-idq-chip is-found" title={q.found_by ? `Found by ${q.found_by}` : 'Found'}><i className="fas fa-circle-check"></i> ID Found</span>;
+    }
+    if (q) {
+      // Looking. Hovering turns the eye into an X: a click stops the search
+      // and the card comes back.
+      return (
+        <button
+          type="button"
+          className="evt-idq-eye"
+          onClick={(e) => { e.stopPropagation(); cancelIdRequest(r, q); }}
+          disabled={idQueueBusy === r.id}
+          title={`Looking for the ID${q.requested_by ? ` - asked by ${q.requested_by}` : ''}. Click to stop looking.`}
+          aria-label={`Stop looking for ${formatPersonName(r.attendee_name)}'s ID`}
+        >
+          {idQueueBusy === r.id
+            ? <i className="fas fa-spinner fa-spin"></i>
+            : <><i className="fas fa-eye evt-idq-eye-on"></i><i className="fas fa-xmark evt-idq-eye-off"></i></>}
+        </button>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className="evt-idq-btn"
+        onClick={(e) => { e.stopPropagation(); requestId(r); }}
+        disabled={idQueueBusy === r.id}
+        title="Ask the ID box to find this attendee's ID"
+        aria-label={`Find ${formatPersonName(r.attendee_name)}'s ID`}
+      >
+        <i className={`fas ${idQueueBusy === r.id ? 'fa-spinner fa-spin' : 'fa-id-card'}`}></i>
+      </button>
+    );
+  };
+
+  useLayoutEffect(() => {
+    if (!verifyMode || deskParked.length === 0) return undefined;
+    const measure = () => {
+      const box = verifyBoxRef.current;
+      if (!box) return;
+      // The whole content area beside the sidebar - edge to edge, the same
+      // boundaries as the page itself.
+      const el = box.closest('.main-content') || box;
+      const r = el.getBoundingClientRect();
+      setParkBox((cur) => (cur && cur.left === r.left && cur.width === r.width ? cur : { left: r.left, width: r.width }));
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro && verifyBoxRef.current) ro.observe(verifyBoxRef.current);
+    if (ro) ro.observe(document.body);
+    window.addEventListener('resize', measure);
+    // The sidebar sliding open or shut moves the section without a resize.
+    const t = setInterval(measure, 500);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', measure); clearInterval(t); };
+  }, [verifyMode, deskParked.length, verifyTab]);
+
+  // ---- Live on the Event Kit and Walk-In tabs ----
+  useEffect(() => {
+    if (!['kit', 'walkins', 'accommodation'].includes(manageTab) || !eventRegsModal?.id || verifyMode) return undefined;
+    const id = eventRegsModal.id;
+    const tick = () => {
+      if (document.hidden || accAssignBusy || kitBusy) return;
+      refreshEventRegs(id);
+      if (manageTab === 'kit') { loadEventClaims(id); loadEventDayAttendance(id); }
+      if (manageTab === 'accommodation') { loadEvtRoomGuests(id); loadEventDayAttendance(id); }
+    };
+    tick();
+    const t = setInterval(tick, 4000);
+    return () => clearInterval(t);
+  }, [manageTab, eventRegsModal?.id, verifyMode, accAssignBusy, kitBusy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Live at the desk ----
+  // Somebody added at the door (a walk-in), paid elsewhere, or changed on
+  // another screen shows up here without a reload: the registrations every
+  // few seconds, the card stock a little less often. Paused while a payment
+  // is being saved, and while the tab is hidden.
+  useEffect(() => {
+    if (!verifyMode || !eventRegsModal?.id) return undefined;
+    const id = eventRegsModal.id;
+    const regsTimer = setInterval(() => {
+      if (document.hidden || deskPay?.saving || extraCancel?.busy) return;
+      refreshEventRegs(id);
+    }, 3000);
+    // Added in another tab on this computer: shown at once, not on the next tick.
+    let ch = null;
+    try {
+      ch = new BroadcastChannel('jsci-event-regs');
+      ch.onmessage = (e) => { if (!e.data?.eventId || e.data.eventId === id) refreshEventRegs(id); };
+    } catch { /* the timer covers it */ }
+    // Coming back to the tab: catch up straight away.
+    const onVisible = () => { if (!document.hidden) refreshEventRegs(id); };
+    document.addEventListener('visibilitychange', onVisible);
+    loadCardStock();
+    const stockTimer = setInterval(() => { if (!document.hidden) loadCardStock(); }, 15000);
+    return () => {
+      clearInterval(regsTimer); clearInterval(stockTimer);
+      if (ch) ch.close();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [verifyMode, eventRegsModal?.id, deskPay?.saving, extraCancel?.busy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Surviving a refresh ----
+  // Every tab, and whatever was open, is kept on this device per event. After
+  // a reload (or a crash) they all come back as tabs along the bottom, so a
+  // transfer that was coming through is not lost. Cleared when the verifier
+  // ends the session; never older than a verifier session itself.
+  useEffect(() => {
+    if (!verifyMode || !eventRegsModal?.id || deskRestoredRef.current === eventRegsModal.id) return;
+    let saved = null;
+    try { saved = JSON.parse(window.localStorage.getItem(deskStoreKey(eventRegsModal.id)) || 'null'); } catch { /* nothing saved */ }
+    deskRestoredRef.current = eventRegsModal.id;
+    if (!saved?.items?.length || Date.now() - (Number(saved.at) || 0) > VERIFIER_MAX_MS) return;
+    setDeskParked(saved.items
+      .filter((x) => x && x.key && Array.isArray(x.rows))
+      .map((x) => ({ ...x, saving: false, error: '', menuOpen: false, highlight: null })));
+  }, [verifyMode, eventRegsModal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!verifyMode || !eventRegsModal?.id || deskRestoredRef.current !== eventRegsModal.id) return;
+    const live = liveTab();
+    const items = live ? upsertTab(deskParked, live) : deskParked;
+    try {
+      if (items.length) window.localStorage.setItem(deskStoreKey(eventRegsModal.id), JSON.stringify({ at: Date.now(), items }));
+      else window.localStorage.removeItem(deskStoreKey(eventRegsModal.id));
+    } catch { /* private mode: the tabs just do not survive a reload */ }
+  }, [deskParked, deskPay, verifyTap, verifyMode, eventRegsModal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Verify: paid first, then Verify ----
+  // Verify checks the attendee in for the day the desk is on - the same
+  // per-day attendance the door writes. The server only checks in a paid
+  // registration, so a free or fully paid row still reading "pending cash"
+  // is confirmed first.
+  const verifyIsPaid = (r) => ['registered', 'payment_verified', 'paid_pending_turnover'].includes(r.status)
+    || (regCashDue(r) <= 0 && ['pending_cash', 'installment', 'pending_payment'].includes(r.status));
+  const verifyIsIn = (r) => !!evtDayAttend[r.id]?.[String(evtCheckinDay)];
+  const verifyCheckIn = async (rows) => {
+    if (verifyBusy || !eventRegsModal?.id || rows.length === 0) return;
+    setVerifyBusy(true);
+    const done = [];
+    const failed = [];
+    for (const r of rows) {
+      try {
+        if (!['registered', 'payment_verified', 'paid_pending_turnover'].includes(r.status)) {
+          const res = await fetch('/api/events/registrations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: r.id, actorId: userData?.id, status: Number(r.amount) > 0 ? 'payment_verified' : 'registered' }),
+          });
+          const data = await res.json();
+          if (!data.success) { failed.push(`${formatPersonName(r.attendee_name)} (${data.message})`); continue; }
+          setEventRegs((list) => list.map((x) => (x.id === r.id ? { ...x, ...data.data } : x)));
+        }
+        const res = await fetch('/api/events/attendance-days', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ eventId: eventRegsModal.id, registrationId: r.id, dayNumber: evtCheckinDay, attended: true, actorId: userData?.id || null }),
+        });
+        const data = await res.json();
+        if (!data.success) { failed.push(`${formatPersonName(r.attendee_name)} (${data.message})`); continue; }
+        done.push(r);
+        setEvtDayAttend((prev) => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), [String(evtCheckinDay)]: data.day || { attended_at: new Date().toISOString() } } }));
+        setEventRegs((list) => list.map((x) => (x.id === r.id ? { ...x, attended: true, attended_at: x.attended_at || new Date().toISOString() } : x)));
+      } catch (err) {
+        failed.push(`${formatPersonName(r.attendee_name)} (${err.message})`);
+      }
+    }
+    setVerifyBusy(false);
+    if (done.length) {
+      claimIds(done.map((r) => r.id));
+      logVerification(done.map((r) => ({ action: 'verified', registrationId: r.id, attendeeName: r.attendee_name, details: { day: evtCheckinDay, status: r.status } })));
+      showToast(done.length === 1
+        ? `${formatPersonName(done[0].attendee_name)} verified for Day ${evtCheckinDay}`
+        : `${done.length} attendees verified for Day ${evtCheckinDay}`, 'success');
+    }
+    if (failed.length) showToast(`Could not verify: ${failed.join(', ')}`, 'danger');
+    else { dropTab(verifyTap?.tabKey); setVerifyTap(null); }
+  };
+
+  // ---- Substitute: somebody else comes in the registered person's place ----
+  // The registration takes the substitute's name; the registered name is kept
+  // (original_attendee_name) and shown under it everywhere.
+  const openVerifySubstitute = (reg) => setVerifySub({ regId: reg.id, firstname: '', lastname: '', busy: false, error: '' });
+  const saveVerifySubstitute = async (restore = false, targetId = null) => {
+    const f = verifySub;
+    const reg = eventRegs.find((r) => r.id === (targetId || f?.regId || verifyTap?.regId));
+    if (!reg) return;
+    if (!restore && (!f.firstname.trim() || !f.lastname.trim())) { setVerifySub({ ...f, error: 'Enter the first name and the last name.' }); return; }
+    if (f) setVerifySub({ ...f, busy: true, error: '' });
+    try {
+      const res = await fetch('/api/events/registrations/substitute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(restore
+          ? { actorId: userData?.id, registrationId: reg.id, restore: true, verifierName: regVerifier?.staff?.name }
+          : { actorId: userData?.id, registrationId: reg.id, firstname: f.firstname, lastname: f.lastname, verifierName: regVerifier?.staff?.name }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        if (f) setVerifySub({ ...f, busy: false, error: data.message });
+        else showToast(data.message, 'danger');
+        return;
+      }
+      setEventRegs((list) => list.map((r) => (r.id === data.data.id ? { ...r, ...data.data } : r)));
+      logVerification([{
+        action: 'substitute',
+        registrationId: reg.id,
+        attendeeName: data.data.attendee_name,
+        details: { from: data.previousName, to: data.data.attendee_name, original: data.originalName, restored: !!restore },
+      }]);
+      setVerifySub(null);
+      markTapDirty();
+      showToast(restore
+        ? `Registered name put back: ${formatPersonName(data.data.attendee_name)}`
+        : `${formatPersonName(data.data.attendee_name)} is coming in place of ${formatPersonName(data.originalName)}`, 'success');
+    } catch (err) {
+      if (f) setVerifySub({ ...f, busy: false, error: err.message });
+      else showToast(err.message, 'danger');
+    }
+  };
+  const restoreVerifySubstitute = (reg) => {
+    if (!window.confirm(`Put the registered name back - ${formatPersonName(reg.original_attendee_name)} - in place of ${formatPersonName(reg.attendee_name)}?`)) return;
+    setVerifySub(null);
+    saveVerifySubstitute(true, reg.id);
+  };
+
+  const renderVerifySubstitute = () => {
+    const f = verifySub;
+    if (!f) return null;
+    const reg = eventRegs.find((r) => r.id === f.regId);
+    if (!reg) return null;
+    const close = () => { if (!f.busy) setVerifySub(null); };
+    const set = (k) => (e) => setVerifySub({ ...f, [k]: e.target.value, error: '' });
+    const registered = reg.original_attendee_name || reg.attendee_name;
+    return createPortal(
+      <div className="evt-modal-overlay evt-verify-sub-overlay" onClick={close}>
+        <form className="evt-modal evt-verify-pop" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); saveVerifySubstitute(false); }}>
+          <div className="evt-modal-head">
+            <div><h3><i className="fas fa-user-pen"></i> Substitute Attendee</h3><p>{verifyEventName}</p></div>
+            <button type="button" className="evt-modal-close" onClick={close}><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            <div className="evt-verify-sub-from">
+              <small>Registered as</small>
+              <b>{verifyNameKey({ attendee_name: registered })}</b>
+              {reg.original_attendee_name && <span>Now: {verifyNameKey(reg)}</span>}
+            </div>
+            <p className="evt-muted" style={{ fontSize: '0.82rem', margin: '0 0 12px' }}>
+              The person coming in their place. The registered name is kept and shown under the new one.
+            </p>
+            <div className="evt-form-grid">
+              <div className="form-group">
+                <label>First name *</label>
+                <input className="form-control" value={f.firstname} onChange={set('firstname')} placeholder="e.g. Maria" autoFocus />
+              </div>
+              <div className="form-group">
+                <label>Last name *</label>
+                <input className="form-control" value={f.lastname} onChange={set('lastname')} placeholder="e.g. Santos" />
+              </div>
+            </div>
+            {f.error && <p className="evt-verify-scan-error"><i className="fas fa-circle-exclamation"></i> {f.error}</p>}
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="evt-pill-btn evt-pill-ghost" onClick={close} disabled={f.busy}>Cancel</button>
+            <button type="submit" className="evt-pill-btn evt-pill-gold" disabled={f.busy}>
+              <i className={`fas ${f.busy ? 'fa-spinner fa-spin' : 'fa-user-check'}`}></i> Save substitute
+            </button>
+          </div>
+        </form>
+      </div>,
+      document.body,
+    );
+  };
+
+  const verifyStatusBadge = (r) => {
+    if (verifyMode && verifyIsIn(r)) {
+      return <span className="evt-status evt-verify-registered"><i className="fas fa-circle-check"></i> Registered</span>;
+    }
+    if (verifyMode && deskParkedFor(r.id)) {
+      return <span className="evt-status evt-verify-ongoing"><i className="fas fa-hourglass-half"></i> Ongoing Transaction</span>;
+    }
+    if ((r.guardian_name || r.guardian_registration_id) && !(Number(r.amount) > 0)
+      && ['registered', 'pending_cash', 'payment_verified'].includes(r.status)) {
+      return <span className="evt-status evt-status-registered">free</span>;
+    }
+    if (r.status === 'pending_cash' && !(Number(r.amount) > 0)) {
+      return <span className="evt-status evt-status-registered">registered</span>;
+    }
+    // At the desk, paid is paid: cash or online, it reads Registered. How it
+    // was paid is on the attendee's details.
+    const paid = r.status === 'payment_verified' || r.status === 'registered';
+    // One line, always: a pill, and who holds the money beside it (cut short
+    // if long; the full name is on hover). Two stacked lines here are what
+    // made some rows taller than the rest.
+    if (r.status === 'paid_pending_turnover') {
+      const holder = r.turnover_holder ? formatPersonName(r.turnover_holder) : '';
+      return (
+        <span className="evt-verify-status is-stack" title={holder ? `Paid - pending turnover · money with ${holder}` : 'Paid - pending turnover'}>
+          <span className="evt-status evt-verify-turnover"><i className="fas fa-hand-holding-dollar"></i> Pending Turnover</span>
+          {holder && <span className="evt-verify-holder">{holder}</span>}
+        </span>
+      );
+    }
+    const turnedBy = r.status === 'payment_verified' && r.turned_over_at && r.turnover_holder ? formatPersonName(r.turnover_holder) : '';
+    return (
+      <span className={`evt-verify-status ${turnedBy ? 'is-stack' : 'is-line'}`} title={turnedBy ? `Paid · turned over by ${turnedBy}` : undefined}>
+        <span className={`evt-status evt-status-${paid ? 'payment_verified' : r.status}`}>{paid ? 'paid' : regStatusLabel(r)}</span>
+        {turnedBy && <span className="evt-verify-holder is-done"><i className="fas fa-circle-check"></i> {turnedBy}</span>}
+      </span>
+    );
+  };
+
+  const renderRegVerification = () => {
+    if (!verifyMode) return null;
+    const tabs = [
+      { key: 'early', icon: 'fa-clipboard-check', label: 'Early Registrations' },
+      { key: 'late', icon: 'fa-clock', label: 'Late Registrations' },
+      { key: 'walkin', icon: 'fa-person-walking', label: 'Walk-In Registrations' },
+    ];
+    const changeOwed = (verifyChange || []).filter((c) => !c.given_at);
+    const refundsOpen = (verifyRefunds || []).filter((x) => !x.sent_at);
+    const tabBar = (
+      <div className="evt-tabs evt-verify-tabs">
+        {tabs.map((t) => (
+          <button key={t.key} type="button" className={`evt-tab ${verifyTab === t.key ? 'active' : ''}`} onClick={() => setVerifyTab(t.key)}>
+            <i className={`fas ${t.icon}`}></i> {t.label}
+            <span className="evt-tab-count">{verifyQuery ? verifyLists[t.key].length : verifyTotals[t.key]}</span>
+          </button>
+        ))}
+        <button type="button" className={`evt-tab evt-verify-changetab ${verifyTab === 'change' ? 'active' : ''}`} onClick={() => { setVerifyTab('change'); loadVerifyChange(eventRegsModal?.id); }}>
+          <i className="fas fa-coins"></i> Change to Give
+          {changeOwed.length > 0 && <span className="evt-tab-count is-owed">{changeOwed.length}</span>}
+        </button>
+        <button type="button" className={`evt-tab evt-verify-changetab ${verifyTab === 'refunds' ? 'active' : ''}`} onClick={() => { setVerifyTab('refunds'); loadVerifyRefunds(eventRegsModal?.id); }}>
+          <i className="fas fa-rotate-left"></i> Refunds
+          {refundsOpen.length > 0 && <span className="evt-tab-count is-owed">{refundsOpen.length}</span>}
+        </button>
+      </div>
+    );
+
+    // ---- Refunds: extras cancelled after they were paid for ----
+    if (verifyTab === 'refunds') {
+      const list = verifyRefunds || [];
+      const stamp = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+      return (
+        <div className={`evt-verify ${deskParked.length ? 'has-parked' : ''}`} ref={verifyBoxRef}>
+          {tabBar}
+          <p className="evt-muted evt-verify-changehint">
+            <i className="fas fa-circle-info"></i> Money going back for extras cancelled after they were paid - sent within 2-3 business days. Whoever sends it marks it sent.
+          </p>
+          <div className="evt-table-wrapper evt-table-steady">
+            <table className="evt-table evt-verify-table evt-verify-change evt-verify-refunds">
+              <thead>
+                <tr>
+                  <th className="num">#</th>
+                  <th>Attendee</th>
+                  <th>Recipient</th>
+                  <th>Sent To</th>
+                  <th>Number</th>
+                  <th>Reason</th>
+                  <th>Verifier</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {verifyRefunds === null && <tr><td colSpan={8} className="evt-verify-empty">Loading…</td></tr>}
+                {verifyRefunds !== null && list.length === 0 && <tr><td colSpan={8} className="evt-verify-empty">No refunds yet.</td></tr>}
+                {list.map((x, i) => (
+                  <tr key={x.id} className={x.sent_at ? 'is-given' : ''}>
+                    <td className="num" data-label="#">{i + 1}</td>
+                    <td className="name evt-td-primary" data-label="Attendee">
+                      {verifyNameKey({ attendee_name: x.attendee_name })}
+                      <small className="evt-muted">{x.extra} · <b className="evt-verify-changeamt">₱{Number(x.amount).toLocaleString()}</b></small>
+                    </td>
+                    <td data-label="Recipient"><b>{x.recipient_name}</b></td>
+                    <td data-label="Sent To">{x.sent_to}</td>
+                    <td data-label="Number">{x.account_number || <span className="evt-muted">—</span>}</td>
+                    <td data-label="Reason" className="evt-verify-reason" title={x.reason}>{x.reason}</td>
+                    <td data-label="Verifier">
+                      <span className="evt-verify-changeby"><i className="fas fa-user-shield"></i> {formatPersonName(x.verifier_name)}</span>
+                      <small className="evt-muted">{stamp(x.created_at)}</small>
+                    </td>
+                    <td data-label="Status">
+                      {x.sent_at ? (
+                        <span className="evt-verify-given">
+                          <span className="evt-status evt-verify-registered"><i className="fas fa-circle-check"></i> Sent</span>
+                          <small>by <b>{formatPersonName(x.sent_by_name)}</b> · {stamp(x.sent_at)}</small>
+                        </span>
+                      ) : (
+                        <button type="button" className="btn-primary evt-verify-givebtn" onClick={() => markRefundSent(x)} disabled={!!verifyRefundBusy}>
+                          <i className={`fas ${verifyRefundBusy === x.id ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i> Mark as sent
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {renderDeskParked()}
+        </div>
+      );
+    }
+
+    // ---- Change to Give: owed after a cash payment the desk had no change for ----
+    if (verifyTab === 'change') {
+      const list = verifyChange || [];
+      const stamp = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+      return (
+        <div className={`evt-verify ${deskParked.length ? 'has-parked' : ''}`} ref={verifyBoxRef}>
+          {tabBar}
+          <p className="evt-muted evt-verify-changehint">
+            <i className="fas fa-circle-info"></i> Change the desk could not give at the time. Whoever hands it over marks it given, and their name is kept beside it.
+          </p>
+          <div className="evt-table-wrapper evt-table-steady">
+            <table className="evt-table evt-verify-table evt-verify-change">
+              <thead>
+                <tr>
+                  <th className="num">#</th>
+                  <th>Attendee(s)</th>
+                  <th>Change</th>
+                  <th>Transaction by</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {verifyChange === null && <tr><td colSpan={5} className="evt-verify-empty">Loading…</td></tr>}
+                {verifyChange !== null && list.length === 0 && <tr><td colSpan={5} className="evt-verify-empty">No change is owed to anybody.</td></tr>}
+                {list.map((c, i) => (
+                  <tr key={c.id} className={c.given_at ? 'is-given' : ''}>
+                    <td className="num" data-label="#">{i + 1}</td>
+                    <td className="name evt-td-primary" data-label="Attendee(s)">
+                      {c.attendee_names}
+                      <small className="evt-muted">Paid ₱{Number(c.cash_received || 0).toLocaleString()} for ₱{Number(c.total_due || 0).toLocaleString()}</small>
+                    </td>
+                    <td data-label="Change"><b className="evt-verify-changeamt">₱{Number(c.amount).toLocaleString()}</b></td>
+                    <td data-label="Transaction by">
+                      <span className="evt-verify-changeby"><i className="fas fa-user-shield"></i> {formatPersonName(c.taken_by_name)}</span>
+                      <small className="evt-muted">{stamp(c.created_at)}</small>
+                    </td>
+                    <td data-label="Status">
+                      {c.given_at ? (
+                        <span className="evt-verify-given">
+                          <span className="evt-status evt-verify-registered"><i className="fas fa-circle-check"></i> Given</span>
+                          <small>by <b>{formatPersonName(c.given_by_name)}</b> · {stamp(c.given_at)}</small>
+                        </span>
+                      ) : (
+                        <button type="button" className="btn-primary evt-verify-givebtn" onClick={() => markChangeGiven(c)} disabled={!!verifyChangeBusy}>
+                          <i className={`fas ${verifyChangeBusy === c.id ? 'fa-spinner fa-spin' : 'fa-hand-holding-dollar'}`}></i> Mark as given
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {renderDeskParked()}
+        </div>
+      );
+    }
+
+    const allRows = verifyLists[verifyTab];
+    // The name column is as wide as the longest full name at this event - not
+    // a share of the table. Measured over every attendee, not this page, so
+    // the columns do not move between pages.
+    const longestName = verifyAll.reduce((m, r) => Math.max(m, verifyNameKey(r).length), 14);
+    const nameColWidth = `calc(${Math.ceil(longestName * 1.05)}ch + 32px)`;
+    // Paged the same way as the Registrations table.
+    const pages = Math.max(1, Math.ceil(allRows.length / verifyPageSize));
+    const page = Math.min(verifyPage, pages);
+    const offset = (page - 1) * verifyPageSize;
+    const rows = allRows.slice(offset, offset + verifyPageSize);
+    return (
+      <div className={`evt-verify ${deskParked.length ? 'has-parked' : ''}`} ref={verifyBoxRef}>
+        {tabBar}
+
+        <div className="evt-verify-tools">
+          <div className="evt-verify-search">
+            <i className="fas fa-magnifying-glass"></i>
+            <input
+              value={verifySearch}
+              onChange={(e) => setVerifySearch(e.target.value)}
+              placeholder="Search a name, church, representative or reference"
+              aria-label="Search attendees"
+            />
+            {verifySearch && <button type="button" onClick={() => setVerifySearch('')} aria-label="Clear search"><i className="fas fa-times"></i></button>}
+          </div>
+          <div className="evt-verify-scanhint">
+            <i className="fas fa-wifi"></i> Tap an attendee&apos;s card to open them
+          </div>
+        </div>
+
+        <div className="evt-table-wrapper evt-table-steady">
+          <table className="evt-table evt-verify-table evt-verify-fixed">
+            <colgroup>
+              <col className="c-num" />
+              <col className="c-name" style={{ width: nameColWidth }} />
+              <col className="c-rfid" />
+              <col className="c-age" />
+              <col className="c-type" />
+              <col className="c-extras" />
+              <col className="c-status" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="num">#</th>
+                <th>Attendees</th>
+                <th className="center">RFID Card</th>
+                <th className="center">Age Group</th>
+                <th className="center">Type</th>
+                <th className="center">Extras</th>
+                <th className="center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr><td colSpan={7} className="evt-verify-empty">
+                  {verifyQuery ? `Nobody here matches "${verifySearch}".` : 'Nobody in this list yet.'}
+                </td></tr>
+              )}
+              {rows.map((r, i) => {
+                const n = splitPersonName(r.attendee_name);
+                const extras = (Array.isArray(r.addons) ? r.addons : []).filter((a) => a && (a.question || a.id));
+                const bulk = regTypeOf(r) === 'bulk';
+                return (
+                  <tr key={r.id} className={verifyTap?.regId === r.id ? 'is-picked' : ''} onClick={() => openVerifyRow(r)}>
+                    <td className="num" data-label="#">{offset + i + 1}</td>
+                    <td className="name evt-td-primary" data-label="Attendee">
+                      <b className="evt-verify-last">{n.last}</b>{n.first ? `, ${n.first}` : ''}
+                      {renderFamilyLine(r)}
+                      {r.original_attendee_name && (
+                        <small className="evt-verify-subof"><i className="fas fa-user-pen"></i> Substitute for {verifyNameKey({ attendee_name: r.original_attendee_name })}</small>
+                      )}
+                      {r.added_by_role === 'Verifier' && (
+                        <small className="evt-verify-addedby"><i className="fas fa-user-shield"></i> Added by {formatPersonName(r.added_by)} · Verifier</small>
+                      )}
+                    </td>
+                    <td className="center evt-idq-cell" data-label="RFID Card">
+                      {verifyTab === 'walkin' && stockNumberOf(r.id)
+                        ? <span className="evt-idq-chip is-stock" title="The card from the stock, given when they were added"><i className="fas fa-id-card"></i> RFID #{stockNumberOf(r.id)}</span>
+                        : renderIdCell(r)}
+                    </td>
+                    <td className="center" data-label="Age Group">{r.price_tier || '—'}</td>
+                    <td className="center" data-label="Type">
+                      <span className={`evt-verify-type ${bulk ? 'bulk' : ''}`}>
+                        <i className={`fas ${bulk ? 'fa-users' : 'fa-user'}`}></i> {bulk ? 'Bulk' : 'Individual'}
+                      </span>
+                    </td>
+                    <td className="center" data-label="Extras" title={extras.map((a) => a.question).join(', ') || 'No extras'}>
+                      {extras.length
+                        ? <i className="fas fa-circle-check evt-verify-yes"></i>
+                        : <i className="fas fa-circle-minus evt-verify-no"></i>}
+                    </td>
+                    <td className="center" data-label="Status">{verifyStatusBadge(r)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {allRows.length > 0 && (
+          <TablePager
+            page={page} pageSize={verifyPageSize} total={allRows.length}
+            onPage={setVerifyPage} onSize={setVerifyPageSize} label="attendees"
+          />
+        )}
+        {renderDeskParked()}
+      </div>
+    );
+  };
+
+  const VERIFY_BUCKET_LABEL = { early: 'Early Registration', late: 'Late Registration', walkin: 'Walk-In' };
+
+  // The add form's optional extras - with accommodation's live count. Shown on
+  // the payment step, or on the one and only step of a walk-in.
+  const renderAdminExtras = () => {
+    if (adminIsBulk || !(eventRegsModal?.event_addons || []).length) return null;
+    return (
+    <div className="evt-addon-pick">
+      <div className="evt-addon-pick-head"><i className="fas fa-circle-plus"></i> Optional Extras</div>
+      {eventRegsModal.event_addons.map((a) => {
+        const bed = isBedAddon(a);
+        const on = adminAddRegAddons.includes(a.id);
+        // Rooms set up: a live count, and no more ticks once it is full.
+        // No rooms yet: no limit, the same as the server.
+        const full = bed && deskBedCapacity > 0 && deskBedsLeft <= 0 && !on;
+        return (
+        <label key={a.id} className={`evt-addon-option ${on ? 'on' : ''} ${a.is_required ? 'locked' : ''} ${full ? 'is-full' : ''}`}>
+          <input type="checkbox" checked={on} disabled={a.is_required || full} onChange={() => toggleAdminAddon(a)} />
+          <span className="evt-addon-option-text">
+            <strong>{a.question}</strong>
+            {a.is_required && <small>Required &mdash; included for everyone.</small>}
+            {bed && deskBedCapacity > 0 && (
+              <small className={`evt-addon-avail ${full ? 'is-full' : deskBedsLeft <= 3 ? 'is-low' : 'is-open'}`}>
+                <i className={`fas ${full ? 'fa-ban' : 'fa-bed'}`}></i>{' '}
+                {full ? `Full - all ${deskBedCapacity} pax reserved` : `${Math.max(0, deskBedsLeft - (on ? 1 : 0))} of ${deskBedCapacity} pax left${on ? ' after this one' : ''}`}
+              </small>
+            )}
+          </span>
+          <span className="evt-addon-option-fee">+₱{addonFeeFor(a, findTier(eventRegsModal, adminAddRegTier) || defaultTier(eventRegsModal))}</span>
+        </label>
+        );
+      })}
+    </div>
+    );
+  };
+
+  // ---- Event Kit (its own tab, after Walk-In Registrations) ----
+  // Everybody who has been verified - REGISTERED at the desk - and so is owed
+  // a kit. Live: the list and the claims are re-read every few seconds while
+  // the tab is open, so somebody verified a moment ago is already here.
+  const kitRegs = eventRegs
+    .filter((r) => r.status !== 'cancelled' && !r.deleted_at
+      && ['registered', 'payment_verified', 'paid_pending_turnover'].includes(r.status)
+      && (r.attended || Object.keys(evtDayAttend[r.id] || {}).length > 0))
+    .sort((a, b) => verifyNameKey(a).localeCompare(verifyNameKey(b)));
+  // The items ticked for somebody: what they are being given now, else what
+  // was recorded when they claimed.
+  const kitItemsOf = (r) => kitDraft[r.id] ?? (evtClaims[r.id]?.['kit-0']?.items || []);
+  const setKitItems = (r, items) => setKitDraft((d) => ({ ...d, [r.id]: items }));
+  const saveKitClaim = async (r) => {
+    const eventId = eventRegsModal?.id;
+    if (!eventId || kitBusy) return;
+    const items = kitItemsOf(r);
+    setKitBusy(r.id);
+    try {
+      const res = await fetch('/api/events/claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId, registrationId: r.id, kind: 'kit', dayNumber: 0, claimed: true, items, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setEvtClaims((prev) => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), 'kit-0': data.claim || { claimed_at: new Date().toISOString(), items } } }));
+      setKitDraft((d) => { const n = { ...d }; delete n[r.id]; return n; });
+      showToast(`Kit recorded for ${formatPersonName(r.attendee_name)}${items.length ? ` - ${items.join(', ')}` : ''}`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setKitBusy('');
+    }
+  };
+  const renderKitTab = () => {
+    const q = kitSearch.trim().toLowerCase();
+    const rows = q ? kitRegs.filter((r) => verifyNameKey(r).toLowerCase().includes(q) || formatPersonName(r.attendee_name).toLowerCase().includes(q)) : kitRegs;
+    const claimed = kitRegs.filter((r) => evtClaims[r.id]?.['kit-0']).length;
+    const items = evtMerchItems.map((m) => m.name);
+    return (
+      <div className="evt-walkins evt-kit">
+        <div className="evt-walkins-head">
+          <div>
+            <h3><i className="fas fa-bag-shopping"></i> Event Kit</h3>
+            <p>Everybody verified at the desk. Tick what is handed over, then press Claim.</p>
+          </div>
+          <div className="evt-walkins-side">
+            <span className="evt-walkins-due">{claimed} of {kitRegs.length} claimed</span>
+          </div>
+        </div>
+        {items.length === 0 && (
+          <p className="evt-kit-noitems"><i className="fas fa-circle-info"></i> No kit items are set for this event. Add them (Event ID, Tote Bag, Notebook, Tumbler…) on the event form, and a column appears for each.</p>
+        )}
+        <div className="evt-verify-search evt-walkins-search">
+          <i className="fas fa-magnifying-glass"></i>
+          <input value={kitSearch} onChange={(e) => setKitSearch(e.target.value)} placeholder="Search a name" aria-label="Search attendees" />
+          {kitSearch && <button type="button" onClick={() => setKitSearch('')} aria-label="Clear search"><i className="fas fa-times"></i></button>}
+        </div>
+        <div className="evt-table-wrapper evt-table-steady">
+          <table className="evt-table evt-kit-table">
+            <colgroup>
+              <col className="k-num" />
+              <col className="k-name" />
+              {items.map((it) => <col key={it} className="k-item" />)}
+              {items.length > 0 && <col className="k-all" />}
+              <col className="k-act" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="num">#</th>
+                <th>Attendee</th>
+                {items.map((it) => <th key={it} className="center">{it}</th>)}
+                {items.length > 0 && <th className="center">All</th>}
+                <th className="center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr><td colSpan={3 + items.length + (items.length ? 1 : 0)} className="evt-verify-empty">{q ? `Nobody here matches "${kitSearch}".` : 'Nobody has been verified yet. They appear here once the desk verifies them.'}</td></tr>
+              )}
+              {rows.map((r, i) => {
+                const n = splitPersonName(r.attendee_name);
+                const kit = evtClaims[r.id]?.['kit-0'];
+                const ticked = kitItemsOf(r);
+                const all = items.length > 0 && items.every((it) => ticked.includes(it));
+                const saved = kit?.items || [];
+                const changed = !!kitDraft[r.id] && (kitDraft[r.id].length !== saved.length || kitDraft[r.id].some((x) => !saved.includes(x)));
+                const busy = kitBusy === r.id || evtClaimBusy === `${r.id}:kit-0`;
+                return (
+                  <tr key={r.id} className={kit && !changed ? 'is-claimed' : ''}>
+                    <td className="num" data-label="#">{i + 1}</td>
+                    <td className="name evt-td-primary" data-label="Attendee">
+                      <b className="evt-verify-last">{n.last}</b>{n.first ? `, ${n.first}` : ''}
+                    </td>
+                    {items.map((it) => (
+                      <td key={it} className="center" data-label={it}>
+                        <label className={`evt-kit-check ${ticked.includes(it) ? 'on' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={ticked.includes(it)}
+                            disabled={busy}
+                            onChange={(e) => setKitItems(r, e.target.checked ? [...new Set([...ticked, it])] : ticked.filter((x) => x !== it))}
+                            aria-label={`${it} for ${formatPersonName(r.attendee_name)}`}
+                          />
+                          <span><i className="fas fa-check"></i></span>
+                        </label>
+                      </td>
+                    ))}
+                    {items.length > 0 && (
+                      <td className="center" data-label="All">
+                        <label className={`evt-kit-check is-all ${all ? 'on' : ''}`}>
+                          <input type="checkbox" checked={all} disabled={busy} onChange={(e) => setKitItems(r, e.target.checked ? [...items] : [])} aria-label={`Every item for ${formatPersonName(r.attendee_name)}`} />
+                          <span><i className="fas fa-check-double"></i></span>
+                        </label>
+                      </td>
+                    )}
+                    <td className="center" data-label="Status">
+                      {kit && !changed ? (
+                        <span className="evt-kit-done">
+                          <span className="evt-status evt-verify-registered"><i className="fas fa-circle-check"></i> Claimed</span>
+                          <small>{kit.claimed_at ? new Date(kit.claimed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}</small>
+                          <button
+                            type="button"
+                            className="evt-kit-undo"
+                            disabled={busy}
+                            onClick={() => { if (window.confirm(`Take the kit back off ${formatPersonName(r.attendee_name)}?`)) toggleRowClaim(r, 'kit', 0, false); }}
+                            title="Undo - the kit was not handed over"
+                            aria-label="Undo kit claim"
+                          >
+                            <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-rotate-left'}`}></i>
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-primary evt-kit-btn"
+                          disabled={busy || (items.length > 0 && ticked.length === 0)}
+                          onClick={() => saveKitClaim(r)}
+                          title={items.length > 0 && ticked.length === 0 ? 'Tick what is being handed over first' : ''}
+                        >
+                          <i className={`fas ${busy ? 'fa-spinner fa-spin' : kit ? 'fa-floppy-disk' : 'fa-bag-shopping'}`}></i> {kit ? 'Update' : 'Claim'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ---- Accommodation: who is waiting for a room ----
+  // Verified at the desk, holding accommodation, and not in a room yet. A
+  // child comes with their guardian: one card, one room, assigned together;
+  // a child whose guardian already has a room is offered that room first.
+  const accGuardianOf = (r) => (r.guardian_registration_id
+    ? eventRegs.find((x) => x.id === r.guardian_registration_id)
+    : (r.guardian_name ? eventRegs.find((x) => x.id !== r.id && normName(x.attendee_name) === normName(r.guardian_name)) : null)) || null;
+  const accIsHere = (r) => ['registered', 'payment_verified', 'paid_pending_turnover'].includes(r.status)
+    && (r.attended || Object.keys(evtDayAttend[r.id] || {}).length > 0);
+  // Worked out when the panel draws - it reads the rooms and the family
+  // helpers, which are set up further down.
+  //
+  // One card per booking - a bulk booking's people together, so the desk sees
+  // the family - but every person is assigned on their own row, to their own
+  // room. A child whose guardian is waiting too sits in the guardian's card.
+  const getAccWaitingGroups = () => {
+    const ready = evtRoomUnhoused.filter(accIsHere);
+    const readyIds = new Set(ready.map((r) => r.id));
+    const bookingKey = (r) => (regTypeOf(r) === 'bulk' ? `b:${r.group_ref || normName(regRepName(r))}` : `i:${r.id}`);
+    const keyOf = (r) => {
+      if (regTypeOf(r) === 'bulk') return bookingKey(r);
+      const g = accGuardianOf(r);
+      return g && readyIds.has(g.id) ? bookingKey(g) : bookingKey(r);
+    };
+    const groups = new Map();
+    ready.forEach((r) => {
+      const key = keyOf(r);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    });
+    return [...groups.entries()].map(([key, members]) => {
+      const first = members[0];
+      const bulk = regTypeOf(first) === 'bulk';
+      // Adults first, then the children, each A to Z.
+      const sorted = [...members].sort((x, y) => (isKidReg(x) - isKidReg(y)) || verifyNameKey(x).localeCompare(verifyNameKey(y)));
+      return { key, bulk, rep: bulk ? formatPersonName(regRepName(first)) : '', members: sorted };
+    }).sort((x, y) => verifyNameKey(x.members[0]).localeCompare(verifyNameKey(y.members[0])));
+  };
+  // The room a person's guardian is already in, if any.
+  const accGuardianRoom = (r) => {
+    const g = accGuardianOf(r);
+    return g ? (evtRoomGuests.find((x) => x.registration_id === g.id)?.room_id || '') : '';
+  };
+  const accRoomFree = (room) => (Number(room.pax) || 1) - (evtGuestsByRoom.get(room.id)?.length || 0);
+  // "3 Pax (2nd Floor)" - the floors added only when the type's own name does
+  // not already say them, so nothing reads "(3rd Floor) (3rd Floor)".
+  const typeWithFloors = (g) => {
+    const name = String(g.type || '');
+    const missing = (g.floors || []).filter((f) => !name.toLowerCase().includes(String(f).toLowerCase()));
+    return missing.length ? `${name} (${missing.join(', ')})` : name;
+  };
+  // Every room, grouped by type, each saying how much space it has - and why
+  // it cannot be picked when it cannot.
+  const roomPickOptions = ({ need = 1, current = '', guardianRoom = '', fromOcc = '' } = {}) => evtRoomGroups.flatMap((tg) => tg.rooms.map((x) => {
+    const used = evtGuestsByRoom.get(x.id)?.length || 0;
+    const cap = Number(x.pax) || 1;
+    const free = cap - used + (x.id === current ? 1 : 0);
+    const here = x.id === current;
+    // Out of an All Boys room: All Boys, Family or unlabelled - never All Girls (and the other way round).
+    const wrongKind = !here && !!fromOcc && !!x.occupancy && x.occupancy !== fromOcc && x.occupancy !== 'family';
+    const fits = here || (free >= need && !wrongKind);
+    return {
+      value: x.id,
+      group: typeWithFloors(tg),
+      label: `Room ${x.room_number}`,
+      sub: [x.floor, `${cap - used} of ${cap} free`, x.occupancy ? occupancyLabel(x.occupancy) : ''].filter(Boolean).join(' · '),
+      badge: here ? 'Here' : wrongKind ? `${occupancyLabel(x.occupancy)} room` : x.id === guardianRoom ? 'With guardian' : !fits ? (cap - used <= 0 ? 'Full' : `Only ${cap - used} free`) : (fromOcc && fromOcc !== 'family' && !x.occupancy && used === 0 ? `Becomes ${occupancyLabel(fromOcc)}` : ''),
+      tone: here ? 'info' : wrongKind ? 'muted' : x.id === guardianRoom ? 'ok' : !fits ? 'muted' : (fromOcc && !x.occupancy && used === 0 ? 'warn' : ''),
+      disabled: !fits,
+    };
+  }));
+  // Everybody holding accommodation, as options for a room: the ones here and
+  // still without a room can be added; the rest say why they cannot.
+  const roomPeopleOptions = () => {
+    const roomOf = (id) => evtRooms.find((x) => x.id === evtRoomGuests.find((g) => g.registration_id === id)?.room_id);
+    return [...evtRoomEntitled]
+      .map((w) => {
+        const room = roomOf(w.id);
+        const here = accIsHere(w);
+        return {
+          value: w.id,
+          group: room ? 'Already in a room' : here ? 'Ready - verified at the desk' : 'Not arrived yet',
+          order: room ? 2 : here ? 0 : 1,
+          label: verifyNameKey(w),
+          sub: [w.price_tier, kidGuardianName(w) ? `Guardian: ${kidGuardianName(w)}` : ''].filter(Boolean).join(' · '),
+          badge: room ? `In ${room.room_number}` : here ? 'Ready' : 'Not arrived',
+          tone: room ? 'info' : here ? 'ok' : 'muted',
+          disabled: !!room || !here,
+        };
+      })
+      .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
+  };
+  // Rooms that fit who a room is for: labelled that way, or empty and
+  // unlabelled (it takes the label when they go in). A room labelled for
+  // somebody else is not offered at all.
+  const roomsForOcc = (occ) => evtRooms.filter((x) => x.occupancy === occ
+    || (!x.occupancy && (evtGuestsByRoom.get(x.id)?.length || 0) === 0)).map((x) => x.id);
+  const assignWaitingPerson = async (m) => {
+    const eventId = eventRegsModal?.id;
+    const pick = accAssign[m.id] || {};
+    const occ = pick.occ || '';
+    const room = evtRooms.find((x) => x.id === pick.roomId);
+    if (!eventId || accAssignBusy) return;
+    if (!occ) { showToast('Choose Boys, Girls or Family first.', 'warning'); return; }
+    if (!room) { showToast('Choose a room first.', 'warning'); return; }
+    if (accRoomFree(room) < 1) { showToast(`${room.room_number} is full - choose another room.`, 'danger'); return; }
+    if (room.occupancy && room.occupancy !== occ) {
+      showToast(`${room.room_number} is ${occupancyLabel(room.occupancy)} - choose a ${occupancyLabel(occ)} room.`, 'danger');
+      return;
+    }
+    setAccAssignBusy(m.id);
+    try {
+      // The label goes on the room before anybody goes in.
+      if (room.occupancy !== occ) {
+        const r = await fetch('/api/events/rooms', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: room.id, actorId: userData?.id || null, occupancy: occ }),
+        });
+        const d = await r.json();
+        if (!d.success) { showToast(d.message, 'danger'); return; }
+        setEvtRooms((rooms) => rooms.map((x) => (x.id === room.id ? { ...x, occupancy: d.data?.occupancy ?? occ } : x)));
+      }
+      const res = await fetch('/api/events/room-guests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId, roomId: room.id, registrationId: m.id, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      applyClearedRooms(data);
+      showToast(`${formatPersonName(m.attendee_name)} → ${room.room_type} ${room.room_number} (${occupancyLabel(occ)})`, 'success');
+      setAccAssign((x) => { const n = { ...x }; delete n[m.id]; return n; });
+      loadEvtRoomGuests(eventId);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setAccAssignBusy('');
+    }
+  };
+  // ---- Export: who sleeps where, with a line to sign ----
+  // One table, sorted room by room. The room, its floor, its type and who it
+  // is for are written on the first line of each room only, and each room is
+  // shaded by who it is for (the legend says which colour is which), so a
+  // printed page reads as "Room 316 - All Boys" and the names under it.
+  const ROOM_EXPORT_FILL = { boys: 'E0ECFF', girls: 'FCE7F3', family: 'FEF3C7' };
+  const buildRoomExportSpec = (occFilter = 'all', orientation = 'landscape') => {
+    const evt = eventRegsModal;
+    const rooms = evtRoomGroups.flatMap((g) => g.rooms.map((r) => ({ ...r, _type: typeWithFloors(g) })))
+      .filter((r) => (evtGuestsByRoom.get(r.id) || []).length > 0)
+      .filter((r) => occFilter === 'all' || (occFilter === 'none' ? !r.occupancy : r.occupancy === occFilter));
+    const rows = [];
+    let n = 0;
+    rooms.forEach((room) => {
+      const guests = [...(evtGuestsByRoom.get(room.id) || [])]
+        .map((g) => ({ g, reg: eventRegs.find((x) => x.id === g.registration_id) || g.registration || {} }))
+        .sort((a, b) => verifyNameKey(a.reg).localeCompare(verifyNameKey(b.reg)));
+      const fill = ROOM_EXPORT_FILL[room.occupancy] || '';
+      guests.forEach(({ reg }, i) => {
+        n += 1;
+        const guardian = kidGuardianName(reg);
+        rows.push({
+          room: i === 0 ? `Room ${room.room_number}` : '',
+          floor: i === 0 ? (room.floor || '-') : '',
+          type: i === 0 ? room._type : '',
+          for: i === 0 ? `${occupancyLabel(room.occupancy) || 'Not labelled'} (${guests.length}/${room.pax} pax)` : '',
+          n: String(n),
+          name: verifyNameKey(reg) + (guardian ? ` (Guardian: ${guardian})` : ''),
+          age: reg.price_tier || '-',
+          church: formatChurchName(reg.church_name) || '-',
+          sign: '____________________',
+          _fill: fill,
+        });
+      });
+    });
+    const roomsOf = (occ) => rooms.filter((r) => r.occupancy === occ).length;
+    const legend = [
+      { color: ROOM_EXPORT_FILL.boys, label: 'All Boys', count: roomsOf('boys') },
+      { color: ROOM_EXPORT_FILL.girls, label: 'All Girls', count: roomsOf('girls') },
+      { color: ROOM_EXPORT_FILL.family, label: 'Family', count: roomsOf('family') },
+    ].filter((l) => l.count > 0);
+    const filterLabel = { all: 'All rooms', boys: 'All Boys rooms', girls: 'All Girls rooms', family: 'Family rooms', none: 'Unlabelled rooms' }[occFilter];
+    return {
+      title: verifyEventName || evt?.title || 'Event',
+      subtitle: 'Room Assignments',
+      orientation,
+      columns: [
+        { key: 'room', label: 'Room', width: 9 },
+        { key: 'floor', label: 'Floor', width: 9 },
+        { key: 'type', label: 'Room Type', width: 15 },
+        { key: 'for', label: 'Room For', width: 13 },
+        { key: 'n', label: '#', width: 4, align: 'center' },
+        { key: 'name', label: 'Attendee (Last, First)', width: 24 },
+        { key: 'age', label: 'Age Group', width: 9 },
+        { key: 'church', label: 'Church', width: 18 },
+        { key: 'sign', label: 'Signature', width: 15 },
+      ],
+      rows,
+      legend,
+      meta: [
+        ['Date', evt ? formatEventSpan(evt.event_date, evt.end_date) : ''],
+        ['Venue', [evt?.accommodation_hotel || evt?.location, evt?.loc_city].filter(Boolean).join(', ')],
+        ['Rooms', `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'} - ${filterLabel}`],
+        ['Guests', `${rows.length} ${rows.length === 1 ? 'person' : 'people'} with a room`],
+        ['Still without a room', String(evtRoomUnhoused.length)],
+      ],
+      footNote: `Generated ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}${userData?.firstname ? ` by ${userData.firstname} ${userData.lastname || ''}`.trim() : ''} - each attendee signs beside their name on check-in.`,
+    };
+  };
+  const previewRoomExport = async () => {
+    const x = roomExport;
+    if (!x || x.busy) return;
+    const spec = buildRoomExportSpec(x.occ, x.orient);
+    if (!spec.rows.length) { showToast('Nobody is in a room for that choice yet', 'warning'); return; }
+    setRoomExport({ ...x, busy: true });
+    try {
+      const name = safeFilename(provinceLabel(eventRegsModal), eventRegsModal?.title, 'Room Assignments', new Date().toISOString().slice(0, 10));
+      let blob;
+      let filename;
+      if (x.format === 'pdf') {
+        if (exportLogoRef.current === undefined) exportLogoRef.current = await loadLogoJpeg();
+        blob = buildPdf(spec, exportLogoRef.current);
+        filename = `${name}.pdf`;
+      } else if (x.format === 'xlsx') { blob = buildXlsx(spec); filename = `${name}.xlsx`; }
+      else if (x.format === 'docx') { blob = buildDocx(spec); filename = `${name}.docx`; }
+      else { blob = buildCsv(spec); filename = `${name}.csv`; }
+      setExportPreview({
+        blob, filename, format: x.format, rows: spec.rows.length, orientation: x.orient,
+        url: x.format === 'pdf' ? URL.createObjectURL(blob) : '',
+        html: x.format === 'pdf' ? '' : buildPrintHtml(spec),
+        spec,
+      });
+      setRoomExport(null);
+    } catch (err) {
+      showToast(err.message, 'danger');
+      setRoomExport((cur) => (cur ? { ...cur, busy: false } : cur));
+    }
+  };
+  const renderRoomExport = () => {
+    if (!roomExport) return null;
+    const x = roomExport;
+    const set = (patch) => setRoomExport((cur) => (cur ? { ...cur, ...patch } : cur));
+    const count = (occ) => evtRooms.filter((r) => (evtGuestsByRoom.get(r.id) || []).length > 0 && (occ === 'all' || (occ === 'none' ? !r.occupancy : r.occupancy === occ))).length;
+    const FORMATS = [
+      { key: 'pdf', icon: 'fa-file-pdf', label: 'PDF', hint: 'Print and sign' },
+      { key: 'xlsx', icon: 'fa-file-excel', label: 'Excel', hint: 'Spreadsheet' },
+      { key: 'docx', icon: 'fa-file-word', label: 'Word', hint: 'Editable' },
+      { key: 'csv', icon: 'fa-file-csv', label: 'CSV', hint: 'Plain data' },
+    ];
+    const OCCS = [
+      { key: 'all', label: 'All rooms' },
+      { key: 'boys', label: 'All Boys' },
+      { key: 'girls', label: 'All Girls' },
+      { key: 'family', label: 'Family' },
+      { key: 'none', label: 'Unlabelled' },
+    ];
+    return createPortal(
+      <div className="evt-modal-overlay" onClick={() => !x.busy && setRoomExport(null)}>
+        <div className="evt-modal rexp" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div className="evt-modal-head">
+            <div><h3><i className="fas fa-file-export"></i> Export Room Assignments</h3><p>{verifyEventName}</p></div>
+            <button type="button" className="evt-modal-close" onClick={() => setRoomExport(null)} disabled={x.busy} aria-label="Close"><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            <p className="rexp-lede">Room by room: who each room is for, the people in it, and a line for each to sign.</p>
+            <div className="rexp-label">File</div>
+            <div className="rexp-formats">
+              {FORMATS.map((f) => (
+                <button key={f.key} type="button" className={`rexp-format ${x.format === f.key ? 'on' : ''}`} onClick={() => set({ format: f.key })}>
+                  <i className={`fas ${f.icon}`}></i>
+                  <b>{f.label}</b>
+                  <small>{f.hint}</small>
+                </button>
+              ))}
+            </div>
+            <div className="rexp-label">Rooms</div>
+            <div className="rexp-chips">
+              {OCCS.map((o) => (
+                <button key={o.key} type="button" className={`rexp-chip ${x.occ === o.key ? 'on' : ''}`} onClick={() => set({ occ: o.key })} disabled={count(o.key) === 0 && o.key !== 'all'}>
+                  {o.label} <span>{count(o.key)}</span>
+                </button>
+              ))}
+            </div>
+            <div className="rexp-label">Page</div>
+            <div className="rexp-chips">
+              {[['landscape', 'Landscape', 'fa-panorama'], ['portrait', 'Portrait', 'fa-file']].map(([k, l, ic]) => (
+                <button key={k} type="button" className={`rexp-chip ${x.orient === k ? 'on' : ''}`} onClick={() => set({ orient: k })}>
+                  <i className={`fas ${ic}`}></i> {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="btn-secondary" onClick={() => setRoomExport(null)} disabled={x.busy}>Cancel</button>
+            <button type="button" className="btn-primary" onClick={previewRoomExport} disabled={x.busy}>
+              <i className={`fas ${x.busy ? 'fa-spinner fa-spin' : 'fa-eye'}`}></i> Preview
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  const renderAccWaiting = () => {
+    if (evtRooms.length === 0) return null;
+    const groups = getAccWaitingGroups();
+    const notHere = evtRoomUnhoused.filter((r) => !accIsHere(r)).length;
+    const waitingCount = groups.reduce((t, g) => t + g.members.length, 0);
+    return (
+      <div className="acc-wait">
+        <div className="acc-wait-head">
+          <div>
+            <h3><i className="fas fa-person-shelter"></i> Waiting for a Room <span className="evt-tab-count">{waitingCount}</span></h3>
+            <p>Verified at the desk and holding accommodation. For each person: choose <b>Boys</b>, <b>Girls</b> or <b>Family</b>, then a room, then assign.</p>
+          </div>
+          {notHere > 0 && <span className="acc-wait-later">{notHere} more with accommodation have not arrived yet</span>}
+        </div>
+        {groups.length === 0 ? (
+          <p className="acc-wait-empty"><i className="fas fa-circle-check"></i> Nobody is waiting. Verified attendees with accommodation appear here.</p>
+        ) : (
+          <div className="acc-wait-list">
+            {groups.map((grp) => (
+              <div key={grp.key} className={`acc-wait-card ${grp.members.length > 1 ? 'is-family' : ''}`}>
+                {grp.bulk && (
+                  <div className="acc-wait-booking">
+                    <i className="fas fa-users"></i> {grp.rep}&apos;s bulk booking
+                    <span>{grp.members.length} waiting · each assigned on their own</span>
+                  </div>
+                )}
+                {grp.members.map((m) => {
+                  const nm = splitPersonName(m.attendee_name);
+                  const kid = isKidReg(m);
+                  const pick = accAssign[m.id] || {};
+                  const occ = pick.occ || '';
+                  const guardianRoom = accGuardianRoom(m);
+                  const allowed = occ ? new Set(roomsForOcc(occ)) : null;
+                  const options = occ
+                    ? roomPickOptions({ need: 1, guardianRoom }).filter((o) => allowed.has(o.value) || o.value === guardianRoom)
+                      .map((o) => (o.value === guardianRoom && !allowed.has(o.value)
+                        ? { ...o, disabled: true, badge: occupancyLabel(evtRooms.find((x) => x.id === o.value)?.occupancy) ? `${occupancyLabel(evtRooms.find((x) => x.id === o.value)?.occupancy)} room` : 'Unlabelled room', tone: 'muted' }
+                        : o))
+                    : [];
+                  const set = (patch) => setAccAssign((x) => ({ ...x, [m.id]: { ...(x[m.id] || {}), ...patch } }));
+                  const busy = accAssignBusy === m.id;
+                  const room = evtRooms.find((x) => x.id === pick.roomId);
+                  const guardian = kid ? accGuardianOf(m) : null;
+                  return (
+                    <div key={m.id} className="acc-wait-row">
+                      <div className="acc-wait-who">
+                        <span className={`acc-wait-person ${kid ? 'is-kid' : ''}`}>
+                          <i className={`fas ${kid ? 'fa-child' : 'fa-user'}`}></i>
+                          <b>{nm.last}</b>{nm.first ? `, ${nm.first}` : ''}
+                          {m.price_tier && <em>{m.price_tier}</em>}
+                        </span>
+                        {guardian && (
+                          <small className="acc-wait-tag is-guardian">
+                            <i className="fas fa-user-shield"></i> Guardian {formatPersonName(guardian.attendee_name)}
+                            {guardianRoom ? ` is in ${evtRooms.find((x) => x.id === guardianRoom)?.room_number}` : ' has no room yet'}
+                          </small>
+                        )}
+                      </div>
+                      <div className="acc-wait-do">
+                        <div className="acc-wait-occ" role="radiogroup" aria-label={`Who the room is for - ${formatPersonName(m.attendee_name)}`}>
+                          {ROOM_OCCUPANCY.map((o) => (
+                            <button
+                              key={o.value}
+                              type="button"
+                              role="radio"
+                              aria-checked={occ === o.value}
+                              className={occ === o.value ? 'on' : ''}
+                              // A different label empties the room choice - it may not fit any more.
+                              onClick={() => set({ occ: o.value, roomId: pick.roomId && roomsForOcc(o.value).includes(pick.roomId) ? pick.roomId : '' })}
+                              disabled={busy}
+                            >
+                              <i className={`fas ${o.icon}`}></i> {o.label.replace('All ', '')}
+                            </button>
+                          ))}
+                        </div>
+                        <PickList
+                          className="acc-wait-room"
+                          value={pick.roomId || ''}
+                          onChange={(v) => set({ roomId: v })}
+                          options={options}
+                          placeholder={occ ? `Choose a ${occupancyLabel(occ).replace('All ', '')} room…` : 'Choose Boys, Girls or Family first'}
+                          disabled={busy || !occ}
+                          searchable
+                          ariaLabel="Room"
+                          emptyText={occ ? `No ${occupancyLabel(occ)} rooms with space - label an empty room by choosing it` : ''}
+                        />
+                        <button
+                          type="button"
+                          className="btn-primary acc-wait-go"
+                          onClick={() => assignWaitingPerson(m)}
+                          disabled={busy || !occ || !room}
+                          title={!occ ? 'Choose Boys, Girls or Family first' : !room ? 'Choose a room first' : ''}
+                        >
+                          <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-key'}`}></i> Assign
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ---- Walk-In Registrations (its own tab, before Attendance) ----
+  // Everybody added on an event day. They are saved as Cash To Collect; the
+  // verifier takes the money at the Registration Verification desk, where the
+  // same people are on the Walk-In list.
+  const walkInRegs = eventRegs
+    .filter((r) => r.status !== 'cancelled' && !r.deleted_at && verifyBucketOf(r) === 'walkin')
+    .sort((a, b) => verifyNameKey(a).localeCompare(verifyNameKey(b)));
+  const renderWalkInsTab = () => {
+    const onTheDay = verifyEventDays.has(manilaDay(new Date().toISOString()));
+    const q = attSearch.trim().toLowerCase();
+    const rows = q ? walkInRegs.filter((r) => `${verifyNameKey(r)} ${r.church_name || ''} ${r.added_by || ''}`.toLowerCase().includes(q)) : walkInRegs;
+    const due = walkInRegs.reduce((t, r) => t + regCashDue(r), 0);
+    return (
+      <div className="evt-walkins">
+        <div className="evt-walkins-head">
+          <div>
+            <h3><i className="fas fa-person-walking"></i> Walk-In Registrations</h3>
+            <p>Added at the door on the event day. The verifier collects their payment at Registration Verification.</p>
+          </div>
+          <div className="evt-walkins-side">
+            {due > 0 && <span className="evt-walkins-due">₱{due.toLocaleString()} to collect</span>}
+            <button type="button" className="btn-primary" onClick={() => openAdminAddReg(false, true)} disabled={!onTheDay || isEventOver(eventRegsModal)} title={onTheDay ? '' : 'Walk-ins open on the event day itself'}>
+              <i className="fas fa-user-plus"></i> Add Walk-In
+            </button>
+          </div>
+        </div>
+        <div className="evt-verify-search evt-walkins-search">
+          <i className="fas fa-magnifying-glass"></i>
+          <input value={attSearch} onChange={(e) => setAttSearch(e.target.value)} placeholder="Search a name, church or who added them" aria-label="Search walk-ins" />
+          {attSearch && <button type="button" onClick={() => setAttSearch('')} aria-label="Clear search"><i className="fas fa-times"></i></button>}
+        </div>
+        <div className="evt-table-wrapper evt-table-steady">
+          <table className="evt-table evt-verify-table evt-walkins-table">
+            <thead>
+              <tr>
+                <th className="num">#</th>
+                <th>Attendee</th>
+                <th className="center">Age Group</th>
+                <th className="center">Extras</th>
+                <th className="center">Amount</th>
+                <th className="center">Status</th>
+                <th>Added By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr><td colSpan={7} className="evt-verify-empty">{q ? `Nobody here matches "${attSearch}".` : onTheDay ? 'No walk-ins yet today.' : 'Walk-ins are added on the event day.'}</td></tr>
+              )}
+              {rows.map((r, i) => {
+                const n = splitPersonName(r.attendee_name);
+                const extras = regExtrasOf(r);
+                return (
+                  <tr key={r.id}>
+                    <td className="num" data-label="#">{i + 1}</td>
+                    <td className="name evt-td-primary" data-label="Attendee">
+                      <b className="evt-verify-last">{n.last}</b>{n.first ? `, ${n.first}` : ''}
+                      {renderFamilyLine(r)}
+                    </td>
+                    <td className="center" data-label="Age Group">{r.price_tier || '—'}</td>
+                    <td className="center" data-label="Extras" title={extras.map((a) => a.question).join(', ') || 'No extras'}>
+                      {extras.length ? extras.map((a) => addonShortLabel(a.question)).join(', ') : <span className="evt-muted">None</span>}
+                    </td>
+                    <td className="center" data-label="Amount"><b className="evt-verify-amt">₱{(Number(r.amount) || 0).toLocaleString()}</b></td>
+                    <td className="center" data-label="Status">{verifyStatusBadge(r)}</td>
+                    <td data-label="Added By">
+                      <span className="evt-walkins-by">{formatPersonName(r.added_by) || '—'}</span>
+                      <small className="evt-muted">{r.created_at ? new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</small>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+  // The open attendee popup was worked on - an extra, a substitute, a
+  // guardian, a payment started, a tick taken off. Only then does closing it
+  // ask first; a popup that was only looked at closes straight away.
+  const markTapDirty = () => setVerifyTap((cur) => (cur ? { ...cur, dirty: true } : cur));
+
+  // ---- Children and their guardians ----
+  // A child's guardian is another registration at the event (or, on an older
+  // group booking, just the name of whoever made it). Each side names the
+  // other: "Guardian: Frank Gomez" on the child, "Kid: Hacier Llanes" on him.
+  const normName = (v) => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const kidGuardianName = (r) => {
+    if (r.guardian_registration_id) {
+      const g = eventRegs.find((x) => x.id === r.guardian_registration_id);
+      return formatPersonName(g?.attendee_name || r.guardian_name || '');
+    }
+    return r.guardian_name ? formatPersonName(r.guardian_name) : '';
+  };
+  const kidsOf = (r) => eventRegs.filter((k) => k.id !== r.id && k.status !== 'cancelled' && (
+    k.guardian_registration_id ? k.guardian_registration_id === r.id
+      : !!k.guardian_name && normName(k.guardian_name) === normName(r.attendee_name)));
+  // A child: a children's age group (name-only, or capped below 18 - "6-10
+  // Years Old"), or a row already under a guardian. Paid or free, they get a
+  // guardian; free ones have nothing to pay, so that is all their card shows.
+  const isKidReg = (r) => {
+    const tier = findTier(eventRegsModal, r.price_tier);
+    return isNameOnlyTier(tier) || (tier?.maxAge != null && Number(tier.maxAge) < 18)
+      || !!(r.guardian_name || r.guardian_registration_id)
+      || /kid|child|infant|toddler|years?\s*old|yrs?\s*old/i.test(r.price_tier || '');
+  };
+  const isFreeKid = (r) => !(Number(r.amount) > 0) && isKidReg(r);
+  const saveGuardian = async (kid, guardian) => {
+    if (guardianBusy) return;
+    setGuardianBusy(kid.id);
+    try {
+      const res = await fetch('/api/events/registrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: kid.id, actorId: userData?.id, action: 'set_guardian', guardianRegistrationId: guardian?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message, 'danger'); return; }
+      setEventRegs((list) => list.map((r) => (r.id === kid.id ? { ...r, ...data.data } : r)));
+      setGuardianEdit('');
+      markTapDirty();
+      showToast(guardian
+        ? `${formatPersonName(guardian.name)} is now ${formatPersonName(kid.attendee_name)}'s guardian`
+        : `Guardian cleared for ${formatPersonName(kid.attendee_name)}`, 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setGuardianBusy('');
+    }
+  };
+  // The one line under a name that says who they are with.
+  const renderFamilyLine = (r, cls = '') => {
+    const guardian = kidGuardianName(r);
+    if (guardian) return <small className={`evt-verify-family ${cls}`}><i className="fas fa-user-shield"></i> Guardian: <b>{guardian}</b></small>;
+    const kids = kidsOf(r);
+    if (kids.length) {
+      return (
+        <small className={`evt-verify-family is-kid ${cls}`}>
+          <i className="fas fa-child"></i> {kids.length === 1 ? 'Kid' : 'Kids'}: <b>{kids.map((k) => formatPersonName(k.attendee_name)).join(', ')}</b>
+        </small>
+      );
+    }
+    return null;
+  };
+
+  const renderGuardianRow = (g) => (
+    <div className={`evt-verify-guardian-row ${kidGuardianName(g) && guardianEdit !== g.id ? '' : 'is-searching'}`}>
+      <dt>Guardian</dt>
+      <dd>
+        {kidGuardianName(g) && guardianEdit !== g.id ? (
+          <span className="evt-verify-guardian">
+            <b>{kidGuardianName(g)}</b>
+            <button type="button" className="evt-verify-addbtn" onClick={() => setGuardianEdit(g.id)} disabled={guardianBusy === g.id}>
+              <i className="fas fa-pen"></i> Change
+            </button>
+          </span>
+        ) : (
+          <span className="evt-verify-guardian-pick">
+            <GuardianPicker
+              eventId={eventRegsModal?.id}
+              value={null}
+              onChange={(v) => { if (v) saveGuardian(g, v); }}
+              label=""
+              placeholder="Search the parent or guardian"
+              hint={guardianBusy === g.id ? 'Saving…' : 'They must be registered for this event.'}
+            />
+            {guardianEdit === g.id && (
+              <span className="evt-verify-guardian-acts">
+                <button type="button" className="evt-verify-addbtn" onClick={() => setGuardianEdit('')}>Cancel</button>
+                {kidGuardianName(g) && (
+                  <button type="button" className="evt-verify-addbtn is-danger" onClick={() => saveGuardian(g, null)} disabled={guardianBusy === g.id}>
+                    <i className="fas fa-xmark"></i> Remove guardian
+                  </button>
+                )}
+              </span>
+            )}
+          </span>
+        )}
+      </dd>
+    </div>
+  );
+
+  // One attendee on the left of the popup: who they are, their extras (which
+  // the desk can add to, and take back what it added), and what they owe.
+  const renderVerifyPerson = (g, hasGroup) => {
+    const gn = splitPersonName(g.attendee_name);
+    const gb = verifyBucketOf(g);
+    const held = regExtrasOf(g);
+    const offered = (eventRegsModal?.event_addons || []).filter((a) => !held.some((h) => sameAddon(h, a)));
+    const canEdit = deskCanEditExtras(g);
+    const amount = Number(g.amount) || 0;
+    const extrasSum = regExtrasTotal(g);
+    return (
+      <div key={g.id} className="evt-verify-pcard">
+        <div className="evt-verify-pop-person">
+          <div>
+            <h3><b className="evt-verify-last">{gn.last}</b>{gn.first ? `, ${gn.first}` : ''}</h3>
+            {g.original_attendee_name && (
+              <p className="evt-verify-subof">
+                <i className="fas fa-user-pen"></i> Substitute for <b>{verifyNameKey({ attendee_name: g.original_attendee_name })}</b>
+                {g.substituted_by_name ? ` · by ${g.substituted_by_name}` : ''}
+              </p>
+            )}
+            <p>
+              {[g.price_tier, regTypeOf(g) === 'bulk' ? 'Bulk' : 'Individual'].filter(Boolean).join(' · ')}
+              {' · '}<b className={`evt-verify-bucket is-${gb}`}>{VERIFY_BUCKET_LABEL[gb]}</b>
+            </p>
+            {renderFamilyLine(g, 'is-card')}
+            {g.added_by_role === 'Verifier' && (
+              <p className="evt-verify-addedby"><i className="fas fa-user-shield"></i> Added by {formatPersonName(g.added_by)} · Verifier</p>
+            )}
+            {/* One person on their own: Substitute here. In a booking it is on every row. */}
+            {!hasGroup && (
+              <span className="evt-verify-rowacts evt-verify-pop-subacts">
+                {g.original_attendee_name && (
+                  <button type="button" onClick={() => restoreVerifySubstitute(g)} title={`Put ${formatPersonName(g.original_attendee_name)} back`}>
+                    <i className="fas fa-rotate-left"></i> Registered name
+                  </button>
+                )}
+                <button type="button" onClick={() => openVerifySubstitute(g)} title={`Substitute for ${formatPersonName(g.attendee_name)}`}>
+                  <i className="fas fa-user-pen"></i> Substitute
+                </button>
+              </span>
+            )}
+          </div>
+          {verifyStatusBadge(g)}
+        </div>
+        {isFreeKid(g) ? (
+          <dl className="evt-verify-pop-facts">
+            {renderGuardianRow(g)}
+          </dl>
+        ) : (
+        <dl className="evt-verify-pop-facts">
+          <div>
+            <dt>Extras</dt>
+            <dd>
+              <span className="evt-verify-extras">
+                {held.length === 0 && <span className="evt-muted">None</span>}
+                {held.map((a) => {
+                  const busy = verifyAddonBusy === `${g.id}:${a.id}`;
+                  return (
+                    <span key={a.id || a.question} className="evt-verify-extra-line">
+                      <span className={`evt-verify-extra ${a.desk ? 'is-desk' : ''}`}>
+                        <i className={`fas ${isBedAddon(a) ? 'fa-bed' : 'fa-circle-plus'}`}></i>
+                        {addonShortLabel(a.question)}
+                        {Number(a.fee) > 0 && <em>+₱{Number(a.fee).toLocaleString()}</em>}
+                        {a.desk && canEdit && !isPaidStatus(g) && (
+                          <button type="button" onClick={() => deskAddon(g, a.id, true)} disabled={!!verifyAddonBusy} title="Remove this extra" aria-label={`Remove ${a.question}`}>
+                            <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-xmark'}`}></i>
+                          </button>
+                        )}
+                      </span>
+                      {/* Beside the chip, not in it: its own button, the same height. */}
+                      {!(a.desk && canEdit && !isPaidStatus(g)) && deskCanCancelExtra(g) && (
+                        extraRefundFor(g, a).refund > 0 ? (
+                          <button type="button" className="evt-xact is-refund" onClick={() => openExtraCancel(g, a)} title="Cancel this extra and refund it">
+                            <i className="fas fa-rotate-left"></i> Refund
+                          </button>
+                        ) : (
+                          <button type="button" className="evt-xact is-icon" onClick={() => openExtraCancel(g, a)} title="Cancel this extra" aria-label={`Cancel ${a.question}`}>
+                            <i className="fas fa-xmark"></i>
+                          </button>
+                        )
+                      )}
+                    </span>
+                  );
+                })}
+              </span>
+              {canEdit && offered.length > 0 && (
+                <span className="evt-verify-addextra">
+                  <button type="button" className="evt-verify-addbtn" onClick={() => setVerifyAddonMenu(verifyAddonMenu === g.id ? null : g.id)} aria-expanded={verifyAddonMenu === g.id}>
+                    <i className="fas fa-plus"></i> Add extra
+                  </button>
+                  {verifyAddonMenu === g.id && (
+                    <span className="evt-verify-addmenu" role="menu">
+                      {offered.map((a) => {
+                        const bed = isBedAddon(a);
+                        const full = bed && deskBedsLeft <= 0;
+                        const busy = verifyAddonBusy === `${g.id}:${a.id}`;
+                        return (
+                          <button key={a.id} type="button" role="menuitem" disabled={full || !!verifyAddonBusy} onClick={() => deskAddon(g, a.id)}>
+                            <i className={`fas ${busy ? 'fa-spinner fa-spin' : bed ? 'fa-bed' : 'fa-circle-plus'}`}></i>
+                            <span>
+                              <b>{addonShortLabel(a.question)}</b>
+                              {bed && (
+                                <small className={full ? 'is-full' : 'is-open'}>
+                                  {!deskBedCapacity ? 'No rooms set up yet'
+                                    : full ? `Full · all ${deskBedCapacity} pax reserved`
+                                      : `${deskBedsLeft} of ${deskBedCapacity} pax available`}
+                                </small>
+                              )}
+                            </span>
+                            <em>+₱{deskAddonFee(a, g).toLocaleString()}</em>
+                          </button>
+                        );
+                      })}
+                    </span>
+                  )}
+                </span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Amount</dt>
+            <dd>
+              <b className="evt-verify-amt">₱{amount.toLocaleString()}</b>
+              {extrasSum > 0 && <small>₱{Math.max(0, amount - extrasSum).toLocaleString()} + ₱{extrasSum.toLocaleString()} extras</small>}
+              {Number(g.amount_paid) > 0 && g.status === 'pending_cash' && <small>Paid ₱{Number(g.amount_paid).toLocaleString()} · ₱{regCashDue(g).toLocaleString()} still due</small>}
+            </dd>
+          </div>
+          {g.status === 'paid_pending_turnover' && (
+            <div><dt>Money with</dt><dd>{g.turnover_holder ? <b>{formatPersonName(g.turnover_holder)}</b> : <span className="evt-muted">Not recorded</span>}</dd></div>
+          )}
+          {isKidReg(g) && renderGuardianRow(g)}
+        </dl>
+        )}
+      </div>
+    );
+  };
+
+  // The attendee a card tap (or a row click) brought up.
+  const renderVerifyTap = () => {
+    // Out of the way while the Substitute dialog is open; it comes back,
+    // with the new name, once that is saved or cancelled.
+    if (!verifyTap || verifySub) return null;
+    const reg = verifyTap.regId ? (eventRegs.find((r) => r.id === verifyTap.regId) || verifyTap.reg) : null;
+    // Only looked at: it just closes. Worked on - or more cards tapped into
+    // it - and it asks first, so a stray click loses nothing.
+    const worked = !!verifyTap.dirty || (verifyTap.picked || []).length > 1;
+    const close = () => { dropTab(verifyTap.tabKey); setVerifyTap(null); setVerifyAddonMenu(null); };
+    const askClose = () => (reg && worked ? setVerifyCloseAsk(true) : close());
+    let body;
+    if (verifyTap.busy) {
+      body = <div className="evt-verify-pop-wait"><div className="spinner"></div><p>Reading the card…</p></div>;
+    } else if (!reg) {
+      body = (
+        <div className="evt-verify-pop-wait">
+          <i className="fas fa-circle-exclamation" style={{ color: '#dc3545', fontSize: '2rem' }}></i>
+          <p>{verifyTap.message}</p>
+          {verifyTap.uid && <small className="evt-muted">Card {formatUid(verifyTap.uid)}</small>}
+        </div>
+      );
+    } else {
+      const bulk = regTypeOf(reg) === 'bulk';
+      const group = bulk ? collectGroupFor(reg) : [reg];
+      // Everybody tapped so far (the first card, plus any from the same booking).
+      const pickedIds = (verifyTap.picked || [reg.id]).filter((id) => group.some((g) => g.id === id));
+      // In the order they were tapped, so the newest one lands at the bottom.
+      const pickedRows = pickedIds.map((id) => group.find((g) => g.id === id)).filter(Boolean);
+      const payRows = pickedRows.filter((g) => !deskParkedFor(g.id) && !regCashPaid(g) && regCashDue(g) > 0 && ['pending_cash', 'installment', 'pending_payment'].includes(g.status));
+      const turnRows = pickedRows.filter((g) => g.status === 'paid_pending_turnover' && (Number(g.amount) || 0) > 0);
+      const due = payRows.reduce((t, g) => t + regCashDue(g), 0);
+      const turnDue = turnRows.reduce((t, g) => t + (Number(g.amount) || 0), 0);
+      const canPay = payRows.length > 0;
+      const canReceiveTurnover = turnRows.length > 0;
+      // Paid first, then Verify: nobody ticked may still owe anything.
+      const unparked = pickedRows.filter((g) => !deskParkedFor(g.id));
+      const allPaid = unparked.length > 0 && !canPay && unparked.every(verifyIsPaid);
+      const toVerify = pickedRows.filter((g) => !deskParkedFor(g.id) && verifyIsPaid(g) && !verifyIsIn(g));
+      const notPayable = unparked.filter((g) => !verifyIsPaid(g) && !payRows.includes(g));
+      const hasGroup = bulk && group.length > 1;
+      const untick = (id) => setVerifyTap((cur) => (cur ? { ...cur, dirty: true, picked: (cur.picked || [cur.regId]).filter((x) => x !== id), lastTapped: null } : cur));
+      body = (
+        <>
+          <div className={`evt-verify-pop-layout ${hasGroup ? 'has-group' : ''}`}>
+            <div className="evt-verify-pop-main">
+              {(hasGroup ? pickedRows : [reg]).map((g) => renderVerifyPerson(g, hasGroup))}
+            </div>
+
+            {hasGroup && (
+              <div className="evt-verify-pop-group evt-verify-pop-side">
+                <p>
+                  <i className="fas fa-users"></i> In {formatPersonName(regRepName(reg))}&apos;s bulk booking ({group.length})
+                  <span className="evt-verify-picked">{pickedIds.length} tapped</span>
+                </p>
+                <div className={`evt-verify-tapnext ${verifyTap.reading ? 'is-reading' : ''}`}>
+                  <i className="fas fa-wifi"></i>
+                  {verifyTap.reading ? 'Reading the card…' : 'Tap another card from this booking to tick them too.'}
+                </div>
+                {verifyTap.tapError && <p className="evt-verify-scan-error"><i className="fas fa-circle-exclamation"></i> {verifyTap.tapError}</p>}
+                <ul>
+                  {group.map((g) => {
+                    const on = pickedIds.includes(g.id);
+                    return (
+                      <li key={g.id} className={`${on ? 'is-me' : ''} ${on && verifyTap.lastTapped === g.id && pickedIds.length > 1 ? 'just-tapped' : ''}`}>
+                        {/* Ticked by their card only. A tick can be taken off -
+                            they are paying separately - but only a tap puts it back. */}
+                        {on && pickedIds.length > 1 ? (
+                          <button type="button" className="evt-verify-tick is-on" onClick={() => untick(g.id)} title="Untick - they pay separately" aria-label={`Untick ${formatPersonName(g.attendee_name)}`}>
+                            <i className="fas fa-square-check"></i>
+                          </button>
+                        ) : (
+                          <span className={`evt-verify-tick ${on ? 'is-on' : ''}`} title={on ? 'Tapped' : 'Tap their card to tick them'}>
+                            <i className={`fas ${on ? 'fa-square-check' : 'fa-square'}`}></i>
+                          </span>
+                        )}
+                        <span className="evt-verify-gname">
+                          {verifyNameKey(g)}
+                          {g.original_attendee_name && <small className="evt-verify-subof">Substitute for {verifyNameKey({ attendee_name: g.original_attendee_name })}</small>}
+                        </span>
+                        {verifyStatusBadge(g)}
+                        {/* Only for somebody who is here - their card was tapped. */}
+                        {on && (
+                          <span className="evt-verify-rowacts">
+                            {g.original_attendee_name && (
+                              <button type="button" onClick={() => restoreVerifySubstitute(g)} title={`Put ${formatPersonName(g.original_attendee_name)} back`} aria-label="Registered name">
+                                <i className="fas fa-rotate-left"></i>
+                              </button>
+                            )}
+                            <button type="button" onClick={() => openVerifySubstitute(g)} title={`Substitute for ${formatPersonName(g.attendee_name)}`} aria-label="Substitute">
+                              <i className="fas fa-user-pen"></i>
+                            </button>
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+                <small className="evt-muted">Only the people whose card was tapped are ticked. Untick someone who pays separately.</small>
+              </div>
+            )}
+          </div>
+
+          <div className="evt-verify-pop-actions evt-verify-pop-foot">
+            <button type="button" className="btn-secondary" onClick={askClose}>Close</button>
+            {canReceiveTurnover && (
+              <button type="button" className="btn-primary" onClick={() => verifyReceiveTurnover(turnRows[0], turnRows.map((g) => g.id))}>
+                <i className="fas fa-hand-holding-dollar"></i> Receive turnover{turnRows.length > 1 ? ` (${turnRows.length})` : ''} · ₱{turnDue.toLocaleString()}
+              </button>
+            )}
+            {canPay && (
+              <button type="button" className="btn-primary" onClick={() => verifyProceedToPayment(payRows[0], payRows.map((g) => g.id))}>
+                Proceed to payment ({payRows.length} {payRows.length === 1 ? 'Attendee' : 'Attendees'}) · ₱{due.toLocaleString()}
+              </button>
+            )}
+            {!canPay && notPayable.length > 0 && (
+              <span className="evt-muted evt-verify-pop-note">
+                <i className="fas fa-hourglass-half"></i> {notPayable.length === 1 ? formatPersonName(notPayable[0].attendee_name) : `${notPayable.length} attendees`}: payment not confirmed yet ({regStatusLabel(notPayable[0])})
+              </span>
+            )}
+            {allPaid && toVerify.length > 0 && (
+              <button type="button" className="btn-primary" disabled={verifyBusy} onClick={() => verifyCheckIn(toVerify)}>
+                <i className={`fas ${verifyBusy ? 'fa-spinner fa-spin' : 'fa-circle-check'}`}></i> Verify {toVerify.length === 1 ? 'Attendee' : `Attendees (${toVerify.length})`}
+              </button>
+            )}
+            {allPaid && toVerify.length === 0 && (
+              <button type="button" className="btn-primary" disabled>
+                <i className="fas fa-circle-check"></i> Verified · Day {evtCheckinDay}
+              </button>
+            )}
+          </div>
+        </>
+      );
+    }
+    return createPortal(
+      <div className="evt-modal-overlay evt-verify-tap-overlay" onClick={askClose}>
+        <div
+          key={verifyTap.regId || (verifyTap.busy ? 'reading' : 'none')}
+          className={`evt-modal evt-verify-pop evt-verify-attendee ${reg && regTypeOf(reg) === 'bulk' && collectGroupFor(reg).length > 1 ? 'is-wide' : ''}`}
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="evt-modal-head">
+            <div><h3><i className="fas fa-id-card"></i> Attendee</h3><p>{verifyEventName}</p></div>
+            <div className="evt-desk-headbtns">
+              {reg && (
+                <button type="button" className="evt-modal-close" onClick={verifyTapMinimise} title="Minimise - open it again from the tab below" aria-label="Minimise">
+                  <i className="fas fa-window-minimize"></i>
+                </button>
+              )}
+              <button type="button" className="evt-modal-close" onClick={askClose} aria-label="Close"><i className="fas fa-times"></i></button>
+            </div>
+          </div>
+          <div className="evt-modal-body">{body}</div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  // ---- Cancel / refund an extra ----
+  const renderExtraCancel = () => {
+    if (!extraCancel) return null;
+    const x = extraCancel;
+    const reg = eventRegs.find((r) => r.id === x.regId);
+    const addon = reg && regExtrasOf(reg).find((a) => (x.addonId && a.id === x.addonId) || a.question === x.addonQuestion);
+    if (!reg || !addon) return null;
+    const { fee, amount, refund } = extraRefundFor(reg, addon);
+    const isRefund = refund > 0;
+    const set = (patch) => setExtraCancel((cur) => (cur ? { ...cur, ...patch, error: '' } : cur));
+    const recips = isRefund ? bookingRecipients(reg) : [];
+    const cashBack = /cash/i.test(x.sentTo);
+    return createPortal(
+      <div className="evt-modal-overlay evt-verify-ask-overlay" onClick={() => closeExtraCancel()}>
+        <div className="evt-modal evt-verify-pop evt-xcancel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div className="evt-modal-head">
+            <div>
+              <h3><i className={`fas ${isRefund ? 'fa-rotate-left' : 'fa-ban'}`}></i> {isRefund ? 'Refund Extra' : 'Cancel Extra'}</h3>
+              <p>{verifyNameKey(reg)}</p>
+            </div>
+            <button type="button" className="evt-modal-close" onClick={() => closeExtraCancel()} disabled={x.busy} aria-label="Close"><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            <div className="evt-xcancel-sum">
+              <span className="evt-xcancel-ico"><i className={`fas ${isBedAddon(addon) ? 'fa-bed' : 'fa-circle-plus'}`}></i></span>
+              <span className="evt-xcancel-what">
+                <b>{addon.question}</b>
+                <small>₱{(Number(reg.amount) || 0).toLocaleString()} <i className="fas fa-arrow-right"></i> <b>₱{amount.toLocaleString()}</b> new total</small>
+              </span>
+              <span className="evt-xcancel-fee">−₱{fee.toLocaleString()}</span>
+            </div>
+
+            {isRefund && (
+              <>
+                <p className="evt-xcancel-note">
+                  <i className="fas fa-clock-rotate-left"></i> {formatPersonName(reg.attendee_name)} already paid for this. <b>₱{refund.toLocaleString()}</b> goes back to them within <b>2-3 business days</b>.
+                </p>
+                {recips.length > 0 && (
+                  <div className="evt-xcancel-same">
+                    <small>Same recipient as this booking&apos;s other refund:</small>
+                    {recips.map((p) => (
+                      <button key={`${p.recipient}-${p.number}`} type="button" className="evt-chip-btn" onClick={() => set({ recipient: p.recipient, sentTo: p.sentTo, number: p.number })} disabled={x.busy}>
+                        <i className="fas fa-user-check"></i> {p.recipient} · {p.sentTo}{p.number ? ` ${p.number}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="form-group">
+                  <label>Recipient Name *</label>
+                  <input className="form-control" value={x.recipient} onChange={(e) => set({ recipient: e.target.value.slice(0, 160) })} placeholder="Who receives the money" disabled={x.busy} autoFocus />
+                </div>
+                <div className="evt-xcancel-two">
+                  <div className="form-group">
+                    <label>Sent To *</label>
+                    <select className="form-control" value={x.sentTo} onChange={(e) => set({ sentTo: e.target.value })} disabled={x.busy}>
+                      <option value="">Choose…</option>
+                      {REFUND_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Number {cashBack ? '' : '*'}</label>
+                    <input
+                      className="form-control"
+                      inputMode="numeric"
+                      value={x.number}
+                      onChange={(e) => set({ number: e.target.value.replace(/[^0-9 +-]/g, '').slice(0, 30) })}
+                      placeholder={cashBack ? 'Not needed for cash' : 'e.g. 0917 123 4567'}
+                      disabled={x.busy || cashBack}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="form-group">
+              <label>Reason *</label>
+              <textarea
+                className="form-control"
+                rows={3}
+                value={x.reason}
+                onChange={(e) => set({ reason: e.target.value.slice(0, 500) })}
+                placeholder={isRefund ? 'e.g. Staying with a relative instead' : 'e.g. Not staying overnight'}
+                disabled={x.busy}
+                autoFocus={!isRefund}
+              />
+            </div>
+            {x.error && <p className="evt-verify-scan-error"><i className="fas fa-circle-exclamation"></i> {x.error}</p>}
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="btn-secondary" onClick={() => closeExtraCancel()} disabled={x.busy}>Back</button>
+            <button type="button" className="btn-primary" onClick={submitExtraCancel} disabled={x.busy}>
+              {x.busy ? <><i className="fas fa-spinner fa-spin"></i> Saving…</> : isRefund ? <><i className="fas fa-rotate-left"></i> Cancel &amp; refund ₱{refund.toLocaleString()}</> : <><i className="fas fa-ban"></i> Cancel extra</>}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+  // Walking away from a half-filled form: asked first. Nothing was saved, so
+  // the attendee keeps the extra and the status they had.
+  const renderExtraCancelAsk = () => {
+    if (!extraCancel || !extraCancelAsk) return null;
+    const reg = eventRegs.find((r) => r.id === extraCancel.regId);
+    return createPortal(
+      <div className="evt-modal-overlay evt-verify-ask-overlay evt-xcancel-ask" onClick={() => setExtraCancelAsk(false)}>
+        <div className="evt-modal evt-verify-pop evt-verify-ask" onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true">
+          <div className="evt-modal-body">
+            <div className="evt-verify-ask-ico"><i className="fas fa-circle-question"></i></div>
+            <h4>Leave without saving?</h4>
+            <p className="evt-muted">
+              Nothing has been changed yet{reg ? <> - {formatPersonName(reg.attendee_name)} keeps the extra and stays <b>{regStatusLabel(reg)}</b></> : null}. What you typed will be lost.
+            </p>
+            <div className="evt-verify-pop-actions">
+              <button type="button" className="btn-secondary" onClick={() => setExtraCancelAsk(false)} autoFocus>No, keep editing</button>
+              <button type="button" className="btn-primary" onClick={() => closeExtraCancel(true)}>Yes, leave</button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  // "Close this attendee?" - asked politely, because the taps so far go with it.
+  const renderVerifyCloseAsk = () => {
+    if (!verifyCloseAsk) return null;
+    const stay = () => setVerifyCloseAsk(false);
+    const leave = () => { setVerifyCloseAsk(false); dropTab(verifyTap?.tabKey); setVerifyTap(null); setVerifyAddonMenu(null); };
+    return createPortal(
+      <div className="evt-modal-overlay evt-verify-ask-overlay" onClick={stay}>
+        <div className="evt-modal evt-verify-pop evt-verify-ask" onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true">
+          <div className="evt-modal-body">
+            <div className="evt-verify-ask-ico"><i className="fas fa-door-open"></i></div>
+            <h4>Close this attendee?</h4>
+            <p className="evt-muted">You have started on this attendee. Changes already made (extras, substitute, guardian) stay saved, but they are not verified yet - and the cards tapped and any payment started will need to be done again.</p>
+            <div className="evt-verify-pop-actions">
+              <button type="button" className="btn-secondary" onClick={stay} autoFocus>No, stay here</button>
+              <button type="button" className="btn-primary" onClick={leave}>Yes, close</button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  // ---- The desk's payment step ----
+  const renderDeskPay = () => {
+    if (!deskPay) return null;
+    const dp = deskPay;
+    const rows = deskRowsOf(dp);
+    const total = deskTotalOf(dp);
+    const tendered = Number(dp.tendered) || 0;
+    const cash = dp.mode === 'cash';
+    const change = cash && dp.tendered !== '' ? tendered - total : 0;
+    const method = deskOnlineMethods.find((m) => m.id === dp.methodId);
+    const refDigits = String(dp.reference || '').replace(/[^A-Za-z0-9]/g, '').length;
+    const ready = rows.length > 0 && (cash ? dp.tendered !== '' && tendered >= total : !!method && refDigits >= 6);
+    const n = rows.length;
+    const pickCash = () => { deskSet({ mode: 'cash', menuOpen: false }); publishQrDisplay(null); };
+    const pickOnline = () => {
+      deskSet({ mode: 'online', menuOpen: true });
+      if (dp.methodId) deskShowQr({ ...dp, mode: 'online' });
+    };
+    const pickMethod = (m) => {
+      deskSet({ mode: 'online', methodId: m.id, menuOpen: false });
+      deskShowQr({ ...dp, mode: 'online', methodId: m.id }, m.id);
+    };
+    const logo = (m) => (m.logo_url
+      ? <img className="evt-desk-mlogo" src={m.logo_url} alt="" />
+      : <span className="evt-desk-mlogo" style={{ background: m.logo_color || '#926c15' }}>{String(m.name || '?').slice(0, 2).toUpperCase()}</span>);
+    return createPortal(
+      <div className="evt-modal-overlay evt-desk-overlay">
+        <div className="evt-modal evt-desk-pay" role="dialog" aria-modal="true">
+          <div className="evt-modal-head">
+            <div>
+              <h3>Collect Payment</h3>
+              <p>{n > 1 ? `${formatPersonName(rows[0]?.attendee_name)} and ${n - 1} more` : formatPersonName(rows[0]?.attendee_name)}</p>
+            </div>
+            <div className="evt-desk-headbtns">
+              <button type="button" className="evt-modal-close" onClick={deskMinimise} disabled={dp.saving} title="Minimise - finish it later from the tab below" aria-label="Minimise">
+                <i className="fas fa-window-minimize"></i>
+              </button>
+              <button type="button" className="evt-modal-close" onClick={deskBack} disabled={dp.saving} title="Back to the attendee" aria-label="Back to the attendee">
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+          </div>
+          <div className="evt-modal-body">
+            <div className="evt-desk-list">
+              {rows.map((r) => {
+                const ex = regExtrasTotal(r);
+                const owed = regCashDue(r);
+                const partPaid = Number(r.amount_paid) > 0;
+                return (
+                  <div key={r.id === dp.highlight ? `${r.id}-${dp.highlightAt}` : r.id} className={`evt-desk-row ${r.id === dp.highlight ? 'is-highlight' : ''}`}>
+                    <span className="evt-desk-who">
+                      <b>{verifyNameKey(r)}</b>
+                      <em>{[r.price_tier, ...regExtrasOf(r).map((a) => addonShortLabel(a.question))].filter(Boolean).join(' · ')}</em>
+                    </span>
+                    <span className="evt-desk-amt">
+                      {ex > 0 && !partPaid && <small>₱{Math.max(0, (Number(r.amount) || 0) - ex).toLocaleString()} + ₱{ex.toLocaleString()}</small>}
+                      {partPaid && <small>extra still due</small>}
+                      <b>₱{owed.toLocaleString()}</b>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <button type="button" className="evt-desk-edit" onClick={deskBack} disabled={dp.saving}>
+              <i className="fas fa-pen"></i> Edit attendees
+            </button>
+
+            <div className="evt-plan-summary big evt-desk-summary">
+              <div><span>Attendees</span><b>{n} {n === 1 ? 'Attendee' : 'Attendees'}</b></div>
+              <div className="bal"><span>Total To Collect</span><b>₱{total.toLocaleString()}</b></div>
+              <div><span>Change</span><b className={change > 0 ? 'is-change' : ''}>₱{Math.max(0, change).toLocaleString()}</b></div>
+            </div>
+
+            <div className="evt-desk-modes">
+              <button type="button" className={`evt-plan-option ${cash ? 'on' : 'dim'}`} onClick={pickCash} disabled={dp.saving}>
+                <i className="fas fa-money-bill-wave"></i>
+                <span><strong>Cash On Hand</strong><small>The money is here now.</small></span>
+              </button>
+              <button type="button" className={`evt-plan-option ${!cash ? 'on' : 'dim'}`} onClick={pickOnline} disabled={dp.saving} aria-expanded={!cash && dp.menuOpen}>
+                <i className="fas fa-mobile-screen-button"></i>
+                <span><strong>Online Payment</strong><small>{method ? method.name : 'GCash, Maya, bank…'}</small></span>
+                <i className={`fas fa-chevron-${!cash && dp.menuOpen ? 'up' : 'down'} evt-desk-caret`}></i>
+              </button>
+            </div>
+
+            {!cash && dp.menuOpen && (
+              <div className="evt-desk-methods" role="listbox">
+                {deskOnlineMethods.length === 0 && <p className="evt-muted">No online payment is set up yet. Add one under Mode of Payment.</p>}
+                {deskOnlineMethods.map((m) => (
+                  <button key={m.id} type="button" role="option" aria-selected={m.id === dp.methodId} className={m.id === dp.methodId ? 'on' : ''} onClick={() => pickMethod(m)}>
+                    {logo(m)}
+                    <span><b>{m.name}</b><small>{[m.account_name, m.account_number].filter(Boolean).join(' · ') || 'No account details'}</small></span>
+                    {m.qr_url && <i className="fas fa-qrcode" title="Has a QR code"></i>}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!cash && method && !dp.menuOpen && (
+              <div className="evt-desk-chosen">
+                {logo(method)}
+                <span>
+                  <b>{method.name}</b>
+                  <small>{[method.account_name, method.account_number].filter(Boolean).join(' · ')}</small>
+                  <small className="evt-desk-qrnote"><i className="fas fa-display"></i> Showing on the QR screen for the attendee</small>
+                </span>
+                <button type="button" className="evt-chip-btn" onClick={() => window.open('/qr-display', 'jsci-qr-display')}>
+                  <i className="fas fa-up-right-from-square"></i> QR screen
+                </button>
+              </div>
+            )}
+
+            {!cash ? (
+              <div className="form-group" style={{ marginTop: 12 }}>
+                <label>Reference Number *</label>
+                <input
+                  className="form-control"
+                  value={dp.reference}
+                  onChange={(e) => deskSet({ reference: e.target.value.slice(0, 60) })}
+                  placeholder="At least the last 6 digits"
+                  disabled={dp.saving}
+                  autoComplete="off"
+                />
+                {dp.reference && refDigits < 6 && <small className="evt-desk-hint">{6 - refDigits} more digit{6 - refDigits === 1 ? '' : 's'} needed.</small>}
+              </div>
+            ) : (
+              <div className="form-group" style={{ marginTop: 12 }}>
+                <label>Cash Received *</label>
+                <div className="evt-desk-cash">
+                  <input
+                    className="form-control"
+                    inputMode="numeric"
+                    value={dp.tendered}
+                    onChange={(e) => deskSet({ tendered: onlyDigits(e.target.value), changeLater: false })}
+                    placeholder={String(total)}
+                    disabled={dp.saving}
+                    autoFocus
+                  />
+                  <button type="button" className="evt-chip-btn" onClick={() => deskSet({ tendered: String(total), changeLater: false })} disabled={dp.saving}>
+                    <i className="fas fa-equals"></i> Exact
+                  </button>
+                </div>
+                {dp.tendered !== '' && change < 0 && (
+                  <p className="evt-collect-short"><i className="fas fa-triangle-exclamation"></i> That is ₱{(-change).toLocaleString()} short of the total.</p>
+                )}
+                {change > 0 && (
+                  <div className={`evt-desk-change ${dp.changeLater ? 'is-later' : ''}`}>
+                    <div className="evt-desk-change-top">
+                      <span className="evt-desk-change-ico"><i className="fas fa-coins"></i></span>
+                      <span className="evt-desk-change-txt">
+                        <small>{dp.changeLater ? 'Change to give later' : 'Change to give back'}</small>
+                        <b>₱{change.toLocaleString()}</b>
+                      </span>
+                      <span className="evt-desk-change-math">₱{tendered.toLocaleString()} − ₱{total.toLocaleString()}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`evt-desk-later ${dp.changeLater ? 'on' : ''}`}
+                      onClick={() => deskSet({ changeLater: !dp.changeLater })}
+                      disabled={dp.saving}
+                      aria-pressed={!!dp.changeLater}
+                    >
+                      <span className="evt-desk-later-box"><i className="fas fa-check"></i></span>
+                      <span>
+                        <b>No change on hand</b>
+                        <small>Give the ₱{change.toLocaleString()} later - it goes on the Change to Give list</small>
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {dp.error && <p className="evt-verify-scan-error"><i className="fas fa-circle-exclamation"></i> {dp.error}</p>}
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="btn-secondary" onClick={deskBack} disabled={dp.saving}>Cancel</button>
+            <button type="button" className="evt-pill-btn evt-pill-ghost" onClick={deskMinimise} disabled={dp.saving}>
+              <i className="fas fa-window-minimize"></i> Minimise
+            </button>
+            <button type="button" className="btn-primary" onClick={submitDeskPay} disabled={dp.saving || !ready}>
+              {dp.saving ? <><i className="fas fa-spinner fa-spin"></i> Saving…</> : <><i className="fas fa-circle-check"></i> Verify {n === 1 ? 'Attendee' : 'Attendees'}</>}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  // Payments minimised while an online transfer comes through, one tab each -
+  // pinned to the bottom of the screen, inside the verification section.
+  const renderDeskParked = () => {
+    if (!verifyMode || deskParked.length === 0) return null;
+    return createPortal(
+      <div
+        className="evt-desk-parked"
+        role="tablist"
+        aria-label="Payments in progress"
+        style={parkBox ? { left: parkBox.left, width: parkBox.width } : undefined}
+      >
+        {deskParked.map((saved) => {
+          const on = saved.key === deskActiveKey;
+          const dp = on ? (liveTab() || saved) : saved;
+          return (
+          <button
+            key={dp.key}
+            type="button"
+            className={`evt-desk-ptab ${dp.kind === 'tap' ? 'is-tap' : ''} ${on ? 'is-active' : ''} ${deskActiveKey && !on ? 'is-dim' : ''}`}
+            onClick={() => deskRestore(dp.key)}
+            role="tab"
+            aria-selected={on}
+            title={on ? 'Open now' : dp.kind === 'tap' ? 'Open this attendee again' : 'Open this payment again'}
+          >
+            <i className={`fas ${dp.kind === 'tap' ? 'fa-id-card' : dp.mode === 'online' ? 'fa-mobile-screen-button' : 'fa-money-bill-wave'}`}></i>
+            <span>{deskTabLabel(dp)}</span>
+            <b>₱{deskTotalOf(dp).toLocaleString()}</b>
+            <i className={`fas ${on ? 'fa-eye' : 'fa-window-maximize'} evt-desk-ptab-go`}></i>
+          </button>
+          );
+        })}
+      </div>,
+      document.body,
+    );
+  };
+
+  // Waiting for the verifier's own card.
+  const renderVerifierScan = () => {
+    if (!verifyScanOpen) return null;
+    const close = () => { setVerifyScanOpen(false); setVerifyScan(null); setVerifyPw(null); };
+    const s = verifyScan;
+    return createPortal(
+      <div className={`evt-modal-overlay ${s?.leaving ? 'evt-verify-welcome-out' : ''}`} onClick={close}>
+        <div className="evt-modal evt-verify-pop" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div className="evt-modal-head">
+            <div><h3><i className="fas fa-shield-halved"></i> Registration Verification</h3><p>{verifyEventName}</p></div>
+            <button type="button" className="evt-modal-close" onClick={close}><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            {!s?.ok ? (
+              <div className="evt-verify-scan">
+                <div className={`evt-verify-scan-ring ${s?.busy ? 'busy' : ''}`}><i className="fas fa-wifi"></i></div>
+                <h4>{s?.busy ? 'Checking the card…' : 'Tap the verifier’s RFID card'}</h4>
+                <p className="evt-muted">The person assigned to Registration for this event taps their own staff card on the reader.</p>
+                {s && !s.busy && s.message && <p className="evt-verify-scan-error"><i className="fas fa-circle-exclamation"></i> {s.message}</p>}
+                {/* TEMPORARY, for testing without a card - remove with the POST in /api/events/verification. */}
+                {verifyPw === null ? (
+                  <button type="button" className="evt-verify-pwlink" onClick={() => setVerifyPw({ value: '', busy: false, error: '' })}>
+                    <i className="fas fa-key"></i> Use test password instead
+                  </button>
+                ) : (
+                  <form className="evt-verify-pw" onSubmit={(e) => { e.preventDefault(); submitVerifyPassword(); }}>
+                    <input
+                      type="password"
+                      className="form-control"
+                      value={verifyPw.value}
+                      onChange={(e) => setVerifyPw({ ...verifyPw, value: e.target.value, error: '' })}
+                      placeholder="Test password"
+                      autoFocus
+                      autoComplete="off"
+                    />
+                    <button type="submit" className="btn-primary" disabled={verifyPw.busy || !verifyPw.value}>
+                      {verifyPw.busy ? <i className="fas fa-spinner fa-spin"></i> : 'Enter'}
+                    </button>
+                    {verifyPw.error && <p className="evt-verify-scan-error"><i className="fas fa-circle-exclamation"></i> {verifyPw.error}</p>}
+                  </form>
+                )}
+              </div>
+            ) : (
+              <div className="evt-verify-scan evt-verify-welcome">
+                {s.staff.picture
+                  ? <img className="evt-verify-scan-photo" src={s.staff.picture} alt="" />
+                  : <div className="evt-verify-scan-ring ok"><i className="fas fa-check"></i></div>}
+                <small className="evt-muted">Welcome,</small>
+                <h4 className="evt-verify-scan-name">{formatPersonName(s.staff.name)}</h4>
+                <p className="evt-muted">{s.staff.duty || 'Assigned to Registration'}</p>
+                <div className="evt-verify-welcome-bar" aria-hidden="true"><span></span></div>
+                <small className="evt-muted">Opening Registration Verification…</small>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
   // Late Registration starts with a card. Only a card nobody holds at this
   // event is accepted; the link itself is made when the registration saves.
   const checkLateCard = useCallback(async (rawUid) => {
@@ -13160,7 +17099,10 @@ Examples:
   const lateScanOpen = showAdminAddReg && adminLate && !adminLateUid;
   useEffect(() => {
     if (evtUnlockOpen) rfidSinkRef.current = (uid) => tryUnlockTable(uid);
+    else if (cardStockOpen) rfidSinkRef.current = (uid) => addStockCard(uid);
     else if (lateScanOpen) rfidSinkRef.current = (uid) => checkLateCard(uid);
+    else if (verifyScanOpen) rfidSinkRef.current = (uid) => { if (!verifyScan?.busy) checkVerifierCard(uid); };
+    else if (verifierForm?.step === 'scan') rfidSinkRef.current = (uid) => onVerifierCard(uid);
     else if (returnDeskOpen || returnsTabScan) rfidSinkRef.current = (uid) => { setReturnDeskOpen(true); lookupReturnCard(uid); };
     else if (idRfidReg) rfidSinkRef.current = (uid) => { if (!idRfidBusy) checkIdRfidCard(uid); };
     else if (accScanOpen) rfidSinkRef.current = (uid) => lookupAccScanCard(uid);
@@ -13168,9 +17110,10 @@ Examples:
     else if (claimDesk) rfidSinkRef.current = (uid) => lookupClaimCard(uid);
     else if (evtRfidScanOpen) rfidSinkRef.current = (uid, src) => scanEventRfid(uid, src);
     else if (idsTabScan) rfidSinkRef.current = (uid) => lookupIdTap(uid);
+    else if (verifyAttendeeScan) rfidSinkRef.current = (uid) => lookupVerifyTap(uid);
     else rfidSinkRef.current = null;
     return () => { rfidSinkRef.current = null; };
-  }, [evtUnlockOpen, tryUnlockTable, lateScanOpen, checkLateCard, returnDeskOpen, returnsTabScan, lookupReturnCard, idRfidReg, idRfidBusy, checkIdRfidCard, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid, idsTabScan, lookupIdTap]);
+  }, [evtUnlockOpen, tryUnlockTable, cardStockOpen, addStockCard, lateScanOpen, checkLateCard, returnDeskOpen, returnsTabScan, lookupReturnCard, idRfidReg, idRfidBusy, checkIdRfidCard, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid, idsTabScan, lookupIdTap, verifyScanOpen, verifyScan, checkVerifierCard, verifyAttendeeScan, lookupVerifyTap, verifierForm?.step, onVerifierCard]);
 
   // The claims grid and the attendance grid for the event on screen.
   useEffect(() => {
@@ -14072,7 +18015,8 @@ Examples:
     // A wedge reader is a keyboard: listening for it costs nothing when there
     // is none, and not listening for it is indistinguishable from a broken one.
     const wanted = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
-      || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen || lateScanOpen || idsTabScan || returnDeskOpen || returnsTabScan;
+      || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen || lateScanOpen || idsTabScan || returnDeskOpen || returnsTabScan
+      || verifyScanOpen || verifyAttendeeScan || verifierForm?.step === 'scan';
     if (!wanted) return undefined;
 
     const onKeyDown = (e) => {
@@ -14109,7 +18053,7 @@ Examples:
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg, accScanOpen, lateScanOpen, idsTabScan, returnDeskOpen, returnsTabScan]);
+  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg, accScanOpen, lateScanOpen, idsTabScan, returnDeskOpen, returnsTabScan, verifyScanOpen, verifyAttendeeScan, verifierForm?.step]);
 
   // ============================================
   // ACCOMMODATION - the rooms booked for an event
@@ -14254,6 +18198,7 @@ Examples:
       setAccForm({
         ...BLANK_ROOM_FORM,
         roomType: opts.type,
+        floor: sibling?.floor || '',
         pax: sibling ? String(sibling.pax || '') : '',
         beds: (Array.isArray(sibling?.beds) && sibling.beds.length > 0)
           ? sibling.beds.map((b) => ({ type: b.type || '', count: Number(b.count) || 1 }))
@@ -14266,6 +18211,7 @@ Examples:
       setAccEditing(room);
       setAccForm({
         roomType: room.room_type || '',
+        floor: room.floor || '',
         roomNumbers: room.room_number || '',
         pax: String(room.pax || ''),
         beds: (Array.isArray(room.beds) && room.beds.length > 0)
@@ -14310,6 +18256,7 @@ Examples:
           pax: accForm.pax === '' ? 0 : Number(accForm.pax),
           beds,
           notes: accForm.notes,
+          floor: accForm.floor,
         }),
       });
       const data = await res.json();
@@ -14630,6 +18577,8 @@ Examples:
             ? `${paxes[0]} Pax`
             : `${paxes[0]}–${paxes[paxes.length - 1]} Pax`,
           bedsLabel: bedTexts.length === 1 ? bedTexts[0] : (bedTexts.length > 1 ? 'Mixed beds' : ''),
+          // The floors this type's rooms are on, as typed when they were added.
+          floors: [...new Set(rooms.map((r) => String(r.floor || '').trim()).filter(Boolean))],
         };
       })
       .sort((a, b) => String(a.type).localeCompare(String(b.type)));
@@ -15742,15 +19691,16 @@ Examples:
                             () => { setManageTab('installments'); loadInstallments(ev.id); },
                             manageTab === 'installments')}
                         </div>
-                        {eventMoney.cashDue > 0 && (
+                        {eventMoney.toCollect > 0 && (
                           <button
                             type="button"
                             className={`evt-rhead-due ${regMoneyFilter === 'cashdue' ? 'on' : ''}`}
                             onClick={() => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cashdue' ? 'all' : 'cashdue'); }}
+                            title={eventMoney.turnover > 0 ? `${peso(eventMoney.cashDue)} at the desk + ${peso(eventMoney.turnover)} pending turnover` : undefined}
                           >
                             <i className="fas fa-coins"></i>
                             <span>Cash to Collect</span>
-                            <b>{peso(eventMoney.cashDue)}</b>
+                            <b>{peso(eventMoney.toCollect)}</b>
                             <i className="fas fa-chevron-right"></i>
                           </button>
                         )}
@@ -15788,32 +19738,26 @@ Examples:
               <>
               <div className="um-hero evt-hero evt-hero-regs">
                 <div className="um-hero-bg"></div>
+                {/* The event's own picture, behind the title, fading into the gold. */}
+                {eventRegsModal.image_url && (
+                  <div className="evt-hero-photo" style={{ backgroundImage: `url("${eventRegsModal.image_url}")` }} aria-hidden="true"></div>
+                )}
                 <div className="um-hero-content">
                   <div className="evt-hero-grid">
-                    <div className="evt-hero-poster">
-                      {eventRegsModal.image_url
-                        ? <img src={eventRegsModal.image_url} alt="" />
-                        : <div className="evt-mcard-ph"><i className="fas fa-calendar-day"></i></div>}
-                    </div>
                     <div className="evt-hero-main">
-                      {/* Where the event is, then where it stands - so a desk
-                          working several events can tell at a glance which
-                          one it has open. */}
+                      {/* Where the event stands; the title carries the province,
+                          so a desk working several events can tell at a glance
+                          which one it has open. */}
                       <div className="evt-hero-pills">
-                        {(eventRegsModal.location || eventRegsModal.loc_city) && (
-                          <span className="evt-hero-loc" title={[eventRegsModal.location, eventRegsModal.loc_city].filter(Boolean).join(', ')}>
-                          <i className="fas fa-location-dot"></i> {[eventRegsModal.location, eventRegsModal.loc_city].filter(Boolean).join(', ')}
-                        </span>
-                        )}
                         {(() => {
                           const st = eventStatusOf(eventRegsModal);
                           return <span className={`evt-hero-pill evt-tstatus evt-tstatus-${st.cls}`}>{st.label}</span>;
                         })()}
                       </div>
-                      <h2 className="um-hero-title">{eventRegsModal.title}</h2>
+                      <h2 className="um-hero-title">{verifyEventName}</h2>
                       <p className="um-hero-sub">{eventRegsModal.description || 'Review registrations and manage attendance for this event.'}</p>
                       {/* leaving, and adding - the two things to do from here */}
-                      <div className="evt-hero-actions">
+                      <div className={`evt-hero-actions ${verifyMode ? 'is-verifying' : ''}`}>
                         <button className="evt-hero-action ghost" onClick={closeEventManage}>
                           <i className="fas fa-arrow-left"></i> Back to Events
                         </button>
@@ -15843,8 +19787,29 @@ Examples:
                                 <div className="evt-hero-addmenu" role="menu" style={addAttendeeMenu}>
                                   <button type="button" role="menuitem" onClick={() => { setAddAttendeeMenu(null); openAdminAddReg(false); }}>
                                     <i className="fas fa-user-plus"></i>
-                                    <span><b>Early Registration</b><small>Add a walk-in or offline sign-up.</small></span>
+                                    <span><b>Early Registration</b><small>Add an offline sign-up before the event.</small></span>
                                   </button>
+                                  {/* A walk-in is somebody added on the day itself - that is what
+                                      puts them on the Walk-In list - so it opens on event days. */}
+                                  {(() => {
+                                    const today = manilaDay(new Date().toISOString());
+                                    const onTheDay = verifyEventDays.has(today);
+                                    return (
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        disabled={!onTheDay}
+                                        title={onTheDay ? '' : 'Walk-ins open on the event day itself'}
+                                        onClick={() => { setAddAttendeeMenu(null); openAdminAddReg(false, true); }}
+                                      >
+                                        <i className="fas fa-person-walking"></i>
+                                        <span>
+                                          <b>Walk-In Registration</b>
+                                          <small>{onTheDay ? 'Somebody registering at the door today.' : 'Opens on the event day.'}</small>
+                                        </span>
+                                      </button>
+                                    );
+                                  })()}
                                   {(userRole === 'Admin' || userRole === 'Super Admin') && (
                                     <button type="button" role="menuitem" onClick={() => { setAddAttendeeMenu(null); openAdminAddReg(true); }}>
                                       <i className="fas fa-wifi"></i>
@@ -15857,6 +19822,14 @@ Examples:
                             )}
                           </div>
                         )}
+                        {/* Last and longest: the desk's main job on the day. */}
+                        {canEditRegistrations && (
+                          verifyMode ? renderVerifierBadge() : (
+                            <button type="button" className="evt-hero-action evt-hero-verify" onClick={openRegVerification}>
+                              <i className="fas fa-shield-halved"></i> Registration Verification
+                            </button>
+                          )
+                        )}
                       </div>
                     </div>
 
@@ -15864,7 +19837,9 @@ Examples:
                         Cash and online are split because they are reconciled apart.
                         Each figure is a way into the rows behind it: tap Cash to
                         see only what came in as cash, and again to clear it. */}
-                    {eventRegsModal.has_fee && (() => {
+                    {eventRegsModal.has_fee && (
+                    <div className="evt-hero-side">
+                    {(() => {
                       const tile = ({ key, cls = '', icon, label, value, sub, onClick, on, title }) => (
                         <button key={key} type="button" className={`evt-stat ${cls} ${on ? 'on' : ''}`} onClick={onClick} title={title}>
                           <span className="evt-stat-ico"><i className={`fas ${icon}`}></i></span>
@@ -15903,15 +19878,13 @@ Examples:
                       );
                     })()}
 
-                    {/* Money still out there - one row across the whole banner,
-                        side by side, rather than stacked under the tiles where
-                        they made the banner twice as tall as its content. */}
-                    {eventRegsModal.has_fee && (eventMoney.cashDue > 0 || eventMoney.turnover > 0 || eventMoney.pending > 0) && (() => {
-                      const tile = ({ key, cls = '', icon, label, value, onClick, on, title }) => (
+                    {/* Money still out there, under the tiles in the same column. */}
+                    {(eventMoney.cashDue > 0 || eventMoney.turnover > 0 || eventMoney.pending > 0) && (() => {
+                      const tile = ({ key, cls = '', icon, label, value, sub, onClick, on, title }) => (
                         <button key={key} type="button" className={`evt-due ${cls} ${on ? 'on' : ''}`} onClick={onClick} title={title}>
                           <span className="evt-due-ico"><i className={`fas ${icon}`}></i></span>
                           <span className="evt-due-txt">
-                            <span>{label}</span>
+                            <span>{label}{sub && <small className="evt-due-sub">{sub}</small>}</span>
                             <b>{value}</b>
                           </span>
                           <i className="fas fa-chevron-right evt-due-go"></i>
@@ -15919,8 +19892,9 @@ Examples:
                       );
                       return (
                         <div className="evt-hero-dues">
-                          {eventMoney.cashDue > 0 && tile({
-                            key: 'cashdue', cls: 'due', icon: 'fa-coins', label: 'Cash to Collect', value: peso(eventMoney.cashDue),
+                          {eventMoney.toCollect > 0 && tile({
+                            key: 'cashdue', cls: 'due', icon: 'fa-coins', label: 'Cash to Collect', value: peso(eventMoney.toCollect),
+                            sub: eventMoney.turnover > 0 ? `${peso(eventMoney.cashDue)} at the desk + ${peso(eventMoney.turnover)} pending turnover` : '',
                             onClick: () => { setManageTab('registrations'); setRegMoneyFilter(regMoneyFilter === 'cashdue' ? 'all' : 'cashdue'); },
                             on: regMoneyFilter === 'cashdue', title: 'Show the registrations paying cash at the desk',
                           })}
@@ -15937,6 +19911,8 @@ Examples:
                         </div>
                       );
                     })()}
+                    </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -15972,7 +19948,17 @@ Examples:
               )
             )}
 
-            {eventRegsModal && (() => {
+            {renderRegVerification()}
+            {renderVerifierScan()}
+            {renderVerifyTap()}
+            {renderVerifyCloseAsk()}
+            {renderDeskPay()}
+            {renderExtraCancel()}
+            {renderExtraCancelAsk()}
+            {renderRoomExport()}
+            {renderVerifyEndConfirm()}
+            {renderVerifySubstitute()}
+            {eventRegsModal && !verifyMode && (() => {
               // Everyone who could attend, and the subset the search box is
               // showing. Kept apart on purpose: the tab's badge counts the
               // event, and a badge that fell as somebody typed would read as
@@ -15987,9 +19973,10 @@ Examples:
               const attendedCount = confirmedAll.filter((r) => r.attended).length;
               return (
                 <>
-                  <div className="evt-tabs evt-manage-tabs">
+                  <div className={`evt-tabs evt-manage-tabs ${verifyAnim === 'out' ? 'is-leaving' : verifyAnim === 'back' ? 'is-back' : ''}`}>
                     <button className={`evt-tab ${manageTab === 'registrations' ? 'active' : ''}`} onClick={() => setManageTab('registrations')}><i className="fas fa-clipboard-list"></i> Registrations {eventRegs.length > 0 && <span className="evt-tab-count">{eventRegs.length}</span>}</button>
-                    <button className={`evt-tab ${manageTab === 'attendance' ? 'active' : ''}`} onClick={() => setManageTab('attendance')}><i className="fas fa-user-check"></i> Attendance {attendedCount > 0 && <span className="evt-tab-count">{attendedCount}</span>}</button>
+                    <button className={`evt-tab ${manageTab === 'walkins' ? 'active' : ''}`} onClick={() => setManageTab('walkins')}><i className="fas fa-person-walking"></i> Walk-In Registrations {walkInRegs.length > 0 && <span className="evt-tab-count">{walkInRegs.length}</span>}</button>
+                    <button className={`evt-tab ${manageTab === 'kit' ? 'active' : ''}`} onClick={() => setManageTab('kit')}><i className="fas fa-bag-shopping"></i> Event Kit {kitRegs.length > 0 && <span className="evt-tab-count">{kitRegs.filter((r) => !evtClaims[r.id]?.['kit-0']).length}</span>}</button>
                     {/* Accommodation, for an event that sells any paid
                         extra. No extras means nobody can be entitled to a
                         bed, so there would be nothing here to do. */}
@@ -16012,6 +19999,11 @@ Examples:
                         scrolls sideways and would clip a menu hanging from it. */}
                     {(() => {
                       const moreTabs = [
+                        {
+                          key: 'attendance', icon: 'fa-user-check', label: 'Attendance',
+                          hint: 'Who came, day by day', count: attendedCount,
+                          open: () => setManageTab('attendance'),
+                        },
                         {
                           key: 'calls', icon: 'fa-phone', label: 'Call Attendee',
                           hint: 'Phone attendees and log the outcome', count: callDoneCount,
@@ -16039,6 +20031,12 @@ Examples:
                           hint: 'Collect cards and log who returned them', count: cardReturns.length,
                           open: () => { setManageTab('returns'); openReturnDesk(); },
                         },
+                        canEditRegistrations && {
+                          key: 'verifylogs', icon: 'fa-clipboard-list', label: 'Verification Logs',
+                          hint: 'Registration Verification history - revert a payment',
+                          count: verifyLogs ? verifyLogs.filter((l) => l.action === 'payment' && !l.reverted_at).length : 0,
+                          open: () => { setManageTab('verifylogs'); setVerifyLogPage(1); loadVerifyLogs(eventRegsModal.id); },
+                        },
                         deletedRegs.length > 0 && {
                           key: 'bin', icon: 'fa-trash-can', label: 'Recycle Bin',
                           hint: 'Removed registrations you can restore', count: deletedRegs.length,
@@ -16054,12 +20052,10 @@ Examples:
                             className={`evt-tab evt-tab-more ${current ? 'active' : ''}`}
                             aria-haspopup="menu"
                             aria-expanded={!!moreTabsMenu}
-                            onClick={(e) => {
-                              const r = e.currentTarget.getBoundingClientRect();
-                              const width = 280;
-                              setMoreTabsMenu((v) => (v ? null : {
-                                left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)), top: r.bottom + 6, width,
-                              }));
+                            ref={moreTabsBtnRef}
+                            onClick={() => {
+                              if (moreTabsMenu) { setMoreTabsMenu(null); return; }
+                              placeMoreTabsMenu(true);
                             }}
                           >
                             {current
@@ -16069,7 +20065,7 @@ Examples:
                           </button>
                           {moreTabsMenu && typeof document !== 'undefined' && createPortal(
                             <>
-                              <div className="evt-hero-addmenu-scrim" onClick={() => setMoreTabsMenu(null)} onWheel={() => setMoreTabsMenu(null)} onTouchMove={() => setMoreTabsMenu(null)} />
+                              <div className="evt-hero-addmenu-scrim" onClick={() => setMoreTabsMenu(null)} />
                               <div className="evt-hero-addmenu evt-more-menu" role="menu" style={moreTabsMenu}>
                                 <div className="evt-more-menu-head">Event Tools &amp; Records</div>
                                 {moreTabs.map((t) => (
@@ -16094,6 +20090,7 @@ Examples:
                     })()}
                   </div>
 
+                  {manageTab === 'verifylogs' && canEditRegistrations && renderVerifyLogs()}
                   {manageTab === 'registrations' && (
                     <>
                       <div className="evt-viewbar evt-regs-bar">
@@ -16217,6 +20214,9 @@ Examples:
                                 <span className={`evt-ravatar g${regAvatarShade(r.attendee_name)}`} aria-hidden="true">{regInitials(r.attendee_name)}</span>
                                 <span className="evt-rname">
                                   <span className="evt-rname-txt" title={formatPersonName(r.attendee_name)}>{formatPersonName(r.attendee_name)}</span>
+                                  {r.original_attendee_name && (
+                                    <span className="evt-cell-sub evt-verify-subof"><i className="fas fa-user-pen"></i> Substitute for {formatPersonName(r.original_attendee_name)}</span>
+                                  )}
                                   {/* Just the date. The group size used to hang
                                       here as a chip and crowded the column for
                                       something nobody scans a list by - it is
@@ -16277,7 +20277,7 @@ Examples:
                                 {(() => {
                                   // Rows saved before added_by_role existed carry the
                                   // role in added_by instead - read either.
-                                  const role = (r.added_by_role === 'Admin' || r.added_by_role === 'Super Admin')
+                                  const role = (r.added_by_role === 'Admin' || r.added_by_role === 'Super Admin' || r.added_by_role === 'Verifier')
                                     ? r.added_by_role
                                     : (/^super\s+admin$/i.test(r.added_by || '') ? 'Super Admin'
                                       : (/^admin$/i.test(r.added_by || '') ? 'Admin' : null));
@@ -16285,8 +20285,8 @@ Examples:
                                   const staff = formatPersonName(r.added_by);
                                   return (
                                     <>
-                                      <span className={`evt-added-admin ${role === 'Super Admin' ? 'super' : ''}`}>
-                                        <i className="fas fa-shield-halved"></i> {role}
+                                      <span className={`evt-added-admin ${role === 'Super Admin' ? 'super' : ''} ${role === 'Verifier' ? 'verifier' : ''}`}>
+                                        <i className={`fas ${role === 'Verifier' ? 'fa-user-shield' : 'fa-shield-halved'}`}></i> {role}
                                       </span>
                                       {staff && staff.toLowerCase() !== role.toLowerCase() && (
                                         <div className="evt-cell-sub">{staff}</div>
@@ -16430,6 +20430,13 @@ Examples:
                                         <span className="evt-turnover-by" title={`Money with ${formatPersonName(r.turnover_holder)}`}>
                                           <i className="fas fa-hand-holding-dollar"></i>
                                           <span>by <b>{formatPersonName(r.turnover_holder)}</b></span>
+                                        </span>
+                                      )}
+                                      {/* Paid, and it came in through a turnover: who brought it. */}
+                                      {r.status === 'payment_verified' && r.turned_over_at && r.turnover_holder && (
+                                        <span className="evt-turnover-by is-done" title={`Turned over by ${formatPersonName(r.turnover_holder)}`}>
+                                          <i className="fas fa-circle-check"></i>
+                                          <span>Turnover by <b>{formatPersonName(r.turnover_holder)}</b></span>
                                         </span>
                                       )}
                                     </>
@@ -16640,6 +20647,15 @@ Examples:
                                             </button>
                                           )}
 
+                                          {/* Undo a payment altogether: back to owing it -
+                                              Cash To Collect for cash, unpaid for online. */}
+                                          {canRevertPayment(r) && (
+                                            <button role="menuitem" className="warn" onClick={() => { setOpenRowMenu(null); askRevertPayment(r); }}>
+                                              <i className="fas fa-clock-rotate-left"></i> Revert Payment
+                                              <em>{revertTargetOf(r) === 'pending_cash' ? 'to Cash To Collect' : 'to unpaid'}</em>
+                                            </button>
+                                          )}
+
                                           {r.status !== 'cancelled' && (
                                             <button role="menuitem" className="danger" onClick={() => {
                                               setOpenRowMenu(null);
@@ -16699,6 +20715,8 @@ Examples:
                     </>
                   )}
 
+                  {manageTab === 'walkins' && renderWalkInsTab()}
+                  {manageTab === 'kit' && renderKitTab()}
                   {manageTab === 'attendance' && (
                     <>
                       {/* Search on the left, the counters on the right. Each
@@ -17604,6 +21622,8 @@ Examples:
                         </div>
                       </div>
 
+                      {renderAccWaiting()}
+
                       {evtRoomsLoading && evtRooms.length === 0 ? (
                         <p className="events-empty-msg">Loading rooms&hellip;</p>
                       ) : evtRooms.length === 0 ? (
@@ -17631,15 +21651,14 @@ Examples:
                               >
                                 <i className="fas fa-rotate"></i> Refresh
                               </button>
-                              <button type="button" className="btn-primary" onClick={openAccScan}>
-                                <i className="fas fa-id-card"></i> Scan Attendee
+                              <button type="button" className="btn-primary" onClick={() => setRoomExport({ format: 'pdf', occ: 'all', orient: 'landscape', busy: false })} disabled={evtRoomGuests.length === 0} title={evtRoomGuests.length ? '' : 'Nobody has a room yet'}>
+                                <i className="fas fa-file-export"></i> Export
                               </button>
                             </div>
                           </div>
                           <p className="rmn-lede">
-                            Pick the type, then the room, then tap the attendee&apos;s card. Only
-                            attendees who availed accommodation can be given a bed &mdash; anybody
-                            else is refused by name.
+                            Assign people from <b>Waiting for a Room</b> above, or open a room type and add
+                            someone to a room. Only attendees who availed accommodation can be given a bed.
                           </p>
 
                           <div className="acc-type-grid">
@@ -17651,6 +21670,9 @@ Examples:
                                 onClick={() => setEvtRoomTypeOpen(g.key)}
                               >
                                 <span className="acc-type-name">{g.type}</span>
+                                {g.floors.filter((f) => !String(g.type).toLowerCase().includes(String(f).toLowerCase())).length > 0 && (
+                                  <span className="acc-type-floors"><i className="fas fa-layer-group"></i> {g.floors.join(' · ')}</span>
+                                )}
                                 <span className="acc-type-desc">
                                   Description: <b>{g.paxLabel}</b>
                                   {g.bedsLabel ? <em>{g.bedsLabel}</em> : null}
@@ -17687,9 +21709,13 @@ Examples:
                             <button type="button" className="acc-crumb" onClick={() => setEvtRoomTypeOpen('')}>
                               <i className="fas fa-arrow-left"></i> Room Types
                             </button>
+                            <button type="button" className="btn-secondary acc-export-btn" onClick={() => setRoomExport({ format: 'pdf', occ: 'all', orient: 'landscape', busy: false })} disabled={evtRoomGuests.length === 0}>
+                              <i className="fas fa-file-export"></i> Export
+                            </button>
                             <h3 className="acc-type-title">
                               <i className="fas fa-bed"></i> {evtRoomOpenGroup.type}
                               <em>
+                                {evtRoomOpenGroup.floors.length > 0 ? `${evtRoomOpenGroup.floors.join(' · ')} · ` : ''}
                                 {evtRoomOpenGroup.paxLabel}
                                 {evtRoomOpenGroup.bedsLabel ? ` · ${evtRoomOpenGroup.bedsLabel}` : ''}
                                 {` · ${evtRoomOpenGroup.filled} of ${evtRoomOpenGroup.pax} pax filled`}
@@ -17710,6 +21736,7 @@ Examples:
                                 <div key={r.id} className={`rmn-room ${full ? 'full' : ''} ${guests.length === 0 ? 'empty' : ''}`}>
                                   <div className="rmn-room-top">
                                     <b className="acc-num-chip">{r.room_number}</b>
+                                    {r.floor && <small className="acc-floor"><i className="fas fa-layer-group"></i> {r.floor}</small>}
                                     {r.occupancy && (
                                       <span className={`acc-occ-chip ${r.occupancy}`}>{occupancyLabel(r.occupancy)}</span>
                                     )}
@@ -17737,29 +21764,16 @@ Examples:
                                               that actually gets made is "wrong
                                               room", and it is one write. */}
                                           <span className="rmn-guest-acts">
-                                            <select
-                                              className="rmn-move"
+                                            <PickList
+                                              size="sm"
+                                              className="rmn-move-pick"
                                               value={g.room_id}
+                                              onChange={(v) => { if (v !== g.room_id) moveRoomGuest(g, v); }}
+                                              options={roomPickOptions({ current: g.room_id, fromOcc: r.occupancy || '' })}
                                               disabled={roomGuestBusy === g.id}
-                                              aria-label={`Move ${g.registration?.attendee_name || 'attendee'} to another room`}
-                                              onChange={(e) => moveRoomGuest(g, e.target.value)}
-                                            >
-                                              {evtRoomGroups.map((grp) => (
-                                                <optgroup key={grp.key} label={grp.type}>
-                                                  {grp.rooms.map((room) => {
-                                                    const used = (evtGuestsByRoom.get(room.id) || []).length;
-                                                    const cap = Number(room.pax) || 1;
-                                                    const here = room.id === g.room_id;
-                                                    return (
-                                                      <option key={room.id} value={room.id} disabled={!here && used >= cap}>
-                                                        {room.room_number} ({used}/{cap})
-                                                        {here ? ' — here' : ''}
-                                                      </option>
-                                                    );
-                                                  })}
-                                                </optgroup>
-                                              ))}
-                                            </select>
+                                              searchable
+                                              ariaLabel={`Move ${g.registration?.attendee_name || 'attendee'} to another room`}
+                                            />
                                             <button
                                               type="button"
                                               className="evt-mini-btn danger"
@@ -17775,15 +21789,60 @@ Examples:
                                     </ul>
                                   )}
 
-                                  <button
-                                    type="button"
-                                    className="rmn-scan-btn"
-                                    disabled={full}
-                                    onClick={() => openRoomDesk(r)}
-                                  >
-                                    <i className={`fas ${full ? 'fa-circle-check' : 'fa-id-card'}`}></i>
-                                    {full ? ' Room is full' : ' Scan RFID to assign'}
-                                  </button>
+                                  {full ? (
+                                    <span className="rmn-full-note"><i className="fas fa-circle-check"></i> Room is full</span>
+                                  ) : (() => {
+                                    // Everybody holding accommodation: the ones verified and still
+                                    // without a room can be added; the others say why not.
+                                    const people = roomPeopleOptions();
+                                    const ready = people.filter((o) => !o.disabled).length;
+                                    const pickId = roomAddPick[r.id] || '';
+                                    const busy = accAssignBusy === `room:${r.id}`;
+                                    return (
+                                      <div className="rmn-add">
+                                        <PickList
+                                          size="sm"
+                                          value={pickId}
+                                          onChange={(v) => setRoomAddPick((m) => ({ ...m, [r.id]: v }))}
+                                          options={people}
+                                          placeholder={ready ? 'Add an attendee…' : 'Nobody ready for a room'}
+                                          disabled={busy || people.length === 0}
+                                          searchable
+                                          ariaLabel={`Add somebody to ${r.room_number}`}
+                                          emptyText="Nobody holds accommodation yet"
+                                        />
+                                        <button
+                                          type="button"
+                                          className="btn-primary"
+                                          disabled={!pickId || busy}
+                                          onClick={async () => {
+                                            const w = eventRegs.find((x) => x.id === pickId);
+                                            if (!w) return;
+                                            setAccAssignBusy(`room:${r.id}`);
+                                            try {
+                                              const res = await fetch('/api/events/room-guests', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ eventId: eventRegsModal.id, roomId: r.id, registrationId: w.id, actorId: userData?.id || null }),
+                                              });
+                                              const data = await res.json();
+                                              if (!data.success) { showToast(data.message, 'danger'); return; }
+                                              showToast(data.message, 'success');
+                                              applyClearedRooms(data);
+                                              setRoomAddPick((m) => { const n = { ...m }; delete n[r.id]; return n; });
+                                              loadEvtRoomGuests(eventRegsModal.id);
+                                            } catch (err) {
+                                              showToast(err.message, 'danger');
+                                            } finally {
+                                              setAccAssignBusy('');
+                                            }
+                                          }}
+                                        >
+                                          <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-user-plus'}`}></i> Add
+                                        </button>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               );
                             })}
@@ -18192,7 +22251,7 @@ Examples:
                           <>
                             <div className="evt-tapview-avatar">{personInitials(holder.attendee_name)}</div>
                             <span className="evt-tapview-lead">This card is assigned to</span>
-                            <div className="evt-tapview-name">{formatPersonName(holder.attendee_name)}</div>
+                            <div className="evt-tapview-name"><b className="evt-tapview-last">{splitPersonName(holder.attendee_name).last}</b>{splitPersonName(holder.attendee_name).first ? `, ${splitPersonName(holder.attendee_name).first}` : ''}</div>
                             {holder.church_name && (
                               <div className="evt-tapview-church"><i className="fas fa-church"></i> {formatChurchName(holder.church_name)}</div>
                             )}
@@ -18261,7 +22320,7 @@ Examples:
                               {returnScan.done ? <i className="fas fa-check"></i> : personInitials(returnScan.reg.attendee_name)}
                             </div>
                             <span className="evt-tapview-lead">{returnScan.done ? 'Returned by' : 'This card is assigned to'}</span>
-                            <div className="evt-tapview-name">{formatPersonName(returnScan.reg.attendee_name)}</div>
+                            <div className="evt-tapview-name"><b className="evt-tapview-last">{splitPersonName(returnScan.reg.attendee_name).last}</b>{splitPersonName(returnScan.reg.attendee_name).first ? `, ${splitPersonName(returnScan.reg.attendee_name).first}` : ''}</div>
                             {returnScan.reg.church_name && (
                               <div className="evt-tapview-church"><i className="fas fa-church"></i> {formatChurchName(returnScan.reg.church_name)}</div>
                             )}
@@ -20802,6 +24861,8 @@ Examples:
                                 <option value="unpaid">Still to pay</option>
                                 <option value="verify">Awaiting verification</option>
                                 <option value="attended">Marked attended</option>
+                                <option value="accommodation">With accommodation</option>
+                                <option value="extras">With any extra (accommodation, meals...)</option>
                                 <option value="cancelled">Cancelled</option>
                               </select>
                             </div>
@@ -20835,11 +24896,97 @@ Examples:
                               </label>
                             ))}
                           </div>
+
+                          {exportTierOptions().length > 0 && (
+                            <>
+                              <div className="evt-export-legend" style={{ marginTop: 12 }}>
+                                <label className="evt-export-sublabel">Age Group</label>
+                                <div className="evt-export-legend-actions">
+                                  <button type="button" className="evt-chip-btn" onClick={() => setExportTiers([])} disabled={exportTiers.length === 0}>
+                                    Every age group
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="evt-export-churches evt-export-tiers">
+                                {exportTierOptions().map((t) => (
+                                  <label key={t.name} className={`evt-export-church ${exportTiers.includes(t.name) ? 'on' : ''}`}>
+                                    <input type="checkbox" checked={exportTiers.includes(t.name)} onChange={() => exportToggleTier(t.name)} />
+                                    <b>{t.name}</b>
+                                    <em>{t.count}</em>
+                                  </label>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* ---- 3. Row colours ---- */}
+                        <div className="evt-export-block">
+                          <div className="evt-export-legend">
+                            <h4><span>3</span> Row colours</h4>
+                            <div className="evt-export-legend-actions">
+                              <label className={`evt-export-switch ${exportHighlight.on ? 'on' : ''}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={exportHighlight.on}
+                                  disabled={!canPickExportColours}
+                                  onChange={(e) => changeExportHighlight((h) => ({ ...h, on: e.target.checked }))}
+                                />
+                                {exportHighlight.on ? 'On' : 'Off'}
+                              </label>
+                              {canPickExportColours && (
+                                <button type="button" className="evt-chip-btn" onClick={() => changeExportHighlight(() => exportHighlightDefaults())}>
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <p className="evt-muted evt-export-colours-note">
+                            {canPickExportColours
+                              ? 'Whole rows are shaded in the PDF, Excel and Word files, with a legend of the colours used. Tap a swatch to change its colour.'
+                              : 'Whole rows are shaded in the PDF, Excel and Word files, with a legend. Only an Admin or Super Admin can change the colours.'}
+                          </p>
+                          <div className={`evt-export-colours ${exportHighlight.on ? '' : 'is-off'}`}>
+                            {(() => {
+                              const picked = exportRows ? exportSelectedRows() : [];
+                              return EXPORT_HIGHLIGHT_RULES.map((rule) => {
+                                const setting = exportHighlight.rules[rule.key];
+                                const count = picked.filter((r) => exportRowRule(r) === rule.key).length;
+                                return (
+                                  <div key={rule.key} className={`evt-export-colour ${setting.on ? 'on' : ''}`} style={{ '--row-colour': setting.color }}>
+                                    <label className="evt-export-swatch" title={canPickExportColours ? 'Choose the colour' : rule.label}>
+                                      {canPickExportColours && (
+                                        <input
+                                          type="color"
+                                          value={setting.color}
+                                          disabled={!exportHighlight.on}
+                                          onChange={(e) => changeExportHighlight((h) => ({ ...h, rules: { ...h.rules, [rule.key]: { ...h.rules[rule.key], color: e.target.value } } }))}
+                                          aria-label={`Colour for ${rule.label}`}
+                                        />
+                                      )}
+                                    </label>
+                                    <div className="evt-export-colour-text">
+                                      <b>{rule.label}</b>
+                                      <small>{rule.hint}</small>
+                                    </div>
+                                    <em>{count}</em>
+                                    <input
+                                      type="checkbox"
+                                      checked={setting.on}
+                                      disabled={!canPickExportColours || !exportHighlight.on}
+                                      onChange={(e) => changeExportHighlight((h) => ({ ...h, rules: { ...h.rules, [rule.key]: { ...h.rules[rule.key], on: e.target.checked } } }))}
+                                      aria-label={`Use ${rule.label}`}
+                                    />
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
                         </div>
 
                         {/* ---- 3. What comes out ---- */}
                         <div className="evt-export-block">
-                          <div className="evt-export-legend"><h4><span>3</span> File</h4></div>
+                          <div className="evt-export-legend"><h4><span>4</span> File</h4></div>
                           <div className="evt-export-formats">
                             {EXPORT_FORMATS.map((f) => (
                               <button
@@ -20920,7 +25067,7 @@ Examples:
 
                   <div className="evt-modal-foot">
                     <span className="evt-export-count">
-                      {exportPreview.rows} {exportPreview.rows === 1 ? 'record' : 'records'} · {exportOrient}
+                      {exportPreview.rows} {exportPreview.rows === 1 ? 'record' : 'records'} · {exportPreview.orientation || exportOrient}
                     </span>
                     <button className="btn-secondary" onClick={closeExportPreview}>Back</button>
                     {exportPreview.format === 'pdf' && (
@@ -22219,8 +26366,12 @@ Examples:
                   </div>
                   <div className="evt-modal-body">
                     <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
-                      <i className="fas fa-circle-info"></i> Everyone {formatPersonName(turnoverModal.repName)} registered is listed below.
-                      Tick only the ones whose money has been handed in &mdash; the rest stay Paid - Pending Turnover.
+                      {turnoverModal.tappedOnly ? (
+                        <><i className="fas fa-wifi"></i> Only the {turnoverModal.rows.length === 1 ? 'attendee' : `${turnoverModal.rows.length} attendees`} whose card was tapped.</>
+                      ) : (
+                        <><i className="fas fa-circle-info"></i> Everyone {formatPersonName(turnoverModal.repName)} registered is listed below.
+                        Tick only the ones whose money has been handed in &mdash; the rest stay Paid - Pending Turnover.</>
+                      )}
                     </p>
 
                     {turnoverPendingRows.length > 1 && (
@@ -22279,17 +26430,68 @@ Examples:
                       })}
                     </div>
 
+                    {/* How it was handed in */}
+                    <div className="evt-turnover-mode">
+                      <label className="evt-export-sublabel">Mode of payment</label>
+                      <div className="evt-plan-options evt-turnover-options">
+                        <button
+                          type="button"
+                          className={`evt-plan-option ${turnoverPay.mode === 'cash' ? 'on' : ''}`}
+                          onClick={() => setTurnoverPay({ mode: 'cash', method: '', reference: '' })}
+                          disabled={turnoverSaving}
+                        >
+                          <i className="fas fa-money-bill-wave"></i>
+                          <span><strong>Cash</strong><small>Handed in as cash.</small></span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`evt-plan-option ${turnoverPay.mode === 'online' ? 'on' : ''}`}
+                          onClick={() => setTurnoverPay((p) => ({ ...p, mode: 'online' }))}
+                          disabled={turnoverSaving}
+                        >
+                          <i className="fas fa-mobile-screen-button"></i>
+                          <span><strong>Online</strong><small>Sent by GCash, bank transfer...</small></span>
+                        </button>
+                      </div>
+                      {turnoverPay.mode === 'online' && (
+                        <div className="evt-form-grid" style={{ marginTop: 10 }}>
+                          <div className="form-group">
+                            <label>Sent through *</label>
+                            <PayMethodSelect
+                              methods={adminPaymentMethods().filter((m) => !isCashMethod(m))}
+                              channels={activePaymentMethods}
+                              value={turnoverPay.method}
+                              onChange={(m) => setTurnoverPay((p) => ({ ...p, method: m }))}
+                              placeholder="GCash, BPI, MAYA..."
+                              ariaLabel="Online payment method"
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Reference / Txn number</label>
+                            <input
+                              className="form-control"
+                              value={turnoverPay.reference}
+                              onChange={(e) => setTurnoverPay((p) => ({ ...p, reference: e.target.value }))}
+                              placeholder="Optional"
+                              disabled={turnoverSaving}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="evt-plan-summary big" style={{ marginTop: 14 }}>
                       <div><span>Selected</span><b>{turnoverSelected.length} of {turnoverPendingRows.length}</b></div>
                       <div className="bal"><span>Handed In</span><b>₱{turnoverTotal}</b></div>
                     </div>
                     <p className="evt-muted" style={{ fontSize: '0.8rem' }}>
-                      <i className="fas fa-circle-info"></i> Confirming moves the ticked registrations to Payment Verified and their money into Cash Collected.
+                      <i className="fas fa-circle-info"></i> Confirming marks the ticked registrations paid, and their money goes into
+                      {turnoverPay.mode === 'online' ? ' Online Collected.' : ' Cash Collected.'}
                     </p>
                   </div>
                   <div className="evt-modal-foot">
                     <button className="btn-secondary" onClick={() => setTurnoverModal(null)} disabled={turnoverSaving}>Cancel</button>
-                    <button className="btn-primary" onClick={submitConfirmTurnover} disabled={turnoverSaving || turnoverSelected.length === 0}>
+                    <button className="btn-primary" onClick={submitConfirmTurnover} disabled={turnoverSaving || turnoverSelected.length === 0 || (turnoverPay.mode === 'online' && !turnoverPay.method)}>
                       <i className={`fas ${turnoverSaving ? 'fa-spinner fa-spin' : 'fa-hand-holding-dollar'}`}></i>{' '}
                       {turnoverSaving ? 'Confirming…' : `Confirm ₱${turnoverTotal} Received`}
                     </button>
@@ -22313,7 +26515,12 @@ Examples:
                     <button className="evt-modal-close" onClick={() => setCollectCash(null)} disabled={collectSaving}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
-                    {collectCash.isBulk && (
+                    {collectCash.tappedOnly ? (
+                      <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
+                        <i className="fas fa-wifi"></i> Only the {collectCash.rows.length === 1 ? 'attendee' : `${collectCash.rows.length} attendees`} whose card was tapped
+                        {collectCash.repName ? <> from {formatPersonName(collectCash.repName)}&apos;s booking</> : null}. Collecting marks {collectCash.rows.length === 1 ? 'them' : 'each of them'} paid.
+                      </p>
+                    ) : collectCash.isBulk && (
                       <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
                         <i className="fas fa-circle-info"></i> Everyone {formatPersonName(collectCash.repName)} registered is listed below.
                         Untick anyone who is paying separately &mdash; only the ticked names are collected and confirmed.
@@ -22464,9 +26671,9 @@ Examples:
             {/* ---- Admin: manually add a registration (walk-in / offline) ---- */}
             {showAdminAddReg && eventRegsModal && (
               <div className="evt-modal-overlay" onClick={() => setShowAdminAddReg(false)}>
-                <div className="evt-modal" onClick={(e) => e.stopPropagation()}>
+                <div className={`evt-modal ${adminWalkIn ? 'is-walkin' : ''} ${adminWalkIn && adminLateUid ? 'has-card' : ''}`} onClick={(e) => e.stopPropagation()}>
                   <div className="evt-modal-head">
-                    <div><h3>{adminLate ? <><i className="fas fa-wifi"></i> Late Registration</> : 'Add Attendee'}</h3><p>{eventRegsModal.title}</p></div>
+                    <div><h3>{adminLate ? <><i className="fas fa-wifi"></i> Late Registration</> : adminWalkIn ? <><i className="fas fa-person-walking"></i> Walk-In Registration</> : 'Add Attendee'}</h3><p>{eventRegsModal.title}</p></div>
                     <button className="evt-modal-close" onClick={() => setShowAdminAddReg(false)}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="evt-modal-body">
@@ -22526,6 +26733,7 @@ Examples:
                     <>
                     {/* Who is coming, then how they are paying - the second half
                         changes shape entirely depending on the plan chosen. */}
+                    {!adminWalkIn && (
                     <div className="evt-steps">
                       {adminStepLabels.map((label, i) => (
                         <span className="evt-step-wrap" key={label}>
@@ -22539,15 +26747,18 @@ Examples:
                         </span>
                       ))}
                     </div>
+                    )}
 
                     {adminAddStep === 0 && (
                       <>
+                        {!adminWalkIn && (
                         <p className="evt-muted" style={{ marginBottom: 12, fontSize: '0.82rem' }}>
                           <i className="fas fa-circle-info"></i>{' '}
                           {adminLate
                             ? <>For someone arriving after registration closed. The card below becomes theirs when you save.</>
                             : <>Use this to record a walk-in or offline sign-up on the attendee&apos;s behalf.</>}
                         </p>
+                        )}
 
                         {/* Whose name goes on the row, shown before it is typed.
                             The row is attributed to the signed-in account, so
@@ -22562,6 +26773,65 @@ Examples:
                           </span>
                         </div>
 
+                        {adminWalkIn && (() => {
+                          // Only the free cards are offered - a card that is taken is gone
+                          // from the list, so the next number is simply the first one in it.
+                          const free = (cardStock || []).filter((c) => !c.used);
+                          const chosen = free.find((c) => c.uid === adminLateUid);
+                          return (
+                            <div className={`evt-walkin-card ${chosen ? 'is-set' : ''} ${adminAddErrors.rfid ? 'invalid' : ''}`}>
+                              <div className="evt-walkin-card-head">
+                                <span className="evt-walkin-card-label"><i className="fas fa-id-card"></i> RFID Card *</span>
+                                {cardStock !== null && <span className="evt-walkin-card-count">{free.length} free</span>}
+                              </div>
+                              <div className="evt-wdrop">
+                                <button
+                                  type="button"
+                                  className={`evt-wdrop-btn ${walkinCardMenu ? 'open' : ''}`}
+                                  onClick={() => setWalkinCardMenu((v) => !v)}
+                                  disabled={cardStock === null || free.length === 0}
+                                  aria-haspopup="listbox"
+                                  aria-expanded={walkinCardMenu}
+                                >
+                                  {chosen ? (
+                                    <span className="evt-wdrop-val"><span className="evt-wcard-num">{chosen.number}</span><b>RFID #{chosen.number}</b><em>{formatUid(chosen.uid)}</em></span>
+                                  ) : (
+                                    <span className="evt-wdrop-ph">
+                                      {cardStock === null ? 'Loading the cards…' : free.length ? 'Choose an RFID card…' : 'No free cards - add some under Events RFID'}
+                                    </span>
+                                  )}
+                                  <i className={`fas fa-chevron-${walkinCardMenu ? 'up' : 'down'}`}></i>
+                                </button>
+                                {walkinCardMenu && free.length > 0 && (
+                                  <>
+                                    <div className="evt-wdrop-scrim" onClick={() => setWalkinCardMenu(false)} />
+                                    <ul className="evt-wdrop-list" role="listbox">
+                                      {free.map((c) => (
+                                        <li key={c.id}>
+                                          <button
+                                            type="button"
+                                            role="option"
+                                            aria-selected={c.uid === adminLateUid}
+                                            className={c.uid === adminLateUid ? 'on' : ''}
+                                            onClick={() => { setAdminLateUid(c.uid); setWalkinCardMenu(false); setAdminAddErrors((er) => ({ ...er, rfid: undefined })); }}
+                                          >
+                                            <span className="evt-wcard-num">{c.number}</span>
+                                            <b>RFID #{c.number}</b>
+                                            <em>{formatUid(c.uid)}</em>
+                                            {c.uid === adminLateUid && <i className="fas fa-check"></i>}
+                                          </button>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                              </div>
+                              {!chosen && free.length > 0 && <small className="evt-walkin-card-hint">Choose the card first - the details open once it is chosen.</small>}
+                              {adminAddErrors.rfid && <small className="evt-field-error">{adminAddErrors.rfid}</small>}
+                            </div>
+                          );
+                        })()}
+
                         {adminLate && adminLateUid && (
                           <div className="evt-late-card">
                             <i className="fas fa-circle-check"></i>
@@ -22572,11 +26842,12 @@ Examples:
                           </div>
                         )}
 
-                        {(!adminLate || adminLateUid) && (
+                        {((!adminLate && !adminWalkIn) || adminLateUid) && (
                         <>
                         {/* One person, or a group on one payment - the same choice
-                            the public form offers. Late registration is one person. */}
-                        {!adminLate && (
+                            the public form offers. Late registration and a walk-in
+                            with a card are one person. */}
+                        {!adminLate && !adminWalkIn && (
                         <div className="evt-plan-pick" style={{ marginTop: 0 }}>
                           <div className="evt-plan-head">Registration Type</div>
                           <div className="evt-type-choice">
@@ -22839,9 +27110,27 @@ Examples:
                           </div>
                         )}
 
+                        {adminWalkIn ? (
+                          <div className="evt-walkin-side">
+                            {renderAdminExtras()}
+                            <div className="evt-walkin-total">
+                              <span>Total</span>
+                              <b>{adminTotalAmount(eventRegsModal) > 0 ? `₱${adminTotalAmount(eventRegsModal).toLocaleString()}` : 'Free'}</b>
+                            </div>
+                            {adminTotalAmount(eventRegsModal) > 0 && (
+                              <p className="evt-walkin-paynote">
+                                <i className="fas fa-hand-holding-dollar"></i> Saved as <b>Cash To Collect</b> - the verifier takes the payment at the Registration Verification desk.
+                              </p>
+                            )}
+                            <button className="btn-primary" style={{ width: '100%', marginTop: 10 }} onClick={submitAdminAddReg} disabled={adminAddRegSubmitting}>
+                              {adminAddRegSubmitting ? <><i className="fas fa-spinner fa-spin"></i> Adding…</> : <><i className="fas fa-user-plus"></i> Add Attendee</>}
+                            </button>
+                          </div>
+                        ) : (
                         <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={adminAddNext}>
                           {adminIsBulk ? 'Add the People' : 'Continue to Payment'} <i className="fas fa-arrow-right"></i>
                         </button>
+                        )}
                         </>
                         )}
                       </>
@@ -23041,21 +27330,7 @@ Examples:
                     {adminAddStep === adminPayStep && (
                       <>
                         {/* Same paid extras the attendee would have been offered */}
-                        {!adminIsBulk && (eventRegsModal.event_addons || []).length > 0 && (
-                          <div className="evt-addon-pick">
-                            <div className="evt-addon-pick-head"><i className="fas fa-circle-plus"></i> Optional Extras</div>
-                            {eventRegsModal.event_addons.map((a) => (
-                              <label key={a.id} className={`evt-addon-option ${adminAddRegAddons.includes(a.id) ? 'on' : ''} ${a.is_required ? 'locked' : ''}`}>
-                                <input type="checkbox" checked={adminAddRegAddons.includes(a.id)} disabled={a.is_required} onChange={() => toggleAdminAddon(a)} />
-                                <span className="evt-addon-option-text">
-                                  <strong>{a.question}</strong>
-                                  {a.is_required && <small>Required &mdash; included for everyone.</small>}
-                                </span>
-                                <span className="evt-addon-option-fee">+₱{addonFeeFor(a, findTier(eventRegsModal, adminAddRegTier) || defaultTier(eventRegsModal))}</span>
-                              </label>
-                            ))}
-                          </div>
-                        )}
+                        {renderAdminExtras()}
 
                         {adminTotalAmount(eventRegsModal) <= 0 ? (
                           <p className="evt-free-note"><i className="fas fa-gift"></i> Nothing to collect &mdash; they&apos;ll be registered instantly.</p>
@@ -23112,6 +27387,12 @@ Examples:
                               <div className="evt-receipt-total"><span>Total</span><b>₱{adminTotalAmount(eventRegsModal)}</b></div>
                             </div>
 
+                            {adminWalkIn ? (
+                              <p className="evt-walkin-paynote">
+                                <i className="fas fa-hand-holding-dollar"></i> Saved as <b>Cash To Collect</b> - the verifier takes the ₱{adminTotalAmount(eventRegsModal).toLocaleString()} at the Registration Verification desk.
+                              </p>
+                            ) : (
+                            <>
                             {/* How this is being settled decides everything below it. */}
                             <div className="evt-plan-pick">
                               <div className="evt-plan-head">Payment Options</div>
@@ -23239,6 +27520,8 @@ Examples:
                                 </p>
                               </div>
                             )}
+                            </>
+                            )}
                           </div>
                         )}
 
@@ -23289,6 +27572,14 @@ Examples:
                           <div className="evt-cell-sub">
                             <i className="far fa-clock"></i> Added {new Date(editRegModal.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
                             {editRegModal.added_by && <> by {formatPersonName(editRegModal.added_by)}{editRegModal.added_by_role ? ` (${editRegModal.added_by_role})` : ''}</>}
+                          </div>
+                        )}
+                        {/* When the money was confirmed - set when the row is marked paid
+                            (cash collected or payment verified), cleared if it is reverted. */}
+                        {editRegModal.verified_at && ['payment_verified', 'registered', 'paid_pending_turnover'].includes(editRegModal.status) && (
+                          <div className="evt-cell-sub evt-editing-paid">
+                            <i className="fas fa-circle-check"></i> Paid {new Date(editRegModal.verified_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                            {editRegModal.payment_method ? ` · ${isCashMethod(editRegModal.payment_method) ? 'Cash' : editRegModal.payment_method}` : ''}
                           </div>
                         )}
                       </div>
@@ -27069,6 +31360,11 @@ Examples:
               </div>
             )}
 
+            {rfidPurpose === 'event' && !rfidEventId && renderRegVerifiersPanel()}
+            {rfidPurpose === 'event' && !rfidEventId && renderCardStockPanel()}
+            {renderVerifierForm()}
+            {renderCardStockScan()}
+
             {/* The chosen event, and the way back out of it. */}
             {rfidPurpose === 'event' && rfidEventId && (
               <div className="rfid-event-bar">
@@ -29364,7 +33660,10 @@ Examples:
                                       <Fragment key={r.id}>
                                       <tr>
                                         <td className="evt-cell-name evt-td-primary" data-label="Type of Room">{r.room_type}</td>
-                                        <td data-label="Room Number"><span className="acc-num-chip">{r.room_number}</span></td>
+                                        <td data-label="Room Number">
+                                          <span className="acc-num-chip">{r.room_number}</span>
+                                          {r.floor && <small className="acc-floor"><i className="fas fa-layer-group"></i> {r.floor}</small>}
+                                        </td>
                                         <td className="evt-td-center" data-label="Pax"><b>{r.pax}</b></td>
                                         <td data-label="Bed Description">
                                           {bedsToText(r.beds) || <span className="evt-cell-sub">&mdash;</span>}
@@ -29457,6 +33756,7 @@ Examples:
                                 <tr key={r.id}>
                                   <td className="evt-td-primary" data-label="Room Number">
                                     <span className="acc-num-chip">{r.room_number}</span>
+                                    {r.floor && <small className="acc-floor"><i className="fas fa-layer-group"></i> {r.floor}</small>}
                                   </td>
                                   <td className="evt-td-center" data-label="Pax"><b>{r.pax}</b></td>
                                   <td data-label="Bed Description">
@@ -29563,6 +33863,24 @@ Examples:
                               ))}
                             </span>
                           )}
+                        </label>
+
+                        {/* Which floor the room is on - typed, so "Ground", "3rd Floor" and
+                            "Annex 2F" all work. The floors already used are offered. */}
+                        <label className="acc-field">
+                          <span>Floor</span>
+                          <input
+                            type="text"
+                            list="acc-room-floors"
+                            value={accForm.floor}
+                            placeholder="e.g. Ground Floor, 2nd Floor, 3rd Floor"
+                            onChange={(e) => setAccForm((f) => ({ ...f, floor: e.target.value.slice(0, 60) }))}
+                          />
+                          <datalist id="acc-room-floors">
+                            {[...new Set([...accRooms.map((r) => r.floor).filter(Boolean), 'Ground Floor', '2nd Floor', '3rd Floor', '4th Floor', '5th Floor'])]
+                              .map((fl) => <option key={fl} value={fl} />)}
+                          </datalist>
+                          <em>Optional. Every room added in this go is put on this floor.</em>
                         </label>
 
                         <label className="acc-field">
@@ -33473,6 +37791,18 @@ Examples:
                                     <input className="form-control" placeholder={songAutoFillLoading[`${type}-${i}`] ? 'Detecting song title...' : 'Song title *'} value={song.title} onChange={(e) => handleSongChange(type, i, 'title', e.target.value)} disabled={!!songAutoFillLoading[`${type}-${i}`]} />
                                     {songAutoFillLoading[`${type}-${i}`] && <div className="song-title-autofill-spinner"><div className="scan-spinner"></div></div>}
                                   </div>
+                                  {song.spotify?.id ? (
+                                    <div className="lineup-spotify-chip">
+                                      {song.spotify.image ? <img src={song.spotify.image} alt="" /> : <i className="fab fa-spotify"></i>}
+                                      <a href={song.spotify.url} target="_blank" rel="noreferrer" title="Open in Spotify"><i className="fab fa-spotify"></i> Listen on Spotify</a>
+                                      <button type="button" onClick={() => setLineupSpotifyPick({ type, i })} title="Change song"><i className="fas fa-rotate"></i></button>
+                                      <button type="button" onClick={() => clearSpotifySong(type, i)} title="Remove Spotify song"><i className="fas fa-times"></i></button>
+                                    </div>
+                                  ) : (
+                                    <button type="button" className="btn-spotify-find" onClick={() => setLineupSpotifyPick({ type, i })}>
+                                      <i className="fab fa-spotify"></i> Find on Spotify
+                                    </button>
+                                  )}
                                   <input className="form-control" placeholder="YouTube link (optional)" value={song.link} onChange={(e) => handleSongChange(type, i, 'link', e.target.value)} />
                                   {vidId && (
                                     <div className="lineup-yt-thumb" onClick={() => window.open(song.link, '_blank')}>
@@ -33489,6 +37819,15 @@ Examples:
                           </div>
                         ))}
                       </div>
+
+                      {lineupSpotifyPick && (
+                        <SpotifyPickerModal
+                          actorId={userData?.id}
+                          title={`${lineupSpotifyPick.type === 'slowSongs' ? 'Slow' : 'Fast'} Song ${lineupSpotifyPick.i + 1} from Spotify`}
+                          onPick={(track) => applySpotifySong(lineupSpotifyPick.type, lineupSpotifyPick.i, track)}
+                          onClose={() => setLineupSpotifyPick(null)}
+                        />
+                      )}
 
                       <div className="lineup-mm-note">
                         <i className="fas fa-desktop"></i>

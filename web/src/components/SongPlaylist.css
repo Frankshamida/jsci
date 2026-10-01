@@ -862,3 +862,36 @@ body.dark-mode .sp-field input[type='text'] { background: #16162a; border-color:
   .sp-vinyl-disc { animation-duration: 12s; }
   .sp-eq i { animation: none; transform: scaleY(0.7); }
 }
+
+/* ---------- Our Songs / Spotify tabs ---------- */
+
+.sp-source-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--sp-card);
+  border: 1px solid var(--sp-line);
+}
+.sp-source-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--sp-muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.sp-source-tabs button.is-active { background: var(--sp-accent); color: #fff; }
+.sp-source-tabs .fa-spotify { color: #1db954; }
+.sp-source-tabs button.is-active .fa-spotify { color: #fff; }
+
+/* a song in a list that plays from Spotify */
+.sp-row-spotify { color: #1db954; margin-right: 6px; font-size: 0.95em; }

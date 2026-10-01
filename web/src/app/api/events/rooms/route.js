@@ -59,8 +59,13 @@ const BASE_ROOM_FIELDS = 'id, event_id, room_type, room_number, pax, beds, notes
 // occupancy (All Boys / All Girls / Family) comes from event_room_occupancy.sql.
 // Until that is run the rooms still load - just without the label - rather
 // than the whole Accommodation tab going blank over one missing column.
-const ROOM_FIELDS = `${BASE_ROOM_FIELDS}, occupancy`;
-const missingOccupancy = (error) => /occupancy/i.test(error?.message || '');
+// floor comes from event_room_floor.sql - same reasoning: without it the
+// rooms still load, just without the floor.
+const ROOM_FIELDS = `${BASE_ROOM_FIELDS}, occupancy, floor`;
+const missingOccupancy = (error) => /occupancy|floor/i.test(error?.message || '');
+const missingFloor = (error) => /floor/i.test(error?.message || '');
+const FLOOR_MIGRATION = 'Room floors need their migration: run supabase/migrations/event_room_floor.sql in the Supabase SQL editor, then try again.';
+const cleanFloor = (raw) => String(raw ?? '').trim().replace(/\s+/g, ' ').slice(0, 60) || null;
 const OCCUPANCY_MIGRATION = 'Room labels need their migration: run supabase/migrations/event_room_occupancy.sql in the Supabase SQL editor, then try again.';
 
 // A stored row, in the shape the screen wants: beds always an array, never a
@@ -130,6 +135,7 @@ export async function POST(request) {
     const beds = normalizeBeds(body.beds);
     const pax = normalizePax(body.pax, beds);
     const notes = String(body.notes || '').trim().slice(0, 500) || null;
+    const floor = cleanFloor(body.floor);
 
     if (!eventId) {
       return NextResponse.json({ success: false, message: 'Choose an event first' }, { status: 400 });
@@ -181,6 +187,7 @@ export async function POST(request) {
       pax,
       beds,
       notes,
+      ...(floor ? { floor } : {}),
       created_by: actor.id,
     }));
 
@@ -189,6 +196,9 @@ export async function POST(request) {
       .insert(payload)
       .select(ROOM_FIELDS);
     if (error && missingOccupancy(error)) {
+      if (floor && missingFloor(error)) {
+        return NextResponse.json({ success: false, message: FLOOR_MIGRATION }, { status: 500 });
+      }
       ({ data, error } = await supabaseAdmin
         .from('event_rooms')
         .insert(payload)
@@ -271,6 +281,7 @@ export async function PATCH(request) {
     if (body.pax !== undefined) patch.pax = normalizePax(body.pax, beds);
     if (body.notes !== undefined) patch.notes = String(body.notes || '').trim().slice(0, 500) || null;
     if (body.occupancy !== undefined) patch.occupancy = normalizeOccupancy(body.occupancy);
+    if (body.floor !== undefined) patch.floor = cleanFloor(body.floor);
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ success: true, data: shape(room), message: 'Nothing to change' });
@@ -285,8 +296,12 @@ export async function PATCH(request) {
     if (error && missingOccupancy(error)) {
       // Setting the label itself cannot work without the column - say so.
       // Any other edit still goes through, only without reading the label back.
-      if ('occupancy' in patch) {
+      if ('occupancy' in patch && !missingFloor(error)) {
         return NextResponse.json({ success: false, message: OCCUPANCY_MIGRATION }, { status: 500 });
+      }
+      if ('floor' in patch && missingFloor(error)) {
+        if (patch.floor) return NextResponse.json({ success: false, message: FLOOR_MIGRATION }, { status: 500 });
+        delete patch.floor;
       }
       ({ data, error } = await supabaseAdmin
         .from('event_rooms')

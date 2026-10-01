@@ -19,7 +19,13 @@
 //     rows,         [{ ...registration }]
 //     orientation,  'portrait' | 'landscape'
 //     footNote,     'Generated 25 Sep 2026 by Admin Jsci'
+//     legend,       [{ color: 'D8F0DC', label: 'Kid - free', count: 12 }]   (optional)
 //   }
+//
+// Row colours: a row with `_fill` ('RRGGBB') is shaded that colour in every
+// format that has colour, and `legend` says what each colour means - drawn
+// above the table in the PDF, the spreadsheet and the Word file. A CSV has no
+// colour, so it gets a "Highlight" column with the legend's words instead.
 // ============================================================
 
 import { zipFiles, xmlEscape } from './zipWriter';
@@ -34,6 +40,11 @@ const BRAND = {
 };
 
 /** The cell value for a column, always a string, never null. */
+const HEX = /^[0-9A-Fa-f]{6}$/;
+const fillOf = (row) => (row && HEX.test(String(row._fill || '')) ? String(row._fill).toUpperCase() : '');
+const legendOf = (spec) => (Array.isArray(spec.legend) ? spec.legend.filter((l) => l && HEX.test(String(l.color || '')) && l.label) : []);
+const legendText = (l) => `${l.label}${Number.isFinite(l.count) ? ` (${l.count})` : ''}`;
+
 function cellText(row, column) {
   const raw = typeof column.value === 'function' ? column.value(row) : row[column.key];
   if (raw === null || raw === undefined) return '';
@@ -62,11 +73,19 @@ export function buildPrintHtml(spec) {
     .join('');
 
   const body = rows.map((row, i) => {
+    const fill = fillOf(row);
     const cells = columns
-      .map((c) => `<td class="align-${c.align || 'left'}">${xmlEscape(cellText(row, c))}</td>`)
+      .map((c) => `<td class="align-${c.align || 'left'}"${fill ? ` style="background:#${fill}"` : ''}>${xmlEscape(cellText(row, c))}</td>`)
       .join('');
     return `<tr class="${i % 2 ? 'alt' : ''}">${cells}</tr>`;
   }).join('');
+
+  const legend = legendOf(spec);
+  const legendHtml = legend.length
+    ? `<div class="legend"><span class="legend-title">Row colours</span>${legend
+      .map((l) => `<span class="legend-item"><i style="background:#${l.color.toUpperCase()}"></i>${xmlEscape(legendText(l))}</span>`)
+      .join('')}</div>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>${xmlEscape(title)} — ${xmlEscape(subtitle)}</title>
@@ -121,6 +140,11 @@ export function buildPrintHtml(spec) {
   .align-right { text-align: right; }
   .align-center { text-align: center; }
 
+  .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 0 0 10px; font-size: 8.5pt; }
+  .legend-title { font-size: 7.5pt; letter-spacing: 0.08em; text-transform: uppercase; color: #${BRAND.grey}; font-weight: 700; }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-item i { width: 14px; height: 10px; border: 0.5pt solid #${BRAND.line}; display: inline-block; }
+
   .foot { margin-top: 12px; padding-top: 7px; border-top: 0.5pt solid #${BRAND.line}; font-size: 7.5pt; color: #${BRAND.grey}; display: flex; justify-content: space-between; gap: 16px; }
   .count { font-weight: 700; color: #${BRAND.ink}; }
 </style></head>
@@ -134,6 +158,7 @@ export function buildPrintHtml(spec) {
     </div>
   </div>
   ${metaHtml ? `<div class="meta">${metaHtml}</div>` : ''}
+  ${legendHtml}
   <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
   <div class="foot">
     <span class="count">${rows.length} ${rows.length === 1 ? 'record' : 'records'}</span>
@@ -209,6 +234,24 @@ export function buildXlsx(spec) {
   });
   r += 1;
 
+  // Row colours: every colour used gets a fill and two cell styles (text and
+  // number) of its own, appended after the fixed styles above.
+  const legend = legendOf(spec);
+  const colours = [...new Set([...legend.map((l) => l.color.toUpperCase()), ...rows.map(fillOf).filter(Boolean)])];
+  const FIXED_FILLS = 4;
+  const FIXED_XFS = 10;
+  const colourStyle = (hex, numeric) => FIXED_XFS + colours.indexOf(hex) * 2 + (numeric ? 1 : 0);
+
+  if (legend.length) {
+    sheetRows.push(`<row r="${r}">${sheetCell(`A${r}`, 'Row colours', S.METALABEL)}</row>`);
+    r += 1;
+    legend.forEach((l) => {
+      sheetRows.push(`<row r="${r}">${sheetCell(`A${r}`, '', colourStyle(l.color.toUpperCase(), false))}${sheetCell(`B${r}`, legendText(l), S.METAVALUE)}</row>`);
+      r += 1;
+    });
+    r += 1;
+  }
+
   const headRow = r;
   sheetRows.push(`<row r="${r}" ht="22" customHeight="1">${
     columns.map((c, i) => sheetCell(`${colLetter(i)}${r}`, c.label, S.HEAD)).join('')
@@ -217,12 +260,15 @@ export function buildXlsx(spec) {
 
   rows.forEach((row, i) => {
     const alt = i % 2 === 1;
+    const fill = fillOf(row);
     const cells = columns.map((c, ci) => {
       const text = cellText(row, c);
       // A peso column is written as a NUMBER, not as "₱300": a spreadsheet
       // that cannot sum its own money column is a table with extra steps.
       const numeric = c.numeric && text !== '' && !Number.isNaN(Number(text));
-      const style = numeric ? (alt ? S.NUMALT : S.NUM) : (alt ? S.CELLALT : S.CELL);
+      const style = fill
+        ? colourStyle(fill, numeric)
+        : numeric ? (alt ? S.NUMALT : S.NUM) : (alt ? S.CELLALT : S.CELL);
       return sheetCell(`${colLetter(ci)}${r}`, text, style, numeric);
     }).join('');
     sheetRows.push(`<row r="${r}">${cells}</row>`);
@@ -258,18 +304,19 @@ ${merges.length ? `<mergeCells count="${merges.length}">${merges.map((m) => `<me
 <font><b/><sz val="9"/><color rgb="FF${BRAND.grey}"/><name val="Calibri"/></font>
 <font><sz val="10"/><color rgb="FF${BRAND.ink}"/><name val="Calibri"/></font>
 </fonts>
-<fills count="4">
+<fills count="${FIXED_FILLS + colours.length}">
 <fill><patternFill patternType="none"/></fill>
 <fill><patternFill patternType="gray125"/></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FF${BRAND.gold}"/><bgColor indexed="64"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFFBF8F1"/><bgColor indexed="64"/></patternFill></fill>
+${colours.map((hex) => `<fill><patternFill patternType="solid"><fgColor rgb="FF${hex}"/><bgColor indexed="64"/></patternFill></fill>`).join('\n')}
 </fills>
 <borders count="2">
 <border><left/><right/><top/><bottom/><diagonal/></border>
 <border><left style="thin"><color rgb="FF${BRAND.line}"/></left><right style="thin"><color rgb="FF${BRAND.line}"/></right><top style="thin"><color rgb="FF${BRAND.line}"/></top><bottom style="thin"><color rgb="FF${BRAND.line}"/></bottom><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="10">
+<cellXfs count="${FIXED_XFS + colours.length * 2}">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
@@ -280,6 +327,8 @@ ${merges.length ? `<mergeCells count="${merges.length}">${merges.map((m) => `<me
 <xf numFmtId="0" fontId="5" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
 <xf numFmtId="164" fontId="5" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
 <xf numFmtId="164" fontId="5" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+${colours.map((hex, k) => `<xf numFmtId="0" fontId="5" fillId="${FIXED_FILLS + k}" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="164" fontId="5" fillId="${FIXED_FILLS + k}" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>`).join('\n')}
 </cellXfs>
 </styleSheet>`;
 
@@ -338,8 +387,8 @@ function docxPara(runs, { align, spaceAfter = 0, border } = {}) {
   return `<w:p>${pr}${runs}</w:p>`;
 }
 
-function docxCell(text, { head, width, align, alt } = {}) {
-  const shade = head ? BRAND.gold : (alt ? 'FBF8F1' : 'FFFFFF');
+function docxCell(text, { head, width, align, alt, fill } = {}) {
+  const shade = head ? BRAND.gold : (fill || (alt ? 'FBF8F1' : 'FFFFFF'));
   const run = docxRun(text, head
     ? { bold: true, size: 16, color: 'FFFFFF', caps: true }
     : { size: 18 });
@@ -365,8 +414,16 @@ export function buildDocx(spec) {
   }</w:tr>`;
 
   const bodyRows = rows.map((row, i) => `<w:tr>${
-    columns.map((c, ci) => docxCell(cellText(row, c), { width: widths[ci], align: c.align, alt: i % 2 === 1 })).join('')
+    columns.map((c, ci) => docxCell(cellText(row, c), { width: widths[ci], align: c.align, alt: i % 2 === 1, fill: fillOf(row) })).join('')
   }</w:tr>`).join('');
+
+  // The legend: a shaded block of spaces as the swatch, then what it means.
+  const legend = legendOf(spec);
+  const swatch = (hex) => `<w:r><w:rPr><w:sz w:val="17"/><w:shd w:val="clear" w:color="auto" w:fill="${hex.toUpperCase()}"/></w:rPr><w:t xml:space="preserve">      </w:t></w:r>`;
+  const legendParas = legend.length
+    ? docxPara(docxRun('ROW COLOURS', { bold: true, size: 15, color: BRAND.grey }), { spaceAfter: 30 })
+      + legend.map((l) => docxPara(`${swatch(l.color)}${docxRun(`  ${legendText(l)}`, { size: 17 })}`, { spaceAfter: 30 })).join('')
+    : '';
 
   const metaParas = meta.filter(([, value]) => value).map(([label, value]) => docxPara(
     docxRun(`${label}: `, { bold: true, size: 17, color: BRAND.grey }) + docxRun(value, { size: 17 }),
@@ -380,6 +437,7 @@ ${docxPara(docxRun(BRAND.org, { bold: true, size: 22, color: BRAND.gold, font: '
 ${docxPara(docxRun(title, { bold: true, size: 32, font: 'Georgia' }), { spaceAfter: 20 })}
 ${docxPara(docxRun(subtitle, { size: 18, color: BRAND.grey, caps: true }), { spaceAfter: 140, border: true })}
 ${metaParas}
+${legend.length ? docxPara('', { spaceAfter: 60 }) + legendParas : ''}
 ${docxPara('', { spaceAfter: 80 })}
 <w:tbl>
 <w:tblPr><w:tblW w:w="${usable}" w:type="dxa"/>
@@ -424,7 +482,13 @@ ${docxPara(docxRun(`${rows.length} record${rows.length === 1 ? '' : 's'}${footNo
 // ============================================================
 
 export function buildCsv(spec) {
-  const { columns, rows } = spec;
+  const { rows } = spec;
+  // No colour in a CSV: the legend's words go in a column of their own.
+  const legend = legendOf(spec);
+  const byColour = new Map(legend.map((l) => [l.color.toUpperCase(), l.label]));
+  const columns = legend.length
+    ? [...spec.columns, { key: '_highlight', label: 'Highlight', value: (row) => byColour.get(fillOf(row)) || '' }]
+    : spec.columns;
   const quote = (value) => {
     const text = String(value === null || value === undefined ? '' : value);
     return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;

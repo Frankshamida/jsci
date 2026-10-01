@@ -1,4 +1,10 @@
 import { NextResponse } from 'next/server';
+
+// Always live: the verification desk re-reads this list every few seconds and
+// must see a walk-in the moment it is saved.
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { uploadBufferToCloudinary } from '@/lib/cloudinary';
 import { cached, cacheInvalidate } from '@/lib/serverCache';
@@ -6,6 +12,7 @@ import { SLOT_HOLDING_STATUSES, CASH_PENDING_STATUS } from '@/lib/eventSlots';
 import { findEventActor, canWorkEvent, actorRoleLabel, staffDeniedMessage } from '@/lib/eventCommittee';
 import { resolveCashPayment } from '@/lib/cashPayment';
 import { sameAddon } from '@/lib/addons';
+import { accommodationAddons } from '@/lib/rooms';
 import { normalizeUid, isPlausibleUid, uidCandidates } from '@/lib/rfid';
 import {
   addonFeeFor, baseAmountFor, defaultTier, findTier, hasPriceTiers, isNameOnlyTier,
@@ -694,6 +701,28 @@ export async function POST(request) {
       }
     }
 
+    // Walk-In: an Admin or Super Admin chose a card from the stock before
+    // anything else. One person, one card - linked when the row is saved,
+    // exactly like a late registration's.
+    const isWalkInCard = !isLate && (fields.walkInCard === true || fields.walkInCard === 'true');
+    if (isWalkInCard) {
+      if (!staffPastDeadline) {
+        return NextResponse.json({ success: false, message: 'Only an Admin or Super Admin can add a walk-in with a card.' }, { status: 403 });
+      }
+      if (Array.isArray(fields.attendees) && fields.attendees.length > 0) {
+        return NextResponse.json({ success: false, message: 'A walk-in is one person at a time - one card each.' }, { status: 400 });
+      }
+      if (!isPlausibleUid(fields.rfidUid)) {
+        return NextResponse.json({ success: false, message: 'Choose the RFID card first.' }, { status: 400 });
+      }
+      const { data: anyHolder } = await supabase
+        .from('rfid_event_cards').select('registration_id').in('uid', uidCandidates(fields.rfidUid)).limit(1);
+      if ((anyHolder || []).length > 0) {
+        return NextResponse.json({ success: false, message: 'That card was just given to somebody else. Choose another one.' }, { status: 409 });
+      }
+      lateUid = normalizeUid(fields.rfidUid);
+    }
+
     // Capacity check. Counted the same way the "slots available" figure is, or
     // the two would disagree about whether the event is full.
     if (event.max_participants) {
@@ -879,10 +908,17 @@ export async function POST(request) {
     // WHO entered it is a separate question, answered by added_by_role.
     const registrationType = isBulk ? 'bulk' : 'individual';
 
-    const addedByRole = adminActor
-      ? actorRoleLabel(adminActor)                   // 'Admin' | 'Super Admin' | 'Event Committee'
-      : (isBulk ? 'Representative' : 'Attendee');
+    // At the Registration Verification desk the person entering it is the
+    // verifier on duty - named on the row instead of the account the desk runs
+    // on. Only ever from a staff account (adminActor), never from a guest.
+    const verifierName = adminActor ? String(fields.verifierName || '').trim().replace(/\s+/g, ' ').slice(0, 120) : '';
+    const addedByRole = verifierName
+      ? 'Verifier'
+      : adminActor
+        ? actorRoleLabel(adminActor)                 // 'Admin' | 'Super Admin' | 'Event Committee'
+        : (isBulk ? 'Representative' : 'Attendee');
     const addedByName = (() => {
+      if (verifierName) return titleCaseName(verifierName);
       // The staff member's own name, so the row reads "Super Admin / Frank
       // Gomez" and never the name of the person being added.
       if (adminActor) return titleCaseName(`${adminActor.firstname} ${adminActor.lastname}`.trim()) || addedByRole;
@@ -1016,6 +1052,37 @@ export async function POST(request) {
           amount,
           addons: chosenAddons,
         }];
+
+    // ---- Accommodation is not sold past the beds there are ----
+    // Once rooms are set up for the event (Accommodation tab), every
+    // registration holding accommodation - paid or not - has a bed, and a
+    // new one is refused when none is left. No rooms set up yet: no limit,
+    // so early sign-ups are never blocked by rooms nobody has entered.
+    try {
+      const beds = accommodationAddons(addonRows || []);
+      const wanting = beds.length
+        ? rows.filter((r) => (Array.isArray(r.addons) ? r.addons : []).some((h) => beds.some((b) => sameAddon(h, b)))).length
+        : 0;
+      if (wanting > 0) {
+        const { data: roomRows } = await supabase.from('event_rooms').select('pax').eq('event_id', eventId);
+        const capacity = (roomRows || []).reduce((t, r) => t + (Number(r.pax) || 0), 0);
+        if (capacity > 0) {
+          const { data: held } = await supabase.from('event_registrations')
+            .select('addons, status, deleted_at').eq('event_id', eventId);
+          const reserved = (held || []).filter((r) => !r.deleted_at && r.status !== 'cancelled'
+            && (Array.isArray(r.addons) ? r.addons : []).some((h) => beds.some((b) => sameAddon(h, b)))).length;
+          const left = Math.max(0, capacity - reserved);
+          if (wanting > left) {
+            return NextResponse.json({
+              success: false,
+              message: left === 0
+                ? `Accommodation is full - all ${capacity} pax are reserved. Untick accommodation to register without it.`
+                : `Only ${left} accommodation ${left === 1 ? 'slot is' : 'slots are'} left, and ${wanting} ${wanting === 1 ? 'was' : 'were'} asked for.`,
+            }, { status: 409 });
+          }
+        }
+      }
+    } catch { /* rooms not set up: no limit */ }
 
     let inserted = [];
     let columnWarning = null;
@@ -1244,6 +1311,8 @@ export async function POST(request) {
 //   that registration's event. The bin actions and the edit below stay Admin-only.
 //                                { id, actorId, action: 'add_addons', addonIds, paymentMethod, paymentReference, collectNow }
 //                                                                     -> staff add an extra the attendee forgot to avail, and take the money for it
+//                                { id, actorId, action: 'desk_addons', addIds, removeIds }
+//                                                                     -> the verification desk adds / takes back an extra before the money is taken
 //                                { id, actorId, action: 'edit_details', details } -> admin corrects who the attendee is
 //                                { id, actorId, action: 'soft_delete', reason } -> admin moves it to the Recycle Bin
 //                                { id, actorId, action: 'restore' }   -> admin brings it back out of the bin
@@ -1711,6 +1780,239 @@ export async function PUT(request) {
       return NextResponse.json({ success: true, data: saved, message: 'Call recorded' });
     }
 
+    // ---- The verification desk: an extra cancelled ----
+    // { id, actorId, action: 'cancel_addon', addonId, addonQuestion, reason,
+    //   refund: { recipientName, sentTo, accountNumber }, verifier: { id, name } }
+    // Any extra the attendee holds - booked with the registration or added at
+    // the desk. It comes off what they owe. If they had already paid for it,
+    // the money goes back: a refund row is written FIRST, and only then is the
+    // extra taken off, so a refund that cannot be recorded leaves the
+    // registration exactly as it was. Nothing changes until this is sent.
+    if (action === 'cancel_addon') {
+      const reason = String(body.reason || '').trim().slice(0, 500);
+      if (!reason) return NextResponse.json({ success: false, message: 'Say why the extra is being cancelled.' }, { status: 400 });
+      const { data: reg } = await supabase.from('event_registrations')
+        .select('id, event_id, attendee_name, addons, amount, amount_paid, payment_plan, status, deleted_at')
+        .eq('id', id).single();
+      if (!reg || reg.deleted_at) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+      const PAID = ['payment_verified', 'registered', 'paid_pending_turnover'];
+      if (reg.payment_plan === 'flexible' || ![...PAID, 'pending_cash', 'pending_payment'].includes(reg.status)) {
+        return NextResponse.json({ success: false, message: `Extras for ${reg.attendee_name} can only be changed from the Registrations tab.` }, { status: 400 });
+      }
+      const held = Array.isArray(reg.addons) ? reg.addons : [];
+      const target = held.find((h) => (body.addonId && h?.id === body.addonId))
+        || held.find((h) => body.addonQuestion && String(h?.question || '').trim() === String(body.addonQuestion).trim());
+      if (!target) return NextResponse.json({ success: false, message: 'That extra is no longer on this registration.' }, { status: 404 });
+
+      const fee = Number(target.fee) || 0;
+      const amountWas = Number(reg.amount) || 0;
+      const amount = Math.max(0, amountWas - fee);
+      const paidSoFar = PAID.includes(reg.status)
+        ? (Number(reg.amount_paid) > 0 ? Number(reg.amount_paid) : amountWas)
+        : (Number(reg.amount_paid) || 0);
+      const refundAmount = Math.max(0, Math.min(fee, paidSoFar - amount));
+
+      let refund = null;
+      if (refundAmount > 0) {
+        const r = body.refund || {};
+        const recipient = String(r.recipientName || '').trim().slice(0, 160);
+        const sentTo = String(r.sentTo || '').trim().slice(0, 80);
+        const number = String(r.accountNumber || '').trim().slice(0, 60);
+        if (!recipient || !sentTo) return NextResponse.json({ success: false, message: 'Enter who receives the refund and where it is sent.' }, { status: 400 });
+        if (!/cash/i.test(sentTo) && !number) return NextResponse.json({ success: false, message: `Enter the ${sentTo} number the refund goes to.` }, { status: 400 });
+        if (!body.verifier?.name) return NextResponse.json({ success: false, message: 'No verifier is signed in.' }, { status: 400 });
+        const { data: made, error: refErr } = await supabase.from('registration_refunds').insert([{
+          event_id: reg.event_id,
+          registration_id: reg.id,
+          attendee_name: reg.attendee_name,
+          extra: String(target.question || 'Extra').slice(0, 200),
+          amount: refundAmount,
+          recipient_name: recipient,
+          sent_to: sentTo,
+          account_number: number || null,
+          reason,
+          verifier_id: String(body.verifier.id || '').slice(0, 80) || null,
+          verifier_name: String(body.verifier.name).slice(0, 160),
+          actor_id: actor.id,
+        }]).select().single();
+        if (refErr) {
+          if (/registration_refunds/i.test(refErr.message || '')) {
+            return NextResponse.json({ success: false, message: 'Refunds need their migration: run supabase/migrations/registration_refunds.sql, then try again.' }, { status: 500 });
+          }
+          throw refErr;
+        }
+        refund = made;
+      }
+
+      const patch = { addons: held.filter((h) => h !== target), amount };
+      // What was paid can never be more than what is now owed - the rest is
+      // the refund above.
+      if ((Number(reg.amount_paid) || 0) > amount) patch.amount_paid = amount;
+      // The extra was the only thing still owed: they are paid in full again.
+      if (reg.status === 'pending_cash' && (Number(reg.amount_paid) || 0) > 0 && amount <= (Number(reg.amount_paid) || 0)) {
+        patch.status = target.prevStatus || 'payment_verified';
+        patch.verified_by = actor.id;
+        patch.verified_at = new Date().toISOString();
+      }
+      const { data: saved, error: saveErr } = await supabase.from('event_registrations')
+        .update(patch).eq('id', id).select().single();
+      if (saveErr) {
+        if (refund) await supabase.from('registration_refunds').delete().eq('id', refund.id);
+        throw saveErr;
+      }
+
+      // No accommodation left: the bed they held goes back.
+      let roomFreed = false;
+      try {
+        const { data: evAddons } = await supabase.from('event_addons').select('id, question').eq('event_id', reg.event_id);
+        const beds = accommodationAddons(evAddons || []);
+        const wasBed = beds.some((b) => sameAddon(target, b));
+        const stillBed = (patch.addons || []).some((h) => beds.some((b) => sameAddon(h, b)));
+        if (wasBed && !stillBed) {
+          const { data: gone } = await supabase.from('event_room_guests').delete()
+            .eq('event_id', reg.event_id).eq('registration_id', reg.id).select('id, room_id');
+          roomFreed = (gone || []).length > 0;
+          for (const g of gone || []) {
+            const { count } = await supabase.from('event_room_guests')
+              .select('id', { count: 'exact', head: true }).eq('room_id', g.room_id);
+            if ((count || 0) === 0) {
+              try { await supabase.from('event_rooms').update({ occupancy: null }).eq('id', g.room_id); } catch { /* no label column */ }
+            }
+          }
+        }
+      } catch { /* rooms not set up */ }
+
+      cacheInvalidate(PENDING_ALERTS_KEY);
+      await logAudit(actor, 'event_registration_addons', id,
+        `Desk cancelled ${target.question} (P${fee}) for ${reg.attendee_name} - total now P${amount}`
+        + (refund ? `; refund P${refundAmount} to ${refund.recipient_name} via ${refund.sent_to}${refund.account_number ? ` ${refund.account_number}` : ''}` : '')
+        + ` - ${reason}`);
+      return NextResponse.json({ success: true, data: saved, removed: target, refund, refundAmount, roomFreed });
+    }
+
+    // ---- The verification desk: who a child is with ----
+    // { id, actorId, action: 'set_guardian', guardianRegistrationId | null }
+    // The guardian is somebody registered for the same event - never the
+    // child themselves. Clearing it leaves the child with no guardian named.
+    if (action === 'set_guardian') {
+      const { data: kid } = await supabase.from('event_registrations')
+        .select('id, event_id, attendee_name, deleted_at').eq('id', id).single();
+      if (!kid || kid.deleted_at) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+      let guardian = null;
+      if (body.guardianRegistrationId) {
+        if (String(body.guardianRegistrationId) === String(id)) {
+          return NextResponse.json({ success: false, message: 'A child cannot be their own guardian.' }, { status: 400 });
+        }
+        const { data: g } = await supabase.from('event_registrations')
+          .select('id, event_id, attendee_name, status, deleted_at').eq('id', String(body.guardianRegistrationId)).maybeSingle();
+        if (!g || g.deleted_at || g.status === 'cancelled' || g.event_id !== kid.event_id) {
+          return NextResponse.json({ success: false, message: 'That guardian is not registered for this event. Search for them again.' }, { status: 400 });
+        }
+        guardian = g;
+      }
+      const { data: saved, error: gErr } = await supabase.from('event_registrations')
+        .update({ guardian_registration_id: guardian ? guardian.id : null, guardian_name: guardian ? guardian.attendee_name : null })
+        .eq('id', id).select().single();
+      if (gErr) throw gErr;
+      await logAudit(actor, 'event_registration_update', id,
+        guardian ? `Guardian of ${kid.attendee_name} set to ${guardian.attendee_name}` : `Guardian of ${kid.attendee_name} cleared`);
+      return NextResponse.json({ success: true, data: saved });
+    }
+
+    // ---- The verification desk: an extra added before the money is taken ----
+    // Nothing is collected here - the extra goes onto what is owed, and the
+    // desk's own payment step takes it with the rest. Only extras added at the
+    // desk can be taken back there (they carry desk: true); anything booked
+    // with the registration stays. Accommodation is refused once the rooms are
+    // full: every registration holding it, paid or not, has a bed reserved.
+    if (action === 'desk_addons') {
+      const addIds = (Array.isArray(body.addIds) ? body.addIds : []).filter(Boolean);
+      const removeIds = (Array.isArray(body.removeIds) ? body.removeIds : []).filter(Boolean);
+      if (!addIds.length && !removeIds.length) {
+        return NextResponse.json({ success: false, message: 'Nothing to add or remove.' }, { status: 400 });
+      }
+      const { data: reg } = await supabase
+        .from('event_registrations')
+        .select('id, event_id, attendee_name, addons, amount, amount_paid, price_tier, payment_plan, status, deleted_at')
+        .eq('id', id).single();
+      if (!reg || reg.deleted_at) return NextResponse.json({ success: false, message: 'Registration not found' }, { status: 404 });
+      if (reg.payment_plan === 'flexible' || !['pending_cash', 'pending_payment', 'payment_verified', 'registered'].includes(reg.status)) {
+        return NextResponse.json({ success: false, message: `Extras for ${reg.attendee_name} can only be changed from the Registrations tab.` }, { status: 400 });
+      }
+
+      const { data: addonRows } = await supabase.from('event_addons').select('*').eq('event_id', reg.event_id);
+      let regTier = null;
+      if (reg.price_tier) {
+        try {
+          const { data: tierRows } = await supabase
+            .from('event_price_tiers').select('*').eq('event_id', reg.event_id).order('position');
+          regTier = findTier({ event_price_tiers: tierRows || [] }, reg.price_tier);
+        } catch { /* no age groups */ }
+      }
+      let held = Array.isArray(reg.addons) ? reg.addons : [];
+      const amountWas = Number(reg.amount) || 0;
+      let amount = amountWas;
+      let paid = Number(reg.amount_paid) || 0;
+      const patch = {};
+
+      // Already paid: what they paid is kept as paid, and only the extra is owed.
+      const wasPaid = ['payment_verified', 'registered'].includes(reg.status);
+
+      const added = (addonRows || [])
+        .filter((a) => addIds.includes(a.id) && !held.some((h) => sameAddon(h, a)))
+        .map((a) => ({ id: a.id, question: a.question, fee: addonFeeFor(a, regTier), desk: true, prevStatus: wasPaid ? reg.status : null }));
+
+      const beds = accommodationAddons(addonRows || []);
+      if (added.some((a) => beds.some((b) => sameAddon(a, b)))) {
+        const { data: rooms } = await supabase.from('event_rooms').select('pax').eq('event_id', reg.event_id);
+        const capacity = (rooms || []).reduce((t, r) => t + (Number(r.pax) || 0), 0);
+        const { data: regs } = await supabase
+          .from('event_registrations').select('id, addons, status, deleted_at').eq('event_id', reg.event_id);
+        const reserved = (regs || []).filter((r) => !r.deleted_at && r.status !== 'cancelled'
+          && (Array.isArray(r.addons) ? r.addons : []).some((h) => beds.some((b) => sameAddon(h, b)))).length;
+        if (capacity - reserved <= 0) {
+          return NextResponse.json({
+            success: false,
+            message: capacity ? `Accommodation is full - all ${capacity} pax are reserved.` : 'No rooms are set up for this event yet.',
+          }, { status: 400 });
+        }
+      }
+
+      const removed = held.filter((h) => h.desk && removeIds.includes(h.id));
+      if (removeIds.length && removed.length === 0 && !added.length) {
+        return NextResponse.json({ success: false, message: 'Only extras added at the desk can be removed here.' }, { status: 400 });
+      }
+      held = [...held.filter((h) => !removed.includes(h)), ...added];
+      amount += added.reduce((t, a) => t + (Number(a.fee) || 0), 0) - removed.reduce((t, a) => t + (Number(a.fee) || 0), 0);
+      amount = Math.max(0, amount);
+      patch.addons = held;
+      patch.amount = amount;
+
+      if (wasPaid && amount > amountWas) {
+        // Paid for the rest; the new extra is cash still to take at the desk.
+        patch.amount_paid = Math.max(paid, amountWas);
+        patch.status = 'pending_cash';
+        patch.verified_by = null;
+        patch.verified_at = null;
+      } else if (reg.status === 'pending_cash' && paid > 0 && amount <= paid) {
+        // The extra was the only thing owed and it has been taken back.
+        const back = removed.find((r) => r.prevStatus)?.prevStatus || 'payment_verified';
+        patch.status = back;
+        patch.verified_by = actor.id;
+        patch.verified_at = new Date().toISOString();
+      }
+
+      const { data: saved, error: saveErr } = await supabase
+        .from('event_registrations').update(patch).eq('id', id).select().single();
+      if (saveErr) throw saveErr;
+      cacheInvalidate(PENDING_ALERTS_KEY);
+      await logAudit(actor, 'event_registration_addons', id,
+        [added.length ? `Desk added ${added.map((a) => `${a.question} (+P${a.fee})`).join(', ')}` : '',
+          removed.length ? `Desk removed ${removed.map((a) => `${a.question} (-P${a.fee})`).join(', ')}` : '']
+          .filter(Boolean).join('; ') + ` for ${reg.attendee_name} - total now P${amount}`);
+      return NextResponse.json({ success: true, data: saved, added, removed });
+    }
+
     if (action === 'add_addons') {
       const wantedIds = (Array.isArray(body.addonIds) ? body.addonIds : []).filter(Boolean);
       if (wantedIds.length === 0) {
@@ -1881,6 +2183,14 @@ export async function PUT(request) {
       // Going back to unverified must drop the old signature, or the row still
       // reads as "checked by X" while it waits to be checked again.
       if (status === 'payment_submitted' || status === 'pending_payment' || status === 'pending_cash' || status === 'installment') { update.verified_by = null; update.verified_at = null; }
+      // Back to owing it (a reverted payment): nobody is holding any money now.
+      if (status === 'pending_cash' || status === 'pending_payment') {
+        turnoverFields.turnover_holder = null;
+        turnoverFields.turnover_marked_by = null;
+        turnoverFields.turnover_marked_at = null;
+        turnoverFields.turned_over_at = null;
+        turnoverFields.turned_over_by = null;
+      }
       // Paid, money not on hand: somebody is holding it, and that somebody is
       // who the desk chases. Not verified - nobody has counted the money yet.
       if (status === 'paid_pending_turnover') {
@@ -1893,11 +2203,30 @@ export async function PUT(request) {
         turnoverFields.turnover_marked_at = new Date().toISOString();
         turnoverFields.turned_over_at = null;
         turnoverFields.turned_over_by = null;
+        // Put back (a reverted turnover): the method it had before it came in.
+        const backTo = String(body.paymentMethod || '').trim().slice(0, 80);
+        if (backTo) { update.payment_method = backTo; update.payment_reference = null; }
+      }
+      // Taken at the verification desk: cash, or sent online there and then
+      // (GCash, Maya, a bank) - so it is counted under the right one.
+      if (status === 'payment_verified' && !turnedOver && body.deskPayment) {
+        const method = String(body.paymentMethod || '').trim().slice(0, 80);
+        if (method) {
+          update.payment_method = method;
+          update.payment_reference = String(body.paymentReference || '').trim().slice(0, 120) || null;
+        }
       }
       // The money reached the treasurer.
       if (status === 'payment_verified' && turnedOver) {
         turnoverFields.turned_over_at = new Date().toISOString();
         turnoverFields.turned_over_by = actor.id;
+        // How it was handed in: cash, or sent online (GCash, bank...) - so
+        // it is counted under the right one of Cash / Online Collected.
+        const method = String(body.paymentMethod || '').trim().slice(0, 80);
+        if (method) {
+          update.payment_method = method;
+          update.payment_reference = String(body.paymentReference || '').trim().slice(0, 120) || null;
+        }
       }
     }
     if (attended === true) { update.attended = true; update.attended_at = new Date().toISOString(); update.attended_by = actor.id; }

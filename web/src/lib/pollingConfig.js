@@ -23,6 +23,9 @@ export const POLL_MS = {
   presence: 120000,
   // Admin alert feeds.
   eventRegAlerts: 180000,
+  // An event's registrations while its desk is open, so the money cards keep
+  // up with payments taken on another device. One read per tick, idle tabs stop.
+  eventRegsOpen: 30000,
   // Cloudinary Admin API is capped at 500 calls/hour on the free plan.
   cloudinaryUsage: 300000,
   // Public pages: Realtime already covers these, so this is a fallback only.

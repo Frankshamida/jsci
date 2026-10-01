@@ -12,8 +12,20 @@ import './programmeSongs.css';
 const dayOf = (v) => (String(v || '').match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
 const EMPTY = { dayDate: '', startTime: '', endTime: '', title: '', speaker: '', kind: 'session', venue: '', notes: '', songIds: [] };
 
-// Picks songs from the Song Playlist for a Worship item. The picked list is
-// in play order: added to the end, moved with the arrows.
+// Picks songs from the Song Playlist for a Worship item - uploaded songs and
+// the songs saved from Spotify. The picked list is in play order: added to
+// the end, moved with the arrows.
+const SPOTIFY_GROUP = 'From Spotify';
+const fromSpotify = (row) => ({
+  id: row.id,
+  title: row.title,
+  artist: row.artists,
+  cover_url: row.image_url,
+  cover_thumb_url: row.image_url,
+  source: 'spotify',
+});
+const SpotifyMark = () => <i className="fab fa-spotify evt-songs-spotify" title="Spotify" aria-label="Spotify"></i>;
+
 function SongPicker({ value, onChange }) {
   const [songs, setSongs] = useState(null); // null = loading
   const [error, setError] = useState('');
@@ -21,12 +33,15 @@ function SongPicker({ value, onChange }) {
 
   useEffect(() => {
     let alive = true;
-    fetch('/api/song-playlist')
-      .then((r) => r.json())
-      .then((json) => {
+    // Spotify songs are optional: before spotify_songs.sql there are just none.
+    Promise.all([
+      fetch('/api/song-playlist').then((r) => r.json()),
+      fetch('/api/song-playlist/spotify').then((r) => r.json()).catch(() => ({ success: false })),
+    ])
+      .then(([uploaded, spotify]) => {
         if (!alive) return;
-        if (!json.success) throw new Error(json.message);
-        setSongs(json.data || []);
+        if (!uploaded.success) throw new Error(uploaded.message);
+        setSongs([...(uploaded.data || []), ...(spotify.success ? (spotify.data || []).map(fromSpotify) : [])]);
       })
       .catch((e) => { if (alive) { setError(e.message || 'Could not load the Song Playlist.'); setSongs([]); } });
     return () => { alive = false; };
@@ -39,11 +54,12 @@ function SongPicker({ value, onChange }) {
   const groups = useMemo(() => {
     const map = new Map();
     matches.forEach((s) => {
-      const key = s.artist || 'Other';
+      const key = s.source === 'spotify' ? SPOTIFY_GROUP : (s.artist || 'Other');
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(s);
     });
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+    // Uploaded songs by artist, A to Z; the Spotify songs after them.
+    return [...map.entries()].sort(([a], [b]) => (a === SPOTIFY_GROUP) - (b === SPOTIFY_GROUP) || a.localeCompare(b));
   }, [matches]);
 
   const toggle = (id) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
@@ -66,7 +82,7 @@ function SongPicker({ value, onChange }) {
             <li key={song.id}>
               <span className="evt-songs-num">{i + 1}</span>
               <img src={song.cover_thumb_url || song.cover_url} alt="" />
-              <span className="evt-songs-text"><strong>{song.title}</strong><small>{song.artist}</small></span>
+              <span className="evt-songs-text"><strong>{song.title}</strong><small>{song.source === 'spotify' && <SpotifyMark />}{song.artist}</small></span>
               <button type="button" onClick={() => move(i, -1)} disabled={i === 0} title="Move up" aria-label="Move up"><i className="fas fa-chevron-up"></i></button>
               <button type="button" onClick={() => move(i, 1)} disabled={i === picked.length - 1} title="Move down" aria-label="Move down"><i className="fas fa-chevron-down"></i></button>
               <button type="button" className="danger" onClick={() => toggle(song.id)} title="Remove" aria-label={`Remove ${song.title}`}><i className="fas fa-times"></i></button>
@@ -80,7 +96,7 @@ function SongPicker({ value, onChange }) {
       ) : error ? (
         <p className="evt-field-error-msg">{error}</p>
       ) : songs.length === 0 ? (
-        <p className="evt-songs-hint">The Song Playlist is empty. Add artists and songs under Worship &amp; Schedule &gt; Song Playlist first.</p>
+        <p className="evt-songs-hint">The Song Playlist is empty. Add songs (or save songs from Spotify) under Worship &amp; Schedule &gt; Song Playlist first.</p>
       ) : (
         <div className="evt-songs-browse">
           <div className="evt-songs-search">
@@ -91,13 +107,13 @@ function SongPicker({ value, onChange }) {
             {groups.length === 0 && <p className="evt-songs-hint">No song matches &ldquo;{query}&rdquo;.</p>}
             {groups.map(([artist, list]) => (
               <div key={artist} className="evt-songs-group">
-                <h6>{artist}</h6>
+                <h6>{artist === SPOTIFY_GROUP && <SpotifyMark />}{artist}</h6>
                 {list.map((song) => {
                   const on = value.includes(song.id);
                   return (
                     <button type="button" key={song.id} className={`evt-songs-option ${on ? 'is-on' : ''}`} onClick={() => toggle(song.id)} aria-pressed={on}>
                       <img src={song.cover_thumb_url || song.cover_url} alt="" loading="lazy" />
-                      <span className="evt-songs-text"><strong>{song.title}</strong><small>{song.artist}</small></span>
+                      <span className="evt-songs-text"><strong>{song.title}</strong><small>{song.source === 'spotify' && <SpotifyMark />}{song.artist}</small></span>
                       <i className={`fas ${on ? 'fa-circle-check' : 'fa-circle-plus'}`}></i>
                     </button>
                   );

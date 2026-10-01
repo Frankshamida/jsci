@@ -1,0 +1,247 @@
+/* Spotify in the Song Playlist and the lineup song picker (SpotifyBrowser.jsx).
+   Spotify's display rules: artwork as given (square, small corner radius only,
+   no crop or overlay at rest), Spotify green used for the Spotify mark only. */
+
+.spf-dash { display: flex; flex-direction: column; gap: 20px; }
+
+.spf-brand { color: #1db954; }
+
+.spf-credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--sp-muted);
+  white-space: nowrap;
+}
+.spf-credit i { color: #1db954; font-size: 1rem; }
+.spf-credit strong { color: var(--sp-text); font-weight: 600; }
+
+.spf-embed { display: block; border: 0; border-radius: 12px; margin: 4px 0 8px; }
+
+/* The Our Songs stage, with a pill saying the song is from Spotify */
+.spf-stage-wrap { position: relative; }
+.spf-pill {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.spf-pill i { color: #1db954; font-size: 1rem; }
+
+.spf-embed-host { padding: 0 16px 4px; }
+.spf-embed-host iframe { display: block; border: 0; border-radius: 12px; }
+.spf-player-card > .spf-embed { margin: 0 16px 8px; width: calc(100% - 32px); }
+.spf-player-foot { padding: 8px 20px 14px; border-top: none; }
+
+.spf-finder { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+.spf-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-card);
+  color: var(--sp-muted);
+}
+.spf-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--sp-text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+.spf-search:focus-within { border-color: var(--sp-accent); }
+.spf-clear { border: none; background: none; color: var(--sp-muted); cursor: pointer; padding: 6px; }
+
+.spf-note { margin: 0; font-size: 0.78rem; color: var(--sp-muted); }
+.spf-note i { color: var(--sp-accent); margin-right: 4px; }
+.spf-empty { margin: 8px 0; color: var(--sp-muted); font-size: 0.88rem; text-align: center; }
+.spf-error { margin: 6px 0; color: #c0392b; font-size: 0.86rem; }
+
+.spf-shelves {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.spf-shelf {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--sp-line);
+  background: transparent;
+  color: var(--sp-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.spf-shelf.is-active { background: var(--sp-accent); border-color: var(--sp-accent); color: #fff; }
+
+.spf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.spf-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  min-width: 0;
+}
+.spf-row:hover,
+.spf-row.is-playing { background: var(--sp-row-hover); }
+
+.spf-art {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #282828;
+  color: #fff;
+  cursor: pointer;
+}
+.spf-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.spf-art-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.spf-art:hover .spf-art-play,
+.spf-art:focus-visible .spf-art-play,
+.spf-row.is-playing .spf-art-play { opacity: 1; }
+
+.spf-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.spf-title {
+  color: var(--sp-text);
+  font-weight: 600;
+  font-size: 0.92rem;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spf-title:hover { text-decoration: underline; }
+.spf-text small { color: var(--sp-muted); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spf-time { color: var(--sp-muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+
+.spf-icon-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--sp-muted);
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.spf-icon-btn:hover:not(:disabled) { background: var(--sp-line); color: var(--sp-text); }
+.spf-open { color: #1db954; font-size: 1.15rem; }
+.spf-open:hover { color: #1db954 !important; }
+.spf-add { color: var(--sp-accent); }
+.spf-added { color: #1db954; cursor: default; }
+.spf-remove:hover:not(:disabled) { color: #c0392b !important; }
+
+.spf-more { align-self: center; }
+
+/* album name in a row, and the album card */
+.spf-album-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+}
+.spf-album-link:hover { color: var(--sp-text); text-decoration-color: currentColor; }
+.spf-album-head { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.spf-album-head small { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sp-muted); }
+.spf-album .spf-list,
+.spf-album .spf-empty,
+.spf-album .spf-error { padding: 0 12px; }
+.spf-album-meta { padding: 0 20px 6px; }
+.spf-album .spf-list { padding-bottom: 12px; }
+.spf-use { min-height: 32px; padding: 0 14px; }
+
+.spf-foot { display: flex; justify-content: flex-end; padding-top: 6px; border-top: 1px solid var(--sp-line); }
+
+.spf-modal { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+
+@media (max-width: 560px) {
+  .spf-time { display: none; }
+  .spf-row { gap: 10px; padding: 6px 4px; }
+}
+
+/* Spotify chip on a lineup song card */
+.lineup-spotify-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(29, 185, 84, 0.08);
+  font-size: 0.8rem;
+  min-width: 0;
+}
+.lineup-spotify-chip img { width: 32px; height: 32px; border-radius: 4px; flex-shrink: 0; }
+.lineup-spotify-chip a { color: inherit; text-decoration: none; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lineup-spotify-chip a:hover { text-decoration: underline; }
+.lineup-spotify-chip .fa-spotify { color: #1db954; font-size: 1.05rem; }
+.lineup-spotify-chip button { border: none; background: none; color: #888; cursor: pointer; padding: 4px; }
+
+.btn-spotify-find {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(29, 185, 84, 0.35);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-spotify-find i { color: #1db954; }
+.btn-spotify-find:hover { background: rgba(29, 185, 84, 0.08); }

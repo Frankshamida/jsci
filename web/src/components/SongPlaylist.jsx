@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { pruneSongCache } from '@/lib/songCache';
 import { useSongPlayer } from './songPlayer/useSongPlayer';
 import { PlayerControls, SongRow, VinylStage } from './songPlayer/PlayerParts';
+import { SpotifyDashboard } from './spotify/SpotifyBrowser';
 import './SongPlaylist.css';
 
 // Worship & Schedule > Song Playlist. The player itself (engine, record,
@@ -304,6 +305,7 @@ export default function SongPlaylist({ actorId, canManage }) {
   const [artistModal, setArtistModal] = useState(null); // null | { artist? }
   const [songModal, setSongModal] = useState(null);     // null | { artistId }
   const [deletingId, setDeletingId] = useState(null);
+  const [source, setSource] = useState('uploads'); // 'uploads' | 'spotify'
 
   const player = useSongPlayer({ songs, order });
   const { current, currentId, setCurrentId, playing } = player;
@@ -409,13 +411,25 @@ export default function SongPlaylist({ actorId, canManage }) {
             {artists.length} {artists.length === 1 ? 'artist' : 'artists'} &middot; {songs.length} {songs.length === 1 ? 'song' : 'songs'}
           </p>
         </div>
-        {canManage && (
+        {canManage && source === 'uploads' && (
           <button type="button" className="sp-btn-primary" onClick={() => setArtistModal({})}>
             <i className="fas fa-plus"></i> Add Artist
           </button>
         )}
       </div>
 
+      <div className="sp-source-tabs" role="tablist" aria-label="Song source">
+        <button type="button" role="tab" aria-selected={source === 'uploads'} className={source === 'uploads' ? 'is-active' : ''} onClick={() => setSource('uploads')}>
+          <i className="fas fa-compact-disc"></i> Our Songs
+        </button>
+        <button type="button" role="tab" aria-selected={source === 'spotify'} className={source === 'spotify' ? 'is-active' : ''} onClick={() => setSource('spotify')}>
+          <i className="fab fa-spotify"></i> Spotify
+        </button>
+      </div>
+
+      {/* Spotify songs play in Spotify's own player; leaving this tab
+          unmounts ours, which stops it. */}
+      {source === 'spotify' ? <SpotifyDashboard actorId={actorId} canManage={canManage} /> : (<>
       <div className="sp-player-card">
         <VinylStage song={current} playing={playing} />
         <PlayerControls
@@ -537,6 +551,7 @@ export default function SongPlaylist({ actorId, canManage }) {
           </div>
         ))}
       </div>
+      </>)}
 
       {artistModal && (
         <ArtistModal

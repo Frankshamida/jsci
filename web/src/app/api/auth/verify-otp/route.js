@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { limit, tooManyRequests } from '@/lib/rateLimiter';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase';
+// password_resets has RLS on and no policies (supabase/migrations/security_lints.sql):
+// only the server's service-role client can read or write it.
 
 export async function POST(request) {
   try {

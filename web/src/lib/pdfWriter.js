@@ -171,6 +171,10 @@ const WHITE = '1 1 1';
 
 const A4 = { w: 595.28, h: 841.89 };
 
+// 'D8F0DC' -> '0.847 0.941 0.863', the way a PDF fill colour is written.
+const HEX = /^[0-9A-Fa-f]{6}$/;
+const pdfRgb = (hex) => [0, 2, 4].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(3)).join(' ');
+
 /**
  * Draw a report and return a PDF Blob.
  *
@@ -179,6 +183,7 @@ const A4 = { w: 595.28, h: 841.89 };
  */
 export function buildPdf(spec, logo) {
   const { title, subtitle, meta = [], columns, rows, orientation = 'portrait', footNote = '' } = spec;
+  const legend = (Array.isArray(spec.legend) ? spec.legend : []).filter((l) => l && HEX.test(String(l.color || '')) && l.label);
   const pageW = orientation === 'landscape' ? A4.h : A4.w;
   const pageH = orientation === 'landscape' ? A4.w : A4.h;
   const MARGIN = 34;
@@ -245,6 +250,26 @@ export function buildPdf(spec, logo) {
         });
         top = rowTop + (col % 4 === 0 ? 4 : 32);
       }
+
+      // What the row colours mean, as swatches along one or more lines.
+      if (legend.length) {
+        content.text('ROW COLOURS', MARGIN, top + 6, FONTS.helvBold, FS.metaLabel, GREY, pageH);
+        let x = MARGIN + textWidth('ROW COLOURS', FONTS.helvBold, FS.metaLabel) + 12;
+        let lineTop = top;
+        legend.forEach((l) => {
+          const text = `${l.label}${Number.isFinite(l.count) ? ` (${l.count})` : ''}`;
+          const w = 16 + textWidth(text, FONTS.helv, FS.metaValue);
+          if (x + w > pageW - MARGIN) { x = MARGIN; lineTop += 14; }
+          content.rect(x, lineTop - 1, 11, 9, pdfRgb(l.color), pageH);
+          content.line(x, lineTop - 1, x + 11, lineTop - 1, LINE, 0.4, pageH);
+          content.line(x, lineTop + 8, x + 11, lineTop + 8, LINE, 0.4, pageH);
+          content.line(x, lineTop - 1, x, lineTop + 8, LINE, 0.4, pageH);
+          content.line(x + 11, lineTop - 1, x + 11, lineTop + 8, LINE, 0.4, pageH);
+          content.text(text, x + 16, lineTop + 7, FONTS.helv, FS.metaValue, INK, pageH);
+          x += w + 16;
+        });
+        top = lineTop + 18;
+      }
     } else {
       // Continuation pages: one quiet line, so a loose sheet still says what
       // it belongs to without repeating the whole letterhead.
@@ -285,7 +310,9 @@ export function buildPdf(spec, logo) {
 
   measured.forEach((row, index) => {
     if (y + row.height > bottomLimit) { newPage(); }
-    if (index % 2 === 1) content.rect(MARGIN, y, contentW, row.height, ALT, pageH);
+    const fill = HEX.test(String(rows[index]?._fill || '')) ? pdfRgb(String(rows[index]._fill)) : '';
+    if (fill) content.rect(MARGIN, y, contentW, row.height, fill, pageH);
+    else if (index % 2 === 1) content.rect(MARGIN, y, contentW, row.height, ALT, pageH);
 
     row.cells.forEach((lines, ci) => {
       const c = columns[ci];

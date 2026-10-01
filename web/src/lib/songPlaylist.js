@@ -115,14 +115,38 @@ export function publicSong(song) {
 
 const SONG_COLUMNS = 'id, title, artist, artist_id, cover_url, audio_url, duration_seconds, song_artists(name, cover_url)';
 
-// The songs with these ids, as the player needs them. Missing tables (the
-// playlist migrations not run) read as no songs.
+// A saved Spotify song (spotify_songs.sql) on a Worship item. It has no
+// stream_url: it plays in Spotify's own embedded player.
+function publicSpotifySong(row) {
+  return {
+    id: row.id,
+    source: 'spotify',
+    spotify_id: row.spotify_id,
+    title: row.title,
+    artist: row.artists,
+    duration_seconds: row.duration_ms ? row.duration_ms / 1000 : null,
+    cover_url: row.image_url,
+    cover_thumb_url: row.image_url,
+    cover_label_url: row.image_url,
+    external_url: row.external_url,
+    stream_url: null,
+  };
+}
+
+// The songs with these ids, as the player needs them - uploaded songs and
+// saved Spotify songs alike (a Worship item may mix both). Missing tables
+// (migrations not run) read as no songs.
 export async function songsForIds(supabase, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   if (!unique.length) return [];
-  const { data, error } = await supabase.from('song_playlist').select(SONG_COLUMNS).in('id', unique);
-  if (error) return [];
-  return (data || []).map((row) => publicSong(withSongUrls(row)));
+  const [uploaded, spotify] = await Promise.all([
+    supabase.from('song_playlist').select(SONG_COLUMNS).in('id', unique),
+    supabase.from('spotify_songs').select('id, spotify_id, title, artists, image_url, external_url, duration_ms').in('id', unique),
+  ]);
+  return [
+    ...(uploaded.error ? [] : (uploaded.data || []).map((row) => publicSong(withSongUrls(row)))),
+    ...(spotify.error ? [] : (spotify.data || []).map(publicSpotifySong)),
+  ];
 }
 
 // Asks Cloudinary for each song's rendition once, so it exists before the
