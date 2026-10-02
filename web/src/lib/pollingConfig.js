@@ -26,6 +26,10 @@ export const POLL_MS = {
   // An event's registrations while its desk is open, so the money cards keep
   // up with payments taken on another device. One read per tick, idle tabs stop.
   eventRegsOpen: 30000,
+  // The verification desks: attendance and registrations, so every verifier's
+  // Status and Officially Registered count agree. Desks also tell each other
+  // over Realtime the moment one changes something; this catches the door.
+  verifyDesk: 20000,
   // Cloudinary Admin API is capped at 500 calls/hour on the free plan.
   cloudinaryUsage: 300000,
   // Public pages: Realtime already covers these, so this is a fallback only.

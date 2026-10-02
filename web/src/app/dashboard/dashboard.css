@@ -26250,6 +26250,29 @@ body.dark-mode .evt-meal-chip.yes { background: rgba(22, 163, 74, 0.2); color: #
   font-size: 0.84rem; font-weight: 800;
   color: #b8860b;
 }
+.evt-claim-served {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 2px 0;
+  font-size: 0.84rem; font-weight: 800; text-transform: capitalize;
+  color: #15803d;
+}
+.evt-claim-served.is-busy { color: var(--text-secondary, #6c757d); }
+body.dark-mode .evt-claim-served { color: #86efac; }
+
+/* Now serving: the meal a card ticks by itself. */
+.evt-mealpick-row { display: flex; gap: 9px; flex-wrap: wrap; }
+.evt-mealpick-btn {
+  flex: 1 1 110px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 13px; border: 2px solid var(--border-color, #e0e0e0); border-radius: 11px;
+  background: var(--bg-card, #fff); color: var(--text-primary, #333);
+  font: inherit; font-size: 0.88rem; font-weight: 800; cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.evt-mealpick-btn:hover { border-color: var(--secondary); }
+.evt-mealpick-btn.on { border-color: var(--secondary); background: rgba(200, 150, 15, 0.1); color: var(--primary, #926c15); }
+.evt-mealpick-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
+.evt-mealpick-foot em { font-style: normal; font-size: 0.78rem; color: var(--text-secondary, #6c757d); }
+body.dark-mode .evt-mealpick-btn.on { color: var(--accent, #e0b64a); }
 body.dark-mode .evt-claim-who.already b,
 body.dark-mode .evt-claim-already { color: var(--accent, #e0b64a); }
 
@@ -33284,6 +33307,55 @@ body.dark-mode .evt-id-printbar { background: rgba(224,180,74,0.08); border-colo
 .acc-occ-chip.boys { background: rgba(37,99,235,0.12); color: #1d4ed8; }
 .acc-occ-chip.girls { background: rgba(219,39,119,0.12); color: #be185d; }
 .acc-occ-chip.family { background: rgba(22,163,74,0.12); color: #15803d; }
+
+/* ---- Reserve: beds held back for somebody ---- */
+.acc-held-chip {
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; padding: 3px 9px;
+  border-radius: 999px; background: rgba(124,58,237,0.1); color: #6d28d9; font-size: 0.72rem; font-weight: 700;
+  max-width: 100%;
+}
+.acc-held-chip > i { font-size: 0.66rem; }
+.acc-held-chip > b { font-weight: 800; color: #5b21b6; }
+.acc-held-chip > b::before { content: '·'; margin-right: 6px; font-weight: 700; color: #8b5cf6; }
+.acc-held-chip > em { font-style: normal; font-weight: 600; color: #7c3aed; opacity: 0.85; }
+td .acc-held-chip { display: flex; width: fit-content; }
+.rmn-room .acc-held-chip { align-self: flex-start; }
+.evt-mini-btn.acc-held-btn { color: #6d28d9; border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.06); }
+.acc-type-held { color: #6d28d9 !important; font-weight: 700; }
+.acc-stat.held { border-color: rgba(124,58,237,0.35); background: rgba(124,58,237,0.05); }
+.acc-stat.held > b { color: #6d28d9; }
+.acc-reserve-all { display: inline-flex; align-items: center; gap: 8px; }
+.acc-reserve-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acc-reserve-opt {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px; text-align: left; cursor: pointer;
+  border: 1.5px solid var(--border-color, #e3e3e3); border-radius: 12px; background: var(--bg-card, #fff);
+  font: inherit; color: inherit; transition: border-color 0.15s, background 0.15s;
+}
+.acc-reserve-opt > i { margin-top: 2px; color: #7c3aed; }
+.acc-reserve-opt > span { display: flex; flex-direction: column; gap: 2px; }
+.acc-reserve-opt small { font-size: 0.76rem; color: var(--text-secondary, #6c757d); line-height: 1.35; }
+.acc-reserve-opt.on { border-color: #7c3aed; background: rgba(124,58,237,0.07); }
+.acc-reserve-beds {
+  display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px;
+  padding: 8px; border-radius: 12px; background: rgba(124,58,237,0.06);
+}
+.acc-reserve-beds > span { font-size: 0.9rem; }
+.acc-reserve-beds > span b { font-size: 1.3rem; color: #6d28d9; }
+.acc-reserve-beds > button {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(124,58,237,0.4);
+  background: var(--bg-card, #fff); color: #6d28d9; cursor: pointer;
+}
+.acc-reserve-beds > button:disabled { opacity: 0.4; cursor: default; }
+.acc-reserve-modal .evt-modal-foot .acc-release-btn { margin-right: auto; color: #b91c1c; }
+body.dark-mode .acc-held-chip { background: rgba(167,139,250,0.14); color: #c4b5fd; }
+body.dark-mode .acc-held-chip > b { color: #ddd6fe; }
+body.dark-mode .acc-held-chip > em { color: #c4b5fd; }
+body.dark-mode .evt-mini-btn.acc-held-btn, body.dark-mode .acc-type-held { color: #c4b5fd !important; }
+body.dark-mode .acc-stat.held > b, body.dark-mode .acc-reserve-beds > span b { color: #c4b5fd; }
+body.dark-mode .acc-reserve-opt { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.12); }
+body.dark-mode .acc-reserve-opt.on { border-color: #a78bfa; background: rgba(167,139,250,0.12); }
+body.dark-mode .acc-reserve-beds > button { background: rgba(255,255,255,0.05); color: #c4b5fd; }
+@media (max-width: 520px) { .acc-reserve-opts { grid-template-columns: 1fr; } }
 .rmn-room-top .acc-occ-chip { margin-right: auto; margin-left: 6px; }
 
 .acc-scan-modal { max-width: 640px; }
@@ -33762,6 +33834,61 @@ body.dark-mode .rfid-verifiers-card { background: rgba(31,122,74,0.1); border-co
 .evt-verify-endask-note { font-size: 0.8rem; }
 .evt-verify-endask-go { display: inline-flex; align-items: center; gap: 8px; }
 
+.evt-verify-official {
+  margin-bottom: 12px; padding: 12px 16px; border-radius: 14px; border: 1px solid #cfe9d9; background: #f3faf6;
+}
+.evt-verify-official-main { display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 14px; }
+.evt-verify-official-ico {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: #1f7a4a; color: #fff; font-size: 1rem;
+}
+.evt-verify-official-txt { display: flex; flex-direction: column; line-height: 1.15; }
+.evt-verify-official-txt small, .evt-verify-official-side small {
+  font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #1f7a4a;
+}
+.evt-verify-official-txt b { font-size: 1.5rem; font-weight: 800; color: #14532d; font-variant-numeric: tabular-nums; }
+.evt-verify-official-txt b span { font-size: 0.95rem; font-weight: 700; color: var(--text-secondary, #6c757d); }
+.evt-verify-official-bar { height: 10px; border-radius: 999px; background: #dcefe3; overflow: hidden; min-width: 80px; }
+.evt-verify-official-bar i { display: block; height: 100%; border-radius: inherit; background: #1f7a4a; transition: width 0.4s ease; }
+.evt-verify-official-side { display: flex; flex-direction: column; align-items: flex-end; text-align: right; line-height: 1.2; }
+.evt-verify-official-side b { font-size: 1.1rem; font-weight: 800; color: #14532d; font-variant-numeric: tabular-nums; }
+.evt-verify-official-side small { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text-secondary, #6c757d); }
+.evt-verify-official-more { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-left: 54px; }
+.evt-verify-official-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid #cfe9d9; background: #fff; color: #1f5137; font: inherit; font-size: 0.76rem; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.evt-verify-official-chip b { font-weight: 800; color: #14532d; }
+.evt-verify-official-chip i { font-size: 0.72rem; color: #1f7a4a; }
+button.evt-verify-official-chip { cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+button.evt-verify-official-chip:hover { border-color: #1f7a4a; background: #eaf7ef; }
+.evt-verify-official-chip.is-ready i { color: #15803d; }
+.evt-verify-official-chip.is-due { border-color: #f3dcb0; background: #fffaf0; color: #7a4f0c; }
+.evt-verify-official-chip.is-due b { color: #92400e; }
+.evt-verify-official-chip.is-due i { color: #b45309; }
+.evt-verify-bucket {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; vertical-align: 1px;
+  font-size: 0.64rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.evt-verify-bucket.late { background: #fdecc8; color: #92400e; }
+.evt-verify-bucket.walkin { background: #e0ecff; color: #1d4ed8; }
+body.dark-mode .evt-verify-official { background: rgba(31,122,74,0.12); border-color: rgba(31,122,74,0.35); }
+body.dark-mode .evt-verify-official-txt b, body.dark-mode .evt-verify-official-side b { color: #86efac; }
+body.dark-mode .evt-verify-official-txt small { color: #86efac; }
+body.dark-mode .evt-verify-official-bar { background: rgba(255,255,255,0.08); }
+body.dark-mode .evt-verify-official-bar i { background: #22c55e; }
+body.dark-mode .evt-verify-official-chip { background: rgba(255,255,255,0.04); border-color: rgba(31,122,74,0.35); color: #bbf7d0; }
+body.dark-mode .evt-verify-official-chip b { color: #86efac; }
+body.dark-mode .evt-verify-official-chip.is-due { background: rgba(217,119,6,0.12); border-color: rgba(217,119,6,0.35); color: #fcd34d; }
+body.dark-mode .evt-verify-official-chip.is-due b { color: #fde68a; }
+body.dark-mode .evt-verify-bucket.late { background: rgba(217,119,6,0.2); color: #fcd34d; }
+body.dark-mode .evt-verify-bucket.walkin { background: rgba(59,130,246,0.2); color: #93c5fd; }
+@media (max-width: 640px) {
+  .evt-verify-official-main { grid-template-columns: auto 1fr auto; gap: 10px 12px; }
+  .evt-verify-official-bar { grid-column: 1 / -1; grid-row: 2; }
+  .evt-verify-official-more { padding-left: 0; }
+}
 body.dark-mode .evt-verify-tools .evt-verify-scanhint { background: rgba(31,122,74,0.15); border-color: rgba(31,122,74,0.35); }
 body.dark-mode .evt-verify-endask-facts span { background: rgba(255,255,255,0.08); }
 @media (max-width: 640px) {
@@ -34290,7 +34417,6 @@ body.dark-mode .evt-status.evt-verify-registered { background: rgba(74,222,128,0
 .evt-desk-chosen > span { display: flex; flex-direction: column; min-width: 0; }
 .evt-desk-chosen small { font-size: 0.76rem; color: var(--text-muted, #888); }
 .evt-desk-chosen .evt-desk-qrnote { color: #15803d; font-weight: 700; }
-.evt-desk-chosen .evt-desk-code { color: var(--text-primary, inherit); font-size: 0.85rem; letter-spacing: 0.12em; }
 .evt-desk-cash { display: flex; gap: 8px; align-items: stretch; }
 .evt-desk-cash .form-control { flex: 1; min-width: 0; }
 .evt-desk-cash .evt-chip-btn { flex-shrink: 0; }

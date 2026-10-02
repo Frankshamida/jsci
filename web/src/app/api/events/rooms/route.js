@@ -3,10 +3,12 @@ import { supabaseAdmin } from '@/lib/supabase';
 import {
   BED_TYPES,
   MAX_ROOMS_PER_ADD,
+  cleanReservedFor,
   compareRoomNumbers,
   normalizeBeds,
   normalizeOccupancy,
   normalizePax,
+  normalizeReservedBeds,
   parseRoomNumbers,
   roomTypeName,
 } from '@/lib/rooms';
@@ -67,6 +69,19 @@ const missingFloor = (error) => /floor/i.test(error?.message || '');
 const FLOOR_MIGRATION = 'Room floors need their migration: run supabase/migrations/event_room_floor.sql in the Supabase SQL editor, then try again.';
 const cleanFloor = (raw) => String(raw ?? '').trim().replace(/\s+/g, ' ').slice(0, 60) || null;
 const OCCUPANCY_MIGRATION = 'Room labels need their migration: run supabase/migrations/event_room_occupancy.sql in the Supabase SQL editor, then try again.';
+// The beds held back (Reserve) come from event_room_reserved.sql - and the
+// same again: until it is run the rooms load, just with nothing reserved.
+const FULL_ROOM_FIELDS = `${ROOM_FIELDS}, reserved_beds, reserved_for, reserved_at`;
+const missingReserve = (error) => /reserved_/i.test(error?.message || '');
+const RESERVE_MIGRATION = 'Reserving rooms needs its migration: run supabase/migrations/event_room_reserved.sql in the Supabase SQL editor, then try again.';
+
+// The newest columns first, then one migration back at a time.
+async function selectRooms(run) {
+  let res = await run(FULL_ROOM_FIELDS);
+  if (res.error && missingReserve(res.error)) res = await run(ROOM_FIELDS);
+  if (res.error && missingOccupancy(res.error)) res = await run(BASE_ROOM_FIELDS);
+  return res;
+}
 
 // A stored row, in the shape the screen wants: beds always an array, never a
 // null that every caller has to guard.
@@ -93,16 +108,10 @@ export async function GET(request) {
       return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
     }
 
-    let { data, error } = await supabaseAdmin
+    const { data, error } = await selectRooms((fields) => supabaseAdmin
       .from('event_rooms')
-      .select(ROOM_FIELDS)
-      .eq('event_id', eventId);
-    if (error && missingOccupancy(error)) {
-      ({ data, error } = await supabaseAdmin
-        .from('event_rooms')
-        .select(BASE_ROOM_FIELDS)
-        .eq('event_id', eventId));
-    }
+      .select(fields)
+      .eq('event_id', eventId));
     if (error) throw error;
 
     return NextResponse.json({ success: true, data: sortRooms(data).map(shape) });
@@ -233,9 +242,61 @@ export async function POST(request) {
   }
 }
 
-// PATCH /api/events/rooms  { id, actorId, roomType, roomNumber, pax, beds, notes }
+// PATCH /api/events/rooms  { ids: [..], actorId, reservedBeds: 'all' | 0, reservedFor }
+//   Several rooms reserved whole at once (a whole type for the speakers), or
+//   released. Each room is held for its own pax.
+async function reserveMany(body, actor) {
+  const ids = [...new Set((body.ids || []).filter(Boolean).map(String))].slice(0, 500);
+  const whole = body.reservedBeds === 'all';
+  if (!whole && Number(body.reservedBeds) !== 0) {
+    return NextResponse.json({ success: false, message: 'Reserve the whole rooms, or release them.' }, { status: 400 });
+  }
+  if (ids.length === 0) {
+    return NextResponse.json({ success: false, message: 'Choose the rooms first' }, { status: 400 });
+  }
+  const { data: rooms, error: roomsErr } = await supabaseAdmin
+    .from('event_rooms').select('id, pax').in('id', ids);
+  if (roomsErr) throw roomsErr;
+  if (!rooms?.length) {
+    return NextResponse.json({ success: false, message: 'Those rooms could not be found' }, { status: 404 });
+  }
+
+  const hold = whole
+    ? { reserved_for: cleanReservedFor(body.reservedFor), reserved_at: new Date().toISOString(), reserved_by: actor.id }
+    : { reserved_for: null, reserved_at: null, reserved_by: null };
+  // One write per distinct pax, since each room is held for its own.
+  const byPax = new Map();
+  rooms.forEach((r) => {
+    const pax = Number(r.pax) || 1;
+    if (!byPax.has(pax)) byPax.set(pax, []);
+    byPax.get(pax).push(r.id);
+  });
+  for (const [pax, roomIds] of byPax) {
+    const { error } = await supabaseAdmin.from('event_rooms')
+      .update({ ...hold, reserved_beds: whole ? pax : 0 }).in('id', roomIds);
+    if (error) {
+      if (missingReserve(error)) return NextResponse.json({ success: false, message: RESERVE_MIGRATION }, { status: 500 });
+      throw error;
+    }
+  }
+
+  const { data, error } = await selectRooms((fields) => supabaseAdmin.from('event_rooms').select(fields).in('id', ids));
+  if (error) throw error;
+  const n = rooms.length;
+  return NextResponse.json({
+    success: true,
+    data: sortRooms(data).map(shape),
+    message: whole
+      ? `${n} ${n === 1 ? 'room' : 'rooms'} reserved${hold.reserved_for ? ` for ${hold.reserved_for}` : ''}`
+      : `${n} ${n === 1 ? 'room' : 'rooms'} released`,
+  });
+}
+
+// PATCH /api/events/rooms  { id, actorId, roomType, roomNumber, pax, beds, notes,
+//                            reservedBeds, reservedFor }
 //   One room, corrected. Only the fields sent are changed - a screen that
 //   edits the bed list must not blank the notes by not mentioning them.
+//   reservedBeds holds that many beds back ('all' = the whole room, 0 = none).
 export async function PATCH(request) {
   try {
     const body = await request.json();
@@ -243,15 +304,23 @@ export async function PATCH(request) {
     if (!actor) {
       return NextResponse.json({ success: false, message: 'Access denied. Admins only.' }, { status: 403 });
     }
+    if (Array.isArray(body.ids)) return await reserveMany(body, actor);
     if (!body.id) {
       return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
     }
 
-    const { data: room } = await supabaseAdmin
+    let { data: room, error: readErr } = await supabaseAdmin
       .from('event_rooms')
-      .select(BASE_ROOM_FIELDS)
+      .select(`${BASE_ROOM_FIELDS}, reserved_beds`)
       .eq('id', body.id)
       .maybeSingle();
+    if (readErr && missingReserve(readErr)) {
+      ({ data: room } = await supabaseAdmin
+        .from('event_rooms')
+        .select(BASE_ROOM_FIELDS)
+        .eq('id', body.id)
+        .maybeSingle());
+    }
     if (!room) {
       return NextResponse.json({ success: false, message: 'That room could not be found' }, { status: 404 });
     }
@@ -283,16 +352,40 @@ export async function PATCH(request) {
     if (body.occupancy !== undefined) patch.occupancy = normalizeOccupancy(body.occupancy);
     if (body.floor !== undefined) patch.floor = cleanFloor(body.floor);
 
+    // ---- Beds held back ----
+    const pax = patch.pax ?? (Number(room.pax) || 1);
+    const reserving = body.reservedBeds !== undefined;
+    if (reserving) {
+      const beds = normalizeReservedBeds(body.reservedBeds === 'all' ? pax : body.reservedBeds, pax);
+      patch.reserved_beds = beds;
+      patch.reserved_for = beds > 0 ? cleanReservedFor(body.reservedFor) : null;
+      patch.reserved_at = beds > 0 ? new Date().toISOString() : null;
+      patch.reserved_by = beds > 0 ? actor.id : null;
+    } else if (patch.pax !== undefined && Number(room.reserved_beds) > 0) {
+      // A whole room held stays whole when its pax changes; a part of one
+      // can never be more than the room.
+      const was = Number(room.reserved_beds);
+      patch.reserved_beds = was >= (Number(room.pax) || 1) ? pax : Math.min(was, pax);
+    }
+
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ success: true, data: shape(room), message: 'Nothing to change' });
     }
 
-    let { data, error } = await supabaseAdmin
+    const update = (fields) => supabaseAdmin
       .from('event_rooms')
       .update(patch)
       .eq('id', body.id)
-      .select(ROOM_FIELDS)
+      .select(fields)
       .single();
+    let { data, error } = await update(FULL_ROOM_FIELDS);
+    if (error && missingReserve(error)) {
+      if (reserving) {
+        return NextResponse.json({ success: false, message: RESERVE_MIGRATION }, { status: 500 });
+      }
+      delete patch.reserved_beds;
+      ({ data, error } = await update(ROOM_FIELDS));
+    }
     if (error && missingOccupancy(error)) {
       // Setting the label itself cannot work without the column - say so.
       // Any other edit still goes through, only without reading the label back.
@@ -303,19 +396,18 @@ export async function PATCH(request) {
         if (patch.floor) return NextResponse.json({ success: false, message: FLOOR_MIGRATION }, { status: 500 });
         delete patch.floor;
       }
-      ({ data, error } = await supabaseAdmin
-        .from('event_rooms')
-        .update(patch)
-        .eq('id', body.id)
-        .select(BASE_ROOM_FIELDS)
-        .single());
+      ({ data, error } = await update(BASE_ROOM_FIELDS));
     }
     if (error) throw error;
 
+    const held = Number(data.reserved_beds) || 0;
     return NextResponse.json({
       success: true,
       data: shape(data),
-      message: `Room ${data.room_number} updated`,
+      message: !reserving ? `Room ${data.room_number} updated`
+        : held === 0 ? `Room ${data.room_number} released`
+          : `${held >= (Number(data.pax) || 1) ? `Room ${data.room_number}` : `${held} ${held === 1 ? 'bed' : 'beds'} in ${data.room_number}`} reserved`
+            + (data.reserved_for ? ` for ${data.reserved_for}` : ''),
     });
   } catch (error) {
     if (/uq_event_rooms_number|duplicate key/i.test(error?.message || '')) {

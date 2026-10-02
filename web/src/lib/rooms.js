@@ -303,3 +303,44 @@ export function normalizeOccupancy(raw) {
 
 // Registrations whose payment is settled - the ones a room can be given to.
 export const ROOM_QUEUE_STATUSES = ['registered', 'payment_verified', 'paid_pending_turnover'];
+
+// ---- Beds held back ----
+// Accommodation > Reserve keeps a room, or some of its beds, for somebody
+// (see event_room_reserved.sql). reserved_beds is a count of beds kept back,
+// not of people: the empty beds fill the open ones first, so a held bed is
+// only ever the last to go, and only when the desk says to use it.
+
+/** Who the beds are held for, tidied: "Speakers". Null when blank. */
+export function cleanReservedFor(raw) {
+  return String(raw ?? '').trim().replace(/\s+/g, ' ').slice(0, 80) || null;
+}
+
+/** A stored reserved_beds: a whole number from 0 up to the room's pax. */
+export function normalizeReservedBeds(raw, pax) {
+  const cap = Math.max(1, Number(pax) || 1);
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) ? Math.max(0, Math.min(cap, n)) : 0;
+}
+
+/**
+ * A room's beds, given how many people are in it.
+ *   free  empty beds
+ *   held  empty beds kept back for reserved_for
+ *   open  empty beds anybody may take
+ *   whole the whole room is held
+ */
+export function roomHold(room, used = 0) {
+  const cap = Math.max(1, Number(room?.pax) || 1);
+  const reserved = normalizeReservedBeds(room?.reserved_beds, cap);
+  const free = Math.max(0, cap - (Number(used) || 0));
+  const held = Math.min(reserved, free);
+  return { cap, reserved, free, held, open: free - held, whole: reserved > 0 && reserved >= cap };
+}
+
+/** "Whole room reserved for Speakers", "2 beds reserved for Speakers". */
+export function reservedLabel(room) {
+  const { reserved, whole } = roomHold(room);
+  if (!reserved) return '';
+  const what = whole ? 'Whole room reserved' : `${reserved} ${reserved === 1 ? 'bed' : 'beds'} reserved`;
+  return room?.reserved_for ? `${what} for ${room.reserved_for}` : what;
+}

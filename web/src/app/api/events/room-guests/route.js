@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { roomEntitlement } from '@/lib/rooms';
+import { roomEntitlement, roomHold } from '@/lib/rooms';
 
 // Who is sleeping in which room.
 //
@@ -49,6 +49,34 @@ const explain = (error) => {
 };
 
 const GUEST_FIELDS = 'id, room_id, registration_id, event_id, assigned_at, assigned_by, notes';
+
+// A room, read with as many of the newer columns as the database has: the
+// first field list that reads wins (see event_room_occupancy.sql and
+// event_room_reserved.sql).
+async function readRoom(id, fieldLists) {
+  let res = { data: null, error: null };
+  for (const fields of fieldLists) {
+    res = await supabaseAdmin.from('event_rooms').select(fields).eq('id', id).maybeSingle();
+    if (!res.error) return res;
+  }
+  return res;
+}
+const ROOM_BASE = 'id, event_id, room_type, room_number, pax';
+const HOLD = 'reserved_beds, reserved_for';
+
+// Beds held back under Accommodation > Reserve are the last a room gives out,
+// and only when the desk says so (useReserved). Returns the refusal, or null.
+function heldRefusal(room, used, useReserved) {
+  const hold = roomHold(room, used);
+  if (useReserved || hold.open > 0 || hold.held === 0) return null;
+  const beds = hold.held === 1 ? 'Its last free bed is' : `Its ${hold.held} free beds are`;
+  return {
+    success: false,
+    result: 'reserved',
+    held: hold.held,
+    message: `${room.room_type} ${room.room_number}: ${beds} reserved${room.reserved_for ? ` for ${room.reserved_for}` : ''}.`,
+  };
+}
 
 // A room nobody is in any more is nobody's: its All Boys / All Girls / Family
 // label goes with the last guest, so the next people are not turned away by
@@ -126,7 +154,7 @@ export async function GET(request) {
 }
 
 // POST /api/events/room-guests
-//   { eventId, roomId, registrationId, actorId, notes }
+//   { eventId, roomId, registrationId, actorId, notes, useReserved }
 //
 //   Put one person in one room. Called from the desk after a card has been
 //   read - the card is resolved to a registration by
@@ -152,11 +180,7 @@ export async function POST(request) {
     }
 
     // ---- The room ----
-    const { data: room, error: roomErr } = await supabaseAdmin
-      .from('event_rooms')
-      .select('id, event_id, room_type, room_number, pax')
-      .eq('id', roomId)
-      .maybeSingle();
+    const { data: room, error: roomErr } = await readRoom(roomId, [`${ROOM_BASE}, ${HOLD}`, ROOM_BASE]);
     if (roomErr) throw roomErr;
     if (!room) {
       return NextResponse.json({ success: false, message: 'That room could not be found' }, { status: 404 });
@@ -231,6 +255,8 @@ export async function POST(request) {
         message: `${room.room_type} ${room.room_number} is full — ${taken} of ${room.pax} pax. Use another room, or raise its pax under Accommodation.`,
       }, { status: 409 });
     }
+    const held = heldRefusal(room, taken, !!body.useReserved);
+    if (held) return NextResponse.json({ ...held, registration: reg, room }, { status: 409 });
 
     // Where they were before, so the desk can say "moved from 308" rather
     // than silently changing it.
@@ -276,7 +302,7 @@ export async function POST(request) {
   }
 }
 
-// PATCH /api/events/room-guests  { id, actorId, roomId, notes }
+// PATCH /api/events/room-guests  { id, actorId, roomId, notes, useReserved }
 //   Correcting one assignment: moved to another room, or a note changed.
 //   Room moves go through the same capacity check as a fresh assignment.
 export async function PATCH(request) {
@@ -306,16 +332,11 @@ export async function PATCH(request) {
     let moveFromOcc = null;
     let moveToRoom = null;
     if (body.roomId && body.roomId !== guest.room_id) {
-      let { data: room } = await supabaseAdmin
-        .from('event_rooms')
-        .select('id, event_id, room_type, room_number, pax, occupancy')
-        .eq('id', body.roomId)
-        .maybeSingle();
-      if (room === null) {
-        // Before event_room_occupancy.sql: no labels to keep.
-        ({ data: room } = await supabaseAdmin.from('event_rooms')
-          .select('id, event_id, room_type, room_number, pax').eq('id', body.roomId).maybeSingle());
-      }
+      // Before event_room_occupancy.sql there are no labels to keep, and
+      // before event_room_reserved.sql nothing is held.
+      const { data: room } = await readRoom(body.roomId, [
+        `${ROOM_BASE}, occupancy, ${HOLD}`, `${ROOM_BASE}, occupancy`, ROOM_BASE,
+      ]);
       const { data: fromRoom } = await supabaseAdmin.from('event_rooms').select('occupancy').eq('id', guest.room_id).maybeSingle();
       moveFromOcc = fromRoom?.occupancy || null;
       moveToRoom = room;
@@ -335,6 +356,8 @@ export async function PATCH(request) {
           message: `${room.room_type} ${room.room_number} is full — ${count} of ${room.pax} pax.`,
         }, { status: 409 });
       }
+      const held = heldRefusal(room, count || 0, !!body.useReserved);
+      if (held) return NextResponse.json(held, { status: 409 });
       const refusal = moveRefusal(moveFromOcc, room, guest.registration?.attendee_name || 'This guest');
       if (refusal) return NextResponse.json({ success: false, result: 'wrong_room', message: refusal }, { status: 409 });
       patch.room_id = body.roomId;

@@ -24,7 +24,10 @@ export default function PickList({
   emptyText = 'Nothing to choose from',
 }) {
   const btnRef = useRef(null);
+  const popRef = useRef(null);
   const listRef = useRef(null);
+  const frameRef = useRef(0);
+  const shownChosenRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const [q, setQ] = useState('');
@@ -41,26 +44,40 @@ export default function PickList({
     const above = r.top - 12;
     const up = below < 260 && above > below;
     const maxHeight = Math.max(160, Math.min(360, up ? above : below));
-    setPos(up ? { left, width, bottom: window.innerHeight - r.top + 6, maxHeight } : { left, width, top: r.bottom + 6, maxHeight });
+    const next = up ? { left, width, bottom: window.innerHeight - r.top + 6, maxHeight } : { left, width, top: r.bottom + 6, maxHeight };
+    // Unchanged, so no re-render.
+    setPos((cur) => (cur && cur.left === next.left && cur.width === next.width && cur.top === next.top
+      && cur.bottom === next.bottom && cur.maxHeight === next.maxHeight ? cur : next));
   };
 
   useLayoutEffect(() => { if (open) place(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const onMove = () => place();
+    // Follows the button when the page behind scrolls - but scrolling the
+    // list itself moves nothing, and it is measured at most once a frame.
+    const onMove = (e) => {
+      if (e?.target instanceof Node && popRef.current?.contains(e.target)) return;
+      if (frameRef.current) return;
+      frameRef.current = requestAnimationFrame(() => { frameRef.current = 0; place(); });
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('resize', onMove);
-    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('scroll', onMove, { capture: true, passive: true });
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onMove);
-      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('scroll', onMove, { capture: true });
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = 0;
     };
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The chosen one in view when the list opens.
+  // The chosen one in view when the list opens - once, so it never pulls the
+  // list back while it is being scrolled.
   useEffect(() => {
-    if (!open || !listRef.current) return;
+    if (!open) { shownChosenRef.current = false; return; }
+    if (shownChosenRef.current || !listRef.current) return;
+    shownChosenRef.current = true;
     const on = listRef.current.querySelector('.pl-opt.on');
     if (on) on.scrollIntoView({ block: 'nearest' });
   }, [open, pos]);
@@ -109,7 +126,7 @@ export default function PickList({
       {open && pos && typeof document !== 'undefined' && createPortal(
         <>
           <div className="pl-scrim" onClick={() => { setOpen(false); setQ(''); }} />
-          <div className="pl-pop" style={pos} role="listbox" aria-label={ariaLabel}>
+          <div className="pl-pop" ref={popRef} style={pos} role="listbox" aria-label={ariaLabel}>
             {searchable && (
               <div className="pl-search">
                 <i className="fas fa-magnifying-glass"></i>

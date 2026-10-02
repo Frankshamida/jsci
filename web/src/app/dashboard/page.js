@@ -5,11 +5,13 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
-import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bedsToText, compareRoomNumbers, occupancyLabel, parseRoomNumbers, roomEntitlement, roomTypeName, accommodationAddons } from '@/lib/rooms';
+import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bedsToText, compareRoomNumbers, occupancyLabel, parseRoomNumbers, reservedLabel, roomEntitlement, roomHold, roomTypeName, accommodationAddons } from '@/lib/rooms';
 import { supabase } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, formatUid, sameCard, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
 import { sameAddon } from '@/lib/addons';
-import { deskCode, publishQrDisplay } from '@/lib/qrDisplay';
+import { publishQrDisplay } from '@/lib/qrDisplay';
+import { announceDeskChange, followDeskChanges } from '@/lib/deskSync';
+import { publishMealsDisplay } from '@/lib/mealsDisplay';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { printReport, buildPrintHtml, buildXlsx, buildDocx, buildCsv, downloadBlob, safeFilename } from '@/lib/exportDoc';
 import { buildPdf, loadLogoJpeg } from '@/lib/pdfWriter';
@@ -199,6 +201,13 @@ const BLANK_ROOM_FORM = {
   notes: '',
 };
 
+// The meal a Meals Counter opened now is serving: lunch until 3 pm in Manila,
+// dinner after.
+const mealForNow = () => {
+  const hour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', hourCycle: 'h23' }));
+  return hour < 15 ? 'lunch' : 'dinner';
+};
+
 const claimDeskRecorded = (desk, who, dayNumber) => {
   if (!desk || !who || who.result !== 'matched') return true;
   // Nothing can be recorded for somebody who is not allowed to collect -
@@ -317,6 +326,25 @@ const EXPORT_HIGHLIGHT_RULES = [
 ];
 // The same three the export's "Paid only" filter counts as paid.
 const EXPORT_PAID_STATUSES = ['payment_verified', 'registered', 'paid_pending_turnover'];
+
+// Putting somebody in a room, or moving them. A bed held under Accommodation >
+// Reserve is a room's last and goes only when the desk says so: the server
+// answers "reserved", ask(message) puts the question, and a yes sends it again
+// with useReserved. A no comes back as { cancelled: true }, left unsaid.
+async function writeRoomGuest(method, body, ask, { useReserved = false } = {}) {
+  const send = async (held) => {
+    const res = await fetch('/api/events/room-guests', {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, ...(held ? { useReserved: true } : {}) }),
+    });
+    return res.json();
+  };
+  const data = await send(useReserved);
+  if (data.result !== 'reserved' || useReserved) return data;
+  if (!(await ask(data.message))) return { ...data, cancelled: true };
+  return { ...(await send(true)), usedReserved: true };
+}
 const exportHighlightDefaults = () => ({
   on: true,
   rules: Object.fromEntries(EXPORT_HIGHLIGHT_RULES.map((r) => [r.key, { on: true, color: r.color }])),
@@ -1489,7 +1517,7 @@ export default function DashboardPage() {
   const [regVerifier, setRegVerifier] = useState(null); // { eventId, staff: { id, name, role, duty, picture }, since }
   const [verifyScanOpen, setVerifyScanOpen] = useState(false);
   const [verifyScan, setVerifyScan] = useState(null);   // { busy } | { ok, staff } | { ok: false, message }
-  const [verifyTab, setVerifyTab] = useState('early');  // 'early' | 'late' | 'walkin'
+  const [verifyTab, setVerifyTab] = useState('all');  // 'all' | 'early' | 'late' | 'walkin' | 'change' | 'refunds'
   const [verifySearch, setVerifySearch] = useState('');
   const [verifyPage, setVerifyPage] = useState(1);
   const [verifyPageSize, setVerifyPageSize] = useState(10);
@@ -2337,6 +2365,14 @@ export default function DashboardPage() {
   // The merch names ticked for the person on screen, before Claimed is pressed.
   const [claimTicked, setClaimTicked] = useState([]);
   const [claimManual, setClaimManual] = useState('');
+  // The meal the Meals Counter is serving. A card tapped gets it ticked at
+  // once; 'manual' leaves the ticking to the person at the counter. Picked by
+  // the clock the first time the counter opens.
+  const [mealServing, setMealServing] = useState(null); // null | 'lunch' | 'dinner' | 'manual'
+  // Which tap the name screen (/rfid-meals-display) is on, so a slow write
+  // for one person never paints over the next one, and what it last showed.
+  const mealTapSeqRef = useRef(0);
+  const mealLastTapRef = useRef(null);
 
   // ---- Attendance, per day ----
   // { registrationId: { '1': { attended_at }, '2': {...} } }. An event that
@@ -2673,7 +2709,7 @@ export default function DashboardPage() {
   const [committeeSession, setCommitteeSession] = useState(null);
 
   // Generic confirm modal (used for deletes and other destructive actions)
-  const [confirmModal, setConfirmModal] = useState({ open: false, title: '', subtitle: '', message: '', confirmLabel: 'Delete', icon: 'fa-trash', onConfirm: null, requireText: null });
+  const [confirmModal, setConfirmModal] = useState({ open: false, title: '', subtitle: '', message: '', confirmLabel: 'Delete', icon: 'fa-trash', confirmIcon: 'fa-trash', onConfirm: null, onCancel: null, requireText: null });
   const [confirmTypedText, setConfirmTypedText] = useState('');
   const askConfirm = (message, onConfirm, opts = {}) => {
     setConfirmTypedText('');
@@ -2684,15 +2720,23 @@ export default function DashboardPage() {
       message,
       confirmLabel: opts.confirmLabel || 'Delete',
       icon: opts.icon || 'fa-trash',
+      confirmIcon: opts.confirmIcon || 'fa-trash',
       onConfirm,
+      onCancel: opts.onCancel || null,
       requireText: opts.requireText || null,
     });
   };
-  const closeConfirm = () => { setConfirmModal((c) => ({ ...c, open: false, onConfirm: null })); setConfirmTypedText(''); };
+  const closeConfirm = () => {
+    const cancel = confirmModal.onCancel;
+    setConfirmModal((c) => ({ ...c, open: false, onConfirm: null, onCancel: null }));
+    setConfirmTypedText('');
+    if (cancel) cancel();
+  };
   const handleConfirmAccept = async () => {
     if (confirmModal.requireText && confirmTypedText !== confirmModal.requireText) return;
     const action = confirmModal.onConfirm;
-    closeConfirm();
+    setConfirmModal((c) => ({ ...c, open: false, onConfirm: null, onCancel: null }));
+    setConfirmTypedText('');
     if (action) await action();
   };
 
@@ -12663,6 +12707,62 @@ Examples:
     setEvtUnlockError(`That is not the master card (${formatUid(uid)}). Only the master card unlocks editing.`);
   }, [EVT_UNLOCK_UID, showToast]);
 
+  // ---- The name screen at the Meals Counter ----
+  // What the queue sees on /rfid-meals-display: the event, the meal, and the
+  // last person to tap. Read through refs by the memoised card reader.
+  const mealsScreenRef = useRef(() => {});
+  mealsScreenRef.current = (tap) => {
+    if (tap !== undefined) mealLastTapRef.current = tap;
+    publishMealsDisplay({
+      event: { id: eventRegsModal?.id || '', title: eventRegsModal?.title || '', image: eventRegsModal?.image_url || '' },
+      meal: { kind: mealServing === 'lunch' || mealServing === 'dinner' ? mealServing : '', day: Number(evtCheckinDay) || 1, days: evtEventDays.length },
+      tap: mealLastTapRef.current,
+    });
+  };
+  // The cards at this event, so a tap can put the name up before the server answers.
+  const mealCardsRef = useRef({ links: {}, regs: [] });
+  mealCardsRef.current = { links: idRfidLinks, regs: eventRegs };
+
+  // A meal ticked by the card itself, when the counter is serving one.
+  const serveDeskMeal = useCallback(async (reg, meal, day, seq) => {
+    const eventId = eventRegsModal?.id;
+    if (!eventId || !reg) return;
+    const key = `${meal}-${day}`;
+    const base = { seq, name: reg.attendee_name, church: reg.church_name || '', meal, day };
+    const stillOnScreen = () => seq === mealTapSeqRef.current;
+    const stopServing = () => setClaimWho((prev) => (prev?.registration?.id === reg.id ? { ...prev, serving: '' } : prev));
+    setEvtClaimBusy(`${reg.id}:${key}`);
+    try {
+      const res = await fetch('/api/events/claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId, registrationId: reg.id, kind: meal, dayNumber: day, claimed: true, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        showToast(data.message, 'danger');
+        stopServing();
+        if (stillOnScreen()) {
+          mealsScreenRef.current({ ...base, status: /not checked in/i.test(data.message || '') ? 'blocked' : 'unknown', note: data.message });
+        }
+        return;
+      }
+      const claim = data.claim || { claimed_at: new Date().toISOString() };
+      setClaimWho((prev) => (prev?.registration?.id === reg.id
+        ? { ...prev, serving: '', served: key, claims: { ...(prev.claims || {}), [key]: claim } }
+        : prev));
+      setEvtClaims((prev) => ({ ...prev, [reg.id]: { ...(prev[reg.id] || {}), [key]: claim } }));
+      showToast(`Day ${day} ${meal} given to ${reg.attendee_name}`, 'success');
+      if (stillOnScreen()) mealsScreenRef.current({ ...base, status: 'served', claimedAt: claim.claimed_at });
+    } catch (err) {
+      showToast(err.message, 'danger');
+      stopServing();
+      if (stillOnScreen()) mealsScreenRef.current({ ...base, status: 'unknown', note: 'The meal could not be recorded - tap the card again.' });
+    } finally {
+      setEvtClaimBusy('');
+    }
+  }, [eventRegsModal?.id, userData?.id, showToast]);
+
   // A tap at a counter. Who is this, and what do they already hold?
   //
   // Deliberately a lookup and not a check-in: being handed a tote bag is not
@@ -12675,13 +12775,23 @@ Examples:
     const uid = normalizeUid(rawUid);
     if (!isPlausibleUid(uid)) return;
 
+    // The name screen moves on at the tap, not when the server answers: with
+    // the event's cards loaded, whose card it is is already known here.
+    const seq = claimDesk === 'meals' ? ++mealTapSeqRef.current : 0;
+    const screen = (tap) => { if (seq && seq === mealTapSeqRef.current) mealsScreenRef.current({ seq, ...tap }); };
+    if (seq) {
+      const link = Object.values(mealCardsRef.current.links).find((l) => l?.uid && sameCard(l.uid, uid));
+      const known = link && mealCardsRef.current.regs.find((r) => r.id === link.registration_id);
+      if (known) screen({ name: known.attendee_name, church: known.church_name || '', status: 'reading' });
+    }
+
     // The button will not skip somebody whose visit was never recorded - and
     // neither should the next card in the queue, silently. It still replaces
     // them, because the alternative is a desk that refuses to read a card
     // while the person it is waiting for has walked off; but it says whose
     // record was left empty, by name, while that is still fixable.
     const leaving = claimWho;
-    if (leaving?.result === 'matched' && !claimDeskRecorded(claimDesk, leaving, evtCheckinDay)
+    if (leaving?.result === 'matched' && !leaving.serving && !claimDeskRecorded(claimDesk, leaving, evtCheckinDay)
       && !sameCard(leaving.uid, uid)) {
       showToast(
         `Nothing was recorded for ${leaving.registration?.attendee_name || 'the last card'}`,
@@ -12698,6 +12808,7 @@ Examples:
       const data = await res.json();
       if (!data.success) {
         setClaimWho({ result: 'error', message: data.message, uid });
+        screen({ name: '', status: 'unknown', note: data.message || 'That card could not be read' });
         return;
       }
 
@@ -12706,6 +12817,10 @@ Examples:
       (data.claims || []).forEach((c) => {
         held[`${c.kind}-${Number(c.day_number) || 0}`] = c;
       });
+      // The meal this counter is serving, if it is serving one.
+      const day = Number(evtCheckinDay) || 1;
+      const servingMeal = claimDesk === 'meals' && (mealServing === 'lunch' || mealServing === 'dinner') ? mealServing : '';
+      const servingKey = servingMeal ? `${servingMeal}-${day}` : '';
 
       // What this person has ALREADY taken at this counter, said out loud.
       //
@@ -12723,6 +12838,10 @@ Examples:
               ? `Kit already claimed — ${formatStampLine(kit.claimed_at)}`
               : 'Kit already claimed';
           }
+        } else if (servingMeal) {
+          // Serving one meal: whether they had THAT one is the only news.
+          const c = held[servingKey];
+          if (c) already = `Day ${day} ${servingMeal} already taken${c.claimed_at ? ` — ${formatStampLine(c.claimed_at)}` : ''}`;
         } else {
           // Named, not counted: "two meals taken" does not tell the person
           // holding the tray whether THIS meal is one of them.
@@ -12755,6 +12874,8 @@ Examples:
         }
       }
 
+      // Serving a meal they have not had: the card ticks it, straight away.
+      const autoServe = data.result === 'matched' && !blocked && !!servingMeal && !held[servingKey];
       setClaimWho({
         result: data.result,
         message: data.message,
@@ -12764,7 +12885,18 @@ Examples:
         days: [...attendedDays],
         already,
         blocked,
+        serving: autoServe ? servingKey : '',
       });
+
+      if (seq) {
+        const reg = data.registration;
+        const base = { name: reg?.attendee_name || '', church: reg?.church_name || '', meal: servingMeal, day };
+        if (data.result !== 'matched') screen({ ...base, status: 'unknown', note: data.message });
+        else if (blocked) screen({ ...base, status: 'blocked', note: blocked });
+        else if (servingMeal && held[servingKey]) screen({ ...base, status: 'already', claimedAt: held[servingKey].claimed_at });
+        else if (autoServe) { screen({ ...base, status: 'serving' }); serveDeskMeal(reg, servingMeal, day, seq); }
+        else screen({ ...base, status: 'matched' });
+      }
 
       // The kit already handed over comes back ticked, so a second visit
       // shows what was given rather than an empty list to fill in again.
@@ -12784,10 +12916,11 @@ Examples:
       }
     } catch (err) {
       setClaimWho({ result: 'error', message: err.message, uid });
+      screen({ name: '', status: 'unknown', note: 'That card could not be read - tap it again.' });
     } finally {
       setClaimLookupBusy(false);
     }
-  }, [eventRegsModal?.id, claimDesk, claimWho, evtCheckinDay, evtEventDayNumbers, formatStampLine, showToast]);
+  }, [eventRegsModal?.id, claimDesk, claimWho, evtCheckinDay, evtEventDayNumbers, formatStampLine, showToast, mealServing, serveDeskMeal]);
 
   // The kit, handed over. One button at the end rather than a write per tick:
   // the person at the counter is checking a bag against a list, and each item
@@ -12887,8 +13020,12 @@ Examples:
         if (!prev) return prev;
         const claims = { ...(prev.claims || {}) };
         if (nextClaim) claims[key] = nextClaim; else delete claims[key];
-        return { ...prev, claims };
+        return { ...prev, claims, served: nextClaim ? key : '' };
       });
+      const last = mealLastTapRef.current;
+      if (last && last.seq === mealTapSeqRef.current && last.name === reg.attendee_name) {
+        mealsScreenRef.current({ ...last, meal, day, status: nextClaim ? 'served' : 'matched', claimedAt: nextClaim?.claimed_at });
+      }
       setEvtClaims((prev) => {
         const forReg = { ...(prev[reg.id] || {}) };
         if (nextClaim) forReg[key] = nextClaim; else delete forReg[key];
@@ -13005,6 +13142,8 @@ Examples:
   const [accScanDone, setAccScanDone] = useState([]);     // [{ name, ok, message }]
   const [accOccBusy, setAccOccBusy] = useState('');
 
+  // "Use a reserved bed?" - kept on a ref for the memoised card reader.
+  const askHeldBedRef = useRef(null);
   const loadEvtRooms = useCallback(async (eventId) => {
     if (!eventId) { setEvtRooms([]); return; }
     setEvtRoomsLoading(true);
@@ -13095,17 +13234,12 @@ Examples:
         }
       }
 
-      const assign = await fetch('/api/events/room-guests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventId,
-          roomId: room.id,
-          registrationId: reg.id,
-          actorId: userData?.id || null,
-        }),
-      });
-      const data = await assign.json();
+      const data = await writeRoomGuest('POST', {
+        eventId,
+        roomId: room.id,
+        registrationId: reg.id,
+        actorId: userData?.id || null,
+      }, (m) => askHeldBedRef.current(m));
 
       setRoomDeskResult({
         result: data.success ? (data.result || 'assigned') : (data.result || 'error'),
@@ -13115,7 +13249,7 @@ Examples:
         message: data.message,
       });
       if (!data.success) {
-        showToast(data.message, 'warning');
+        if (!data.cancelled) showToast(data.message, 'warning');
         return;
       }
       showToast(data.message, 'success');
@@ -13202,13 +13336,14 @@ Examples:
     setAccScanMsg(null);
     const done = [];
     try {
+      // Reserved beds are asked about once for the group, not once a person.
+      let useReserved = false;
       for (const reg of targets) {
-        const res = await fetch('/api/events/room-guests', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ eventId, roomId: room.id, registrationId: reg.id, actorId: userData?.id || null }),
-        });
-        const data = await res.json();
+        const data = await writeRoomGuest('POST', {
+          eventId, roomId: room.id, registrationId: reg.id, actorId: userData?.id || null,
+        }, askUseHeldBed, { useReserved });
+        if (data.cancelled) break;
+        if (data.usedReserved) useReserved = true;
         done.push({ name: reg.attendee_name, ok: !!data.success, message: data.message });
         if (!data.success) break;
       }
@@ -13229,6 +13364,17 @@ Examples:
   // Somebody in the wrong room. One write, because a remove-then-add is two
   // and the second one gets forgotten.
   // A room left empty has lost its label on the server; drop it here too.
+  const askUseHeldBed = (message) => new Promise((resolve) => {
+    askConfirm(`${message} Put them in a reserved bed anyway?`, () => resolve(true), {
+      title: 'Use a reserved bed?',
+      subtitle: eventRegsModal?.title || 'Accommodation',
+      confirmLabel: 'Use reserved bed',
+      icon: 'fa-lock',
+      confirmIcon: 'fa-lock-open',
+      onCancel: () => resolve(false),
+    });
+  });
+  askHeldBedRef.current = askUseHeldBed;
   const applyClearedRooms = (data) => {
     const ids = Array.isArray(data?.clearedRooms) ? data.clearedRooms : [];
     const lab = data?.labelled;
@@ -13243,12 +13389,8 @@ Examples:
     if (!roomId || roomId === guest.room_id) return;
     setRoomGuestBusy(guest.id);
     try {
-      const res = await fetch('/api/events/room-guests', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: guest.id, roomId, actorId: userData?.id || null }),
-      });
-      const data = await res.json();
+      const data = await writeRoomGuest('PATCH', { id: guest.id, roomId, actorId: userData?.id || null }, askUseHeldBed);
+      if (data.cancelled) return;
       if (!data.success) { showToast(data.message, 'danger'); return; }
       showToast(data.message, 'success');
       applyClearedRooms(data);
@@ -13307,6 +13449,18 @@ Examples:
       }
     } catch { /* the numbers redraw on the next load */ }
   }, [showToast]);
+
+  // Opening the Meals Counter: the meal by the clock, the event's cards for a
+  // fast name, and the name screen told which event and meal it is showing.
+  useEffect(() => {
+    if (claimDesk !== 'meals' || !eventRegsModal?.id) return;
+    setMealServing((m) => m || mealForNow());
+    loadIdRfidLinks(eventRegsModal.id);
+  }, [claimDesk, eventRegsModal?.id, loadIdRfidLinks]);
+  useEffect(() => {
+    if (claimDesk !== 'meals' || !eventRegsModal?.id || !mealServing) return;
+    mealsScreenRef.current();
+  }, [claimDesk, eventRegsModal?.id, mealServing, evtCheckinDay]);
 
   const openIdRfid = (reg) => {
     setIdRfidResult(null);
@@ -13516,7 +13670,10 @@ Examples:
         entries: entries.map((e) => ({ ...e, verifier: { id: staff.id, name: staff.name, duty: staff.duty } })),
       }),
     }).catch(() => {});
+    // A card tap changes nothing; anything else, the other desks re-read.
+    if (entries.some((e) => e.action !== 'card_tap')) announceDeskChange(eventRegsModal.id);
   };
+
 
   const loadVerifyLogs = useCallback(async (eventId) => {
     if (!eventId) return;
@@ -13792,13 +13949,37 @@ Examples:
   // An Admin opens it; the person doing the verification taps their own staff
   // card, which must be assigned to Registration for this event (see
   // /api/events/verification). From then on the event's tabs give way to
-  // Early / Late / Walk-In lists, a search across all three, and a card tap on
+  // All / Early / Late / Walk-In lists, a search across all three, and a card tap on
   // an attendee's card pops up that attendee - with payment one tap away.
   //
   //   early    registered before the event, not marked Late Registration
   //   late     marked Late Registration
   //   walkin   not late, but registered on one of the event's own days
   const verifyMode = !!regVerifier && regVerifier.eventId === eventRegsModal?.id;
+
+  // ---- Every verifier's desk on the same page ----
+  // What one desk does (somebody verified, a payment taken) is announced to
+  // the other desks at this event, which re-read at once - so every verifier
+  // sees the same Status and the same Officially Registered count. The poll
+  // catches what is done away from the desks: the door, the Attendance tab.
+  const deskResyncRef = useRef(() => {});
+  deskResyncRef.current = () => {
+    if (!eventRegsModal?.id) return;
+    loadEventDayAttendance(eventRegsModal.id);
+    refreshOpenEventRegs();
+  };
+  useEffect(() => {
+    if (!verifyMode || !eventRegsModal?.id) return undefined;
+    let t = null;
+    // A payment then a verify arrive together; one re-read covers both.
+    const stop = followDeskChanges(eventRegsModal.id, () => {
+      clearTimeout(t);
+      t = setTimeout(() => deskResyncRef.current(), 400);
+    });
+    return () => { clearTimeout(t); stop(); };
+  }, [verifyMode, eventRegsModal?.id]);
+  useSmartPoll(() => deskResyncRef.current(), POLL_MS.verifyDesk, { enabled: verifyMode && !!eventRegsModal?.id, immediate: false });
+
   // Kept on this device until End verification (or 12 hours), so refreshing
   // the page does not ask for the card or the password again.
   const VERIFIER_KEY = 'jsci-reg-verifier-v1';
@@ -13854,7 +14035,7 @@ Examples:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ actorId: userData?.id, eventId: session.eventId, entries: [{ action: 'session_start', verifier: { id: staff.id, name: staff.name, duty: staff.duty } }] }),
       }).catch(() => {});
-      setVerifyTab('early');
+      setVerifyTab('all');
       setVerifySearch('');
       setVerifyAnim('in');
       setManageTab('registrations');
@@ -14357,10 +14538,15 @@ Examples:
   const verifyMatches = (r) => !verifyQuery
     || `${r.attendee_name || ''} ${r.original_attendee_name || ''} ${verifyNameKey(r)} ${r.church_name || ''} ${r.representative || ''} ${r.attendee_mobile || ''} ${r.payment_reference || ''}`
       .toLowerCase().includes(verifyQuery);
-  const verifyLists = { early: [], late: [], walkin: [] };
-  verifyAll.forEach((r) => { if (verifyMatches(r)) verifyLists[verifyBucketOf(r)].push(r); });
+  // All is the three lists in one, A to Z.
+  const verifyLists = { all: [], early: [], late: [], walkin: [] };
+  verifyAll.forEach((r) => {
+    if (!verifyMatches(r)) return;
+    verifyLists.all.push(r);
+    verifyLists[verifyBucketOf(r)].push(r);
+  });
   Object.values(verifyLists).forEach((list) => list.sort((a, b) => verifyNameKey(a).localeCompare(verifyNameKey(b))));
-  const verifyTotals = { early: 0, late: 0, walkin: 0 };
+  const verifyTotals = { all: verifyAll.length, early: 0, late: 0, walkin: 0 };
   verifyAll.forEach((r) => { verifyTotals[verifyBucketOf(r)] += 1; });
 
   // Searching goes to wherever the person is: if nobody on this tab matches
@@ -14420,7 +14606,8 @@ Examples:
         }
         return { uid: data.uid || uid, regId: reg.id, reg, picked: [reg.id], lastTapped: reg.id, uids: { [reg.id]: data.uid || uid } };
       });
-      setVerifyTab(verifyBucketOf(reg));
+      // On All they are already in the list; otherwise their own tab opens.
+      setVerifyTab((t) => (t === 'all' ? t : verifyBucketOf(reg)));
       logVerification([{ action: 'card_tap', registrationId: reg.id, attendeeName: reg.attendee_name, details: { uid: data.uid || uid, found: true, status: reg.status } }]);
     } catch (err) {
       setVerifyTap({ uid, message: err.message });
@@ -15269,9 +15456,10 @@ Examples:
   const renderRegVerification = () => {
     if (!verifyMode) return null;
     const tabs = [
-      { key: 'early', icon: 'fa-clipboard-check', label: 'Early Registrations' },
-      { key: 'late', icon: 'fa-clock', label: 'Late Registrations' },
-      { key: 'walkin', icon: 'fa-person-walking', label: 'Walk-In Registrations' },
+      { key: 'all', icon: 'fa-layer-group', label: 'All Registrations', short: 'All' },
+      { key: 'early', icon: 'fa-clipboard-check', label: 'Early Registrations', short: 'Early' },
+      { key: 'late', icon: 'fa-clock', label: 'Late Registrations', short: 'Late' },
+      { key: 'walkin', icon: 'fa-person-walking', label: 'Walk-In Registrations', short: 'Walk-In' },
     ];
     const changeOwed = (verifyChange || []).filter((c) => !c.given_at);
     const refundsOpen = (verifyRefunds || []).filter((x) => !x.sent_at);
@@ -15294,6 +15482,57 @@ Examples:
       </div>
     );
 
+    // ---- Officially Registered ----
+    // Verified at the desk for the day it is on - the ones whose Status reads
+    // Registered. All counts everybody; Early, Late and Walk-In only their own.
+    // Always over the whole list, never the search.
+    const statOf = (key) => {
+      const list = key === 'all' ? verifyAll : verifyAll.filter((r) => verifyBucketOf(r) === key);
+      const done = list.filter(verifyIsIn).length;
+      const ready = list.filter((r) => !verifyIsIn(r) && verifyIsPaid(r)).length;
+      return {
+        total: list.length, done, ready, pending: list.length - done - ready,
+        pct: list.length ? Math.round((done / list.length) * 100) : 0,
+      };
+    };
+    const officialBar = (key) => {
+      const st = statOf(key);
+      const short = key === 'all' ? '' : tabs.find((t) => t.key === key)?.short || '';
+      return (
+        <div className="evt-verify-official" role="status">
+          <div className="evt-verify-official-main">
+            <span className="evt-verify-official-ico"><i className="fas fa-user-check"></i></span>
+            <span className="evt-verify-official-txt">
+              <small>Officially Registered{short ? ` · ${short}` : ''}{evtEventDays.length > 1 ? ` · Day ${evtCheckinDay}` : ''}</small>
+              <b>{st.done.toLocaleString()} <span>of {st.total.toLocaleString()}</span></b>
+            </span>
+            <span className="evt-verify-official-bar" aria-hidden="true"><i style={{ width: `${st.pct}%` }}></i></span>
+            <span className="evt-verify-official-side">
+              <b>{st.pct}%</b>
+              <small>{(st.total - st.done).toLocaleString()} still to verify</small>
+            </span>
+          </div>
+          <div className="evt-verify-official-more">
+            {/* On All, how each list is doing - and a way into it. */}
+            {key === 'all' && tabs.filter((t) => t.key !== 'all').map((t) => {
+              const b = statOf(t.key);
+              return (
+                <button key={t.key} type="button" className="evt-verify-official-chip" onClick={() => setVerifyTab(t.key)} title={`Open ${t.label}`}>
+                  <i className={`fas ${t.icon}`}></i> {t.short} <b>{b.done}</b> of {b.total}
+                </button>
+              );
+            })}
+            <span className="evt-verify-official-chip is-ready" title="Paid, and not verified yet">
+              <i className="fas fa-circle-check"></i> Paid, ready to verify <b>{st.ready}</b>
+            </span>
+            <span className="evt-verify-official-chip is-due" title="Cash to collect, a transfer to check, or an installment still open">
+              <i className="fas fa-coins"></i> Payment pending <b>{st.pending}</b>
+            </span>
+          </div>
+        </div>
+      );
+    };
+
     // ---- Refunds: extras cancelled after they were paid for ----
     if (verifyTab === 'refunds') {
       const list = verifyRefunds || [];
@@ -15301,6 +15540,7 @@ Examples:
       return (
         <div className={`evt-verify ${deskParked.length ? 'has-parked' : ''}`} ref={verifyBoxRef}>
           {tabBar}
+          {officialBar('all')}
           <p className="evt-muted evt-verify-changehint">
             <i className="fas fa-circle-info"></i> Money going back for extras cancelled after they were paid - sent within 2-3 business days. Whoever sends it marks it sent.
           </p>
@@ -15365,6 +15605,7 @@ Examples:
       return (
         <div className={`evt-verify ${deskParked.length ? 'has-parked' : ''}`} ref={verifyBoxRef}>
           {tabBar}
+          {officialBar('all')}
           <p className="evt-muted evt-verify-changehint">
             <i className="fas fa-circle-info"></i> Change the desk could not give at the time. Whoever hands it over marks it given, and their name is kept beside it.
           </p>
@@ -15431,6 +15672,8 @@ Examples:
       <div className={`evt-verify ${deskParked.length ? 'has-parked' : ''}`} ref={verifyBoxRef}>
         {tabBar}
 
+        {officialBar(verifyTab)}
+
         <div className="evt-verify-tools">
           <div className="evt-verify-search">
             <i className="fas fa-magnifying-glass"></i>
@@ -15484,6 +15727,11 @@ Examples:
                     <td className="num" data-label="#">{offset + i + 1}</td>
                     <td className="name evt-td-primary" data-label="Attendee">
                       <b className="evt-verify-last">{n.last}</b>{n.first ? `, ${n.first}` : ''}
+                      {verifyTab === 'all' && verifyBucketOf(r) !== 'early' && (
+                        <span className={`evt-verify-bucket ${verifyBucketOf(r)}`}>
+                          {verifyBucketOf(r) === 'late' ? 'Late' : 'Walk-In'}
+                        </span>
+                      )}
                       {renderFamilyLine(r)}
                       {r.original_attendee_name && (
                         <small className="evt-verify-subof"><i className="fas fa-user-pen"></i> Substitute for {verifyNameKey({ attendee_name: r.original_attendee_name })}</small>
@@ -15493,7 +15741,7 @@ Examples:
                       )}
                     </td>
                     <td className="center evt-idq-cell" data-label="RFID Card">
-                      {verifyTab === 'walkin' && stockNumberOf(r.id)
+                      {verifyBucketOf(r) === 'walkin' && stockNumberOf(r.id)
                         ? <span className="evt-idq-chip is-stock" title="The card from the stock, given when they were added"><i className="fas fa-id-card"></i> RFID #{stockNumberOf(r.id)}</span>
                         : renderIdCell(r)}
                     </td>
@@ -15761,6 +16009,8 @@ Examples:
     return g ? (evtRoomGuests.find((x) => x.registration_id === g.id)?.room_id || '') : '';
   };
   const accRoomFree = (room) => (Number(room.pax) || 1) - (evtGuestsByRoom.get(room.id)?.length || 0);
+  // Its empty beds, and how many of them are held under Accommodation > Reserve.
+  const roomHoldOf = (room) => roomHold(room, evtGuestsByRoom.get(room?.id)?.length || 0);
   // "3 Pax (2nd Floor)" - the floors added only when the type's own name does
   // not already say them, so nothing reads "(3rd Floor) (3rd Floor)".
   const typeWithFloors = (g) => {
@@ -15778,13 +16028,16 @@ Examples:
     // Out of an All Boys room: All Boys, Family or unlabelled - never All Girls (and the other way round).
     const wrongKind = !here && !!fromOcc && !!x.occupancy && x.occupancy !== fromOcc && x.occupancy !== 'family';
     const fits = here || (free >= need && !wrongKind);
+    // Still pickable when only reserved beds are left - the desk is asked first.
+    const hold = roomHold(x, used);
+    const onlyHeld = !here && fits && hold.open < need && hold.held > 0;
     return {
       value: x.id,
       group: typeWithFloors(tg),
       label: `Room ${x.room_number}`,
-      sub: [x.floor, `${cap - used} of ${cap} free`, x.occupancy ? occupancyLabel(x.occupancy) : ''].filter(Boolean).join(' · '),
-      badge: here ? 'Here' : wrongKind ? `${occupancyLabel(x.occupancy)} room` : x.id === guardianRoom ? 'With guardian' : !fits ? (cap - used <= 0 ? 'Full' : `Only ${cap - used} free`) : (fromOcc && fromOcc !== 'family' && !x.occupancy && used === 0 ? `Becomes ${occupancyLabel(fromOcc)}` : ''),
-      tone: here ? 'info' : wrongKind ? 'muted' : x.id === guardianRoom ? 'ok' : !fits ? 'muted' : (fromOcc && !x.occupancy && used === 0 ? 'warn' : ''),
+      sub: [x.floor, `${hold.open} of ${cap} free`, hold.held ? `${hold.held} reserved` : '', x.occupancy ? occupancyLabel(x.occupancy) : ''].filter(Boolean).join(' · '),
+      badge: here ? 'Here' : wrongKind ? `${occupancyLabel(x.occupancy)} room` : x.id === guardianRoom ? 'With guardian' : !fits ? (cap - used <= 0 ? 'Full' : `Only ${cap - used} free`) : onlyHeld ? `Reserved${x.reserved_for ? `: ${x.reserved_for}` : ''}` : (fromOcc && fromOcc !== 'family' && !x.occupancy && used === 0 ? `Becomes ${occupancyLabel(fromOcc)}` : ''),
+      tone: here ? 'info' : wrongKind ? 'muted' : x.id === guardianRoom ? 'ok' : !fits ? 'muted' : onlyHeld ? 'warn' : (fromOcc && !x.occupancy && used === 0 ? 'warn' : ''),
       disabled: !fits,
     };
   }));
@@ -15827,6 +16080,12 @@ Examples:
       showToast(`${room.room_number} is ${occupancyLabel(room.occupancy)} - choose a ${occupancyLabel(occ)} room.`, 'danger');
       return;
     }
+    const hold = roomHoldOf(room);
+    let useReserved = false;
+    if (hold.open < 1 && hold.held > 0) {
+      if (!(await askUseHeldBed(`${room.room_type} ${room.room_number}: ${reservedLabel(room)}.`))) return;
+      useReserved = true;
+    }
     setAccAssignBusy(m.id);
     try {
       // The label goes on the room before anybody goes in.
@@ -15840,12 +16099,10 @@ Examples:
         if (!d.success) { showToast(d.message, 'danger'); return; }
         setEvtRooms((rooms) => rooms.map((x) => (x.id === room.id ? { ...x, occupancy: d.data?.occupancy ?? occ } : x)));
       }
-      const res = await fetch('/api/events/room-guests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId, roomId: room.id, registrationId: m.id, actorId: userData?.id || null }),
-      });
-      const data = await res.json();
+      const data = await writeRoomGuest('POST', {
+        eventId, roomId: room.id, registrationId: m.id, actorId: userData?.id || null,
+      }, askUseHeldBed, { useReserved });
+      if (data.cancelled) return;
       if (!data.success) { showToast(data.message, 'danger'); return; }
       applyClearedRooms(data);
       showToast(`${formatPersonName(m.attendee_name)} → ${room.room_type} ${room.room_number} (${occupancyLabel(occ)})`, 'success');
@@ -16861,9 +17118,8 @@ Examples:
                   <b>{method.name}</b>
                   <small>{[method.account_name, method.account_number].filter(Boolean).join(' · ')}</small>
                   <small className="evt-desk-qrnote"><i className="fas fa-display"></i> Showing on the QR screen for the attendee</small>
-                  <small>On a tablet, open /qr-display and enter desk code <b className="evt-desk-code">{deskCode()}</b></small>
                 </span>
-                <button type="button" className="evt-chip-btn" onClick={() => window.open(`/qr-display?desk=${deskCode()}`, 'jsci-qr-display')}>
+                <button type="button" className="evt-chip-btn" onClick={() => window.open('/qr-display', 'jsci-qr-display')}>
                   <i className="fas fa-up-right-from-square"></i> QR screen
                 </button>
               </div>
@@ -18090,6 +18346,9 @@ Examples:
   const [accForm, setAccForm] = useState(BLANK_ROOM_FORM);
   const [accSaving, setAccSaving] = useState(false);
   const [accRoomBusy, setAccRoomBusy] = useState('');
+  // Reserve: a room, or some of its beds, held for somebody. rooms is the one
+  // room, or every room of a type when they are reserved together.
+  const [accReserve, setAccReserve] = useState(null); // { rooms, whole, beds, forText, busy }
 
   const loadAccRooms = useCallback(async (eventId) => {
     if (!eventId) { setAccRooms([]); return; }
@@ -18300,6 +18559,51 @@ Examples:
     );
   };
 
+  const openAccReserve = (rooms) => {
+    if (!rooms?.length) return;
+    const one = rooms.length === 1 ? rooms[0] : null;
+    const hold = one ? roomHold(one) : null;
+    setAccReserve({
+      rooms,
+      // A part already held opens on "Some beds", anything else on the whole room.
+      whole: !one || !hold.reserved || hold.whole,
+      beds: hold && hold.reserved && !hold.whole ? hold.reserved : 1,
+      forText: rooms.find((r) => r.reserved_for)?.reserved_for || '',
+      busy: false,
+    });
+  };
+  const saveAccReserve = async (release = false) => {
+    const x = accReserve;
+    if (!x || x.busy) return;
+    const one = x.rooms.length === 1 ? x.rooms[0] : null;
+    setAccReserve({ ...x, busy: true });
+    try {
+      const res = await fetch('/api/events/rooms', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorId: userData?.id || null,
+          ...(one ? { id: one.id } : { ids: x.rooms.map((r) => r.id) }),
+          reservedBeds: release ? 0 : (x.whole || !one ? 'all' : x.beds),
+          reservedFor: x.forText,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        showToast(data.message, 'danger');
+        setAccReserve((c) => (c ? { ...c, busy: false } : c));
+        return;
+      }
+      const rows = Array.isArray(data.data) ? data.data : [data.data];
+      setAccRooms((list) => list.map((r) => rows.find((u) => u?.id === r.id) || r));
+      showToast(data.message, release ? 'warning' : 'success');
+      setAccReserve(null);
+    } catch (err) {
+      showToast(err.message, 'danger');
+      setAccReserve((c) => (c ? { ...c, busy: false } : c));
+    }
+  };
+
   // ---- What the screen is looking at ----
   const accEvent = events.find((ev) => ev.id === accEventId) || null;
   const accVisibleEvents = (() => {
@@ -18353,6 +18657,8 @@ Examples:
             : `${paxes[0]}–${paxes[paxes.length - 1]} Pax`,
           bedsLabel: bedTexts.length === 1 ? bedTexts[0] : (bedTexts.length > 1 ? 'Mixed beds' : ''),
           mixed: paxes.length > 1 || bedTexts.length > 1,
+          reserved: rooms.reduce((sum, r) => sum + roomHold(r).reserved, 0),
+          allReserved: rooms.length > 0 && rooms.every((r) => roomHold(r).whole),
         };
       })
       .sort((a, b) => String(a.type).localeCompare(String(b.type)));
@@ -18396,6 +18702,7 @@ Examples:
   // second Executive room is not typed "EXECUTIVE " and grouped on its own.
   const accRoomTypeOptions = [...new Set(accRooms.map((r) => r.room_type).filter(Boolean))].sort();
   const accCapacity = accRooms.reduce((sum, r) => sum + (Number(r.pax) || 0), 0);
+  const accReservedBeds = accRooms.reduce((sum, r) => sum + roomHold(r).reserved, 0);
   // What the beds in the form add up to, shown beside the pax field. The
   // suggestion, not the answer - a hall sleeps 15 with no beds at all.
   const accFormBedPax = bedsSleep(accForm.beds.filter((b) => String(b.type || '').trim()));
@@ -18574,7 +18881,7 @@ Examples:
           filled: rooms.reduce((sum, r) => sum + (evtGuestsByRoom.get(r.id)?.length || 0), 0),
           // How many rooms of this type still have a free bed - the answer to
           // "have you got anything left?".
-          free: rooms.filter((r) => (evtGuestsByRoom.get(r.id)?.length || 0) < (Number(r.pax) || 1)).length,
+          free: rooms.filter((r) => roomHoldOf(r).open > 0).length,
           paxLabel: paxes.length === 1
             ? `${paxes[0]} Pax`
             : `${paxes[0]}–${paxes[paxes.length - 1]} Pax`,
@@ -18604,6 +18911,7 @@ Examples:
   const roomDeskRoom = roomDesk ? evtRooms.find((r) => r.id === roomDesk.id) || roomDesk : null;
   const roomDeskGuests = roomDeskRoom ? (evtGuestsByRoom.get(roomDeskRoom.id) || []) : [];
   const roomDeskFull = !!roomDeskRoom && roomDeskGuests.length >= (Number(roomDeskRoom.pax) || 1);
+  const roomDeskHeld = roomDeskRoom ? roomHoldOf(roomDeskRoom).held : 0;
 
   // ---- Scan Attendee: what the popup shows ----
   const accScanReg = accScanRegId ? eventRegs.find((r) => r.id === accScanRegId) || null : null;
@@ -18662,10 +18970,11 @@ Examples:
     return evtRooms
       .map((room) => {
         const used = (evtGuestsByRoom.get(room.id) || []).length;
-        const free = (Number(room.pax) || 1) - used;
-        return { room, used, free, fits: free >= n, together: groupRoomIds.has(room.id) };
+        // Held beds are not offered as space; the room still shows, flagged.
+        const { open: free, held } = roomHold(room, used);
+        return { room, used, free, held, fits: free >= n, together: groupRoomIds.has(room.id) };
       })
-      .filter((x) => x.free > 0)
+      .filter((x) => x.free > 0 || x.held > 0)
       .sort((a, b) => (b.together - a.together)
         || (b.fits - a.fits)
         || (a.fits && b.fits ? (a.free - n) - (b.free - n) : b.free - a.free)
@@ -18872,7 +19181,7 @@ Examples:
                   disabled={confirmModal.requireText ? confirmTypedText !== confirmModal.requireText : false}
                   style={confirmModal.requireText && confirmTypedText !== confirmModal.requireText ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
                 >
-                  <i className="fas fa-trash"></i> {confirmModal.confirmLabel}
+                  <i className={`fas ${confirmModal.confirmIcon || 'fa-trash'}`}></i> {confirmModal.confirmLabel}
                 </button>
               </div>
             </div>
@@ -21734,6 +22043,7 @@ Examples:
                               const guests = evtGuestsByRoom.get(r.id) || [];
                               const pax = Number(r.pax) || 1;
                               const full = guests.length >= pax;
+                              const hold = roomHold(r, guests.length);
                               return (
                                 <div key={r.id} className={`rmn-room ${full ? 'full' : ''} ${guests.length === 0 ? 'empty' : ''}`}>
                                   <div className="rmn-room-top">
@@ -21748,6 +22058,14 @@ Examples:
                                   </div>
                                   {bedsToText(r.beds) && (
                                     <span className="rmn-room-beds">{bedsToText(r.beds)}</span>
+                                  )}
+                                  {hold.reserved > 0 && (
+                                    <span className="acc-held-chip" title={reservedLabel(r)}>
+                                      <i className="fas fa-lock"></i>
+                                      {hold.whole ? 'Whole room reserved' : `${hold.reserved} ${hold.reserved === 1 ? 'bed' : 'beds'} reserved`}
+                                      {r.reserved_for && <b>{r.reserved_for}</b>}
+                                      {!full && hold.held < hold.reserved && <em>{hold.held} still held</em>}
+                                    </span>
                                   )}
 
                                   {guests.length === 0 ? (
@@ -21822,12 +22140,10 @@ Examples:
                                             if (!w) return;
                                             setAccAssignBusy(`room:${r.id}`);
                                             try {
-                                              const res = await fetch('/api/events/room-guests', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ eventId: eventRegsModal.id, roomId: r.id, registrationId: w.id, actorId: userData?.id || null }),
-                                              });
-                                              const data = await res.json();
+                                              const data = await writeRoomGuest('POST', {
+                                                eventId: eventRegsModal.id, roomId: r.id, registrationId: w.id, actorId: userData?.id || null,
+                                              }, askUseHeldBed);
+                                              if (data.cancelled) return;
                                               if (!data.success) { showToast(data.message, 'danger'); return; }
                                               showToast(data.message, 'success');
                                               applyClearedRooms(data);
@@ -21960,6 +22276,39 @@ Examples:
                     {/* Which day a meal belongs to. The kit has one day - the
                         day they arrive - so the picker is only for meals. */}
                     {claimDesk === 'meals' && renderDayPicker({ label: 'Serving' })}
+                    {/* Which meal a card ticks by itself - and the screen the
+                        queue reads the names off. */}
+                    {claimDesk === 'meals' && (
+                      <div className="evt-daypick evt-mealpick">
+                        <span className="evt-daypick-label"><i className="fas fa-utensils"></i> Now serving</span>
+                        <div className="evt-mealpick-row">
+                          {[
+                            { v: 'lunch', label: 'Lunch', icon: 'fa-sun' },
+                            { v: 'dinner', label: 'Dinner', icon: 'fa-moon' },
+                            { v: 'manual', label: 'Tick by hand', icon: 'fa-hand-pointer' },
+                          ].map((o) => (
+                            <button
+                              type="button"
+                              key={o.v}
+                              className={`evt-mealpick-btn ${mealServing === o.v ? 'on' : ''}`}
+                              onClick={() => setMealServing(o.v)}
+                            >
+                              <i className={`fas ${o.icon}`}></i> {o.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="evt-mealpick-foot">
+                          <em>
+                            {mealServing === 'lunch' || mealServing === 'dinner'
+                              ? `A card tapped gets Day ${Number(evtCheckinDay) || 1} ${mealServing} ticked straight away.`
+                              : 'Tick the meal below after each card.'}
+                          </em>
+                          <button type="button" className="evt-chip-btn" onClick={() => window.open('/rfid-meals-display', 'jsci-meals-display')}>
+                            <i className="fas fa-display"></i> Name screen
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {/* ---- Who is standing here ---- */}
                     <div className={`evt-claim-who ${
@@ -22001,6 +22350,15 @@ Examples:
                                 <i className="fas fa-clock-rotate-left"></i> {claimWho.already}
                               </strong>
                             ) : null}
+                            {claimWho.serving ? (
+                              <strong className="evt-claim-served is-busy">
+                                <i className="fas fa-spinner fa-spin"></i> Giving Day {claimWho.serving.split('-')[1]} {claimWho.serving.split('-')[0]}…
+                              </strong>
+                            ) : claimWho.served && !claimWho.already && (
+                              <strong className="evt-claim-served">
+                                <i className="fas fa-circle-check"></i> Day {claimWho.served.split('-')[1]} {claimWho.served.split('-')[0]} given
+                              </strong>
+                            )}
                             <em>
                               {claimWho.registration.church_name
                                 ? formatChurchName(claimWho.registration.church_name)
@@ -22695,9 +23053,14 @@ Examples:
                                     <span className="acc-scan-room-tags">
                                       {x.room.occupancy && <span className={`acc-occ-chip ${x.room.occupancy}`}>{occupancyLabel(x.room.occupancy)}</span>}
                                       {x.together && <span className="acc-scan-flag ok">Group is here</span>}
+                                      {x.held > 0 && (
+                                        <span className="acc-scan-flag warn" title={reservedLabel(x.room)}>
+                                          <i className="fas fa-lock"></i> {x.held} reserved{x.room.reserved_for ? ` · ${x.room.reserved_for}` : ''}
+                                        </span>
+                                      )}
                                       {x.fits
                                         ? (accScanTargets.length > 1 && <span className="acc-scan-flag ok">Fits all {accScanTargets.length}</span>)
-                                        : <span className="acc-scan-flag warn">Only {x.free} free</span>}
+                                        : x.free > 0 && <span className="acc-scan-flag warn">Only {x.free} free</span>}
                                     </span>
                                   </button>
                                 ))}
@@ -22715,6 +23078,7 @@ Examples:
                                   <option key={x.room.id} value={x.room.id}>
                                     {x.room.room_number} — {x.room.room_type} ({x.used}/{x.room.pax})
                                     {x.room.occupancy ? ` · ${occupancyLabel(x.room.occupancy)}` : ''}
+                                    {x.held > 0 ? ` · ${x.held} reserved` : ''}
                                   </option>
                                 ))}
                               </select>
@@ -22818,7 +23182,8 @@ Examples:
                             <em>
                               {roomDeskFull
                                 ? `${roomDeskRoom.room_number} already has ${roomDeskGuests.length} of ${roomDeskRoom.pax} pax. Take somebody out below, or use another room.`
-                                : `Whoever taps goes into ${roomDeskRoom.room_number} — if they availed accommodation.`}
+                                : `Whoever taps goes into ${roomDeskRoom.room_number} — if they availed accommodation.`
+                                  + (roomDeskHeld > 0 ? ` ${reservedLabel(roomDeskRoom)}: you are asked before a reserved bed is used.` : '')}
                             </em>
                           </div>
                         </>
@@ -22939,6 +23304,7 @@ Examples:
                                         return (
                                           <option key={room.id} value={room.id} disabled={!here && used >= cap}>
                                             {room.room_number} ({used}/{cap})
+                                            {!here && roomHoldOf(room).held > 0 ? ' · reserved' : ''}
                                             {here ? ' — here' : ''}
                                           </option>
                                         );
@@ -33546,6 +33912,10 @@ Examples:
                     <b>{accRoomGroups.length}</b>
                     <em>room types</em>
                   </div>
+                  <div className={`acc-stat ${accReservedBeds > 0 ? 'held' : ''}`}>
+                    <b>{accReservedBeds}</b>
+                    <em>beds reserved</em>
+                  </div>
                 </div>
                 {accExtraRegs.length > accCapacity && accRooms.length > 0 && (
                   <p className="acc-warn">
@@ -33611,6 +33981,9 @@ Examples:
                                   <span className="acc-type-count">
                                     <b>{g.rooms.length}</b> {g.rooms.length === 1 ? 'room' : 'rooms'}
                                     <em>{g.pax} pax in total</em>
+                                    {g.reserved > 0 && (
+                                      <em className="acc-type-held"><i className="fas fa-lock"></i> {g.reserved} {g.reserved === 1 ? 'bed' : 'beds'} reserved</em>
+                                    )}
                                   </span>
                                   <span className="acc-type-go">
                                     View rooms <i className="fas fa-arrow-right"></i>
@@ -33665,6 +34038,13 @@ Examples:
                                         <td data-label="Room Number">
                                           <span className="acc-num-chip">{r.room_number}</span>
                                           {r.floor && <small className="acc-floor"><i className="fas fa-layer-group"></i> {r.floor}</small>}
+                                          {roomHold(r).reserved > 0 && (
+                                            <span className="acc-held-chip" title={reservedLabel(r)}>
+                                              <i className="fas fa-lock"></i>
+                                              {roomHold(r).whole ? 'Whole room reserved' : `${roomHold(r).reserved} of ${r.pax} beds reserved`}
+                                              {r.reserved_for && <b>{r.reserved_for}</b>}
+                                            </span>
+                                          )}
                                         </td>
                                         <td className="evt-td-center" data-label="Pax"><b>{r.pax}</b></td>
                                         <td data-label="Bed Description">
@@ -33672,6 +34052,9 @@ Examples:
                                         </td>
                                         <td className="evt-cell-sub" data-label="Notes">{r.notes || '—'}</td>
                                         <td className="evt-nowrap evt-td-actions" data-label="Actions">
+                                          <button type="button" className={`evt-mini-btn ${roomHold(r).reserved > 0 ? 'acc-held-btn' : ''}`} disabled={busy} onClick={() => openAccReserve([r])}>
+                                            <i className="fas fa-lock"></i> {roomHold(r).reserved > 0 ? 'Reserved' : 'Reserve'}
+                                          </button>
                                           <button type="button" className="evt-mini-btn" disabled={busy} onClick={() => openAccRoomForm(r)}>
                                             <i className="fas fa-pen"></i> Edit
                                           </button>
@@ -33721,6 +34104,14 @@ Examples:
                         <div className="acc-panel-actions">
                           <button
                             type="button"
+                            className="btn-secondary acc-reserve-all"
+                            disabled={accOpenGroup.rooms.length === 0}
+                            onClick={() => openAccReserve(accOpenGroup.rooms)}
+                          >
+                            <i className="fas fa-lock"></i> {accOpenGroup.allReserved ? 'All rooms reserved' : 'Reserve all rooms'}
+                          </button>
+                          <button
+                            type="button"
                             className="btn-primary"
                             onClick={() => openAccRoomForm(null, { type: accOpenGroup.type })}
                           >
@@ -33759,6 +34150,13 @@ Examples:
                                   <td className="evt-td-primary" data-label="Room Number">
                                     <span className="acc-num-chip">{r.room_number}</span>
                                     {r.floor && <small className="acc-floor"><i className="fas fa-layer-group"></i> {r.floor}</small>}
+                                    {roomHold(r).reserved > 0 && (
+                                            <span className="acc-held-chip" title={reservedLabel(r)}>
+                                              <i className="fas fa-lock"></i>
+                                              {roomHold(r).whole ? 'Whole room reserved' : `${roomHold(r).reserved} of ${r.pax} beds reserved`}
+                                              {r.reserved_for && <b>{r.reserved_for}</b>}
+                                            </span>
+                                          )}
                                   </td>
                                   <td className="evt-td-center" data-label="Pax"><b>{r.pax}</b></td>
                                   <td data-label="Bed Description">
@@ -33774,6 +34172,9 @@ Examples:
                                   </td>
                                   <td className="evt-cell-sub" data-label="Notes">{r.notes || '—'}</td>
                                   <td className="evt-nowrap evt-td-actions" data-label="Actions">
+                                    <button type="button" className={`evt-mini-btn ${roomHold(r).reserved > 0 ? 'acc-held-btn' : ''}`} disabled={busy} onClick={() => openAccReserve([r])}>
+                                      <i className="fas fa-lock"></i> {roomHold(r).reserved > 0 ? 'Reserved' : 'Reserve'}
+                                    </button>
                                     <button
                                       type="button"
                                       className="evt-mini-btn"
@@ -34013,6 +34414,105 @@ Examples:
                     </div>
                   </div>
                 )}
+
+                {/* ================= RESERVE ================= */}
+                {accReserve && (() => {
+                  const x = accReserve;
+                  const one = x.rooms.length === 1 ? x.rooms[0] : null;
+                  const cap = Number(one?.pax) || 1;
+                  const set = (patch) => setAccReserve((c) => (c ? { ...c, ...patch } : c));
+                  const anyHeld = x.rooms.some((r) => roomHold(r).reserved > 0);
+                  const totalBeds = x.rooms.reduce((t, r) => t + (Number(r.pax) || 1), 0);
+                  const someBeds = Math.max(1, Math.min(cap - 1, Number(x.beds) || 1));
+                  const close = () => { if (!x.busy) setAccReserve(null); };
+                  return (
+                    <div className="evt-modal-overlay" onClick={close}>
+                      <div className="evt-modal acc-modal acc-reserve-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                        <div className="evt-modal-head">
+                          <div>
+                            <h3>
+                              <i className="fas fa-lock"></i>
+                              {one ? ` Reserve Room ${one.room_number}` : ` Reserve all ${x.rooms.length} rooms`}
+                            </h3>
+                            <p>
+                              {one
+                                ? [one.room_type, one.floor, `${cap} pax`].filter(Boolean).join(' · ')
+                                : `${x.rooms[0]?.room_type || 'Rooms'} · ${totalBeds} beds`}
+                            </p>
+                          </div>
+                          <button type="button" className="evt-modal-close" onClick={close} aria-label="Close">
+                            <i className="fas fa-times"></i>
+                          </button>
+                        </div>
+
+                        <div className="evt-modal-body acc-form">
+                          {one && cap > 1 ? (
+                            <div className="acc-field">
+                              <span>What to hold</span>
+                              <div className="acc-reserve-opts">
+                                <button type="button" className={`acc-reserve-opt ${x.whole ? 'on' : ''}`} onClick={() => set({ whole: true })}>
+                                  <i className="fas fa-door-closed"></i>
+                                  <span><b>Whole room</b><small>All {cap} beds. Nobody else is put in.</small></span>
+                                </button>
+                                <button type="button" className={`acc-reserve-opt ${!x.whole ? 'on' : ''}`} onClick={() => set({ whole: false, beds: someBeds })}>
+                                  <i className="fas fa-bed"></i>
+                                  <span><b>Some beds</b><small>Hold a few. The rest go to anybody.</small></span>
+                                </button>
+                              </div>
+                              {!x.whole && (
+                                <div className="acc-reserve-beds">
+                                  <button type="button" onClick={() => set({ beds: someBeds - 1 })} disabled={someBeds <= 1} aria-label="One bed fewer">
+                                    <i className="fas fa-minus"></i>
+                                  </button>
+                                  <span><b>{someBeds}</b> of {cap} beds held</span>
+                                  <button type="button" onClick={() => set({ beds: someBeds + 1 })} disabled={someBeds >= cap - 1} aria-label="One bed more">
+                                    <i className="fas fa-plus"></i>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="acc-note">
+                              <i className="fas fa-circle-info"></i>
+                              {one
+                                ? 'The whole room is held. Nobody else is put in.'
+                                : `Every ${x.rooms[0]?.room_type || ''} room is held whole: ${totalBeds} beds in ${x.rooms.length} rooms.`}
+                            </p>
+                          )}
+
+                          <label className="acc-field">
+                            <span>Reserved for</span>
+                            <input
+                              type="text"
+                              value={x.forText}
+                              maxLength={80}
+                              placeholder="e.g. Speakers, Ptr. Cruz family, Worship team"
+                              onChange={(e) => set({ forText: e.target.value })}
+                              onKeyDown={(e) => { if (e.key === 'Enter') saveAccReserve(false); }}
+                              autoFocus
+                            />
+                            <em>Shown at the desk beside the room. Somebody can still be put in a reserved bed - the desk is asked first.</em>
+                          </label>
+                        </div>
+
+                        <div className="evt-modal-foot">
+                          {anyHeld && (
+                            <button type="button" className="btn-secondary acc-release-btn" onClick={() => saveAccReserve(true)} disabled={x.busy}>
+                              <i className="fas fa-lock-open"></i> {one ? 'Release' : 'Release all'}
+                            </button>
+                          )}
+                          <button type="button" className="btn-secondary" onClick={close} disabled={x.busy}>Cancel</button>
+                          <button type="button" className="btn-primary" onClick={() => saveAccReserve(false)} disabled={x.busy}>
+                            <i className={`fas ${x.busy ? 'fa-spinner fa-spin' : 'fa-lock'}`}></i>
+                            {!one ? ` Reserve ${x.rooms.length} rooms`
+                              : x.whole || cap <= 1 ? ' Reserve room'
+                                : ` Reserve ${someBeds} ${someBeds === 1 ? 'bed' : 'beds'}`}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </>
             )}
           </section>

@@ -24,7 +24,10 @@
 .pl-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #f1e7cc; }
 .pl-search i { color: #b8a77a; font-size: 0.85rem; }
 .pl-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 0.88rem; color: inherit; }
-.pl-list { overflow-y: auto; padding: 6px; scrollbar-width: thin; scrollbar-color: #c8960f transparent; }
+.pl-list {
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 6px;
+  scrollbar-width: thin; scrollbar-color: #c8960f transparent;
+}
 .pl-head {
   position: sticky; top: -6px; z-index: 1; margin: 4px -6px 2px; padding: 6px 14px;
   font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #8a6510;

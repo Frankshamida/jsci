@@ -1,15 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  followQrDesk, isDeskCode, normaliseDeskCode, rememberScreenDeskCode, screenDeskCode,
-} from '@/lib/qrDisplay';
+import { subscribeQrDisplay } from '@/lib/qrDisplay';
 import './qrDisplay.css';
 
 // What the attendee sees while paying online at the verification desk: the
-// QR to scan and who it goes to. Open it on a tablet (or a second window)
-// turned towards the attendee and enter the desk's code once; the desk fills
-// it when an online method is picked.
+// QR to scan and who it goes to. Open it on a tablet or in a second window
+// turned towards the attendee; the desk fills it when an online method is
+// picked, live, on any device.
 
 // An account's QR can change; a screen left up all day looks again this often.
 const METHODS_STALE_MS = 2 * 60 * 1000;
@@ -17,22 +15,13 @@ const METHODS_STALE_MS = 2 * 60 * 1000;
 const STATUS_LABEL = { live: 'Live', connecting: 'Connecting…', offline: 'Offline' };
 
 export default function QrDisplayPage() {
-  const [code, setCode] = useState(null); // null until read, '' when not paired
   const [qr, setQr] = useState(null);
   const [status, setStatus] = useState('connecting');
   const [methods, setMethods] = useState(null);
-  const [entry, setEntry] = useState('');
-  const [entryError, setEntryError] = useState('');
   const fetchedAt = useRef(0);
   const triedFor = useRef('');
 
-  useEffect(() => { setCode(screenDeskCode()); }, []);
-
-  useEffect(() => {
-    if (!code) return undefined;
-    setQr(null);
-    return followQrDesk(code, setQr, setStatus);
-  }, [code]);
+  useEffect(() => subscribeQrDisplay(setQr, setStatus), []);
 
   // The QR and the account come from the church's own list, never the message.
   const loadMethods = useCallback(async (fresh) => {
@@ -53,9 +42,9 @@ export default function QrDisplayPage() {
     }
   }, [qr, methods, loadMethods]);
 
-  // A tablet that dims mid-payment hides the QR; keep it awake while paired.
+  // A tablet that dims mid-payment hides the QR; keep it awake.
   useEffect(() => {
-    if (!code || !navigator.wakeLock) return undefined;
+    if (!navigator.wakeLock) return undefined;
     let lock = null;
     const grab = () => {
       if (document.hidden) return;
@@ -64,57 +53,7 @@ export default function QrDisplayPage() {
     grab();
     document.addEventListener('visibilitychange', grab);
     return () => { document.removeEventListener('visibilitychange', grab); lock?.release().catch(() => {}); };
-  }, [code]);
-
-  const setUrlDesk = (value) => {
-    const url = new URL(window.location.href);
-    if (value) url.searchParams.set('desk', value); else url.searchParams.delete('desk');
-    window.history.replaceState(null, '', url);
-  };
-  const connect = (e) => {
-    e.preventDefault();
-    const value = normaliseDeskCode(entry);
-    if (!isDeskCode(value)) { setEntryError('Enter the 6-character code shown at the desk.'); return; }
-    rememberScreenDeskCode(value);
-    setUrlDesk(value);
-    setEntryError('');
-    setCode(value);
-  };
-  const unpair = () => {
-    rememberScreenDeskCode('');
-    setUrlDesk('');
-    setEntry('');
-    setQr(null);
-    setCode('');
-  };
-
-  if (code === null) return <main className="qrd" />;
-
-  if (!code) {
-    return (
-      <main className="qrd">
-        <form className="qrd-card qrd-pair" onSubmit={connect}>
-          <div className="qrd-pair-ring"><i className="fas fa-display" aria-hidden="true"></i></div>
-          <h1>Connect to a desk</h1>
-          <p>On the verification desk, open Online Payment and find the desk code beside <b>QR screen</b>.</p>
-          <input
-            className="qrd-pair-input"
-            value={entry}
-            onChange={(e) => { setEntry(normaliseDeskCode(e.target.value)); setEntryError(''); }}
-            placeholder="ABC123"
-            aria-label="Desk code"
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            maxLength={6}
-            autoFocus
-          />
-          {entryError && <p className="qrd-pair-error">{entryError}</p>}
-          <button type="submit" className="qrd-pair-btn" disabled={entry.length < 6}>Connect</button>
-        </form>
-      </main>
-    );
-  }
+  }, []);
 
   const m = qr?.methodId ? methods?.find((x) => x.id === qr.methodId) : null;
   const waiting = qr?.methodId && !m && (!methods || triedFor.current !== qr.methodId);
@@ -166,8 +105,7 @@ export default function QrDisplayPage() {
 
       <div className={`qrd-status is-${status}`} role="status">
         <span className="qrd-dot" aria-hidden="true"></span>
-        {STATUS_LABEL[status] || status} · Desk {code}
-        {!qr && <button type="button" onClick={unpair}>Change</button>}
+        {STATUS_LABEL[status] || status}
       </div>
     </main>
   );
