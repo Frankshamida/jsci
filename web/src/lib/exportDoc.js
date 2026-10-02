@@ -20,6 +20,7 @@
 //     orientation,  'portrait' | 'landscape'
 //     footNote,     'Generated 25 Sep 2026 by Admin Jsci'
 //     legend,       [{ color: 'D8F0DC', label: 'Kid - free', count: 12 }]   (optional)
+//     count,        how many records, when the last rows are totals          (optional)
 //   }
 //
 // Row colours: a row with `_fill` ('RRGGBB') is shaded that colour in every
@@ -60,8 +61,12 @@ function cellText(row, column) {
 // What this builds is the page it prints - and `@page size` is what makes the
 // orientation choice real rather than decorative.
 
+// The records the table holds - spec.count when its last rows are totals.
+const recordCount = (spec) => (Number.isFinite(spec?.count) ? spec.count : (spec?.rows || []).length);
+
 export function buildPrintHtml(spec) {
   const { title, subtitle, meta = [], columns, rows, orientation = 'portrait', footNote = '' } = spec;
+  const count = recordCount(spec);
 
   const metaHtml = meta
     .filter(([, value]) => value)
@@ -161,7 +166,7 @@ export function buildPrintHtml(spec) {
   ${legendHtml}
   <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
   <div class="foot">
-    <span class="count">${rows.length} ${rows.length === 1 ? 'record' : 'records'}</span>
+    <span class="count">${count} ${count === 1 ? 'record' : 'records'}</span>
     <span>${xmlEscape(footNote)}</span>
   </div>
 </div></body></html>`;
@@ -215,6 +220,7 @@ function sheetCell(ref, text, styleId, numeric) {
 
 export function buildXlsx(spec) {
   const { title, subtitle, meta = [], columns, rows, footNote = '' } = spec;
+  const count = recordCount(spec);
   const lastCol = colLetter(Math.max(0, columns.length - 1));
   const sheetRows = [];
   const merges = [];
@@ -276,7 +282,7 @@ export function buildXlsx(spec) {
   });
 
   r += 1;
-  sheetRows.push(`<row r="${r}">${sheetCell(`A${r}`, `${rows.length} record${rows.length === 1 ? '' : 's'} — ${footNote}`, S.METALABEL)}</row>`);
+  sheetRows.push(`<row r="${r}">${sheetCell(`A${r}`, `${count} record${count === 1 ? '' : 's'} — ${footNote}`, S.METALABEL)}</row>`);
 
   const cols = columns
     .map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width || 18}" customWidth="1"/>`)
@@ -399,6 +405,7 @@ function docxCell(text, { head, width, align, alt, fill } = {}) {
 
 export function buildDocx(spec) {
   const { title, subtitle, meta = [], columns, rows, orientation = 'portrait', footNote = '' } = spec;
+  const count = recordCount(spec);
 
   // A4 in twentieths of a point, and the usable width once the margins are off.
   const A4 = { w: 11906, h: 16838 };
@@ -449,7 +456,7 @@ ${docxPara('', { spaceAfter: 80 })}
 <w:tblGrid>${widths.map((w) => `<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>
 ${headRow}${bodyRows}
 </w:tbl>
-${docxPara(docxRun(`${rows.length} record${rows.length === 1 ? '' : 's'}${footNote ? ` — ${footNote}` : ''}`, { size: 15, color: BRAND.grey }), { spaceAfter: 0 })}
+${docxPara(docxRun(`${count} record${count === 1 ? '' : 's'}${footNote ? ` — ${footNote}` : ''}`, { size: 15, color: BRAND.grey }), { spaceAfter: 0 })}
 <w:sectPr>
 <w:pgSz w:w="${orientation === 'landscape' ? A4.h : A4.w}" w:h="${orientation === 'landscape' ? A4.w : A4.h}"${orientation === 'landscape' ? ' w:orient="landscape"' : ''}/>
 <w:pgMar w:top="${margin}" w:right="${margin}" w:bottom="${margin}" w:left="${margin}" w:header="0" w:footer="0" w:gutter="0"/>

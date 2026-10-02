@@ -43,7 +43,7 @@ import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import {
   PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
   channelHasAccount, channelNeedsProof, channelNameLabel, channelNamePlaceholder,
-  channelNotesLabel, channelNotesPlaceholder, defaultChannelColor, eventTakesCash,
+  channelNotesLabel, channelNotesPlaceholder, defaultChannelColor, eventTakesCash, isCashMethodName,
 } from '@/lib/paymentChannels';
 
 const Cropper = dynamic(() => import('react-easy-crop'), { ssr: false });
@@ -326,6 +326,42 @@ const EXPORT_HIGHLIGHT_RULES = [
 ];
 // The same three the export's "Paid only" filter counts as paid.
 const EXPORT_PAID_STATUSES = ['payment_verified', 'registered', 'paid_pending_turnover'];
+
+// ---- Counting the cash box ----
+// Philippine money, largest first, for the cash count on the Registered
+// Attendees report. The ₱20 is both a bill and a coin; they are counted
+// apart because they sit in different trays.
+const CASH_DENOMINATIONS = [
+  { key: 'b1000', value: 1000, label: '₱1,000', kind: 'bill' },
+  { key: 'b500', value: 500, label: '₱500', kind: 'bill' },
+  { key: 'b200', value: 200, label: '₱200', kind: 'bill' },
+  { key: 'b100', value: 100, label: '₱100', kind: 'bill' },
+  { key: 'b50', value: 50, label: '₱50', kind: 'bill' },
+  { key: 'b20', value: 20, label: '₱20', kind: 'bill' },
+  { key: 'c20', value: 20, label: '₱20', kind: 'coin' },
+  { key: 'c10', value: 10, label: '₱10', kind: 'coin' },
+  { key: 'c5', value: 5, label: '₱5', kind: 'coin' },
+  { key: 'c1', value: 1, label: '₱1', kind: 'coin' },
+];
+// A count half-typed is not lost to a closed popup or a reload: it is kept on
+// this browser, per event and per day, until it is cleared.
+const cashCountKey = (eventId, day) => `jsci-cash-count-v1:${eventId}:${day}`;
+const readCashCount = (eventId, day) => {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(cashCountKey(eventId, day)) || 'null');
+    return {
+      counts: saved?.counts && typeof saved.counts === 'object' ? saved.counts : {},
+      float: String(saved?.float || ''),
+    };
+  } catch { return { counts: {}, float: '' }; }
+};
+const writeCashCount = (eventId, day, counts, float) => {
+  try {
+    const any = Object.values(counts || {}).some((v) => Number(v) > 0) || Number(float) > 0;
+    if (any) window.localStorage.setItem(cashCountKey(eventId, day), JSON.stringify({ counts, float }));
+    else window.localStorage.removeItem(cashCountKey(eventId, day));
+  } catch { /* private mode: the count lasts as long as the popup */ }
+};
 
 // Putting somebody in a room, or moving them. A bed held under Accommodation >
 // Reserve is a room's last and goes only when the desk says so: the server
@@ -1584,6 +1620,9 @@ export default function DashboardPage() {
   const [accAssign, setAccAssign] = useState({});                // group key -> { roomId, occ } on the waiting list
   const [accAssignBusy, setAccAssignBusy] = useState('');
   const [roomAddPick, setRoomAddPick] = useState({});
+  // The verifier's report: what was collected at the desk, cash and online.
+  // { who: 'me' | 'all', period: 'today' | 'session' | 'event', format, logs, error, busy }
+  const [verifyReport, setVerifyReport] = useState(null);
   const [roomExport, setRoomExport] = useState(null);             // { format, occ, orient, busy } - the room list export            // roomId -> registration id chosen to go into it       // the add form opened as a Walk-In (on an event day)
   const [adminLateUid, setAdminLateUid] = useState('');
   const [adminLateScan, setAdminLateScan] = useState(null);   // { busy } | { ok: false, uid, message }
@@ -14695,6 +14734,28 @@ Examples:
   const parkedIds = (dp) => (dp?.kind === 'tap' ? (dp.tap?.picked || [dp.tap?.regId]) : (dp?.rows || []));
   const deskRowsOf = (dp) => parkedIds(dp).map((id) => eventRegs.find((r) => r.id === id)).filter(Boolean);
   const deskTotalOf = (dp) => deskRowsOf(dp).reduce((t, r) => t + regCashDue(r), 0);
+  // A discount at the desk, off the whole payment: whole pesos, never more
+  // than is owed. What is collected is what is left.
+  const deskDiscountOf = (dp) => Math.min(deskTotalOf(dp), Math.max(0, Math.floor(Number(dp?.discount) || 0)));
+  const deskNetOf = (dp) => deskTotalOf(dp) - deskDiscountOf(dp);
+  // The discount shared out over the people it covers, by what each owes, in
+  // whole pesos that add back up to it - the biggest remainders take the odd peso.
+  const deskDiscountShares = (dp) => {
+    const rows = deskRowsOf(dp);
+    const total = deskDiscountOf(dp);
+    const dues = rows.map(regCashDue);
+    const sum = dues.reduce((t, d) => t + d, 0);
+    const shares = new Map(rows.map((r) => [r.id, 0]));
+    if (!total || !sum) return shares;
+    const exact = dues.map((d) => (d * total) / sum);
+    const whole = exact.map((x) => Math.floor(x));
+    let left = total - whole.reduce((t, x) => t + x, 0);
+    exact.map((x, i) => [x - whole[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => {
+      if (left > 0 && whole[i] < dues[i]) { whole[i] += 1; left -= 1; }
+    });
+    rows.forEach((r, i) => shares.set(r.id, whole[i]));
+    return shares;
+  };
   const deskTabLabel = (dp) => {
     const rows = deskRowsOf(dp);
     if (!rows.length) return 'Payment';
@@ -14836,7 +14897,7 @@ Examples:
     if (!m) { publishQrDisplay(null); return; }
     publishQrDisplay({
       methodId: m.id,
-      amount: deskTotalOf(dp),
+      amount: deskNetOf(dp),
       names: deskRowsOf(dp).map((r) => formatPersonName(r.attendee_name)),
     });
   };
@@ -14980,27 +15041,35 @@ Examples:
     const dp = deskPay;
     if (!dp || dp.saving) return;
     const rows = deskRowsOf(dp);
-    const total = deskTotalOf(dp);
+    const discount = deskDiscountOf(dp);
+    const discountNote = String(dp.discountNote || '').trim();
+    const total = deskNetOf(dp);
+    const shares = deskDiscountShares(dp);
     const tendered = Number(dp.tendered) || 0;
-    const method = dp.mode === 'online' ? deskOnlineMethods.find((m) => m.id === dp.methodId) : null;
+    // Nothing left to pay (a fee waived in full): no cash to count, no transfer.
+    const nothingDue = total === 0;
+    const method = dp.mode === 'online' && !nothingDue ? deskOnlineMethods.find((m) => m.id === dp.methodId) : null;
     const ref = String(dp.reference || '').trim();
     if (!rows.length) { deskSet({ error: 'Nobody left to pay for.' }); return; }
-    if (dp.mode === 'cash' && dp.tendered === '') { deskSet({ error: 'Enter the cash received.' }); return; }
-    if (dp.mode === 'cash' && tendered < total) { deskSet({ error: `That is ₱${(total - tendered).toLocaleString()} short of the total.` }); return; }
-    if (dp.mode === 'online' && !method) { deskSet({ error: 'Choose the online payment it was sent to.' }); return; }
-    if (dp.mode === 'online' && ref.replace(/[^A-Za-z0-9]/g, '').length < 6) { deskSet({ error: 'Enter at least the last 6 digits of the reference number.' }); return; }
+    if (discount > 0 && !discountNote) { deskSet({ error: 'Say why the discount was given, in the discount note.' }); return; }
+    if (!nothingDue && dp.mode === 'cash' && dp.tendered === '') { deskSet({ error: 'Enter the cash received.' }); return; }
+    if (!nothingDue && dp.mode === 'cash' && tendered < total) { deskSet({ error: `That is ₱${(total - tendered).toLocaleString()} short of the total.` }); return; }
+    if (!nothingDue && dp.mode === 'online' && !method) { deskSet({ error: 'Choose the online payment it was sent to.' }); return; }
+    if (!nothingDue && dp.mode === 'online' && ref.replace(/[^A-Za-z0-9]/g, '').length < 6) { deskSet({ error: 'Enter at least the last 6 digits of the reference number.' }); return; }
     setDeskPay({ ...dp, saving: true, error: '' });
 
     const paid = [];
     const failed = [];
     for (const r of rows) {
       try {
+        const share = shares.get(r.id) || 0;
         const res = await fetch('/api/events/registrations', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             id: r.id, actorId: userData?.id, status: 'payment_verified', deskPayment: true,
             paymentMethod: method ? method.name : 'Cash', paymentReference: method ? ref : '',
+            ...(share > 0 ? { discount: share, discountNote } : {}),
           }),
         });
         const data = await res.json();
@@ -15015,8 +15084,9 @@ Examples:
         registrationId: before.id,
         attendeeName: before.attendee_name,
         details: {
-          from: before.status, to: 'payment_verified', amount: regCashDue(before),
+          from: before.status, to: 'payment_verified', amount: regCashDue(before) - (shares.get(before.id) || 0),
           mode: method ? 'online' : 'onhand', method: method ? method.name : 'Cash', ...(method ? { reference: ref } : {}),
+          ...(shares.get(before.id) ? { discount: shares.get(before.id), discountNote } : {}),
         },
       })));
       const change = dp.mode === 'cash' ? tendered - total : 0;
@@ -15688,6 +15758,9 @@ Examples:
           <div className="evt-verify-scanhint">
             <i className="fas fa-wifi"></i> Tap an attendee&apos;s card to open them
           </div>
+          <button type="button" className="evt-verify-report-btn" onClick={openVerifyReport}>
+            <i className="fas fa-file-invoice-dollar"></i> Export Report
+          </button>
         </div>
 
         <div className="evt-table-wrapper evt-table-steady">
@@ -16269,6 +16342,595 @@ Examples:
           <div className="evt-modal-foot">
             <button type="button" className="btn-secondary" onClick={() => setRoomExport(null)} disabled={x.busy}>Cancel</button>
             <button type="button" className="btn-primary" onClick={previewRoomExport} disabled={x.busy}>
+              <i className={`fas ${x.busy ? 'fa-spinner fa-spin' : 'fa-eye'}`}></i> Preview
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  // ---- Export: what a verifier collected ----
+  // Read off the verification logs, where every payment taken at the desk is
+  // written with the verifier's name. Cash is money in hand at the desk -
+  // cash on hand, and turnovers handed over in cash; Online is a transfer to
+  // one of the church's channels. A payment recorded as "pending turnover"
+  // is not in anybody's hand at the desk, so it is listed but not counted,
+  // and a payment that was reverted is left out.
+  const reportPayKind = (d = {}) => {
+    if (d.mode === 'online') return 'online';
+    if (d.mode === 'turnover') return 'turnover';
+    if (d.mode === 'onhand') return 'cash';
+    return d.method && !isCashMethodName(d.method) ? 'online' : 'cash';
+  };
+  const reportPayLabel = (d = {}) => {
+    const kind = reportPayKind(d);
+    if (kind === 'turnover') return `Pending turnover${d.holder ? ` (with ${formatPersonName(d.holder)})` : ''} - not collected`;
+    if (d.mode === 'turnover_received') return `Turnover received - ${kind === 'online' ? d.method : 'Cash'}`;
+    const how = kind === 'online' ? `Online - ${d.method || 'transfer'}` : 'Cash';
+    return Number(d.discount) > 0 ? `${how} (less ${peso(d.discount)} discount: ${d.discountNote || 'no note'})` : how;
+  };
+  const openVerifyReport = async () => {
+    const eventId = eventRegsModal?.id;
+    if (!eventId) return;
+    // A multi-day event opens on the day the desk is on; one day is the whole event.
+    const day = evtEventDays.length > 1 ? evtCheckinDay : 'all';
+    // An installment is paid in pieces, each with its own method - read them
+    // only when somebody here is on a plan.
+    const needPlans = verifyAll.some((r) => r.payment_plan === 'flexible');
+    setVerifyReport({
+      kind: 'registered', day, ...readCashCount(eventId, day), plans: needPlans ? null : [],
+      who: 'me', period: 'today', format: 'pdf', logs: null, error: '', busy: false,
+    });
+    if (needPlans) {
+      fetch(`/api/events/installments?eventId=${encodeURIComponent(eventId)}&actorId=${encodeURIComponent(userData?.id || '')}`)
+        .then((res) => res.json())
+        .then((data) => (data.success ? data.data || [] : []))
+        .catch(() => [])
+        .then((plans) => setVerifyReport((cur) => (cur ? { ...cur, plans } : cur)));
+    }
+    try {
+      const res = await fetch(`/api/events/verification/logs?eventId=${encodeURIComponent(eventId)}&actorId=${encodeURIComponent(userData?.id || '')}`);
+      const data = await res.json();
+      setVerifyReport((cur) => (cur ? { ...cur, logs: data.success ? (data.data || []) : [], error: data.success ? '' : (data.message || 'Could not read the logs.') } : cur));
+    } catch (err) {
+      setVerifyReport((cur) => (cur ? { ...cur, logs: [], error: err.message } : cur));
+    }
+  };
+  const summarizeVerifyReport = (x) => {
+    const staff = regVerifier?.staff;
+    const today = manilaDay(new Date().toISOString());
+    const since = Date.parse(regVerifier?.since || '') || 0;
+    const inPeriod = (l) => (x.period === 'event' ? true
+      : x.period === 'session' ? Date.parse(l.created_at) >= since
+        : manilaDay(l.created_at) === today);
+    const isMine = (l) => x.who === 'all' || (!!staff && (staff.id && l.verifier_id
+      ? String(l.verifier_id) === String(staff.id)
+      : String(l.verifier_name || '').trim().toLowerCase() === String(staff.name || '').trim().toLowerCase()));
+    const logs = (x.logs || []).filter((l) => inPeriod(l) && isMine(l));
+    const payments = logs.filter((l) => l.action === 'payment');
+    const counted = payments.filter((l) => !l.reverted_at)
+      .map((l) => ({ ...l, kind: reportPayKind(l.details), amount: Number(l.details?.amount) || 0 }))
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+    const sum = (list, kind) => list.filter((p) => p.kind === kind).reduce((t, p) => t + p.amount, 0);
+    const countOf = (list, kind) => list.filter((p) => p.kind === kind).length;
+    const byVerifier = [...counted.reduce((m, p) => {
+      const k = p.verifier_name || 'Verifier';
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(p);
+      return m;
+    }, new Map())].map(([name, list]) => ({ name, cash: sum(list, 'cash'), online: sum(list, 'online'), count: list.filter((p) => p.kind !== 'turnover').length }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      counted,
+      cash: sum(counted, 'cash'),
+      online: sum(counted, 'online'),
+      turnover: sum(counted, 'turnover'),
+      discount: counted.filter((p) => p.kind !== 'turnover').reduce((t, p) => t + (Number(p.details?.discount) || 0), 0),
+      discountCount: counted.filter((p) => p.kind !== 'turnover' && Number(p.details?.discount) > 0).length,
+      cashCount: countOf(counted, 'cash'),
+      onlineCount: countOf(counted, 'online'),
+      turnoverCount: countOf(counted, 'turnover'),
+      reverted: payments.length - counted.length,
+      verified: new Set(logs.filter((l) => l.action === 'verified' && l.registration_id).map((l) => l.registration_id)).size,
+      byVerifier,
+    };
+  };
+  const verifyReportPeriodLabel = (period) => {
+    if (period === 'event') return evtEventDays.length ? `Whole event (${formatEventSpan(eventRegsModal?.event_date, eventRegsModal?.end_date)})` : 'Whole event';
+    if (period === 'session') {
+      const t = regVerifier?.since ? new Date(regVerifier.since).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      return t ? `This sign-in, since ${t}` : 'This sign-in';
+    }
+    return `Today, ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })}`;
+  };
+  const buildVerifyReportSpec = (x) => {
+    const sm = summarizeVerifyReport(x);
+    const staff = regVerifier?.staff;
+    const all = x.who === 'all';
+    const stamp = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' });
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const rows = sm.counted.map((p, i) => ({
+      n: String(i + 1),
+      time: stamp(p.created_at),
+      name: verifyNameKey({ attendee_name: p.attendee_name || '' }),
+      paid: reportPayLabel(p.details),
+      ref: p.details?.reference ? `Ref ${p.details.reference}` : '-',
+      ...(all ? { verifier: p.verifier_name || '-' } : {}),
+      amount: p.kind === 'turnover' ? `(${peso(p.amount)})` : peso(p.amount),
+      _fill: p.kind === 'turnover' ? 'F1F1F1' : '',
+    }));
+    // The breakdown, under the payments.
+    const line = (name, amount, fill, paid = '') => ({ n: '', time: '', name, paid, ref: '', ...(all ? { verifier: '' } : {}), amount, _fill: fill });
+    if (all && sm.byVerifier.length > 1) {
+      sm.byVerifier.forEach((v) => rows.push(line(`${v.name} - subtotal`, peso(v.cash + v.online), 'FBF6EA', `Cash ${peso(v.cash)} · Online ${peso(v.online)}`)));
+    }
+    rows.push(line('CASH COLLECTED', peso(sm.cash), 'F4EDDC', plural(sm.cashCount, 'payment', 'payments')));
+    rows.push(line('ONLINE COLLECTED', peso(sm.online), 'F4EDDC', plural(sm.onlineCount, 'payment', 'payments')));
+    rows.push(line('TOTAL COLLECTED', peso(sm.cash + sm.online), 'E6D5A8', 'Cash + Online'));
+    if (sm.turnover > 0) rows.push(line('Pending turnover - not in hand, not counted', `(${peso(sm.turnover)})`, 'F1F1F1', plural(sm.turnoverCount, 'payment', 'payments')));
+    if (sm.discount > 0) rows.push(line('Discounts given - not collected', `(${peso(sm.discount)})`, 'F1F1F1', plural(sm.discountCount, 'payment', 'payments')));
+    const who = all
+      ? `All verifiers (${sm.byVerifier.map((v) => v.name).join(', ') || 'none'})`
+      : [staff?.name, staff?.duty].filter(Boolean).join(' - ') || 'Verifier';
+    return {
+      title: verifyEventName || eventRegsModal?.title || 'Event',
+      subtitle: all ? 'Verification Collection Report - All Verifiers' : `Verifier Collection Report - ${staff?.name || 'Verifier'}`,
+      orientation: all ? 'landscape' : 'portrait',
+      // The payments; the breakdown rows under them are not records.
+      count: sm.counted.length,
+      columns: [
+        { key: 'n', label: '#', width: 4, align: 'center' },
+        { key: 'time', label: 'Time', width: 13 },
+        { key: 'name', label: 'Attendee (Last, First)', width: 24 },
+        { key: 'paid', label: 'Paid By', width: 24 },
+        { key: 'ref', label: 'Reference', width: 13 },
+        ...(all ? [{ key: 'verifier', label: 'Verifier', width: 15 }] : []),
+        { key: 'amount', label: 'Amount', width: 12, align: 'right' },
+      ],
+      rows,
+      meta: [
+        ['Verifier', who],
+        ['Period', verifyReportPeriodLabel(x.period)],
+        ['Cash collected', `${peso(sm.cash)} (${plural(sm.cashCount, 'payment', 'payments')})`],
+        ['Online collected', `${peso(sm.online)} (${plural(sm.onlineCount, 'payment', 'payments')})`],
+        ['Total collected', peso(sm.cash + sm.online)],
+        ['Attendees verified', String(sm.verified)],
+        ...(sm.turnover > 0 ? [['Pending turnover (not counted)', peso(sm.turnover)]] : []),
+        ...(sm.discount > 0 ? [['Discounts given', `${peso(sm.discount)} (${plural(sm.discountCount, 'payment', 'payments')})`]] : []),
+        ...(sm.reverted > 0 ? [['Reverted payments (left out)', String(sm.reverted)]] : []),
+      ],
+      footNote: `Prepared by: ${all ? '____________________' : (staff?.name || '____________________')}    Signature: ____________________    Received by: ____________________    `
+        + `Generated ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`,
+    };
+  };
+
+  // ---- Export: the Registered attendees, and the cash box ----
+  // Only the people who are officially Registered - checked in at the desk -
+  // and what each paid: cash, or online with the bank and transaction ID. A
+  // multi-day event lists each person on the day they FIRST registered, so a
+  // day's cash is the money that came in that day and can be counted.
+  const regReportFirstDay = (r) => {
+    const days = Object.keys(evtDayAttend[r.id] || {}).map(Number).filter((n) => n > 0);
+    return days.length ? Math.min(...days) : 0;
+  };
+  const regReportDayLabel = (day) => (day === 'all'
+    ? (evtEventDays.length > 1 ? 'Whole event' : formatEventSpan(eventRegsModal?.event_date, eventRegsModal?.end_date))
+    : evtEventDays.find((d) => d.number === Number(day))?.label || `Day ${day}`);
+  const summarizeRegisteredReport = (x) => {
+    const plans = new Map((x.plans || []).map((p) => [p.id, p.payments || []]));
+    const piece = (id, amount, method, ref) => ({
+      id, amount, method: String(method || '').trim(), ref: String(ref || '').trim(),
+      kind: isCashMethod(method) ? 'cash' : 'online',
+    });
+    const list = verifyAll
+      .filter((r) => (x.day === 'all' ? regReportFirstDay(r) > 0 : regReportFirstDay(r) === Number(x.day)))
+      .sort((a, b) => verifyNameKey(a).localeCompare(verifyNameKey(b)))
+      .map((r) => {
+        const owed = Number(r.amount) || 0;
+        const base = { id: r.id, name: verifyNameKey(r), discount: Number(r.discount_amount) || 0, pieces: [], balance: 0 };
+        // A plan: every installment under the method it was paid with.
+        if (r.payment_plan === 'flexible') {
+          const pays = plans.get(r.id);
+          const pieces = (pays?.length
+            ? pays.map((p) => piece(r.id, Number(p.amount) || 0, p.method, p.reference))
+            : [piece(r.id, Number(r.amount_paid) || 0, r.payment_method, r.payment_reference)]).filter((p) => p.amount > 0);
+          const paid = pieces.reduce((t, p) => t + p.amount, 0);
+          return { ...base, kind: 'plan', pieces, amount: paid, balance: Math.max(0, owed - paid) };
+        }
+        if (owed <= 0) return { ...base, kind: 'free', amount: 0 };
+        // Paid, but the money is still with whoever took it: not in the box.
+        if (r.status === 'paid_pending_turnover') return { ...base, kind: 'turnover', amount: owed, holder: r.turnover_holder || '' };
+        if (r.status === 'payment_verified' || r.status === 'registered' || regCashDue(r) <= 0) {
+          const p = piece(r.id, owed, r.payment_method, r.payment_reference);
+          return { ...base, kind: p.kind, amount: owed, pieces: [p] };
+        }
+        // Checked in by hand without paying.
+        return { ...base, kind: 'unpaid', amount: 0, balance: regCashDue(r) };
+      });
+    const pieces = list.flatMap((a) => a.pieces);
+    const tally = (ps) => ({ count: new Set(ps.map((p) => p.id)).size, total: ps.reduce((t, p) => t + p.amount, 0) });
+    // Online, one line per bank or wallet the money was sent to.
+    const banks = [...pieces.filter((p) => p.kind === 'online').reduce((m, p) => {
+      const name = p.method || 'Not recorded';
+      const k = name.toLowerCase();
+      if (!m.has(k)) m.set(k, { name, list: [] });
+      m.get(k).list.push(p);
+      return m;
+    }, new Map()).values()].map((b) => ({ name: b.name, ...tally(b.list) })).sort((a, b) => a.name.localeCompare(b.name));
+    const turnovers = list.filter((a) => a.kind === 'turnover');
+    const owing = list.filter((a) => a.balance > 0);
+    const discounted = list.filter((a) => a.discount > 0);
+    return {
+      list,
+      cash: tally(pieces.filter((p) => p.kind === 'cash')),
+      online: tally(pieces.filter((p) => p.kind === 'online')),
+      banks,
+      free: list.filter((a) => a.kind === 'free').length,
+      turnover: { count: turnovers.length, total: turnovers.reduce((t, a) => t + a.amount, 0) },
+      owing: { count: owing.length, total: owing.reduce((t, a) => t + a.balance, 0) },
+      discount: { count: discounted.length, total: discounted.reduce((t, a) => t + a.discount, 0) },
+    };
+  };
+  // The count against what should be there. Change the desk still owes is in
+  // the box until it is handed back, so it is expected too - as is the change
+  // fund the desk started with.
+  const cashCountOf = (x, sm) => {
+    const lines = CASH_DENOMINATIONS.map((d) => {
+      const pieces = Math.max(0, Math.floor(Number(x.counts?.[d.key]) || 0));
+      return { ...d, pieces, subtotal: pieces * d.value };
+    });
+    const counted = lines.reduce((t, l) => t + l.subtotal, 0);
+    const float = Math.max(0, Math.floor(Number(x.float) || 0));
+    const ids = new Set(sm.list.map((a) => a.id));
+    const owed = (verifyChange || []).filter((c) => !c.given_at && (c.registration_ids || []).some((id) => ids.has(id)));
+    const changeOwed = owed.reduce((t, c) => t + (Number(c.amount) || 0), 0);
+    const expected = sm.cash.total + float + changeOwed;
+    return {
+      lines, counted, pieces: lines.reduce((t, l) => t + l.pieces, 0), float,
+      changeOwed, changeCount: owed.length, expected, diff: counted - expected,
+    };
+  };
+  const cashBalanceText = (diff) => (diff === 0 ? 'Balanced' : diff < 0 ? `Short by ${peso(-diff)}` : `Over by ${peso(diff)}`);
+  const regReportPayLabel = (a) => {
+    const less = a.discount > 0 ? ` (less ${peso(a.discount)} discount)` : '';
+    if (a.kind === 'free') return 'Free';
+    if (a.kind === 'unpaid') return 'Not paid yet';
+    if (a.kind === 'turnover') return `Pending turnover${a.holder ? ` - with ${formatPersonName(a.holder)}` : ''}`;
+    if (a.kind === 'cash') return `Cash${less}`;
+    if (a.kind === 'online') return `Online Payment${less}`;
+    // A plan: what came in each way.
+    const parts = a.pieces.map((p) => `${p.kind === 'cash' ? 'Cash' : p.method || 'Online'} ${peso(p.amount)}`);
+    return `Installment: ${parts.join(' + ') || 'nothing paid'}${a.balance > 0 ? ` (${peso(a.balance)} still owed)` : ''}`;
+  };
+  const buildRegisteredReportSpec = (x) => {
+    const sm = summarizeRegisteredReport(x);
+    const cc = cashCountOf(x, sm);
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const attendees = (n) => plural(n, 'attendee', 'attendees');
+    const online = (a) => a.pieces.filter((p) => p.kind === 'online');
+    const rows = sm.list.map((a, i) => {
+      const notIn = a.kind === 'turnover' || a.kind === 'unpaid';
+      return {
+        n: String(i + 1),
+        name: a.name,
+        paid: regReportPayLabel(a),
+        bank: online(a).map((p) => p.method || 'Not recorded').join(', ') || '-',
+        ref: online(a).map((p) => p.ref).filter(Boolean).join(', ') || '-',
+        amount: a.kind === 'turnover' ? `(${peso(a.amount)})` : a.kind === 'unpaid' ? `(${peso(a.balance)} due)` : peso(a.amount),
+        _fill: notIn ? 'F1F1F1' : '',
+      };
+    });
+    const line = (name, paid, amount, fill = '') => ({ n: '', name, paid, bank: '', ref: '', amount, _fill: fill });
+    const HEAD = 'E6D5A8';
+    const SUB = 'F4EDDC';
+
+    rows.push(line('PAYMENT BREAKDOWN', '', '', HEAD));
+    rows.push(line('Cash', attendees(sm.cash.count), peso(sm.cash.total), SUB));
+    sm.banks.forEach((b) => rows.push(line(`Online Payment - ${b.name}`, attendees(b.count), peso(b.total))));
+    rows.push(line('Online Payment - total', attendees(sm.online.count), peso(sm.online.total), SUB));
+    if (sm.free > 0) rows.push(line('Free', attendees(sm.free), peso(0)));
+    rows.push(line('TOTAL COLLECTED', 'Cash + Online', peso(sm.cash.total + sm.online.total), HEAD));
+    if (sm.turnover.count > 0) rows.push(line('Pending turnover - not in hand, not counted', attendees(sm.turnover.count), `(${peso(sm.turnover.total)})`, 'F1F1F1'));
+    if (sm.owing.count > 0) rows.push(line('Still to pay - not counted', attendees(sm.owing.count), `(${peso(sm.owing.total)})`, 'F1F1F1'));
+    if (sm.discount.count > 0) rows.push(line('Discounts given - already off the amounts', attendees(sm.discount.count), `(${peso(sm.discount.total)})`, 'F1F1F1'));
+
+    rows.push(line('CASH COUNT', '', '', HEAD));
+    const counted = cc.lines.filter((l) => l.pieces > 0);
+    if (!counted.length) rows.push(line('No cash counted', '', peso(0)));
+    counted.forEach((l) => rows.push(line(`${l.label} ${l.kind}`, `x ${l.pieces.toLocaleString()} ${l.pieces === 1 ? 'pc' : 'pcs'}`, peso(l.subtotal))));
+    rows.push(line('CASH ON HAND (counted)', plural(cc.pieces, 'piece', 'pieces'), peso(cc.counted), SUB));
+
+    rows.push(line('BALANCE', '', '', HEAD));
+    rows.push(line('Cash from registered attendees', attendees(sm.cash.count), peso(sm.cash.total)));
+    if (cc.float > 0) rows.push(line('Change fund - cash at the start', '', peso(cc.float)));
+    if (cc.changeOwed > 0) rows.push(line('Change still to give back', plural(cc.changeCount, 'transaction', 'transactions'), peso(cc.changeOwed)));
+    rows.push(line('Expected cash on hand', '', peso(cc.expected), SUB));
+    rows.push(line('Cash on hand (counted)', '', peso(cc.counted), SUB));
+    rows.push(line(cashBalanceText(cc.diff).toUpperCase(), cc.diff === 0 ? 'Cash on hand matches' : 'Counted minus expected', `${cc.diff < 0 ? '-' : cc.diff > 0 ? '+' : ''}${peso(Math.abs(cc.diff))}`, cc.diff === 0 ? 'D6F2DC' : 'F7C9C9'));
+
+    const staff = regVerifier?.staff;
+    return {
+      title: verifyEventName || eventRegsModal?.title || 'Event',
+      subtitle: 'Registered Attendees & Cash Count',
+      orientation: 'portrait',
+      // The attendees; the breakdown under them is not records.
+      count: sm.list.length,
+      columns: [
+        { key: 'n', label: '#', width: 4, align: 'center' },
+        { key: 'name', label: 'Attendee (Last, First)', width: 25 },
+        { key: 'paid', label: 'Payment', width: 20 },
+        { key: 'bank', label: 'Bank / Channel', width: 14 },
+        { key: 'ref', label: 'Transaction ID', width: 16 },
+        { key: 'amount', label: 'Amount', width: 12, align: 'right' },
+      ],
+      rows,
+      meta: [
+        ['Registered', attendees(sm.list.length)],
+        ['Day', regReportDayLabel(x.day)],
+        ['Cash', `${peso(sm.cash.total)} (${attendees(sm.cash.count)})`],
+        ['Online payment', `${peso(sm.online.total)} (${attendees(sm.online.count)})`],
+        ['Total collected', peso(sm.cash.total + sm.online.total)],
+        ['Expected cash on hand', peso(cc.expected)],
+        ['Cash on hand (counted)', peso(cc.counted)],
+        ['Balance', cashBalanceText(cc.diff)],
+        ['Verifier', [staff?.name, staff?.duty].filter(Boolean).join(' - ')],
+      ],
+      footNote: `Counted by: ${staff?.name || '____________________'}    Signature: ____________________    Received by: ____________________    `
+        + `Generated ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`,
+    };
+  };
+
+  const previewVerifyReport = async () => {
+    const x = verifyReport;
+    const registered = x?.kind === 'registered';
+    if (!x || x.busy || (registered ? !x.plans : !x.logs)) return;
+    const spec = registered ? buildRegisteredReportSpec(x) : buildVerifyReportSpec(x);
+    setVerifyReport({ ...x, busy: true });
+    try {
+      const who = registered
+        ? (x.day === 'all' ? '' : `Day ${x.day}`)
+        : x.who === 'all' ? 'All Verifiers' : (regVerifier?.staff?.name || 'Verifier');
+      const name = safeFilename(provinceLabel(eventRegsModal), eventRegsModal?.title, registered ? 'Registered Attendees' : 'Verifier Report', who, new Date().toISOString().slice(0, 10));
+      let blob;
+      let filename;
+      if (x.format === 'pdf') {
+        if (exportLogoRef.current === undefined) exportLogoRef.current = await loadLogoJpeg();
+        blob = buildPdf(spec, exportLogoRef.current);
+        filename = `${name}.pdf`;
+      } else if (x.format === 'xlsx') { blob = buildXlsx(spec); filename = `${name}.xlsx`; }
+      else if (x.format === 'docx') { blob = buildDocx(spec); filename = `${name}.docx`; }
+      else { blob = buildCsv(spec); filename = `${name}.csv`; }
+      setExportPreview({
+        blob, filename, format: x.format, rows: spec.rows.length, orientation: spec.orientation,
+        url: x.format === 'pdf' ? URL.createObjectURL(blob) : '',
+        html: x.format === 'pdf' ? '' : buildPrintHtml(spec),
+        spec,
+      });
+      setVerifyReport(null);
+    } catch (err) {
+      showToast(err.message, 'danger');
+      setVerifyReport((cur) => (cur ? { ...cur, busy: false } : cur));
+    }
+  };
+  const renderVerifyReport = () => {
+    if (!verifyReport) return null;
+    const x = verifyReport;
+    const set = (patch) => setVerifyReport((cur) => (cur ? { ...cur, ...patch } : cur));
+    const close = () => { if (!x.busy) setVerifyReport(null); };
+    const registered = x.kind === 'registered';
+    const sm = !registered && x.logs ? summarizeVerifyReport(x) : null;
+    const rs = registered && x.plans ? summarizeRegisteredReport(x) : null;
+    const cc = rs ? cashCountOf(x, rs) : null;
+    // The count is kept on this browser as it is typed - see readCashCount.
+    const setCount = (patch) => {
+      const next = { counts: x.counts, float: x.float, ...patch };
+      writeCashCount(eventRegsModal?.id, x.day, next.counts, next.float);
+      set(patch);
+    };
+    const pickDay = (day) => set({ day, ...readCashCount(eventRegsModal?.id, day) });
+    const FORMATS = [
+      { key: 'pdf', icon: 'fa-file-pdf', label: 'PDF', hint: 'Print and sign' },
+      { key: 'xlsx', icon: 'fa-file-excel', label: 'Excel', hint: 'Spreadsheet' },
+      { key: 'docx', icon: 'fa-file-word', label: 'Word', hint: 'Editable' },
+      { key: 'csv', icon: 'fa-file-csv', label: 'CSV', hint: 'Plain data' },
+    ];
+    const name = regVerifier?.staff?.name || 'Verifier';
+    const many = (n, one, more) => `${n} ${n === 1 ? one : more}`;
+    return createPortal(
+      <div className="evt-modal-overlay" onClick={close}>
+        <div className="evt-modal rexp vrep" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div className="evt-modal-head">
+            <div><h3><i className="fas fa-file-invoice-dollar"></i> {registered ? 'Registered Attendees Report' : 'Verifier Report'}</h3><p>{verifyEventName}</p></div>
+            <button type="button" className="evt-modal-close" onClick={close} disabled={x.busy} aria-label="Close"><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            <div className="rexp-label">Report</div>
+            <div className="rexp-chips">
+              <button type="button" className={`rexp-chip ${registered ? 'on' : ''}`} onClick={() => set({ kind: 'registered' })}>
+                <i className="fas fa-user-check"></i> Registered Attendees &amp; Cash Count
+              </button>
+              <button type="button" className={`rexp-chip ${!registered ? 'on' : ''}`} onClick={() => set({ kind: 'collections' })}>
+                <i className="fas fa-user-shield"></i> Verifier Collections
+              </button>
+            </div>
+
+            {registered ? (
+              <>
+                <p className="rexp-lede vrep-lede">Only attendees who are <b>Registered</b>, with how each one paid - cash, or online with the bank and transaction ID - and a count of the cash on hand to balance against it.</p>
+                {evtEventDays.length > 1 && (
+                  <>
+                    <div className="rexp-label">Day</div>
+                    <div className="rexp-chips">
+                      {[...evtEventDays.map((d) => [d.number, d.label]), ['all', 'Whole event']].map(([k, l]) => (
+                        <button key={k} type="button" className={`rexp-chip ${String(x.day) === String(k) ? 'on' : ''}`} onClick={() => pickDay(k)}>{l}</button>
+                      ))}
+                    </div>
+                    <p className="vrep-note"><i className="fas fa-circle-info"></i> Each attendee is listed on the day they first registered, so a day&apos;s cash is the money that came in that day.</p>
+                  </>
+                )}
+
+                {!rs ? (
+                  <p className="vrep-loading"><i className="fas fa-spinner fa-spin"></i> Reading the installment payments…</p>
+                ) : (
+                  <>
+                    <div className="vrep-sum">
+                      <div><span><i className="fas fa-money-bill-wave"></i> Cash</span><b>{peso(rs.cash.total)}</b><em>{many(rs.cash.count, 'attendee', 'attendees')}</em></div>
+                      <div><span><i className="fas fa-mobile-screen-button"></i> Online</span><b>{peso(rs.online.total)}</b><em>{many(rs.online.count, 'attendee', 'attendees')}</em></div>
+                      <div className="is-total"><span><i className="fas fa-user-check"></i> Registered</span><b>{peso(rs.cash.total + rs.online.total)}</b><em>{many(rs.list.length, 'attendee', 'attendees')}</em></div>
+                    </div>
+                    {rs.banks.length > 0 && (
+                      <div className="vrep-who">
+                        {rs.banks.map((b) => (
+                          <div key={b.name}>
+                            <b><i className="fas fa-building-columns"></i> {b.name}</b>
+                            <span>{many(b.count, 'attendee', 'attendees')}</span>
+                            <em>{peso(b.total)}</em>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(rs.free > 0 || rs.turnover.count > 0 || rs.owing.count > 0 || rs.discount.count > 0) && (
+                      <p className="vrep-note">
+                        <i className="fas fa-circle-info"></i>
+                        {rs.free > 0 && ` ${many(rs.free, 'attendee is', 'attendees are')} free.`}
+                        {rs.turnover.count > 0 && ` ${peso(rs.turnover.total)} is pending turnover - listed, not counted.`}
+                        {rs.owing.count > 0 && ` ${peso(rs.owing.total)} is still to pay - listed, not counted.`}
+                        {rs.discount.count > 0 && ` ${peso(rs.discount.total)} in discounts is already off the amounts.`}
+                      </p>
+                    )}
+                    {rs.list.length === 0 && (
+                      <p className="vrep-note"><i className="fas fa-circle-info"></i> Nobody is registered for this choice yet - the report shows zero.</p>
+                    )}
+
+                    {/* ---- The cash count ---- */}
+                    <div className="rexp-label vrep-count-head">
+                      <span>Cash on hand - count the money</span>
+                      {(cc.pieces > 0 || cc.float > 0) && (
+                        <button type="button" className="vrep-count-clear" onClick={() => setCount({ counts: {}, float: '' })}>
+                          <i className="fas fa-eraser"></i> Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="vrep-count">
+                      {cc.lines.map((l) => (
+                        <label key={l.key} className={`vrep-count-row ${l.pieces > 0 ? 'has' : ''}`}>
+                          <span className="vrep-denom">
+                            <i className={`fas ${l.kind === 'coin' ? 'fa-coins' : 'fa-money-bill'}`}></i> {l.label} <small>{l.kind}</small>
+                          </span>
+                          <span className="vrep-times" aria-hidden="true">×</span>
+                          <input
+                            inputMode="numeric"
+                            value={x.counts?.[l.key] || ''}
+                            placeholder="0"
+                            onChange={(e) => setCount({ counts: { ...x.counts, [l.key]: onlyDigits(e.target.value).slice(0, 5) } })}
+                            aria-label={`Number of ${l.label} ${l.kind}s`}
+                          />
+                          <b>{peso(l.subtotal)}</b>
+                        </label>
+                      ))}
+                      <label className={`vrep-count-row is-float ${cc.float > 0 ? 'has' : ''}`}>
+                        <span className="vrep-denom"><i className="fas fa-cash-register"></i> Change fund <small>at the start</small></span>
+                        <span className="vrep-times" aria-hidden="true">₱</span>
+                        <input
+                          inputMode="numeric"
+                          value={x.float || ''}
+                          placeholder="0"
+                          onChange={(e) => setCount({ float: onlyDigits(e.target.value).slice(0, 7) })}
+                          aria-label="Change fund the desk started with"
+                        />
+                        <b>{peso(cc.float)}</b>
+                      </label>
+                    </div>
+
+                    <div className={`vrep-bal ${cc.diff === 0 ? 'is-ok' : cc.diff < 0 ? 'is-short' : 'is-over'}`}>
+                      <div><span>Cash from registered attendees</span><b>{peso(rs.cash.total)}</b></div>
+                      {cc.float > 0 && <div><span>+ Change fund</span><b>{peso(cc.float)}</b></div>}
+                      {cc.changeOwed > 0 && <div><span>+ Change still to give back ({cc.changeCount})</span><b>{peso(cc.changeOwed)}</b></div>}
+                      <div className="is-sum"><span>Expected cash on hand</span><b>{peso(cc.expected)}</b></div>
+                      <div className="is-sum"><span>Cash on hand (counted)</span><b>{peso(cc.counted)}</b></div>
+                      <div className="vrep-bal-result">
+                        <i className={`fas ${cc.diff === 0 ? 'fa-circle-check' : 'fa-triangle-exclamation'}`}></i>
+                        {cashBalanceText(cc.diff)}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="rexp-lede">Every payment taken at the desk, with the verifier&apos;s name, and what was collected in cash and online.</p>
+                <div className="rexp-label">Verifier</div>
+                <div className="rexp-chips">
+                  <button type="button" className={`rexp-chip ${x.who === 'me' ? 'on' : ''}`} onClick={() => set({ who: 'me' })}>
+                    <i className="fas fa-user-shield"></i> {name}
+                  </button>
+                  <button type="button" className={`rexp-chip ${x.who === 'all' ? 'on' : ''}`} onClick={() => set({ who: 'all' })}>
+                    <i className="fas fa-users"></i> All verifiers
+                  </button>
+                </div>
+                <div className="rexp-label">Period</div>
+                <div className="rexp-chips">
+                  {[['today', 'Today'], ['session', 'This sign-in'], ['event', 'Whole event']].map(([k, l]) => (
+                    <button key={k} type="button" className={`rexp-chip ${x.period === k ? 'on' : ''}`} onClick={() => set({ period: k })}>{l}</button>
+                  ))}
+                </div>
+    
+                {!sm ? (
+                  <p className="vrep-loading"><i className="fas fa-spinner fa-spin"></i> Reading the verification logs…</p>
+                ) : x.error ? (
+                  <p className="evt-rfid-hint bad"><i className="fas fa-triangle-exclamation"></i> {x.error}</p>
+                ) : (
+                  <>
+                    <div className="vrep-sum">
+                      <div><span><i className="fas fa-money-bill-wave"></i> Cash</span><b>{peso(sm.cash)}</b><em>{sm.cashCount} {sm.cashCount === 1 ? 'payment' : 'payments'}</em></div>
+                      <div><span><i className="fas fa-mobile-screen-button"></i> Online</span><b>{peso(sm.online)}</b><em>{sm.onlineCount} {sm.onlineCount === 1 ? 'payment' : 'payments'}</em></div>
+                      <div className="is-total"><span><i className="fas fa-sack-dollar"></i> Total</span><b>{peso(sm.cash + sm.online)}</b><em>{sm.verified} verified</em></div>
+                    </div>
+                    {x.who === 'all' && sm.byVerifier.length > 0 && (
+                      <div className="vrep-who">
+                        {sm.byVerifier.map((v) => (
+                          <div key={v.name}>
+                            <b>{v.name}</b>
+                            <span>Cash {peso(v.cash)} · Online {peso(v.online)}</span>
+                            <em>{peso(v.cash + v.online)}</em>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {sm.discount > 0 && (
+                      <p className="vrep-note"><i className="fas fa-tag"></i> {peso(sm.discount)} given as discounts - already taken off the totals above.</p>
+                    )}
+                    {(sm.turnover > 0 || sm.reverted > 0) && (
+                      <p className="vrep-note">
+                        <i className="fas fa-circle-info"></i>
+                        {sm.turnover > 0 && ` ${peso(sm.turnover)} pending turnover is listed but not counted - the money is not at the desk.`}
+                        {sm.reverted > 0 && ` ${sm.reverted} reverted ${sm.reverted === 1 ? 'payment is' : 'payments are'} left out.`}
+                      </p>
+                    )}
+                    {sm.counted.length === 0 && (
+                      <p className="vrep-note"><i className="fas fa-circle-info"></i> No payments taken for this choice yet - the report shows zero.</p>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+
+            <div className="rexp-label">File</div>
+            <div className="rexp-formats">
+              {FORMATS.map((f) => (
+                <button key={f.key} type="button" className={`rexp-format ${x.format === f.key ? 'on' : ''}`} onClick={() => set({ format: f.key })}>
+                  <i className={`fas ${f.icon}`}></i>
+                  <b>{f.label}</b>
+                  <small>{f.hint}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="btn-secondary" onClick={close} disabled={x.busy}>Cancel</button>
+            <button type="button" className="btn-primary" onClick={previewVerifyReport} disabled={x.busy || (registered ? !rs : !sm || !!x.error)}>
               <i className={`fas ${x.busy ? 'fa-spinner fa-spin' : 'fa-eye'}`}></i> Preview
             </button>
           </div>
@@ -17018,13 +17680,24 @@ Examples:
     if (!deskPay) return null;
     const dp = deskPay;
     const rows = deskRowsOf(dp);
-    const total = deskTotalOf(dp);
+    const subtotal = deskTotalOf(dp);
+    const discount = deskDiscountOf(dp);
+    const total = deskNetOf(dp);
     const tendered = Number(dp.tendered) || 0;
     const cash = dp.mode === 'cash';
     const change = cash && dp.tendered !== '' ? tendered - total : 0;
     const method = deskOnlineMethods.find((m) => m.id === dp.methodId);
     const refDigits = String(dp.reference || '').replace(/[^A-Za-z0-9]/g, '').length;
-    const ready = rows.length > 0 && (cash ? dp.tendered !== '' && tendered >= total : !!method && refDigits >= 6);
+    const noteOk = discount === 0 || String(dp.discountNote || '').trim().length > 0;
+    const ready = rows.length > 0 && noteOk && (total === 0
+      || (cash ? dp.tendered !== '' && tendered >= total : !!method && refDigits >= 6));
+    // A new discount moves the total: the change is worked out again, and an
+    // open QR screen shows what is left to pay.
+    const setDiscount = (value) => {
+      const next = { ...dp, discount: value, changeLater: false };
+      deskSet({ discount: value, changeLater: false });
+      if (dp.mode === 'online' && dp.methodId) deskShowQr(next);
+    };
     const n = rows.length;
     const pickCash = () => { deskSet({ mode: 'cash', menuOpen: false }); publishQrDisplay(null); };
     const pickOnline = () => {
@@ -17082,8 +17755,70 @@ Examples:
 
             <div className="evt-plan-summary big evt-desk-summary">
               <div><span>Attendees</span><b>{n} {n === 1 ? 'Attendee' : 'Attendees'}</b></div>
-              <div className="bal"><span>Total To Collect</span><b>₱{total.toLocaleString()}</b></div>
+              <div className="bal">
+                <span>Total To Collect</span>
+                <b>₱{total.toLocaleString()}</b>
+                {discount > 0 && <small className="evt-desk-was">₱{subtotal.toLocaleString()} − ₱{discount.toLocaleString()}</small>}
+              </div>
               <div><span>Change</span><b className={change > 0 ? 'is-change' : ''}>₱{Math.max(0, change).toLocaleString()}</b></div>
+            </div>
+
+            {/* ---- Subtotal, the discount, and why ---- */}
+            <div className={`evt-desk-discount ${discount > 0 ? 'is-on' : ''}`}>
+              <div className="evt-desk-discount-line">
+                <span>Subtotal</span>
+                <b>₱{subtotal.toLocaleString()}</b>
+              </div>
+              <div className="evt-desk-discount-line is-input">
+                <label htmlFor="evt-desk-discount">Discount</label>
+                <div className="evt-desk-discount-amt">
+                  <span>−₱</span>
+                  <input
+                    id="evt-desk-discount"
+                    inputMode="numeric"
+                    value={dp.discount || ''}
+                    placeholder="0"
+                    onChange={(e) => setDiscount(String(Math.min(subtotal, Number(onlyDigits(e.target.value)) || 0) || ''))}
+                    disabled={dp.saving || subtotal === 0}
+                  />
+                </div>
+              </div>
+              <div className="evt-desk-discount-quick">
+                {[10, 20, 50, 100].map((pct) => {
+                  const value = Math.round((subtotal * pct) / 100);
+                  return (
+                    <button
+                      type="button"
+                      key={pct}
+                      className={`evt-desk-discount-chip ${discount > 0 && discount === value ? 'on' : ''}`}
+                      onClick={() => setDiscount(String(value))}
+                      disabled={dp.saving || subtotal === 0}
+                    >
+                      {pct === 100 ? 'Free' : `${pct}%`}
+                    </button>
+                  );
+                })}
+                {discount > 0 && (
+                  <button type="button" className="evt-desk-discount-chip is-clear" onClick={() => setDiscount('')} disabled={dp.saving}>
+                    <i className="fas fa-xmark"></i> No discount
+                  </button>
+                )}
+              </div>
+              {discount > 0 && (
+                <div className="evt-desk-discount-note">
+                  <label htmlFor="evt-desk-discount-note">Discount Note *</label>
+                  <input
+                    id="evt-desk-discount-note"
+                    className="form-control"
+                    value={dp.discountNote || ''}
+                    onChange={(e) => deskSet({ discountNote: e.target.value.slice(0, 200) })}
+                    placeholder="Why - e.g. Senior citizen, PWD, approved by Ptr. Cruz"
+                    disabled={dp.saving}
+                  />
+                  {!noteOk && <small className="evt-desk-hint">Needed before the attendee can be verified.</small>}
+                  {n > 1 && <small className="evt-desk-hint">Shared over the {n} attendees by what each owes.</small>}
+                </div>
+              )}
             </div>
 
             <div className="evt-desk-modes">
@@ -17229,7 +17964,7 @@ Examples:
           >
             <i className={`fas ${dp.kind === 'tap' ? 'fa-id-card' : dp.mode === 'online' ? 'fa-mobile-screen-button' : 'fa-money-bill-wave'}`}></i>
             <span>{deskTabLabel(dp)}</span>
-            <b>₱{deskTotalOf(dp).toLocaleString()}</b>
+            <b>₱{deskNetOf(dp).toLocaleString()}</b>
             <i className={`fas ${on ? 'fa-eye' : 'fa-window-maximize'} evt-desk-ptab-go`}></i>
           </button>
           );
@@ -20267,6 +21002,7 @@ Examples:
             {renderExtraCancel()}
             {renderExtraCancelAsk()}
             {renderRoomExport()}
+            {renderVerifyReport()}
             {renderVerifyEndConfirm()}
             {renderVerifySubstitute()}
             {eventRegsModal && !verifyMode && (() => {

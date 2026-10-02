@@ -181,8 +181,12 @@ const pdfRgb = (hex) => [0, 2, 4].map((i) => (parseInt(hex.slice(i, i + 2), 16) 
  * @param {object} spec              the same spec the other exporters take
  * @param {{data: Uint8Array, width: number, height: number}} [logo]  optional JPEG
  */
+// The records the table holds - spec.count when its last rows are totals.
+const recordCount = (spec) => (Number.isFinite(spec?.count) ? spec.count : (spec?.rows || []).length);
+
 export function buildPdf(spec, logo) {
   const { title, subtitle, meta = [], columns, rows, orientation = 'portrait', footNote = '' } = spec;
+  const count = recordCount(spec);
   const legend = (Array.isArray(spec.legend) ? spec.legend : []).filter((l) => l && HEX.test(String(l.color || '')) && l.label);
   const pageW = orientation === 'landscape' ? A4.h : A4.w;
   const pageH = orientation === 'landscape' ? A4.w : A4.h;
@@ -340,7 +344,7 @@ export function buildPdf(spec, logo) {
   pages.forEach((page, i) => {
     const footY = pageH - MARGIN + 2;
     page.line(MARGIN, footY - 10, pageW - MARGIN, footY - 10, LINE, 0.5, pageH);
-    page.text(`${rows.length} ${rows.length === 1 ? 'record' : 'records'}`, MARGIN, footY, FONTS.helvBold, FS.foot, INK, pageH);
+    page.text(`${count} ${count === 1 ? 'record' : 'records'}`, MARGIN, footY, FONTS.helvBold, FS.foot, INK, pageH);
     const right = `Page ${i + 1} of ${pages.length}`;
     page.text(right, pageW - MARGIN - textWidth(right, FONTS.helv, FS.foot), footY, FONTS.helv, FS.foot, GREY, pageH);
     if (footNote) {

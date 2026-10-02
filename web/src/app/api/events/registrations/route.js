@@ -2175,6 +2175,8 @@ export async function PUT(request) {
     // Kept apart so a database that has not run paid_pending_turnover.sql can
     // still take the status change itself.
     const turnoverFields = {};
+    // A discount taken off at the desk, for the audit line.
+    let discountGiven = null;
     if (status) {
       const valid = ['pending_payment', 'payment_submitted', 'pending_cash', 'installment', 'payment_verified', 'registered', 'cancelled', 'paid_pending_turnover'];
       if (!valid.includes(status)) return NextResponse.json({ success: false, message: 'Invalid status' }, { status: 400 });
@@ -2214,6 +2216,35 @@ export async function PUT(request) {
         if (method) {
           update.payment_method = method;
           update.payment_reference = String(body.paymentReference || '').trim().slice(0, 120) || null;
+        }
+        // A discount given there. amount is what they owe, so it comes down
+        // by the discount and every total reads what was actually taken; the
+        // discount is kept beside it, with why and by whom - see
+        // supabase/migrations/registration_discount.sql.
+        const discount = Math.floor(Number(body.discount) || 0);
+        if (discount > 0) {
+          const note = String(body.discountNote || '').trim().slice(0, 300);
+          if (!note) return NextResponse.json({ success: false, message: 'Say why the discount was given.' }, { status: 400 });
+          const { data: cur, error: curErr } = await supabase.from('event_registrations')
+            .select('amount, amount_paid, discount_amount').eq('id', id).single();
+          if (curErr) {
+            return NextResponse.json({
+              success: false,
+              message: /discount/i.test(curErr.message || '')
+                ? 'Discounts need their migration: run supabase/migrations/registration_discount.sql in the Supabase SQL editor, then try again.'
+                : curErr.message,
+            }, { status: 500 });
+          }
+          const owed = Math.max(0, (Number(cur.amount) || 0) - (Number(cur.amount_paid) || 0));
+          if (discount > owed) {
+            return NextResponse.json({ success: false, message: `The discount (₱${discount}) is more than the ₱${owed} still owed.` }, { status: 400 });
+          }
+          update.amount = (Number(cur.amount) || 0) - discount;
+          update.discount_amount = (Number(cur.discount_amount) || 0) + discount;
+          update.discount_note = note;
+          update.discounted_by = actor.id;
+          update.discounted_at = new Date().toISOString();
+          discountGiven = { amount: discount, note };
         }
       }
       // The money reached the treasurer.
@@ -2284,7 +2315,8 @@ export async function PUT(request) {
       attended !== undefined ? `Set attendance to ${attended}`
         : status === 'paid_pending_turnover' ? `Marked paid - pending turnover (money with ${turnoverFields.turnover_holder})`
           : turnoverFields.turned_over_at ? 'Money turned over - payment verified'
-            : `Set registration to ${status}`);
+            : `Set registration to ${status}`
+              + (discountGiven ? ` - discount P${discountGiven.amount} (${discountGiven.note})` : ''));
     return NextResponse.json({
       success: true, data, warning, groupMoved,
       message: attended !== undefined ? (attended ? 'Marked attended' : 'Attendance cleared')
