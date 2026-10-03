@@ -41,7 +41,7 @@ export async function POST(request) {
       if (home) {
         return NextResponse.json({
           success: false, redirect: home.slug,
-          message: `Your ID is for ${home.event.title}. Open that event to see its photos.`,
+          message: `Your ID is for ${home.event.title}. Open that event's page to sign in.`,
         }, { status: 403 });
       }
       // A code nobody holds any more (an old QR, a mistyped link): ignore it
@@ -107,7 +107,7 @@ export async function POST(request) {
         }
       }
       if (!reg && owner && !verifiedOwner && passwordMatches(password, owner, event)) {
-        return fail('Your registration was cancelled, so the photos cannot be opened.', 403);
+        return fail('Your registration was cancelled, so you cannot sign in to this event.', 403);
       }
       if (!reg) return fail(`Wrong password. It is your LAST NAME in capitals, then @${passwordYear(event)} - e.g. DELACRUZ@${passwordYear(event)}.`, 401);
     }

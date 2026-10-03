@@ -120,6 +120,20 @@ export function readPass(pass, eventId) {
 // address and event: 10 in 10 minutes. In memory (see serverCache.js), so it
 // slows guessing down rather than being a vault.
 export function unlockAllowed(request, eventId) {
-  const ip = (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'local').split(',')[0].trim();
-  return rateLimit(`photos-unlock:${eventId}:${ip}`, 10, 10 * 60_000).allowed;
+  return rateLimit(`photos-unlock:${eventId}:${clientIp(request)}`, 10, 10 * 60_000).allowed;
+}
+
+/** The caller's address, for the rate limits on what the public page writes. */
+export function clientIp(request) {
+  return (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'local').split(',')[0].trim();
+}
+
+/**
+ * A browser's heart id, or '' - the random id the public page keeps in the
+ * browser's own storage, so one phone hearting a photo twice is one heart.
+ * Not an identity: anyone can mint another. It only stops the easy double tap.
+ */
+export function cleanVisitor(v) {
+  const clean = String(v || '').trim();
+  return /^[A-Za-z0-9_-]{8,64}$/.test(clean) ? clean : '';
 }

@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeUid, isPlausibleUid, formatUid, sameCard } from '@/lib/rfid';
-import { eventDaysOf, merchItemsOf } from '@/lib/eventFormat';
+import { eventDaysOf, eventDayForToday, guessDoorCheckIn, merchItemsOf } from '@/lib/eventFormat';
+import { checkinTapFrom, publishCheckinDisplay } from '@/lib/checkinDisplay';
 
 /* ============================================================
    Everything an event door knows, minus the reader hardware.
@@ -43,6 +44,9 @@ export function claimDeskRecorded(desk, who, dayNumber) {
 
 export default function useEventDesk({
   event,
+  // Every registration for the event, so a tap can put the name up before
+  // the server has answered.
+  regs = [],
   actorId = null,
   showToast = () => {},
   onRegsChange = null,
@@ -79,6 +83,16 @@ export default function useEventDesk({
   // Whether the dialog's capture box has the caret, which is the whole of
   // "is the USB wedge going to work". It cannot be inferred - only watched.
   const [scanBoxFocused, setScanBoxFocused] = useState(false);
+  // Which card is whose at this event, so the door can say the name at the
+  // tap. Read through a ref by checkIn, with the registrations and the day
+  // grid, so a new tap never waits on a re-created callback.
+  const [cardLinks, setCardLinks] = useState([]);
+  const doorRef = useRef({ links: [], regs: [], dayAttend: {} });
+  doorRef.current = { links: cardLinks, regs, dayAttend };
+  // Bumped on every tap. An answer that comes back after the next card has
+  // already been read updates the table, but must not replace the name of
+  // the person now standing at the desk.
+  const scanSeqRef = useRef(0);
 
   /* ---- Loading ---- */
 
@@ -117,17 +131,69 @@ export default function useEventDesk({
     else { setClaims({}); setDayAttend({}); }
   }, [eventId, loadClaims, loadDayAttendance]);
 
-  // The day the desk defaults to: the one happening now, else the first that
-  // has not started. Opening the door on Day 2 and having it pre-set to Day 1
-  // is how a whole morning gets recorded against the wrong session.
+  // ---- The day follows the calendar ----
+  // On the date of Day 2 the desk is on Day 2 - the door, the meal counter
+  // and the Mark Attended buttons alike. Opening the door on Day 2 and having
+  // it pre-set to Day 1 is how a whole morning gets recorded against the
+  // wrong session.
+  //
+  // Set when the event opens and whenever a desk dialog opens, then checked
+  // every half minute so a desk left open overnight moves on by itself. A day
+  // picked by hand is kept until the date changes again: the check only acts
+  // when the calendar's answer is different from the last one it gave.
+  const daysRef = useRef(days);
+  daysRef.current = days;
+  const autoDayRef = useRef(null);
+  const followToday = useCallback(() => {
+    const day = eventDayForToday(daysRef.current);
+    if (day == null) return;
+    autoDayRef.current = day;
+    setCheckinDay(day);
+  }, []);
+  const daysKey = days.map((d) => `${d.number}:${d.dateKey || ''}`).join('|');
   useEffect(() => {
-    if (!eventId || days.length === 0) return;
-    const live = days.filter((d) => d.started);
-    setCheckinDay(live.length > 0 ? live[live.length - 1].number : days[0].number);
-    // Only when the event changes - re-running on every render would fight
-    // the person who just picked a different day.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
+    if (!eventId || !daysKey) return undefined;
+    followToday();
+    const timer = setInterval(() => {
+      if (eventDayForToday(daysRef.current) !== autoDayRef.current) followToday();
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [eventId, daysKey, followToday]);
+
+  const loadCardLinks = useCallback(async (id) => {
+    if (!id) { setCardLinks([]); return; }
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(id)}&links=1`);
+      const data = await res.json();
+      if (data.success) setCardLinks(data.data || []);
+    } catch { /* the name simply waits for the server, as before */ }
+  }, []);
+
+  // The door opening: on today's day, with the cards fresh.
+  useEffect(() => {
+    if (!scanOpen) return;
+    followToday();
+    loadCardLinks(eventId);
+  }, [scanOpen, eventId, followToday, loadCardLinks]);
+
+  // ---- The name screen at the door (/rfid-chekin-display) ----
+  // The event, the day being checked in for, and the card just tapped (null
+  // puts "Tap your card" back). Through a ref, so checkIn need not be
+  // re-created whenever the event row or the day list is.
+  const screenRef = useRef(() => {});
+  screenRef.current = (tap = null) => {
+    const day = Number(checkinDay) || 1;
+    publishCheckinDisplay({
+      event: { id: eventId || '', title: event?.title || '', image: event?.image_url || '' },
+      day: { number: day, label: days.find((d) => d.number === day)?.label || '', days: days.length },
+      tap,
+    });
+  };
+  const screenIdle = useCallback(() => screenRef.current(), []);
+  // Up as the door opens, and again if the day changes while it is open.
+  useEffect(() => {
+    if (scanOpen && eventId) screenRef.current();
+  }, [scanOpen, eventId, checkinDay]);
 
   /* ---- Marking one day by hand, and undoing it ---- */
   const toggleDay = useCallback(async (reg, dayNumber, attended) => {
@@ -240,6 +306,19 @@ export default function useEventDesk({
     if (!eventId) return;
     const uid = normalizeUid(rawUid);
     if (!isPlausibleUid(uid)) return;
+    const seq = ++scanSeqRef.current;
+    const latest = () => seq === scanSeqRef.current;
+    // The name screen's id for this tap: the clock, because seq starts again
+    // at 1 on a reload and would read as the same tap to a screen still up.
+    const shownAs = Date.now();
+    const screen = (result) => screenRef.current(checkinTapFrom(shownAs, result));
+
+    // The name goes up with the tap, from the cards already on this screen,
+    // and the server's answer replaces it a moment later. A card that is not
+    // on this screen's list (a member's own card) still waits for the server.
+    const guess = guessDoorCheckIn(doorRef.current, uid, checkinDay);
+    setScanResult(guess);
+    screen(guess);
 
     setScanBusy(true);
     try {
@@ -252,11 +331,17 @@ export default function useEventDesk({
       });
       const data = await res.json();
       if (!data.success) {
-        setScanResult({ result: 'error', message: data.message, uid });
+        if (latest()) {
+          setScanResult({ result: 'error', message: data.message, uid });
+          screen({ result: 'error' });
+        }
         sendToReader?.('NO', data.message || 'Error');
         return;
       }
-      setScanResult(data);
+      if (latest()) {
+        setScanResult(data);
+        screen(data);
+      }
 
       // The board has been showing "Checking..." since the tap and cannot
       // clear it on its own - so it is told what happened either way.
@@ -298,10 +383,13 @@ export default function useEventDesk({
         }
       }
     } catch (err) {
-      setScanResult({ result: 'error', message: err.message, uid });
+      if (latest()) {
+        setScanResult({ result: 'error', message: err.message, uid });
+        screen({ result: 'error' });
+      }
       sendToReader?.('NO', 'Error');
     } finally {
-      setScanBusy(false);
+      if (latest()) setScanBusy(false);
     }
   }, [eventId, checkinDay, actorId, onRegsChange, sendToReader]);
 
@@ -311,7 +399,7 @@ export default function useEventDesk({
     // the event's shape
     days, dayNumbers, merchItems,
     // which day
-    checkinDay, setCheckinDay,
+    checkinDay, setCheckinDay, followToday,
     // who came
     dayAttend, setDayAttend, dayBusy, toggleDay, reloadDays: () => loadDayAttendance(eventId),
     // what they hold
@@ -322,5 +410,7 @@ export default function useEventDesk({
     // the door
     scanOpen, setScanOpen, scanResult, setScanResult, scanInput, setScanInput,
     scanBusy, scanBoxFocused, setScanBoxFocused, checkIn,
+    // the door's name screen, back to "Tap your card"
+    screenIdle,
   };
 }

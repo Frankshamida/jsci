@@ -262,39 +262,59 @@ export async function POST(request) {
       });
     }
 
-    // Already through the door FOR THIS DAY. Not an error - people tap twice
-    // - but it must not overwrite the time they actually arrived. Note this
-    // is now per day: somebody who came on Day 1 taps in again on Day 2 and
-    // is checked in, which the old registration-wide boolean refused.
-    const { data: sameDay } = await supabaseAdmin
+    // ---- Written in one trip, not "ask, then write" ----
+    // There is a queue at the door, and every round trip to the database is
+    // time the next person stands there. The table is unique on
+    // (registration_id, day_number), so the write itself answers whether they
+    // were already in: ON CONFLICT DO NOTHING hands back the row it wrote, or
+    // nothing when this day was already recorded - and the time they actually
+    // arrived is never overwritten. People tap twice; that is not an error.
+    //
+    // Per day: somebody who came on Day 1 taps in again on Day 2 and is
+    // checked in, which the old registration-wide boolean refused.
+    const dayRow = {
+      registration_id: registration.id,
+      event_id: eventId,
+      day_number: dayNumber,
+      attended_by: actorId || null,
+    };
+    let fresh;
+    const { data: wrote, error: dayErr } = await supabaseAdmin
       .from('event_day_attendance')
-      .select('attended_at')
-      .eq('registration_id', registration.id)
-      .eq('day_number', dayNumber)
-      .maybeSingle();
+      .upsert([dayRow], { onConflict: 'registration_id,day_number', ignoreDuplicates: true })
+      .select('day_number');
+    if (!dayErr) {
+      fresh = (wrote || []).length > 0;
+    } else if (dayErr.code === '42P10') {
+      // A database without the unique constraint cannot do the one-trip
+      // version, so it gets the old two-step one rather than a second row.
+      const { data: sameDay } = await supabaseAdmin
+        .from('event_day_attendance')
+        .select('attended_at')
+        .eq('registration_id', registration.id)
+        .eq('day_number', dayNumber)
+        .maybeSingle();
+      fresh = !sameDay;
+      if (fresh) {
+        const { error: insErr } = await supabaseAdmin.from('event_day_attendance').insert([dayRow]);
+        if (insErr) throw insErr;
+      }
+    } else {
+      throw dayErr;
+    }
 
-    if (sameDay) {
-      await logScan('already_in', registration);
+    if (!fresh) {
+      const [days] = await Promise.all([daysFor(registration.id), logScan('already_in', registration)]);
       return NextResponse.json({
         success: true,
         result: 'already_in',
         uid,
         dayNumber,
         registration,
-        days: await daysFor(registration.id),
+        days,
         message: `${registration.attendee_name} is already checked in for Day ${dayNumber}.`,
       });
     }
-
-    const { error: dayErr } = await supabaseAdmin
-      .from('event_day_attendance')
-      .insert([{
-        registration_id: registration.id,
-        event_id: eventId,
-        day_number: dayNumber,
-        attended_by: actorId || null,
-      }]);
-    if (dayErr) throw dayErr;
 
     // The registration-wide flag still means "came on at least one day", for
     // the reports and screens that read it. Only set on the first arrival, so
@@ -305,8 +325,11 @@ export async function POST(request) {
     // the result to a single JSON object" that used to meet anybody arriving
     // on Day 2 - after their day row had already been written, so the door
     // said "not recognised" about somebody it had just checked in.
-    let updated = registration;
-    if (!registration.attended) {
+    //
+    // The flag, the day list and the scan log do not depend on each other, so
+    // they go together - one wait instead of three.
+    const markArrived = async () => {
+      if (registration.attended) return registration;
       const { data: freshReg, error: upErr } = await supabaseAdmin
         .from('event_registrations')
         .update({ attended: true, attended_at: new Date().toISOString(), attended_by: actorId || null })
@@ -314,10 +337,13 @@ export async function POST(request) {
         .select(REG_FIELDS)
         .single();
       if (upErr) throw upErr;
-      updated = freshReg;
-    }
-
-    await logScan('matched', updated);
+      return freshReg;
+    };
+    const [updated, days] = await Promise.all([
+      markArrived(),
+      daysFor(registration.id),
+      logScan('matched', registration),
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -325,7 +351,7 @@ export async function POST(request) {
       uid,
       registration: updated,
       dayNumber,
-      days: await daysFor(registration.id),
+      days,
       message: `${updated.attendee_name} checked in for Day ${dayNumber}`,
     });
   } catch (error) {

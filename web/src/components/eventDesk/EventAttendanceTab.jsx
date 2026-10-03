@@ -83,7 +83,7 @@ export default function EventAttendanceTab({
     sendToReaderRef.current?.(prefix, text);
   }, []);
 
-  const desk = useEventDesk({ event, actorId, showToast, onRegsChange, sendToReader });
+  const desk = useEventDesk({ event, regs, actorId, showToast, onRegsChange, sendToReader });
 
   /* ---- Where a tap goes ----
      Whichever desk is open takes every tap, wherever it came from. Without
@@ -143,7 +143,9 @@ export default function EventAttendanceTab({
           <button className="btn-primary" onClick={() => setClaimDesk('kit')}>
             <i className="fas fa-box-open"></i> Event Kit Counter
           </button>
-          <button className="btn-primary" onClick={() => setClaimDesk('meals')}>
+          {/* Opens on today's day, so on the date of Day 2 it is Day 2's
+              lunch a card ticks. */}
+          <button className="btn-primary" onClick={() => { desk.followToday(); setClaimDesk('meals'); }}>
             <i className="fas fa-utensils"></i> Meals Counter
           </button>
           {/* Last, and on its own: this is the one button that changes what
@@ -472,9 +474,13 @@ export default function EventAttendanceTab({
                   accordingly - it has to be read at arm's length, across a
                   desk, by someone who is also looking at a queue. */}
               {desk.scanResult ? (
-                <div className={`evt-rfid-shout ${desk.scanResult.result}`}>
+                <div className={`evt-rfid-shout ${desk.scanResult.result} ${desk.scanResult.pending ? 'pending' : ''}`}>
+                  {/* pending: the name off this screen's own list, while the
+                      server writes the check-in - it turns into the tick a
+                      moment later. */}
                   <i className={`fas ${
-                    desk.scanResult.result === 'checked_in' ? 'fa-circle-check'
+                    desk.scanResult.pending ? 'fa-spinner fa-spin'
+                      : desk.scanResult.result === 'checked_in' ? 'fa-circle-check'
                       : desk.scanResult.result === 'already_in' ? 'fa-clock-rotate-left'
                         : 'fa-circle-exclamation'}`}></i>
                   <strong>
@@ -524,6 +530,16 @@ export default function EventAttendanceTab({
               />
             </div>
             <div className="evt-modal-foot">
+              {/* The screen the queue reads the names off - a second window
+                  here, or /rfid-chekin-display on a TV or tablet. */}
+              <button
+                type="button"
+                className="evt-chip-btn"
+                style={{ marginRight: 'auto' }}
+                onClick={() => window.open('/rfid-chekin-display', 'jsci-checkin-display')}
+              >
+                <i className="fas fa-display"></i> Name screen
+              </button>
               <button type="button" className="btn-secondary" onClick={() => desk.setScanOpen(false)}>Done</button>
               {desk.scanResult && (
                 <button
@@ -531,6 +547,7 @@ export default function EventAttendanceTab({
                   className="btn-primary"
                   onClick={() => {
                     desk.setScanResult(null);
+                    desk.screenIdle();
                     if (!reader.isPhone) setTimeout(() => scanBoxRef.current?.focus(), 50);
                   }}
                 >

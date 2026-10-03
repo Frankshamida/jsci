@@ -25,13 +25,28 @@ export async function resolveEventCard(eventId, raw, regFields) {
     .sort((a, b) => candidates.indexOf(a.uid) - candidates.indexOf(b.uid)
       || String(a.assigned_at || '').localeCompare(String(b.assigned_at || '')))[0] || null;
 
-  const { data: links } = await supabaseAdmin
+  // The card and the registration it points at in one query (the foreign key
+  // on registration_id lets PostgREST embed it) - a tap at the door is waited
+  // on by a queue, and the second round trip was pure waiting. If the embed
+  // is refused for any reason, the plain two-step lookup below still runs.
+  const embedded = await supabaseAdmin
     .from('rfid_event_cards')
-    .select('*')
+    .select(`*, registration:event_registrations(${regFields})`)
     .eq('event_id', eventId)
     .in('uid', candidates);
+  const links = embedded.error
+    ? (await supabaseAdmin
+      .from('rfid_event_cards')
+      .select('*')
+      .eq('event_id', eventId)
+      .in('uid', candidates)).data
+    : embedded.data;
   const link = best(links);
 
+  if (link && !embedded.error) {
+    const data = link.registration || null;
+    return { registration: data, result: data ? 'matched' : 'unknown' };
+  }
   if (link) {
     const { data } = await supabaseAdmin
       .from('event_registrations')

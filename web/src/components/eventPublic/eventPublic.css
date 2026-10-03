@@ -825,3 +825,247 @@
 }
 .ep-np.has-spotify { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
 .ep-page.has-mini-player:has(.ep-spotify-dock:not([hidden])) { padding-bottom: 180px; }
+
+/* ============================================================
+   Programme: Done, and what comes after - Feedback and the attendee's
+   sign-in (Enter Credentials), both under the programme.
+   ============================================================ */
+.ep-done-banner {
+  display: flex; align-items: center; gap: 14px; margin: 0 0 18px; padding: 14px 16px;
+  border-radius: 16px; border: 1px solid #cfe8d6; background: #effaf2; color: #14532d;
+}
+.ep-done-banner > i { font-size: 1.4rem; color: #1f9d55; flex-shrink: 0; }
+.ep-done-banner strong { display: block; font-size: 1.02rem; }
+.ep-done-banner span { display: block; margin-top: 2px; font-size: 0.88rem; color: #3f6b4f; }
+
+.ep-done-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.06em; color: #1f7a45; background: #e5f5ea;
+  padding: 3px 8px; border-radius: 999px;
+}
+.ep-item.is-done .ep-card { opacity: 0.72; }
+.ep-item.is-done .ep-dot { color: #1f9d55; border-color: #bfe3cc; }
+.ep-item.is-done .ep-time strong { color: var(--ep-muted); }
+
+.ep-after {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px;
+  margin: 26px auto 0; padding-top: 22px; border-top: 1px dashed var(--ep-line); max-width: 560px;
+}
+.ep-after > .ep-btn { flex: 1 1 200px; }
+.ep-signed {
+  flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 14px;
+  font-size: 0.9rem; color: var(--ep-muted);
+}
+.ep-signed > span i { color: #1f9d55; margin-right: 4px; }
+
+/* ---- Pop-ups: Enter Credentials, Feedback ---- */
+.ep-modal-overlay { overflow-y: auto; align-items: start; padding: max(16px, 6vh) 16px 24px; }
+.ep-modal {
+  position: relative; width: 100%; max-width: 440px; margin: 0 auto; box-sizing: border-box;
+  background: var(--ep-card); color: var(--ep-ink); border-radius: 22px; padding: 28px 22px 24px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.3); text-align: center;
+}
+.ep-modal-close {
+  position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border-radius: 50%;
+  border: none; background: #f4efe3; color: var(--ep-muted); cursor: pointer; display: grid; place-items: center;
+}
+.ep-modal-close:hover { color: var(--ep-gold); }
+/* The sign-in is its own card on the page; inside a pop-up the pop-up is the card. */
+.ep-modal .ep-lock { max-width: none; margin: 0; padding: 0; border: none; box-shadow: none; background: none; }
+
+.ep-feedback h2 { margin: 14px 0 4px; font-size: 1.3rem; }
+.ep-fb-name { display: flex; gap: 8px; }
+.ep-fb-name input { flex: 1; min-width: 0; font-size: 1rem; font-weight: 600; letter-spacing: 0; }
+.ep-fb-name input:disabled { opacity: 0.7; }
+.ep-anon {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px;
+  border-radius: 12px; border: 1.5px solid var(--ep-line); background: #fcfaf6; color: var(--ep-muted);
+  font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.ep-anon.on { border-color: var(--ep-gold); background: #fff8e6; color: var(--ep-gold); }
+.ep-feedback textarea {
+  width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--ep-line);
+  font: inherit; font-size: 0.98rem; line-height: 1.5; background: #fcfaf6; color: var(--ep-ink); resize: vertical; min-height: 150px;
+}
+.ep-feedback textarea:focus { outline: none; border-color: var(--ep-gold); box-shadow: 0 0 0 3px rgba(146,108,21,0.15); }
+.ep-fb-count { text-align: right; font-variant-numeric: tabular-nums; }
+.ep-feedback-done .ep-lock-icon { background: linear-gradient(135deg, #e0466a, #f07a5a); }
+@media (max-width: 420px) {
+  .ep-fb-name { flex-direction: column; }
+  .ep-anon { justify-content: center; padding: 10px 12px; }
+}
+
+/* ---- Hearts on photos ---- */
+.ep-thumb-wrap { position: relative; min-width: 0; }
+.ep-thumb-wrap > .ep-thumb { display: block; width: 100%; }
+.ep-heart {
+  position: absolute; right: 6px; bottom: 6px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px;
+  border: none; cursor: pointer; font: inherit; font-size: 0.78rem; font-weight: 800; line-height: 1;
+  color: #fff; background: rgba(15,10,4,0.55); backdrop-filter: blur(4px);
+  font-variant-numeric: tabular-nums; transition: background 0.15s;
+}
+.ep-heart i { font-size: 0.9rem; }
+.ep-heart.on i { color: #ff4d6d; }
+.ep-heart:hover { background: rgba(15,10,4,0.72); }
+.ep-heart.pop i { animation: ep-heart-pop 0.45s ease; }
+@keyframes ep-heart-pop { 30% { transform: scale(1.45); } 60% { transform: scale(0.9); } 100% { transform: scale(1); } }
+/* In the full view, beside the close button rather than over the photo. */
+.ep-heart.is-big { position: static; height: 42px; padding: 0 14px; font-size: 0.95rem; background: rgba(255,255,255,0.14); }
+.ep-heart.is-big i { font-size: 1.1rem; }
+.ep-heart-error { margin: 0 0 12px; }
+@media (max-width: 520px) {
+  .ep-heart { right: 4px; bottom: 4px; padding: 4px 7px; font-size: 0.7rem; gap: 4px; }
+  .ep-heart i { font-size: 0.8rem; }
+}
+@media (prefers-reduced-motion: reduce) { .ep-heart.pop i { animation: none; } }
+
+/* ---- Dark mode, for all of the above ---- */
+.dark-mode .ep-done-banner { background: rgba(31,157,85,0.12); border-color: rgba(31,157,85,0.35); color: #b6f0c9; }
+.dark-mode .ep-done-banner span { color: #8fcaa4; }
+.dark-mode .ep-done-chip { background: rgba(31,157,85,0.18); color: #7fe0a3; }
+.dark-mode .ep-item.is-done .ep-dot { border-color: rgba(31,157,85,0.4); color: #7fe0a3; }
+.dark-mode .ep-modal { box-shadow: 0 24px 60px rgba(0,0,0,0.6); }
+.dark-mode .ep-modal-close { background: #2a251c; }
+.dark-mode .ep-anon, .dark-mode .ep-feedback textarea { background: #17150f; }
+.dark-mode .ep-anon.on { background: #2a2214; color: #e0b44a; border-color: #e0b44a; }
+
+/* ============================================================
+   Event Photos: the church's lockup, pages, double-tap hearts,
+   and downloading (with Bible fun facts while it runs).
+   ============================================================ */
+
+/* The lockup from the dashboard sidebar: logo, JOYFUL SOUND CHURCH, and a
+   half-size, widely tracked INTERNATIONAL - centred. */
+.ep-brand { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.ep-brand img { width: 60px; height: 60px; object-fit: contain; margin-bottom: 10px; }
+.ep-brand-name {
+  font-weight: 600; font-size: 1rem; line-height: 1.26; text-transform: uppercase; white-space: nowrap;
+  color: #C9980B; background: linear-gradient(135deg, #C9980B, #FFC300);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.ep-brand-sub {
+  font-weight: 400; font-size: 0.5rem; line-height: 1.27; text-transform: uppercase; white-space: nowrap;
+  letter-spacing: 1.29em; margin-right: -1.29em; margin-top: 6px; color: #C9980B;
+}
+.ep-photos-brand { margin: 0 auto 18px; }
+.dark-mode .ep-brand-sub { color: #FFC300; }
+
+.ep-muted-sm { color: var(--ep-muted); font-size: 0.85em; }
+.ep-love-hint {
+  display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0 0 10px;
+  font-size: 0.82rem; color: var(--ep-muted);
+}
+.ep-love-hint i { color: #ff4d6d; }
+
+/* Easier to hit: a bigger heart on every photo. */
+.ep-heart { padding: 7px 11px; font-size: 0.85rem; gap: 6px; min-height: 32px; }
+.ep-heart i { font-size: 1rem; }
+@media (max-width: 520px) {
+  .ep-heart { right: 4px; bottom: 4px; padding: 5px 8px; font-size: 0.74rem; min-height: 28px; }
+  .ep-heart i { font-size: 0.9rem; }
+}
+
+/* The double-tap burst: the logo with a heart, up and gone. */
+.ep-love-pop {
+  position: absolute; left: 50%; top: 50%; z-index: 3; pointer-events: none;
+  width: 46%; max-width: 120px; aspect-ratio: 1; display: grid; place-items: center;
+  transform: translate(-50%, -50%) scale(0); animation: ep-love 0.95s cubic-bezier(0.2, 0.9, 0.25, 1) forwards;
+}
+.ep-love-pop img {
+  width: 100%; height: 100%; object-fit: contain; border-radius: 50%;
+  background: rgba(255,255,255,0.92); padding: 12%; box-sizing: border-box;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+}
+.ep-love-pop i {
+  position: absolute; right: -6%; bottom: -4%; font-size: clamp(1.4rem, 9vw, 2.4rem); color: #ff2d55;
+  filter: drop-shadow(0 3px 8px rgba(0,0,0,0.35));
+}
+.ep-love-pop.is-big { width: 28%; max-width: 220px; }
+.ep-love-pop.is-big i { font-size: clamp(2.2rem, 7vw, 4rem); }
+@keyframes ep-love {
+  0%   { transform: translate(-50%, -50%) scale(0);    opacity: 0; }
+  18%  { transform: translate(-50%, -50%) scale(1.18); opacity: 1; }
+  32%  { transform: translate(-50%, -50%) scale(0.94); }
+  46%  { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
+  80%  { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
+  100% { transform: translate(-50%, -60%) scale(0.9);  opacity: 0; }
+}
+
+/* Ticking photos to download: gold, not the story picker's red. */
+.ep-thumb.is-selecting.is-picked { outline-color: var(--ep-gold-2); }
+.ep-thumb.is-selecting.is-picked .ep-pick { background: var(--ep-gold-2); }
+.ep-tick i { font-size: 0.75rem; }
+.ep-dlbar em { font-style: normal; font-weight: 600; color: var(--ep-muted); font-size: 0.82rem; }
+.ep-dlbar-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Pages: ‹ 1 … 4 5 6 … 10 › */
+.ep-pager { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin: 22px 0 6px; }
+.ep-pager button {
+  min-width: 40px; height: 40px; padding: 0 10px; border-radius: 12px; cursor: pointer;
+  border: 1.5px solid var(--ep-line); background: var(--ep-card); color: var(--ep-ink);
+  font: inherit; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.ep-pager button:hover:not(:disabled) { border-color: var(--ep-gold); color: var(--ep-gold); }
+.ep-pager button.active { background: linear-gradient(135deg, var(--ep-gold), var(--ep-gold-2)); border-color: transparent; color: #fff; }
+.ep-pager button:disabled { opacity: 0.4; cursor: not-allowed; }
+.ep-pager-gap { display: grid; place-items: center; min-width: 22px; color: var(--ep-muted); }
+.ep-pager-range { margin: 0; text-align: center; font-size: 0.82rem; color: var(--ep-muted); }
+
+/* ---- The download screen ---- */
+.ep-dl-overlay {
+  position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 16px;
+  background: rgba(20,14,4,0.72); backdrop-filter: blur(6px);
+}
+.ep-dl {
+  width: 100%; max-width: 420px; box-sizing: border-box; text-align: center;
+  background: var(--ep-card); color: var(--ep-ink); border-radius: 24px; padding: 28px 22px 20px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.4);
+}
+.ep-dl-brand { margin-bottom: 18px; }
+.ep-dl-brand img { width: 84px; height: 84px; animation: ep-dl-breathe 2.4s ease-in-out infinite; }
+@keyframes ep-dl-breathe { 50% { transform: scale(1.06); } }
+.ep-dl-status { margin: 0 0 10px; font-weight: 700; font-size: 0.98rem; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ep-dl-status.is-ok { color: #1f7a45; }
+.ep-dl-status.is-ok i { font-size: 1.6rem; }
+.ep-dl-status.is-bad { color: #b42318; }
+.ep-dl-status small { font-weight: 500; font-size: 0.82rem; color: var(--ep-muted); }
+.ep-dl-bar { height: 10px; border-radius: 999px; background: #f1ead9; overflow: hidden; }
+.ep-dl-bar span {
+  display: block; height: 100%; border-radius: inherit; transition: width 0.3s ease;
+  background: linear-gradient(90deg, var(--ep-gold), #FFC300, var(--ep-gold-2));
+  background-size: 200% 100%; animation: ep-dl-shine 1.6s linear infinite;
+}
+@keyframes ep-dl-shine { to { background-position: -200% 0; } }
+.ep-dl-pct { margin: 6px 0 0; font-size: 0.8rem; font-weight: 700; color: var(--ep-muted); font-variant-numeric: tabular-nums; }
+.ep-dl-acts { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 6px; }
+.ep-dl-acts .ep-btn { width: 100%; }
+.ep-dl-note { margin: 10px 0 0; font-size: 0.82rem; color: var(--ep-muted); }
+.ep-dl-foot { margin-top: 16px; display: flex; justify-content: center; }
+
+/* A fun fact, popping in - a new one every few seconds. */
+.ep-fact {
+  margin: 18px 0 0; padding: 14px 16px; border-radius: 16px; text-align: left;
+  background: linear-gradient(135deg, #fff8e6, #fdf0d2); border: 1px solid #f0dfb4;
+  animation: ep-fact-in 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.2) both;
+}
+.ep-fact-label {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--ep-gold);
+}
+.ep-fact p { margin: 6px 0 0; font-size: 0.95rem; line-height: 1.45; font-weight: 600; }
+@keyframes ep-fact-in { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ep-love-pop { animation-duration: 0.01s; }
+  .ep-dl-brand img, .ep-dl-bar span { animation: none; }
+  .ep-fact { animation: none; }
+}
+
+.dark-mode .ep-dl { box-shadow: 0 24px 70px rgba(0,0,0,0.7); }
+.dark-mode .ep-dl-bar { background: #2a251c; }
+.dark-mode .ep-fact { background: linear-gradient(135deg, #2a2214, #241d12); border-color: #4a3f29; }
+.dark-mode .ep-fact-label { color: #e0b44a; }
+.dark-mode .ep-dl-status.is-ok { color: #7fe0a3; }
+.dark-mode .ep-dl-status.is-bad { color: #f19a91; }
+.dark-mode .ep-pager button.active { color: #fff; }

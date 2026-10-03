@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  FEEDBACK_MAX_NAME, FEEDBACK_MAX_WORDS, countWords,
   daysWith, formatClock, formatDay, groupProgramme, programmeKind, publicEventTitle, shortDay,
 } from '@/lib/eventPublic';
 import { normalizeUid, isPlausibleUid, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
@@ -11,19 +12,29 @@ import {
   drawStory, loadStoryArt, loadStoryFonts, loadStoryImage, storyLayouts, storyThemes, storyPan, storyPhotoUrl, storySlotAt, storySlots, storyZoom,
 } from '@/lib/storyCard';
 import { drawIdBack, drawIdFront, idQrText } from '@/lib/idCard';
+import { makeZip } from '@/lib/zipStore';
+import { fallbackFacts, loadBibleFacts } from '@/lib/bibleFacts';
 import { useSongPlayer } from '@/components/songPlayer/useSongPlayer';
 import { PlayerControls, SongRow, VinylStage } from '@/components/songPlayer/PlayerParts';
 import { MusicCard, MusicPicker, makeAudioContext, useSegmentPreview } from './StoryMusic';
 
 // The page an attendee's ID QR opens: /events/cebu-miracle-working-god.
 //
-//   Programme     the default view, open to anyone with the link
-//   Event Photos  behind the attendee's password (LASTNAME@2026) or RFID card
-//   Profile       the attendee's virtual ID, front and back - the same unlock
+//   Programme     the default view, open to anyone with the link. Items whose
+//                 time has passed read Done; once the whole event is over it
+//                 says so, and offers Feedback (named or anonymous).
+//   Event Photos  open to anyone too, by day, each photo with a heart anyone
+//                 can give - no login, one per browser.
+//   Profile       the attendee's virtual ID, front and back  } only after
+//   Extras        what they availed, and their room          } Enter credentials
+//
+// Enter credentials (beside Feedback, under the programme) is the attendee's
+// password (LASTNAME@2026) or RFID card, in a pop-up. It is what opens
+// Profile and Extras; the photos no longer need it.
 //
 // The QR carries ?t=<code>, the attendee's own code. It is remembered per
 // event, so switching tabs or coming back later still says their name, and it
-// is what the unlock checks the password or card against.
+// is what the sign-in checks the password or card against.
 
 const store = {
   get(key) { try { return window.localStorage.getItem(key); } catch { return null; } },
@@ -67,6 +78,43 @@ const dateRange = (evt) => {
   const opts = { weekday: 'short', month: 'short', day: 'numeric' };
   if (!b || b.getTime() === a.getTime()) return a.toLocaleDateString('en-US', { ...opts, year: 'numeric' });
   return `${a.toLocaleDateString('en-US', opts)} – ${b.toLocaleDateString('en-US', { ...opts, year: 'numeric' })}`;
+};
+
+// Event times are wall-clock - typed in the Philippines and stored with a
+// "+00:00" that does not mean UTC - so they are read off their own digits.
+// A date with no time is the end of that day.
+const wallClock = (v) => {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  if (!m) return null;
+  return m[4] ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : new Date(+m[1], +m[2] - 1, +m[3], 23, 59);
+};
+
+// Over: past the event's end, or past its last programme item if that runs
+// later. With no end date, the end of its first day.
+const eventIsOver = (evt, items, nowMs) => {
+  const ends = [
+    wallClock(evt?.end_date) || wallClock(String(evt?.event_date || '').slice(0, 10)),
+    ...(items || []).map((it) => {
+      const day = String(it.day_date || '').slice(0, 10);
+      const t = String(it.end_time || it.start_time || '').slice(0, 5);
+      return day && t ? wallClock(`${day}T${t}`) : null;
+    }),
+  ].filter(Boolean);
+  return ends.length > 0 && nowMs >= Math.max(...ends.map((d) => d.getTime()));
+};
+
+// This browser's heart id: random, kept in local storage, no account behind
+// it. The server takes one heart per photo per id, so tapping again takes it
+// back rather than adding another.
+const visitorId = () => {
+  let id = store.get('ep-visitor');
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(id || '')) {
+    id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID().replace(/-/g, '')
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+    store.set('ep-visitor', id);
+  }
+  return id;
 };
 
 export default function EventPublicPage({ slug, view: initialView = 'programme' }) {
@@ -150,13 +198,42 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
     store.del(`evt-code:${slug}`);
     setCode('');
   }, [nameKey, slug]);
-  // /profile while locked (an old link, or Lock pressed there): the photos'
-  // unlock first, and the Profile tab appears once it is done.
+  // ---- Enter credentials ----
+  // The password or card, in a pop-up over the Programme. Signing in is what
+  // brings the Profile and Extras tabs; it opens straight onto the Profile so
+  // the attendee sees it worked.
+  const [credsOpen, setCredsOpen] = useState(false);
+  const onCredentials = useCallback((result) => {
+    store.set(`evt-pass:${slug}`, result.pass);
+    onUnlockedName(result.name || '', result.code || '');
+    setCredsOpen(false);
+    const nextCode = result.code || code;
+    window.history.pushState(null, '', viewPath(slug, 'profile', nextCode));
+    setView('profile');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [slug, code, onUnlockedName]);
+  const signOut = useCallback(() => {
+    store.del(`evt-pass:${slug}`);
+    onLocked();
+  }, [slug, onLocked]);
+  // /profile or /extras while signed out (an old link, or Lock pressed
+  // there): back to the Programme, with the sign-in already open.
   useEffect(() => {
     if (unlocked !== false || (view !== 'profile' && view !== 'extras')) return;
-    window.history.replaceState(null, '', viewPath(slug, 'photos', code));
-    setView('photos');
-  }, [unlocked, view, slug, code]);
+    window.history.replaceState(null, '', viewPath(slug, 'programme', code));
+    setView('programme');
+    if (!forgotten) setCredsOpen(true);
+  }, [unlocked, view, slug, code, forgotten]);
+
+  // ---- Over, and feedback ----
+  // Whether the event has finished, by its own end time - checked every
+  // minute, so a page left open turns over to Done by itself.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   // What the holder availed, and where they are sleeping. Asked for as soon as
   // they are unlocked, because it decides whether there is an Extras tab at
@@ -233,6 +310,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
 
   const { event } = info;
   const when = dateRange(event);
+  const over = eventIsOver(event, info.programme, nowMs);
 
   return (
     <main className={`ep-page ${showMiniPlayer ? 'has-mini-player' : ''}`}>
@@ -273,7 +351,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
           className={view === 'photos' ? 'active' : ''}
           onClick={(e) => { e.preventDefault(); go('photos'); }}
         >
-          <i className="fas fa-images"></i><span><span className="ep-tab-long">Event </span>Photos</span>
+          <i className="fas fa-images"></i><span>Event Photos</span>
         </a>
         {unlocked && (
           <a
@@ -297,20 +375,67 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
 
       <section className="ep-body">
         {view === 'programme' && (
-          <Programme
-            event={event}
-            items={info.programme}
-            songsById={songsById}
-            songsPaused={!!info.songsPaused}
-            player={player}
-            lineup={lineup}
-            onPlayLineup={playLineup}
-          />
+          <>
+            {over && (
+              <div className="ep-done-banner" role="status">
+                <i className="fas fa-flag-checkered"></i>
+                <div>
+                  <strong>This event is done</strong>
+                  <span>Thank you for being with us! We would love to hear how it went.</span>
+                </div>
+              </div>
+            )}
+            <Programme
+              event={event}
+              items={info.programme}
+              over={over}
+              songsById={songsById}
+              songsPaused={!!info.songsPaused}
+              player={player}
+              lineup={lineup}
+              onPlayLineup={playLineup}
+            />
+            {/* Feedback once it is over; the attendee's sign-in beside it,
+                always - it is what opens Profile and Extras. */}
+            <div className="ep-after">
+              {over && (
+                <button type="button" className="ep-btn" onClick={() => setFeedbackOpen(true)}>
+                  <i className="fas fa-comment-dots"></i> Give Feedback
+                </button>
+              )}
+              {unlocked ? (
+                <div className="ep-signed">
+                  <span><i className="fas fa-circle-check"></i> Signed in{guestName ? ` as ${guestName}` : ''}</span>
+                  <button type="button" className="ep-link" onClick={signOut}><i className="fas fa-right-from-bracket"></i> Sign out</button>
+                </div>
+              ) : (
+                <button type="button" className="ep-btn ep-btn-ghost" onClick={() => setCredsOpen(true)}>
+                  <i className="fas fa-user-lock"></i> Enter Credentials
+                </button>
+              )}
+            </div>
+          </>
         )}
-        {view === 'photos' && <Photos event={event} slug={slug} code={code} year={info.passwordYear} name={guestName} onName={onUnlockedName} onLock={onLocked} />}
+        {view === 'photos' && <Photos event={event} slug={slug} name={guestName} />}
         {view === 'profile' && unlocked && <Profile slug={slug} code={code} year={info.passwordYear} onName={onUnlockedName} onLock={onLocked} />}
         {view === 'extras' && unlocked && <Extras info={extrasInfo} />}
       </section>
+
+      {credsOpen && (
+        <Modal onClose={() => setCredsOpen(false)} label="Enter credentials">
+          <Unlock
+            slug={slug} code={code} year={info.passwordYear} onUnlocked={onCredentials}
+            icon="fa-user-lock" title="Enter Credentials"
+            sub="For attendees. Sign in with your password or your RFID card to see your Profile and Extras."
+            cta="Sign In"
+          />
+        </Modal>
+      )}
+      {feedbackOpen && (
+        <Modal onClose={() => setFeedbackOpen(false)} label="Give feedback">
+          <FeedbackForm slug={slug} eventTitle={publicEventTitle(event)} defaultName={guestName} onClose={() => setFeedbackOpen(false)} />
+        </Modal>
+      )}
 
       <audio {...player.audioProps} />
       {/* Spotify's own player, for the lineup's Spotify songs. Always on the
@@ -544,7 +669,7 @@ function MiniPlayer({ player, lineup, onOpen, onClose }) {
   );
 }
 
-function Programme({ event, items, songsById, songsPaused = false, player, lineup, onPlayLineup }) {
+function Programme({ event, items, over = false, songsById, songsPaused = false, player, lineup, onPlayLineup }) {
   // Every day the event runs has a tab, even one with nothing on it yet.
   const days = useMemo(() => {
     const grouped = new Map(groupProgramme(items).map((g) => [g.day, g.rows]));
@@ -559,6 +684,9 @@ function Programme({ event, items, songsById, songsPaused = false, player, lineu
   }, []);
 
   if (!items?.length) {
+    // Over, and no programme was ever posted: "coming soon" would be wrong,
+    // and the Done banner above already says what there is to say.
+    if (over) return null;
     return (
       <div className="ep-empty">
         <i className="fas fa-list-ol"></i>
@@ -571,10 +699,22 @@ function Programme({ event, items, songsById, songsPaused = false, player, lineu
   const current = days.find((d) => d.day === day) || days[0];
   const isToday = current.day === todayIso();
   // "Now" is the latest item that has started, until the next one does.
-  const nowId = isToday
+  const nowId = isToday && !over
     ? [...current.rows].reverse().find((r) => String(r.start_time).slice(0, 5) <= clock
       && (!r.end_time || String(r.end_time).slice(0, 5) > clock))?.id
     : null;
+  // Done: an earlier day, or today and its time has passed - its end, or for
+  // an item with no end, its start once something later has begun (that is
+  // what makes it not "now" any more). Everything, once the event is over.
+  const today = todayIso();
+  const isDone = (r) => {
+    if (r.id === nowId) return false;
+    if (over) return true;
+    const dayKey = String(r.day_date || '').slice(0, 10);
+    if (dayKey < today) return true;
+    if (dayKey > today) return false;
+    return String(r.end_time || r.start_time || '').slice(0, 5) <= clock;
+  };
 
   return (
     <div className="ep-programme">
@@ -591,17 +731,19 @@ function Programme({ event, items, songsById, songsPaused = false, player, lineu
       <ol className="ep-timeline">
         {current.rows.map((it) => {
           const kind = programmeKind(it.kind);
+          const done = isDone(it);
           return (
-            <li key={it.id} className={`ep-item ep-kind-${kind.key} ${it.id === nowId ? 'is-now' : ''}`}>
+            <li key={it.id} className={`ep-item ep-kind-${kind.key} ${it.id === nowId ? 'is-now' : ''} ${done ? 'is-done' : ''}`}>
               <div className="ep-time">
                 <strong>{formatClock(it.start_time)}</strong>
                 {it.end_time && <span>{formatClock(it.end_time)}</span>}
               </div>
-              <div className="ep-dot"><i className={`fas ${kind.icon}`}></i></div>
+              <div className="ep-dot"><i className={`fas ${done ? 'fa-check' : kind.icon}`}></i></div>
               <div className="ep-card">
                 <div className="ep-card-top">
                   <span className="ep-chip">{kind.label}</span>
                   {it.id === nowId && <span className="ep-now">Happening now</span>}
+                  {done && <span className="ep-done-chip"><i className="fas fa-check"></i> Done</span>}
                 </div>
                 <h3>{it.title}</h3>
                 {it.speaker && <p className="ep-speaker"><i className="fas fa-user"></i> {it.speaker}</p>}
@@ -630,13 +772,23 @@ function Programme({ event, items, songsById, songsPaused = false, player, lineu
 // Photos
 // ============================================================
 
-function Photos({ event, slug, code, year, name, onName, onLock }) {
-  const passKey = `evt-pass:${slug}`;
-  const [pass, setPass] = useState('');
+// Photos per page of the grid, and the most that go in one download - a
+// phone holds every photo of a download in memory at once (full size, about
+// 3-6 MB each) until it is saved.
+const PHOTOS_PER_PAGE = 24;
+const DOWNLOAD_MAX = 25;
+
+function Photos({ event, slug, name }) {
   const [photos, setPhotos] = useState(null);
+  // false until event_feedback_and_photo_hearts.sql is run: no hearts shown,
+  // rather than hearts that cannot be pressed.
+  const [heartsReady, setHeartsReady] = useState(false);
+  const [heartError, setHeartError] = useState('');
   const [error, setError] = useState('');
   const [open, setOpen] = useState(-1);
   const [day, setDay] = useState('all');
+  const [page, setPage] = useState(1);
+  const gridTopRef = useRef(null);
   // Story mode: the attendee picks up to STORY_MAX photos, in order.
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState([]);
@@ -646,66 +798,128 @@ function Photos({ event, slug, code, year, name, onName, onLock }) {
     return cur.length >= STORY_MAX ? cur : [...cur, id];
   });
   const stopPicking = () => { setPicking(false); setPicked([]); };
+  // Download mode: tick photos, then download them all at once.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const toggleSelect = (id) => setSelected((cur) => {
+    if (cur.includes(id)) return cur.filter((x) => x !== id);
+    return cur.length >= DOWNLOAD_MAX ? cur : [...cur, id];
+  });
+  const stopSelecting = () => { setSelecting(false); setSelected([]); };
+  // What is being downloaded right now - the overlay with the progress and
+  // the fun facts is open while this is set.
+  const [download, setDownload] = useState(null);
   // The grid, the full view and the picker are all covered for screenshots.
   const covered = useScreenGuard();
   const block = (e) => e.preventDefault();
 
-  useEffect(() => { setPass(store.get(passKey) || ''); }, [passKey]);
-
-  // Day tabs only once photos are actually sorted by day.
-  const days = useMemo(() => {
-    const dated = (photos || []).map((p) => p.day).filter(Boolean);
-    return dated.length ? daysWith(event, dated) : [];
-  }, [event, photos]);
+  // Day 1, Day 2 ... for every day the event runs, whether or not its
+  // photos are in yet - plus any day a photo is dated that is not one of them.
+  const days = useMemo(
+    () => daysWith(event, (photos || []).map((p) => p.day).filter(Boolean)),
+    [event, photos],
+  );
   const shown = useMemo(
     () => (day === 'all' ? photos || [] : (photos || []).filter((p) => p.day === day)),
     [photos, day],
   );
 
-  // The list is kept for five minutes in this tab, so going back and forth
-  // between Programme and Photos does not ask the server again.
+  // The last list is shown at once from this tab's memory, and the server is
+  // asked every time anyway - the photos themselves are cached there, and the
+  // hearts are what somebody coming back expects to see moved.
   const listKey = `evt-photos:${slug}`;
   useEffect(() => {
-    if (!pass) { setPhotos(null); return undefined; }
     let live = true;
     try {
       const hit = JSON.parse(window.sessionStorage.getItem(listKey) || 'null');
-      if (hit?.pass === pass && Array.isArray(hit.data)) {
-        setPhotos(hit.data);
-        if (Date.now() - hit.at < 5 * 60_000) return undefined;
-      }
+      if (Array.isArray(hit?.data)) { setPhotos(hit.data); setHeartsReady(!!hit.heartsReady); }
     } catch { /* no cache */ }
-    fetch(`/api/events/public/photos?slug=${encodeURIComponent(slug)}`, { headers: { 'x-event-pass': pass } })
+    fetch(`/api/events/public/photos?slug=${encodeURIComponent(slug)}&v=${encodeURIComponent(visitorId())}`)
       .then((r) => r.json())
       .then((data) => {
         if (!live) return;
-        if (data.locked) { store.del(passKey); setPass(''); onLock(); return; }
         if (!data.success) { setError(data.message); return; }
         setPhotos(data.data || []);
-        try { window.sessionStorage.setItem(listKey, JSON.stringify({ at: Date.now(), pass, data: data.data || [] })); } catch { /* full */ }
+        setHeartsReady(!!data.heartsReady);
+        try {
+          window.sessionStorage.setItem(listKey, JSON.stringify({ at: Date.now(), heartsReady: !!data.heartsReady, data: data.data || [] }));
+        } catch { /* full */ }
       })
       .catch(() => live && setError('Could not load the photos. Check your connection.'));
     return () => { live = false; };
-  }, [pass, slug, passKey, listKey, onLock]);
+  }, [slug, listKey]);
 
-  const unlocked = (result) => {
-    store.set(passKey, result.pass);
-    onName(result.name || '', result.code || '');
-    setPass(result.pass);
+  // A heart, given or taken back. Shown at once; the server's count replaces
+  // the guess, and a refusal puts it back the way it was.
+  const toggleHeart = useCallback(async (photo) => {
+    const on = !photo.hearted;
+    const patch = (fields) => setPhotos((list) => (list || []).map((p) => (p.id === photo.id ? { ...p, ...fields } : p)));
+    patch({ hearted: on, hearts: Math.max(0, (photo.hearts || 0) + (on ? 1 : -1)) });
+    setHeartError('');
+    try {
+      const res = await fetch('/api/events/public/photos/hearts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, photoId: photo.id, visitor: visitorId(), on }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'That heart did not go through.');
+      patch({ hearted: data.hearted, hearts: data.hearts });
+    } catch (e) {
+      patch({ hearted: photo.hearted, hearts: photo.hearts });
+      setHeartError(e.message || 'That heart did not go through. Check your connection.');
+    }
+  }, [slug]);
+
+  // ---- Double-tap to heart ----
+  // Like the photo apps everybody already knows: two quick taps on a photo
+  // give it a heart - and the church's logo pops up on it with the heart. A
+  // double tap only ever gives one; taking it back is the heart button. One
+  // tap still opens the photo, a moment later, once it is clear no second
+  // tap is coming.
+  const [pop, setPop] = useState(null); // { id, key }
+  const tapRef = useRef({ id: null, at: 0, timer: null });
+  useEffect(() => () => clearTimeout(tapRef.current.timer), []);
+  const loveIt = useCallback((photo) => {
+    setPop({ id: photo.id, key: Date.now() });
+    if (!photo.hearted) toggleHeart(photo);
+  }, [toggleHeart]);
+  const tapThumb = (photo, index) => {
+    if (picking) { togglePick(photo.id); return; }
+    if (selecting) { toggleSelect(photo.id); return; }
+    if (!heartsReady) { setOpen(index); return; }
+    const t = tapRef.current;
+    const now = Date.now();
+    clearTimeout(t.timer);
+    if (t.id === photo.id && now - t.at < 300) {
+      tapRef.current = { id: null, at: 0, timer: null };
+      loveIt(photo);
+      return;
+    }
+    tapRef.current = {
+      id: photo.id,
+      at: now,
+      timer: setTimeout(() => { tapRef.current = { id: null, at: 0, timer: null }; setOpen(index); }, 260),
+    };
   };
-
-  const lock = () => {
-    onLock();
-    store.del(passKey);
-    try { window.sessionStorage.removeItem(listKey); } catch { /* ignore */ }
-    setPass('');
-    setPhotos(null);
-  };
-
-  if (!pass) return <Unlock slug={slug} code={code} year={year} onUnlocked={unlocked} />;
 
   if (error) return <div className="ep-empty"><i className="fas fa-triangle-exclamation"></i><p>{error}</p></div>;
   if (!photos) return <div className="ep-loading"><span className="ep-spinner" /> Loading photos…</div>;
+
+  // ---- This page of the grid ----
+  const pages = Math.max(1, Math.ceil(shown.length / PHOTOS_PER_PAGE));
+  const pageNow = Math.min(page, pages);
+  const first = (pageNow - 1) * PHOTOS_PER_PAGE;
+  const onPage = shown.slice(first, first + PHOTOS_PER_PAGE);
+  const goPage = (n) => {
+    setPage(n);
+    gridTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  // A photo's number across the whole event, for its file name - the same
+  // photo is always "photo-07", whichever day or page it was downloaded from.
+  const numberOf = (p) => photos.indexOf(p) + 1;
+  const pickedForDownload = selected.map((id) => photos.find((p) => p.id === id)).filter(Boolean);
+  const busyMode = picking || selecting;
 
   return (
     <div className="ep-photos ep-id-protected" onContextMenu={block} onDragStart={block}>
@@ -715,30 +929,42 @@ function Photos({ event, slug, code, year, name, onName, onLock }) {
           <span>Photos hidden</span>
         </div>
       )}
-      <div className="ep-photos-bar">
+      <ChurchBrand className="ep-photos-brand" />
+      <div className="ep-photos-bar" ref={gridTopRef}>
         {picking ? (
           <p>Pick up to <strong>{STORY_MAX}</strong> photos for your story</p>
+        ) : selecting ? (
+          <p>Tap the photos to download <span className="ep-muted-sm">(up to {DOWNLOAD_MAX})</span></p>
         ) : (
           <p><strong>{shown.length}</strong> photo{shown.length === 1 ? '' : 's'}</p>
         )}
         <div className="ep-photos-actions">
-          {picking ? (
-            <button type="button" className="ep-link" onClick={stopPicking}><i className="fas fa-times"></i> Cancel</button>
-          ) : (
+          {busyMode ? (
+            <button type="button" className="ep-link" onClick={picking ? stopPicking : stopSelecting}><i className="fas fa-times"></i> Cancel</button>
+          ) : photos.length > 0 && (
             <>
-              {photos.length > 0 && (
-                <button type="button" className="ep-btn ep-btn-sm ep-btn-story" onClick={() => setPicking(true)}>
-                  <i className="fas fa-wand-magic-sparkles"></i> Make a Story
-                </button>
-              )}
-              <button type="button" className="ep-link" onClick={lock}><i className="fas fa-lock"></i> Lock</button>
+              <button type="button" className="ep-btn ep-btn-sm ep-btn-ghost" onClick={() => setSelecting(true)}>
+                <i className="fas fa-download"></i> Download
+              </button>
+              <button type="button" className="ep-btn ep-btn-sm ep-btn-story" onClick={() => setPicking(true)}>
+                <i className="fas fa-wand-magic-sparkles"></i> Make a Story
+              </button>
             </>
           )}
         </div>
       </div>
       {days.length > 1 && (
-        <DayTabs days={days} value={day} onChange={(d) => { setDay(d); setOpen(-1); }} all={`${photos.length} photos`} />
+        <DayTabs
+          days={days}
+          value={day}
+          onChange={(d) => { setDay(d); setPage(1); setOpen(-1); }}
+          all={`${photos.length} photo${photos.length === 1 ? '' : 's'}`}
+        />
       )}
+      {heartsReady && !busyMode && shown.length > 0 && (
+        <p className="ep-love-hint"><i className="fas fa-heart"></i> Double-tap a photo to give it a heart</p>
+      )}
+      {heartError && <p className="ep-error ep-heart-error"><i className="fas fa-circle-exclamation"></i> {heartError}</p>}
       {shown.length === 0 ? (
         <div className="ep-empty">
           <i className="fas fa-camera"></i>
@@ -746,23 +972,38 @@ function Photos({ event, slug, code, year, name, onName, onLock }) {
           <p>{day === 'all' ? 'Photos from the event' : `Day ${days.indexOf(day) + 1} photos`} will appear here once they are uploaded.</p>
         </div>
       ) : (
-        <div className="ep-grid">
-          {shown.map((p, i) => {
-            const n = picked.indexOf(p.id);
-            return (
-              <button
-                type="button"
-                key={p.id}
-                className={`ep-thumb ${picking ? 'is-picking' : ''} ${n >= 0 ? 'is-picked' : ''}`}
-                onClick={() => (picking ? togglePick(p.id) : setOpen(i))}
-                aria-pressed={picking ? n >= 0 : undefined}
-              >
-                <img src={p.thumb} alt={p.caption || `Event photo ${i + 1}`} loading="lazy" />
-                {picking && <span className="ep-pick">{n >= 0 ? n + 1 : ''}</span>}
-              </button>
-            );
-          })}
-        </div>
+        <>
+          <div className="ep-grid">
+            {onPage.map((p, i) => {
+              const index = first + i;
+              const n = picked.indexOf(p.id);
+              const ticked = selected.includes(p.id);
+              return (
+                <div key={p.id} className="ep-thumb-wrap">
+                  <button
+                    type="button"
+                    className={`ep-thumb ${busyMode ? 'is-picking' : ''} ${n >= 0 || ticked ? 'is-picked' : ''} ${selecting ? 'is-selecting' : ''}`}
+                    onClick={() => tapThumb(p, index)}
+                    aria-pressed={busyMode ? (n >= 0 || ticked) : undefined}
+                    aria-label={selecting ? `${ticked ? 'Unselect' : 'Select'} photo ${numberOf(p)}` : undefined}
+                  >
+                    <img src={p.thumb} alt={p.caption || `Event photo ${numberOf(p)}`} loading="lazy" />
+                    {picking && <span className="ep-pick">{n >= 0 ? n + 1 : ''}</span>}
+                    {selecting && <span className="ep-pick ep-tick">{ticked && <i className="fas fa-check"></i>}</span>}
+                  </button>
+                  {pop?.id === p.id && <LovePop key={pop.key} onDone={() => setPop(null)} />}
+                  {heartsReady && !busyMode && <HeartButton photo={p} onToggle={toggleHeart} />}
+                </div>
+              );
+            })}
+          </div>
+          <PhotoPager page={pageNow} pages={pages} onPage={goPage} />
+          {pages > 1 && (
+            <p className="ep-pager-range">
+              Showing {first + 1}–{first + onPage.length} of {shown.length}
+            </p>
+          )}
+        </>
       )}
       {picking && (
         <div className="ep-pickbar">
@@ -777,6 +1018,34 @@ function Photos({ event, slug, code, year, name, onName, onLock }) {
           </button>
         </div>
       )}
+      {selecting && (
+        <div className="ep-pickbar ep-dlbar">
+          <span>
+            {selected.length} selected
+            {selected.length >= DOWNLOAD_MAX && <em> · that is the most at once</em>}
+          </span>
+          <div className="ep-dlbar-acts">
+            <button
+              type="button"
+              className="ep-link"
+              onClick={() => setSelected((cur) => {
+                const add = onPage.map((p) => p.id).filter((id) => !cur.includes(id));
+                return [...cur, ...add].slice(0, DOWNLOAD_MAX);
+              })}
+            >
+              <i className="fas fa-check-double"></i> Select page
+            </button>
+            <button
+              type="button"
+              className="ep-btn"
+              disabled={!selected.length}
+              onClick={() => setDownload({ key: Date.now(), list: pickedForDownload })}
+            >
+              <i className="fas fa-download"></i> Download{selected.length ? ` (${selected.length})` : ''}
+            </button>
+          </div>
+        </div>
+      )}
       {story && (
         <StoryMaker
           photos={story}
@@ -788,17 +1057,463 @@ function Photos({ event, slug, code, year, name, onName, onLock }) {
         />
       )}
       {open >= 0 && shown[open] && (
-        <Lightbox photos={shown} index={open} onIndex={setOpen} onClose={() => setOpen(-1)} />
+        <Lightbox
+          photos={shown}
+          index={open}
+          onIndex={setOpen}
+          // Back to the page the last photo looked at is on.
+          onClose={() => { setPage(Math.floor(open / PHOTOS_PER_PAGE) + 1); setOpen(-1); }}
+          onHeart={heartsReady ? toggleHeart : null}
+          onDownload={(p) => setDownload({ key: Date.now(), list: [p] })}
+        />
+      )}
+      {download && (
+        <DownloadOverlay
+          key={download.key}
+          list={download.list}
+          eventTitle={publicEventTitle(event)}
+          numberOf={numberOf}
+          onClose={(finished) => { setDownload(null); if (finished) stopSelecting(); }}
+        />
       )}
     </div>
   );
 }
 
+// Page numbers with the far ones folded away: 1 … 4 5 6 … 10.
+const pageNumbers = (page, pages) => {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  const keep = [...new Set([1, pages, page - 1, page, page + 1])].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+  const out = [];
+  keep.forEach((n, i) => {
+    if (i && n - keep[i - 1] > 1) out.push(`gap-${n}`);
+    out.push(n);
+  });
+  return out;
+};
+
+function PhotoPager({ page, pages, onPage }) {
+  if (pages <= 1) return null;
+  return (
+    <nav className="ep-pager" aria-label="Photo pages">
+      <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">
+        <i className="fas fa-chevron-left"></i>
+      </button>
+      {pageNumbers(page, pages).map((n) => (typeof n === 'string'
+        ? <span key={n} className="ep-pager-gap">…</span>
+        : (
+          <button
+            type="button"
+            key={n}
+            className={n === page ? 'active' : ''}
+            aria-current={n === page ? 'page' : undefined}
+            onClick={() => onPage(n)}
+          >
+            {n}
+          </button>
+        )))}
+      <button type="button" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">
+        <i className="fas fa-chevron-right"></i>
+      </button>
+    </nav>
+  );
+}
+
+// The church's lockup, as at the top of the dashboard sidebar: the logo, then
+// JOYFUL SOUND CHURCH over a half-size, widely tracked INTERNATIONAL.
+function ChurchBrand({ className = '' }) {
+  return (
+    <div className={`ep-brand ${className}`}>
+      <img src="/assets/LOGO.png" alt="Joyful Sound Church International logo" />
+      <span className="ep-brand-name">Joyful Sound Church</span>
+      <span className="ep-brand-sub">International</span>
+    </div>
+  );
+}
+
+// The burst a double tap leaves on a photo: the church's logo with a heart,
+// popping up in the middle and fading away.
+function LovePop({ onDone, big = false }) {
+  return (
+    <span
+      className={`ep-love-pop ${big ? 'is-big' : ''}`}
+      aria-hidden="true"
+      onAnimationEnd={(e) => { if (e.target === e.currentTarget) onDone?.(); }}
+    >
+      <img src="/assets/LOGO.png" alt="" />
+      <i className="fas fa-heart"></i>
+    </span>
+  );
+}
+
+// ---- Downloading ----
+// The photos come down at full size - framed, with the church's lockup
+// stamped in the middle (see DOWNLOAD_T in lib/eventPhotos) - three at a
+// time, with real progress. While they do, the church's logo sits in the
+// middle of the screen and Bible fun facts pop up one after another: a fresh
+// batch from the church's AI, with checked ones standing in until it answers.
+//
+// How they are saved depends on the device:
+//   a phone     the share sheet ("Save N images" puts them in the gallery)
+//   a computer  one photo as a .jpg, several as one .zip
+const slugName = (title) => String(title || 'event').toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '')
+  .trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').slice(0, 60) || 'event';
+
+const saveBlob = (blob, fileName) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
+const isPhone = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+const canShareFiles = (files) => {
+  try { return isPhone() && !!navigator.canShare?.({ files }); } catch { return false; }
+};
+
+function DownloadOverlay({ list, eventTitle, numberOf, onClose }) {
+  const [phase, setPhase] = useState('loading'); // loading | ready | done | error
+  const [progress, setProgress] = useState(0);
+  const [doneCount, setDoneCount] = useState(0);
+  const [failed, setFailed] = useState(0);
+  const [files, setFiles] = useState([]);
+  const [message, setMessage] = useState('');
+  const [facts, setFacts] = useState(fallbackFacts);
+  const [factAt, setFactAt] = useState(0);
+  const ctrlRef = useRef(null);
+  const total = list.length;
+  const base = slugName(eventTitle);
+
+  // A new fact every few seconds; the AI's batch takes over when it lands.
+  useEffect(() => {
+    let live = true;
+    loadBibleFacts().then((ai) => { if (live && ai.length) { setFacts(ai); setFactAt(0); } });
+    const id = setInterval(() => setFactAt((i) => i + 1), 5500);
+    return () => { live = false; clearInterval(id); };
+  }, []);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const save = async (got) => {
+    if (got.length === 1) { saveBlob(got[0], got[0].name); return; }
+    const parts = await Promise.all(got.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) })));
+    saveBlob(makeZip(parts), `${base}-photos.zip`);
+  };
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    ctrlRef.current = ctrl;
+    const frac = new Array(total).fill(0);
+    const tick = () => setProgress(frac.reduce((s, f) => s + f, 0) / total);
+    const results = new Array(total).fill(null);
+
+    // One photo, with its bytes counted as they arrive when the size is known.
+    const fetchOne = async (p, i) => {
+      const res = await fetch(p.download || p.full, { signal: ctrl.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const size = Number(res.headers.get('content-length')) || 0;
+      let blob;
+      if (res.body && size) {
+        const reader = res.body.getReader();
+        const chunks = [];
+        let got = 0;
+        for (;;) {
+          // eslint-disable-next-line no-await-in-loop
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          got += value.length;
+          frac[i] = Math.min(0.99, got / size);
+          tick();
+        }
+        blob = new Blob(chunks, { type: res.headers.get('content-type') || 'image/jpeg' });
+      } else {
+        blob = await res.blob();
+      }
+      const n = String(numberOf(p)).padStart(2, '0');
+      return new File([blob], `${base}-photo-${n}.jpg`, { type: blob.type || 'image/jpeg' });
+    };
+
+    let next = 0;
+    const worker = async () => {
+      while (next < total) {
+        const i = next;
+        next += 1;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          results[i] = await fetchOne(list[i], i);
+        } catch (e) {
+          if (ctrl.signal.aborted) throw e;
+          results[i] = null;
+        }
+        frac[i] = 1;
+        tick();
+        setDoneCount((c) => c + 1);
+      }
+    };
+
+    (async () => {
+      try {
+        await Promise.all(Array.from({ length: Math.min(3, total) }, worker));
+      } catch {
+        return; // cancelled
+      }
+      const got = results.filter(Boolean);
+      setFailed(total - got.length);
+      if (!got.length) {
+        setPhase('error');
+        setMessage('The photos could not be downloaded. Check your connection and try again.');
+        return;
+      }
+      setFiles(got);
+      if (canShareFiles(got)) { setPhase('ready'); return; }
+      try {
+        await save(got);
+        setPhase('done');
+      } catch {
+        setPhase('error');
+        setMessage('The download could not be saved. Try fewer photos at once.');
+      }
+    })();
+    return () => ctrl.abort();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The share sheet needs a fresh tap, so it is a button rather than automatic.
+  const shareNow = async () => {
+    try {
+      await navigator.share({ files, title: eventTitle });
+      setPhase('done');
+    } catch (e) {
+      if (e?.name !== 'AbortError') setMessage('Sharing did not work on this phone - use "Download file" instead.');
+    }
+  };
+  const asFile = async () => {
+    try { await save(files); setPhase('done'); } catch { setMessage('The download could not be saved.'); }
+  };
+
+  const pct = Math.round(progress * 100);
+  const fact = facts.length ? facts[factAt % facts.length] : '';
+  const what = total === 1 ? 'your photo' : `${total} photos`;
+
+  return (
+    <div className="ep-dl-overlay" role="dialog" aria-modal="true" aria-label="Downloading photos">
+      <div className="ep-dl">
+        <ChurchBrand className="ep-dl-brand" />
+
+        {phase === 'loading' && (
+          <>
+            <p className="ep-dl-status">
+              {total === 1 ? 'Getting your photo ready…' : `Downloading ${Math.min(doneCount + 1, total)} of ${total} photos…`}
+            </p>
+            <div className="ep-dl-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+              <span style={{ width: `${Math.max(3, pct)}%` }} />
+            </div>
+            <p className="ep-dl-pct">{pct}%</p>
+          </>
+        )}
+        {phase === 'ready' && (
+          <>
+            <p className="ep-dl-status is-ok"><i className="fas fa-circle-check"></i> {total === 1 ? 'Your photo is ready' : `Your ${files.length} photos are ready`}</p>
+            <div className="ep-dl-acts">
+              <button type="button" className="ep-btn" onClick={shareNow}>
+                <i className="fas fa-mobile-screen"></i> Save to your phone
+              </button>
+              <button type="button" className="ep-link" onClick={asFile}><i className="fas fa-file-arrow-down"></i> Download file instead</button>
+            </div>
+          </>
+        )}
+        {phase === 'done' && (
+          <p className="ep-dl-status is-ok">
+            <i className="fas fa-circle-check"></i> Saved {what === 'your photo' ? 'your photo' : `${files.length} photos`}!
+            <small>{files.length > 1 && !canShareFiles(files) ? 'They are in one .zip file in your Downloads.' : 'Check your downloads or gallery.'}</small>
+          </p>
+        )}
+        {phase === 'error' && <p className="ep-dl-status is-bad"><i className="fas fa-circle-exclamation"></i> {message}</p>}
+        {phase !== 'error' && message && <p className="ep-dl-note">{message}</p>}
+        {phase !== 'loading' && failed > 0 && phase !== 'error' && (
+          <p className="ep-dl-note">{failed} photo{failed === 1 ? '' : 's'} could not be downloaded.</p>
+        )}
+
+        {fact && (phase === 'loading' || phase === 'ready') && (
+          <div className="ep-fact" key={`${factAt}-${fact.length}`}>
+            <span className="ep-fact-label"><i className="fas fa-lightbulb"></i> Did you know?</span>
+            <p>{fact}</p>
+          </div>
+        )}
+
+        <div className="ep-dl-foot">
+          {phase === 'loading' ? (
+            <button type="button" className="ep-link" onClick={() => { ctrlRef.current?.abort(); onClose(false); }}>
+              <i className="fas fa-times"></i> Cancel
+            </button>
+          ) : (
+            <button type="button" className="ep-btn ep-btn-ghost" onClick={() => onClose(phase === 'done')}>Close</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The heart on a photo: anyone can give one, no login, and everyone sees how
+// many it has. Its own button beside the photo's (never inside it), so a tap
+// on the heart does not open the photo.
+function HeartButton({ photo, onToggle, big = false }) {
+  const [pop, setPop] = useState(false);
+  const count = photo.hearts || 0;
+  return (
+    <button
+      type="button"
+      className={`ep-heart ${photo.hearted ? 'on' : ''} ${big ? 'is-big' : ''} ${pop ? 'pop' : ''}`}
+      aria-pressed={!!photo.hearted}
+      aria-label={photo.hearted ? `Take your heart back - ${count} ${count === 1 ? 'heart' : 'hearts'}` : `Heart this photo - ${count} ${count === 1 ? 'heart' : 'hearts'}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!photo.hearted) { setPop(true); setTimeout(() => setPop(false), 450); }
+        onToggle(photo);
+      }}
+    >
+      <i className={`${photo.hearted ? 'fas' : 'far'} fa-heart`}></i>
+      <span>{count}</span>
+    </button>
+  );
+}
+
+// A pop-up over the page: Enter Credentials, and Feedback. Escape or a tap
+// outside closes it, and the page behind does not scroll meanwhile.
+function Modal({ onClose, label, children }) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') closeRef.current(); };
+    window.addEventListener('keydown', onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = overflow; };
+  }, []);
+  return (
+    <div className="ep-popup-overlay ep-modal-overlay" onClick={onClose}>
+      <div className="ep-modal" role="dialog" aria-modal="true" aria-label={label} onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="ep-modal-close" onClick={onClose} aria-label="Close"><i className="fas fa-times"></i></button>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Feedback, once the event is over. A name, or "Make anonymous" - which
+// sends no name at all - and up to FEEDBACK_MAX_WORDS words, counted as they
+// are typed the same way the server counts them.
+function FeedbackForm({ slug, eventTitle, defaultName = '', onClose }) {
+  const [name, setName] = useState(defaultName);
+  const [anonymous, setAnonymous] = useState(false);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [sent, setSent] = useState(false);
+  const words = countWords(message);
+  const tooLong = words > FEEDBACK_MAX_WORDS;
+  const canSend = !busy && words > 0 && !tooLong && (anonymous || !!name.trim());
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!canSend) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch('/api/events/public/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, name: anonymous ? '' : name.trim(), anonymous, message }),
+      });
+      const data = await res.json();
+      if (!data.success) { setError(data.message || 'Your feedback could not be sent.'); return; }
+      setSent(true);
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (sent) {
+    return (
+      <div className="ep-feedback ep-feedback-done">
+        <div className="ep-lock-icon"><i className="fas fa-heart"></i></div>
+        <h2>Thank you!</h2>
+        <p className="ep-lock-sub">
+          Your feedback was sent{anonymous ? ' anonymously' : ''}. It helps us make the next gathering even better.
+        </p>
+        <button type="button" className="ep-btn" onClick={onClose}>Close</button>
+      </div>
+    );
+  }
+
+  return (
+    <form className="ep-feedback" onSubmit={submit}>
+      <div className="ep-lock-icon"><i className="fas fa-comment-dots"></i></div>
+      <h2>Give Feedback</h2>
+      <p className="ep-lock-sub">How was {eventTitle}? Tell us what blessed you, and what we can do better.</p>
+      <div className="ep-form">
+        <label htmlFor="ep-fb-name">Your name</label>
+        <div className="ep-fb-name">
+          <input
+            id="ep-fb-name"
+            value={anonymous ? '' : name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={anonymous ? 'Anonymous' : 'e.g. Juan Dela Cruz'}
+            maxLength={FEEDBACK_MAX_NAME}
+            autoComplete="name"
+            disabled={anonymous || busy}
+          />
+          <button
+            type="button"
+            className={`ep-anon ${anonymous ? 'on' : ''}`}
+            aria-pressed={anonymous}
+            onClick={() => setAnonymous((v) => !v)}
+            disabled={busy}
+          >
+            <i className={`fas ${anonymous ? 'fa-user-secret' : 'fa-mask'}`}></i>
+            {anonymous ? 'Anonymous' : 'Make anonymous'}
+          </button>
+        </div>
+        {anonymous && <p className="ep-hint">Your name will not be sent or saved.</p>}
+
+        <label htmlFor="ep-fb-msg">Your feedback</label>
+        <textarea
+          id="ep-fb-msg"
+          rows={7}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Share your thoughts about the event…"
+          disabled={busy}
+        />
+        <p className={`ep-hint ep-fb-count ${tooLong ? 'warn' : ''}`}>
+          <b>{words}</b> / {FEEDBACK_MAX_WORDS} words{tooLong ? ' - please shorten it a little' : ''}
+        </p>
+
+        <button type="submit" className="ep-btn" disabled={!canSend}>
+          {busy ? <span className="ep-spinner" /> : <i className="fas fa-paper-plane"></i>} Submit Feedback
+        </button>
+      </div>
+      {error && <p className="ep-error"><i className="fas fa-circle-exclamation"></i> {error}</p>}
+    </form>
+  );
+}
+
 function Unlock({
   slug, code, year, onUnlocked,
-  icon = 'fa-lock', title = 'Event Photos',
-  sub = 'For attendees only. Unlock with your password or your RFID card.',
-  cta = 'Open Photos',
+  icon = 'fa-user-lock', title = 'Enter Credentials',
+  sub = 'For attendees only. Sign in with your password or your RFID card.',
+  cta = 'Sign In',
 }) {
   const [mode, setMode] = useState('password');
   const [password, setPassword] = useState('');
@@ -846,7 +1561,7 @@ function Unlock({
       const data = await res.json();
       if (!data.success) {
         if (data.sameLastName) setSameLast(true);
-        setError(data.message || 'Could not unlock the photos.');
+        setError(data.message || 'Could not sign you in.');
         return;
       }
       onUnlocked(data);
@@ -1905,12 +2620,30 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
   );
 }
 
-function Lightbox({ photos, index, onIndex, onClose }) {
+function Lightbox({ photos, index, onIndex, onClose, onHeart = null, onDownload = null }) {
   const photo = photos[index];
   const prev = useCallback(() => onIndex((index - 1 + photos.length) % photos.length), [index, photos.length, onIndex]);
   const next = useCallback(() => onIndex((index + 1) % photos.length), [index, photos.length, onIndex]);
   const touch = useRef(null);
   const [loaded, setLoaded] = useState('');
+  // Double-tap the photo to heart it, with the logo popping up in the middle.
+  // A single tap on the photo does nothing here, so there is nothing to wait
+  // for - two taps close together are the heart.
+  const lastTap = useRef(0);
+  const [pop, setPop] = useState(0);
+  const tapPhoto = (e) => {
+    e.stopPropagation();
+    if (!onHeart) return;
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      lastTap.current = 0;
+      setPop(now);
+      if (!photo.hearted) onHeart(photo);
+    } else {
+      lastTap.current = now;
+    }
+  };
+  useEffect(() => { setPop(0); }, [index]);
 
   // The neighbours load while this one is looked at, so the next swipe is instant.
   useEffect(() => {
@@ -1947,12 +2680,19 @@ function Lightbox({ photos, index, onIndex, onClose }) {
       <div className="ep-lb-top" onClick={(e) => e.stopPropagation()}>
         <span>{index + 1} / {photos.length}</span>
         <div>
+          {onHeart && <HeartButton photo={photo} onToggle={onHeart} big />}
+          {onDownload && (
+            <button type="button" className="ep-lb-close" onClick={() => onDownload(photo)} aria-label="Download this photo" title="Download">
+              <i className="fas fa-download"></i>
+            </button>
+          )}
           <button type="button" className="ep-lb-close" onClick={onClose} aria-label="Close"><i className="fas fa-times"></i></button>
         </div>
       </div>
       {/* The thumbnail is already in the browser, so it shows at once; the
           sharp framed version fades in over it when it arrives. */}
-      <div className="ep-lb-stage" onClick={(e) => e.stopPropagation()}>
+      <div className="ep-lb-stage" onClick={tapPhoto}>
+        {pop > 0 && <LovePop key={pop} big onDone={() => setPop(0)} />}
         <img className="ep-lb-thumb" src={photo.thumb} alt="" aria-hidden="true" />
         <img
           key={photo.full}

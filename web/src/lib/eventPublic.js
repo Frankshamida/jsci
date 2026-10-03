@@ -234,6 +234,13 @@ export const eventDays = (evt) => {
  */
 export const daysWith = (evt, extra = []) => [...new Set([...eventDays(evt), ...extra.map(isoDay).filter(Boolean)])].sort();
 
+// ---- Feedback ----
+// Counted the same way on the page (the live "123 / 500 words") and on the
+// server (which refuses anything over), so the two can never disagree.
+export const FEEDBACK_MAX_WORDS = 500;
+export const FEEDBACK_MAX_NAME = 80;
+export const countWords = (text) => String(text || '').trim().split(/\s+/).filter(Boolean).length;
+
 /** "2026-10-02" -> "Fri, Oct 2". */
 export const shortDay = (d) => {
   const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/);

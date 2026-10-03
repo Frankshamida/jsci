@@ -866,7 +866,7 @@ export default function CommitteeDashboardPage() {
   // Shown only on an event priced by age; every other event would get a column
   // of dashes. Mirrors the admin table so the two desks read the same.
   const regsHaveTiers = hasPriceTiers(eventRegsModal) || eventRegs.some((r) => r.price_tier);
-  const regCols = regsHaveTiers ? 9 : 8;
+  const regCols = regsHaveTiers ? 8 : 7;
   const regTierIsChild = (label) => {
     const t = findTier(eventRegsModal, label);
     return t ? t.nameOnly : /\bkid|child|toddler\b/i.test(String(label || ''));
@@ -3349,7 +3349,9 @@ export default function CommitteeDashboardPage() {
                           <tr>
                             <th>Attendee</th>
                             {regsHaveTiers && <th>Age Group</th>}
-                            <th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Payment</th><th>Status</th>
+                            {/* No Payment column - the amount is on the
+                                receipt, and Status says whether it is settled. */}
+                            <th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Status</th>
                             <th style={{ textAlign: 'right' }}>Actions</th>
                           </tr>
                         </thead>
@@ -3456,29 +3458,6 @@ export default function CommitteeDashboardPage() {
                                     </div>
                                   );
                                 })()}
-                              </td>
-                              <td data-label="Payment" className="evt-cell-payment">
-                                {r.amount > 0 ? (
-                                  <>
-                                    <strong>{peso(r.amount)}</strong>
-                                    <div className="evt-cell-sub">
-                                      {r.payment_method || '—'}
-                                      {r.base_amount != null && Number(r.base_amount) !== Number(r.amount) && (
-                                        <> · {peso(r.base_amount)} + <b className="evt-extra-amt">{peso(Number(r.amount) - Number(r.base_amount))}</b></>
-                                      )}
-                                    </div>
-                                    {r.payment_reference && <div className="evt-cell-sub">Ref: {r.payment_reference}</div>}
-                                    {r.payment_plan === 'flexible' && (() => {
-                                      const paidNow = Number(r.amount_paid) || 0;
-                                      const settled = paidNow >= (Number(r.amount) || 0);
-                                      return (
-                                        <span className={`evt-plan-tag ${settled ? 'settled' : ''}`}>
-                                          <i className={`fas ${settled ? 'fa-circle-check' : 'fa-calendar-day'}`}></i> Total Paid: {peso(paidNow)}
-                                        </span>
-                                      );
-                                    })()}
-                                  </>
-                                ) : 'Free'}
                               </td>
                               <td className="evt-nowrap" data-label="Status">
                                 {(() => {

@@ -197,6 +197,87 @@ async function logAudit(actor, action, resourceId, details) {
   } catch { /* non-fatal */ }
 }
 
+// ---- Who took the money, and when ----
+// For the Registrations table's "Paid before the event / Paid on the event
+// day" filter, and the name under each paid row's status. Added to every
+// settled row that cost something:
+//
+//   paid_by_name  whoever did the transaction:
+//                   money still with somebody   - the person holding it
+//                   taken at the verification desk - the verifier, from the
+//                     newest payment in the desk's log that was not reverted
+//                   otherwise                   - the staff account that
+//                     confirmed it (verified_by)
+//   paid_at       when: that desk payment, else when it was confirmed, else
+//                 when the registration was made
+//
+// Cash To Collect gets the same two answers about the money still owed:
+//
+//   due_by_name   who put it there: the verifier who added an extra at the
+//                 desk (the newest one not reverted), else whoever added the
+//                 registration
+//   due_at        when
+//   due_reason    'extra' | 'added'
+//
+// Both lookups are best-effort. A database without the verification log, or
+// a staff account since removed, leaves the name empty - never the list.
+const PAID_STATUSES = ['payment_verified', 'registered', 'paid_pending_turnover'];
+async function withPaidBy(eventId, rows) {
+  const paid = rows.filter((r) => PAID_STATUSES.includes(r.status) && (Number(r.amount) || 0) > 0);
+  const due = rows.filter((r) => r.status === 'pending_cash' && (Number(r.amount) || 0) > 0);
+  if (paid.length === 0 && due.length === 0) return rows;
+  const staffIds = [...new Set(paid.map((r) => r.verified_by).filter(Boolean))];
+  const [logs, staff] = await Promise.all([
+    supabase
+      .from('registration_verification_logs')
+      .select('registration_id, action, verifier_name, created_at')
+      .eq('event_id', eventId)
+      .in('action', ['payment', 'extra_added'])
+      .is('reverted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(5000)
+      .then((res) => res.data || [], () => []),
+    staffIds.length
+      ? supabase.from('users').select('id, firstname, lastname').in('id', staffIds)
+        .then((res) => res.data || [], () => [])
+      : Promise.resolve([]),
+  ]);
+  // Newest first, so the first one seen for a registration is its latest.
+  const deskPay = new Map();
+  const deskExtra = new Map();
+  logs.forEach((l) => {
+    const into = l.action === 'payment' ? deskPay : deskExtra;
+    if (l.registration_id && !into.has(l.registration_id)) into.set(l.registration_id, l);
+  });
+  const staffName = new Map(staff.map((u) => [u.id, [u.firstname, u.lastname].filter(Boolean).join(' ').trim()]));
+
+  const isPaid = new Set(paid);
+  const isDue = new Set(due);
+  return rows.map((r) => {
+    if (isDue.has(r)) {
+      const extra = deskExtra.get(r.id);
+      return {
+        ...r,
+        due_by_name: extra?.verifier_name || r.added_by || null,
+        due_at: extra?.created_at || r.created_at || null,
+        due_reason: extra ? 'extra' : 'added',
+      };
+    }
+    if (!isPaid.has(r)) return r;
+    const desk = deskPay.get(r.id);
+    // The holder is typed by hand, and "by Pstra. Gracelyn Gambe" has been
+    // typed - the "by" is the form's word, not part of her name.
+    const holder = r.status === 'paid_pending_turnover'
+      ? String(r.turnover_holder || '').trim().replace(/^by\s+/i, '')
+      : '';
+    return {
+      ...r,
+      paid_by_name: holder || desk?.verifier_name || staffName.get(r.verified_by) || null,
+      paid_at: (holder && r.turnover_marked_at) || desk?.created_at || r.verified_at || r.created_at || null,
+    };
+  });
+}
+
 // GET  ?eventId=..            -> all registrations for an event (admin view)
 //      ?eventId=..&userId=..  -> this user's registration for one event (status check)
 //      ?userId=..             -> ALL of this user's registrations, with event details (My Registrations)
@@ -497,7 +578,7 @@ export async function GET(request) {
 
     const { data, error } = await query;
     if (error) throw error;
-    return NextResponse.json({ success: true, data: data || [] });
+    return NextResponse.json({ success: true, data: await withPaidBy(eventId, data || []) });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }

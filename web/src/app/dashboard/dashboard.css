@@ -25535,42 +25535,42 @@ body.dark-mode .evt-copy-cell:hover { background: rgba(255,255,255,0.08); }
    font those widths use.
 
    If these are ever re-tuned: change two numbers so the total stays 100. */
-.evt-table-regs th:nth-child(1), .evt-table-regs td:nth-child(1) { width: 18%; }  /* Attendee */
-.evt-table-regs th:nth-child(2), .evt-table-regs td:nth-child(2) { width: 9%; }   /* Type */
-.evt-table-regs th:nth-child(3), .evt-table-regs td:nth-child(3) { width: 14%; }  /* Added By */
-.evt-table-regs th:nth-child(4), .evt-table-regs td:nth-child(4) { width: 18%; }  /* Church */
-.evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { width: 5%; }   /* Extras */
-.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { width: 12%; }  /* Payment */
-.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { width: 12%; }  /* Status */
-.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { width: 12%; }  /* Actions */
-/* 18 + 9 + 14 + 18 + 5 + 12 + 12 + 12 = 100 */
+/* No Payment column any more - its 12% went back to the columns that wrap
+   first: Attendee, Type, Added By, Church, Extras and Status. */
+.evt-table-regs th:nth-child(1), .evt-table-regs td:nth-child(1) { width: 20%; }  /* Attendee */
+.evt-table-regs th:nth-child(2), .evt-table-regs td:nth-child(2) { width: 10%; }  /* Type */
+.evt-table-regs th:nth-child(3), .evt-table-regs td:nth-child(3) { width: 16%; }  /* Added By */
+.evt-table-regs th:nth-child(4), .evt-table-regs td:nth-child(4) { width: 19%; }  /* Church */
+.evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { width: 6%; }   /* Extras */
+.evt-table-regs th:nth-child(6), .evt-table-regs td:nth-child(6) { width: 17%; }  /* Status */
+.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { width: 12%; }  /* Actions */
+/* 20 + 10 + 16 + 19 + 6 + 17 + 12 = 100 */
 /* the same gutter the Attendee column gets on the other side */
-.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { padding-right: 18px; padding-left: 12px; }
+.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { padding-right: 18px; padding-left: 12px; }
 /* the extras tick sits under the middle of its heading, not off in the margin */
 .evt-table-regs th:nth-child(5), .evt-table-regs td:nth-child(5) { text-align: center; }
 /* Manage keeps company with Status instead of hugging the table edge */
-.evt-table-regs th:nth-child(8), .evt-table-regs td:nth-child(8) { text-align: right; }
+.evt-table-regs th:nth-child(7), .evt-table-regs td:nth-child(7) { text-align: right; }
 .evt-table-regs th, .evt-table-regs td { padding: 13px 12px; }
 .evt-table-regs th:first-child, .evt-table-regs td:first-child { padding-left: 18px; }
 .evt-table-regs th:last-child, .evt-table-regs td:last-child { padding-right: 18px; }
 /* ---- With the Age Group column ----
-   It only exists on an event priced by age, so the nine-column proportions
+   It only exists on an event priced by age, so the eight-column proportions
    live here rather than being carried by every event. The extra column is paid
    for out of Attendee, Added By and Church, which have the most slack; the
    nth-child rules above still apply, so each one below is a correction to the
    column that has shifted one place right. */
-.evt-table-regs.has-tier th:nth-child(1), .evt-table-regs.has-tier td:nth-child(1) { width: 16%; }  /* Attendee */
-.evt-table-regs.has-tier th:nth-child(2), .evt-table-regs.has-tier td:nth-child(2) { width: 9%; text-align: left; }    /* Age Group */
-.evt-table-regs.has-tier th:nth-child(3), .evt-table-regs.has-tier td:nth-child(3) { width: 8%; }   /* Type */
-.evt-table-regs.has-tier th:nth-child(4), .evt-table-regs.has-tier td:nth-child(4) { width: 12%; }  /* Added By */
+.evt-table-regs.has-tier th:nth-child(1), .evt-table-regs.has-tier td:nth-child(1) { width: 18%; }  /* Attendee */
+.evt-table-regs.has-tier th:nth-child(2), .evt-table-regs.has-tier td:nth-child(2) { width: 10%; text-align: left; }   /* Age Group */
+.evt-table-regs.has-tier th:nth-child(3), .evt-table-regs.has-tier td:nth-child(3) { width: 9%; }   /* Type */
+.evt-table-regs.has-tier th:nth-child(4), .evt-table-regs.has-tier td:nth-child(4) { width: 14%; }  /* Added By */
 .evt-table-regs.has-tier th:nth-child(5), .evt-table-regs.has-tier td:nth-child(5) { width: 15%; text-align: left; }  /* Church */
 .evt-table-regs.has-tier th:nth-child(6), .evt-table-regs.has-tier td:nth-child(6) { width: 5%; text-align: center; } /* Extras */
-.evt-table-regs.has-tier th:nth-child(7), .evt-table-regs.has-tier td:nth-child(7) { width: 11%; text-align: left; }  /* Payment */
-.evt-table-regs.has-tier th:nth-child(8), .evt-table-regs.has-tier td:nth-child(8) {
-  width: 12%; text-align: left; padding-right: 10px; padding-left: 10px;         /* Status */
+.evt-table-regs.has-tier th:nth-child(7), .evt-table-regs.has-tier td:nth-child(7) {
+  width: 17%; text-align: left; padding-right: 10px; padding-left: 10px;         /* Status */
 }
-/* 16 + 9 + 8 + 12 + 15 + 5 + 11 + 12 + 12 = 100 */
-.evt-table-regs.has-tier th:nth-child(9), .evt-table-regs.has-tier td:nth-child(9) {
+/* 18 + 10 + 9 + 14 + 15 + 5 + 17 + 12 = 100 */
+.evt-table-regs.has-tier th:nth-child(8), .evt-table-regs.has-tier td:nth-child(8) {
   width: 12%; text-align: right; padding-right: 18px; padding-left: 10px;        /* Actions */
 }
 
@@ -26029,6 +26029,15 @@ body.dark-mode .evt-claim-state.live { border-color: rgba(255, 255, 255, 0.28); 
   font-size: 0.62rem; font-weight: 800; letter-spacing: 0.05em;
   text-transform: uppercase; color: var(--accent, #b8860b);
 }
+/* The day whose date is today - the one the desk opens on by itself. */
+.evt-daypick-today {
+  margin-top: 3px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.05em;
+  text-transform: uppercase; color: #0d9488;
+}
+.evt-daypick-today i { font-size: 0.55rem; }
+body.dark-mode .evt-daypick-today { color: #2dd4bf; }
 body.dark-mode .evt-daypick { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.1); }
 body.dark-mode .evt-daypick-btn { background: #1e1e2e; border-color: rgba(255, 255, 255, 0.14); }
 body.dark-mode .evt-daypick-btn b { color: #f1f1f1; }
@@ -27257,7 +27266,7 @@ body.dark-mode .evt-admin-card { background: #1e1e2e; }
   .evt-table-regs th:nth-child(n), .evt-table-regs td:nth-child(n) {
     width: 100%; padding-left: 16px; padding-right: 16px; text-align: right;
   }
-  /* And again for the nine-column variant. Its widths carry a third class, so
+  /* And again for the Age Group variant. Its widths carry a third class, so
      they outrank the rule above wherever it is written - the same trap, one
      column further along. */
   .evt-table-regs.has-tier th:nth-child(n), .evt-table-regs.has-tier td:nth-child(n) {
@@ -31954,7 +31963,7 @@ body.dark-mode .evt-extras-tag { background: rgba(255, 195, 0, 0.14); color: var
   }
   .evt-table.evt-regs-cards tbody tr {
     display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas: "main pay act" "main status act";
+    grid-template-areas: "main status act";
     align-items: center; column-gap: 12px;
     margin: 0 0 12px; padding: 14px 16px; border-radius: 16px;
     background: var(--bg-card, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.06));
@@ -31971,13 +31980,7 @@ body.dark-mode .evt-extras-tag { background: rgba(255, 195, 0, 0.14); color: var
     grid-area: main; display: flex; align-items: center; gap: 14px; min-width: 0;
     padding-right: 12px !important; border-right: 1px solid var(--border-color, rgba(0,0,0,0.08)) !important;
   }
-  .evt-table.evt-regs-cards tbody td.evt-cell-payment {
-    grid-area: pay; display: block; align-self: end; font-size: 1.05rem;
-  }
-  .evt-table.evt-regs-cards tbody td.evt-cell-payment .evt-cell-sub,
-  .evt-table.evt-regs-cards tbody td.evt-cell-payment .evt-plan-tag { display: none; }
-  .evt-table.evt-regs-cards tbody td.evt-cell-payment strong { font-weight: 800; }
-  .evt-table.evt-regs-cards tbody td[data-label="Status"] { grid-area: status; display: block; align-self: start; margin-top: 4px; }
+  .evt-table.evt-regs-cards tbody td[data-label="Status"] { grid-area: status; display: block; align-self: center; }
   .evt-table.evt-regs-cards tbody td[data-label="Status"] .evt-cell-sub { display: none; }
   .evt-table.evt-regs-cards tbody td.evt-td-actions { grid-area: act; display: block; }
 
@@ -32049,13 +32052,12 @@ body.dark-mode .evt-extras-tag { background: rgba(255, 195, 0, 0.14); color: var
 }
 
 /* ---- Registration cards: everything on the same lines ----
-   The price/status column is a fixed width, so the divider and the Manage
+   The status column is a fixed width, so the divider and the Manage
    button sit in the same place on every card whatever the status says. Name
    and church are one line each and end in "..." when too long. */
 .evt-rname-txt { display: inline; }
 @media (max-width: 1024px) {
   .evt-table.evt-regs-cards tbody tr { grid-template-columns: minmax(0, 1fr) 118px auto; }
-  .evt-table.evt-regs-cards tbody td.evt-cell-payment,
   .evt-table.evt-regs-cards tbody td[data-label="Status"] { justify-self: end; text-align: right; white-space: nowrap; }
   .evt-regs-cards .evt-rname { flex: 1; overflow: hidden; }
   .evt-regs-cards .evt-rname-txt {
@@ -32354,6 +32356,33 @@ body.dark-mode .evt-fsel { color: #eee; }
 .evt-fsel-menu button:hover, .evt-fsel-menu button:focus-visible { background: rgba(234,179,8,0.12); outline: none; }
 .evt-fsel-menu button.on { background: rgba(146,108,21,0.14); color: var(--primary, #926c15); font-weight: 700; }
 .evt-fsel-menu button > i { font-size: 0.8rem; color: var(--primary, #926c15); }
+/* Registrations, Status column: who handled the money, and exactly when.
+   Two lines, and the name wraps rather than being cut off - the whole point
+   of the line is the name. (The cell itself is .evt-nowrap.) */
+.evt-paid-by {
+  display: flex; flex-direction: column; gap: 1px; margin-top: 5px; min-width: 0;
+  white-space: normal; line-height: 1.3;
+}
+.evt-paid-who { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.evt-paid-who > i { flex-shrink: 0; font-size: 0.72rem; color: var(--primary, #926c15); }
+.evt-paid-who b { font-weight: 700; color: var(--text-primary, #2b2100); overflow-wrap: anywhere; }
+.evt-paid-when { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; font-variant-numeric: tabular-nums; }
+.evt-paid-day {
+  font-style: normal; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 999px; background: rgba(22, 163, 74, 0.12); color: #15803d;
+}
+body.dark-mode .evt-paid-who > i { color: #f5d27a; }
+body.dark-mode .evt-paid-who b { color: #f1f1f1; }
+body.dark-mode .evt-paid-day { background: rgba(74, 222, 128, 0.16); color: #86efac; }
+
+/* A group title inside the list, and the options under it. */
+.evt-fsel-menu .evt-fsel-head {
+  padding: 10px 12px 4px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-muted, #8a7a55);
+}
+.evt-fsel-menu .evt-fsel-head:not(:first-child) { margin-top: 4px; border-top: 1px solid rgba(146,108,21,0.12); padding-top: 12px; }
+.evt-fsel-menu button.is-indent { padding-left: 24px; font-weight: 500; }
+body.dark-mode .evt-fsel-menu .evt-fsel-head { color: #b9a674; border-color: rgba(255,255,255,0.08); }
 .evt-fsel-menu::-webkit-scrollbar { width: 8px; }
 .evt-fsel-menu::-webkit-scrollbar-thumb { background: rgba(146,108,21,0.3); border-radius: 8px; }
 body.dark-mode .evt-fsel-menu { background: #262634; border-color: rgba(255,255,255,0.1); }
@@ -32694,14 +32723,13 @@ body.dark-mode .evt-rhead-loc { background: rgba(245,210,122,0.14); color: #f5d2
 /* Registration cards on phones - two tiers      */
 /* ============================================ */
 /* The person gets the whole width of the card - name in full, wrapped when it
-   is long - and the money sits underneath: amount and status on the left,
-   Manage on the right. Squeezing name, amount, status and Manage into one row
-   is what cut the names short and pushed "Paid - Pending Turnover" under the
-   Manage button. */
+   is long - and the status sits underneath on the left, Manage on the right.
+   Squeezing name, status and Manage into one row is what cut the names short
+   and pushed "Paid - Pending Turnover" under the Manage button. */
 @media (max-width: 1024px) {
   .evt-table.evt-regs-cards tbody tr {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "main main" "pay act" "status act";
+    grid-template-areas: "main main" "status act";
     column-gap: 12px; row-gap: 2px;
   }
   .evt-table.evt-regs-cards tbody td.evt-td-primary {
@@ -32714,13 +32742,12 @@ body.dark-mode .evt-rhead-loc { background: rgba(245,210,122,0.14); color: #f5d2
   .evt-regs-cards .evt-rname-txt {
     white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.3;
   }
-  .evt-table.evt-regs-cards tbody td.evt-cell-payment,
   .evt-table.evt-regs-cards tbody td[data-label="Status"] {
     justify-self: start; text-align: left; white-space: normal; min-width: 0;
   }
-  .evt-table.evt-regs-cards tbody td.evt-cell-payment { align-self: end; }
   .evt-table.evt-regs-cards tbody td[data-label="Status"] {
     display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 2px;
+    align-self: center;
   }
   .evt-table.evt-regs-cards tbody td.evt-td-actions { align-self: center; }
   .evt-regs-cards .evt-status { max-width: 100%; }
@@ -35323,3 +35350,48 @@ body.dark-mode .vrep-bal.is-over .vrep-bal-result { background: rgba(245, 158, 1
 @media (max-width: 520px) { .rexp-formats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 body.dark-mode .rexp-format, body.dark-mode .rexp-chip { background: rgba(255,255,255,0.03); border-color: rgba(224,180,74,0.3); }
 body.dark-mode .rexp-format.on { background: rgba(224,180,74,0.1); }
+
+/* ============================================ */
+/* Events page: Feedback                        */
+/* ============================================ */
+/* Create Event and Feedback side by side; Feedback the quieter of the two. */
+.evt-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.um-hero-btn.is-ghost {
+  background: rgba(255,255,255,0.14); color: #fff; border: 1.5px solid rgba(255,255,255,0.6);
+  box-shadow: none; backdrop-filter: blur(4px);
+}
+.um-hero-btn.is-ghost:hover { background: rgba(255,255,255,0.24); box-shadow: none; }
+
+/* What attendees wrote after each event, newest first. */
+.evt-fb-modal { max-width: 760px; }
+.evt-fb-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.evt-fb-bar .evt-filter-select { flex: 0 1 280px; min-width: 0; }
+.evt-fb-search { flex: 1 1 220px; min-width: 0; }
+.evt-fb-error { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #fdecec; color: #b42318; font-size: 0.88rem; font-weight: 600; }
+.evt-fb-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 0; padding: 40px 12px;
+  color: var(--text-muted, #7a7a7a); text-align: center;
+}
+.evt-fb-empty i { font-size: 1.8rem; color: rgba(146,108,21,0.45); }
+.evt-fb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.evt-fb-item {
+  padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  background: var(--bg-card, #fff); box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+.evt-fb-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.evt-fb-who { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; color: var(--text-primary, #2b2100); overflow-wrap: anywhere; }
+.evt-fb-who i { color: var(--primary, #926c15); }
+.evt-fb-who.is-anon { color: var(--text-muted, #7a7a7a); font-style: italic; }
+.evt-fb-del {
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer;
+  background: transparent; color: var(--text-muted, #9a9a9a);
+}
+.evt-fb-del:hover { background: rgba(220,53,69,0.1); color: #dc3545; }
+.evt-fb-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 0.78rem; color: var(--text-muted, #7a7a7a); }
+.evt-fb-meta i { margin-right: 4px; }
+.evt-fb-event { font-weight: 700; color: var(--primary, #926c15); }
+.evt-fb-msg { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 0.92rem; color: var(--text-primary, #2b2100); }
+body.dark-mode .evt-fb-item { background: #23232f; border-color: rgba(255,255,255,0.08); }
+body.dark-mode .evt-fb-who, body.dark-mode .evt-fb-msg { color: #eee; }
+body.dark-mode .evt-fb-event, body.dark-mode .evt-fb-who i { color: #f5d27a; }
+body.dark-mode .evt-fb-error { background: rgba(180,35,24,0.18); color: #f19a91; }

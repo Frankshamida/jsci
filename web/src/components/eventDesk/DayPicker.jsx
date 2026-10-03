@@ -1,13 +1,16 @@
 'use client';
 
+import { eventTodayKey } from '@/lib/eventFormat';
+
 /* ============================================================
    Which day of the event this desk is working on.
 
-   Chosen, never inferred from the clock: a door open at 8am on Day 2 is
-   checking people in for Day 2 whatever a timezone says, and an event running
-   past midnight would roll over mid-queue. Shown with the session name the
-   admin typed, because "Day 2" and "Evening Rally" are the same thing to the
-   system and only one of them is the thing on the poster.
+   Set by the calendar, changeable by hand: the desk opens on the day whose
+   date is today (see eventDayForToday), and moves on by itself when the date
+   changes. A day picked by hand is kept until then. Today's day is marked so
+   the desk can see at a glance that it is on the right one. Shown with the
+   session name the admin typed, because "Day 2" and "Evening Rally" are the
+   same thing to the system and only one of them is the thing on the poster.
 
    A single-day event has nothing to choose, so nothing is drawn.
 
@@ -29,6 +32,7 @@ export default function DayPicker({
   attendedDays = null,
 }) {
   if (days.length < 2) return null;
+  const today = eventTodayKey();
 
   return (
     <div className="evt-daypick">
@@ -52,6 +56,8 @@ export default function DayPicker({
               <em>{d.label === `Day ${d.number}` ? (d.when || 'No date') : d.label}</em>
               {wasHere ? (
                 <span className="evt-daypick-done"><i className="fas fa-check"></i> attended</span>
+              ) : d.dateKey === today ? (
+                <span className="evt-daypick-today"><i className="fas fa-circle-dot"></i> today</span>
               ) : (!d.started && <span className="evt-daypick-ahead">upcoming</span>)}
             </button>
           );

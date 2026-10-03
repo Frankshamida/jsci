@@ -12,6 +12,8 @@
    state stays on the page that owns it.
    ============================================================ */
 
+import { sameCard } from '@/lib/rfid';
+
 /* ---- Churches ----
    Kept as typed where it is clearly an acronym (JSCI, ICM), title-cased
    otherwise, with the small joining words left lowercase unless they start
@@ -162,11 +164,16 @@ export function formatStampLine(dateStr) {
      number   1, 2, 3...
      label    the session name the admin typed, else "Day 2"
      when     its own date and time, for the picker
-     started  whether it has begun. A day still in the future is shown but
-              cannot be ticked - nobody has attended tomorrow. */
+     dateKey  its calendar date, 'YYYY-MM-DD', or null when it has none
+     started  whether its DATE has arrived. A day still in the future is
+              shown but cannot be ticked - nobody has attended tomorrow. By
+              the date rather than the start time, because the door opens
+              before the programme does: at 7am on Day 2 people are already
+              arriving for an 8am start, and Day 2 must not read "upcoming". */
 export function eventDaysOf(event) {
   const rows = Array.isArray(event?.event_days) ? event.event_days : [];
   const now = Date.now();
+  const today = eventTodayKey(new Date(now));
 
   if (rows.length > 0) {
     return rows
@@ -175,12 +182,14 @@ export function eventDaysOf(event) {
       .map((d, i) => {
         const num = Number(d.day_number) || i + 1;
         const starts = evtDate(d.starts_at);
+        const dateKey = starts ? localDateKey(starts) : null;
         return {
           number: num,
           label: d.label ? String(d.label) : `Day ${num}`,
           when: d.starts_at ? formatSessionRange(d.starts_at, d.ends_at) : '',
+          dateKey,
           // No start time on the row means there is nothing to wait for.
-          started: !starts || starts.getTime() <= now,
+          started: !starts || starts.getTime() <= now || dateKey <= today,
         };
       });
   }
@@ -197,13 +206,63 @@ export function eventDaysOf(event) {
   }
   return Array.from({ length: count }, (_, i) => {
     const dayStart = start ? new Date(start.getTime() + i * 86400000) : null;
+    const dateKey = dayStart ? localDateKey(dayStart) : null;
     return {
       number: i + 1,
       label: `Day ${i + 1}`,
       when: dayStart ? dayStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
-      started: !dayStart || dayStart.getTime() <= now,
+      dateKey,
+      started: !dayStart || dayStart.getTime() <= now || dateKey <= today,
     };
   });
+}
+
+/* 'YYYY-MM-DD' of a date on this machine's calendar. Event times are
+   wall-clock (see evtDate), so the date an event day was typed for is read
+   straight off its own components. */
+export function localDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/* Today's date where the events happen, 'YYYY-MM-DD'. Always Philippine
+   time (as mealForNow is), never the device's own timezone: a desk laptop or
+   phone left on another zone would otherwise still think it is the day
+   before, and keep the door on Day 1 while Day 2's queue is at it. */
+export function eventTodayKey(now = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now);
+    const get = (t) => parts.find((p) => p.type === t)?.value;
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  } catch {
+    return localDateKey(now);
+  }
+}
+
+/* Which day of the event the calendar says it is.
+
+     on the date of Day 2   Day 2
+     before the event       the first day
+     between two days       the last day that has been
+     after the event        the last day
+
+   What a desk opens on, so on the morning of Day 2 the door, the meal
+   counter and the Mark Attended buttons are already on Day 2 without anybody
+   having to remember to switch them. Days with no date on them fall back to
+   "the last one that has started". */
+export function eventDayForToday(days, now = new Date()) {
+  if (!Array.isArray(days) || days.length === 0) return null;
+  const dated = days.filter((d) => d.dateKey);
+  if (dated.length === 0) {
+    const live = days.filter((d) => d.started);
+    return live.length > 0 ? live[live.length - 1].number : days[0].number;
+  }
+  const today = eventTodayKey(now);
+  const exact = dated.find((d) => d.dateKey === today);
+  if (exact) return exact.number;
+  const been = dated.filter((d) => d.dateKey < today);
+  return been.length > 0 ? been[been.length - 1].number : dated[0].number;
 }
 
 /* The kit, as the event defines it. events.merch_items is a jsonb array of
@@ -222,3 +281,34 @@ export function merchItemsOf(event) {
    event produces, 'payment_verified' what a paid one becomes when staff
    confirm the payment. */
 export const VERIFIED_STATUSES = ['registered', 'payment_verified', 'paid_pending_turnover'];
+
+/* What the door is about to say about a card, worked out from what is
+   already on screen - so the name is up the instant the card is tapped and
+   the queue is not held for the round trip.
+
+     door       { links, regs, dayAttend }
+                links      the event's card links, as an array or keyed by
+                           registration ({ registration_id, uid })
+                regs       the event's registrations
+                dayAttend  { [regId]: { '1': {...} } }
+     uid        the card just read
+     dayNumber  the day the desk is checking in for
+
+   Returns a result shaped like the server's, marked `pending` until the
+   server's own answer replaces it, or null when the card is not one this
+   screen knows - a member's own card is resolved on the server only. */
+export function guessDoorCheckIn(door, uid, dayNumber) {
+  const links = Array.isArray(door?.links) ? door.links : Object.values(door?.links || {});
+  const link = links.find((l) => l?.uid && sameCard(l.uid, uid));
+  const reg = link && (door?.regs || []).find((r) => r.id === link.registration_id);
+  if (!reg) return null;
+  const name = reg.attendee_name;
+  const base = { pending: true, uid, dayNumber, registration: reg };
+  if (!VERIFIED_STATUSES.includes(reg.status)) {
+    return { ...base, result: 'not_verified', message: `${name} is not verified yet (${String(reg.status || '').replace(/_/g, ' ')}).` };
+  }
+  if (door?.dayAttend?.[reg.id]?.[String(dayNumber)]) {
+    return { ...base, result: 'already_in', message: `${name} is already checked in for Day ${dayNumber}.` };
+  }
+  return { ...base, result: 'checked_in', message: `Checking in for Day ${dayNumber}…` };
+}

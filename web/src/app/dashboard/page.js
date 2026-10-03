@@ -12,6 +12,7 @@ import { sameAddon } from '@/lib/addons';
 import { publishQrDisplay } from '@/lib/qrDisplay';
 import { announceDeskChange, followDeskChanges } from '@/lib/deskSync';
 import { publishMealsDisplay } from '@/lib/mealsDisplay';
+import { checkinTapFrom, publishCheckinDisplay } from '@/lib/checkinDisplay';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { printReport, buildPrintHtml, buildXlsx, buildDocx, buildCsv, downloadBlob, safeFilename } from '@/lib/exportDoc';
 import { buildPdf, loadLogoJpeg } from '@/lib/pdfWriter';
@@ -39,6 +40,7 @@ import PickList from '@/components/eventDesk/PickList';
 import EventProgrammeTab from '@/components/eventDesk/EventProgrammeTab';
 import EventPhotosTab from '@/components/eventDesk/EventPhotosTab';
 import { publicEventSlugFor } from '@/lib/eventPublic';
+import { eventDayForToday, eventTodayKey, guessDoorCheckIn, localDateKey } from '@/lib/eventFormat';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import {
   PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
@@ -1152,12 +1154,18 @@ function LetterRange({ from, to, onChange, countFor }) {
 // these screens that ignored the gold theme. The trigger keeps the
 // evt-filter-select class, so it sits and sizes exactly where the select did.
 // The list is fixed-positioned in a portal so no card or scrolling box clips it.
+//
+// An option can also be
+//   { heading: true, label }  a group title in the list - not choosable
+//   { ..., indent: true }     drawn under the heading above it
+//   { ..., short }            what the box says once it is chosen, when the
+//                             label only makes sense under its heading
 function FilterSelect({ value, onChange, options, ariaLabel, className = '' }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
-  const current = options.find((o) => String(o.value) === String(value)) || options[0];
+  const current = options.find((o) => !o.heading && String(o.value) === String(value)) || options[0];
 
   const place = () => {
     const r = btnRef.current?.getBoundingClientRect();
@@ -1227,11 +1235,14 @@ function FilterSelect({ value, onChange, options, ariaLabel, className = '' }) {
           if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); place(); setOpen(true); }
         }}
       >
-        {current ? current.label : ''}
+        {current ? (current.short || current.label) : ''}
       </button>
       {open && pos && typeof document !== 'undefined' && createPortal(
         <ul ref={menuRef} className="evt-fsel-menu" role="listbox" aria-label={ariaLabel} style={pos} onKeyDown={moveFocus}>
           {options.map((o) => {
+            if (o.heading) {
+              return <li key={o.value} className="evt-fsel-head" role="presentation">{o.label}</li>;
+            }
             const on = String(o.value) === String(value);
             return (
               <li key={o.value}>
@@ -1239,7 +1250,7 @@ function FilterSelect({ value, onChange, options, ariaLabel, className = '' }) {
                   type="button"
                   role="option"
                   aria-selected={on}
-                  className={on ? 'on' : ''}
+                  className={`${on ? 'on' : ''} ${o.indent ? 'is-indent' : ''}`}
                   onClick={() => { onChange(o.value); setOpen(false); btnRef.current?.focus(); }}
                 >
                   <span>{o.label}</span>
@@ -2770,6 +2781,144 @@ export default function DashboardPage() {
     setConfirmModal((c) => ({ ...c, open: false, onConfirm: null, onCancel: null }));
     setConfirmTypedText('');
     if (cancel) cancel();
+  };
+
+  // ---- Event feedback ----
+  // What attendees wrote on the public event page once an event was over
+  // (/events/<slug>, Programme > Give Feedback). Every event in one list,
+  // newest first, narrowed by event or searched. Opened from the Events page.
+  const [fbOpen, setFbOpen] = useState(false);
+  const [fbRows, setFbRows] = useState(null);   // null while loading
+  const [fbError, setFbError] = useState('');
+  const [fbEvent, setFbEvent] = useState('all');
+  const [fbSearch, setFbSearch] = useState('');
+  const loadEventFeedback = async () => {
+    setFbError('');
+    try {
+      const res = await fetch(`/api/events/feedback?actorId=${encodeURIComponent(userData?.id || '')}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!data.success) { setFbError(data.message || 'Could not load the feedback.'); setFbRows([]); return; }
+      setFbRows(data.data || []);
+    } catch {
+      setFbError('Could not load the feedback. Check your connection.');
+      setFbRows([]);
+    }
+  };
+  const openEventFeedback = () => {
+    setFbOpen(true);
+    setFbRows(null);
+    setFbSearch('');
+    loadEventFeedback();
+  };
+  const deleteEventFeedback = (row) => {
+    askConfirm(
+      `This feedback${row.is_anonymous ? '' : ` from ${row.name}`} will be removed for good.`,
+      async () => {
+        try {
+          const res = await fetch(`/api/events/feedback?actorId=${encodeURIComponent(userData?.id || '')}&id=${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!data.success) { showToast(data.message || 'Could not delete it.', 'danger'); return; }
+          setFbRows((list) => (list || []).filter((x) => x.id !== row.id));
+          showToast('Feedback deleted', 'success');
+        } catch (err) {
+          showToast(err.message, 'danger');
+        }
+      },
+      { title: 'Delete this feedback?', subtitle: row.event?.title || 'Event Feedback', confirmLabel: 'Delete' },
+    );
+  };
+  const renderEventFeedback = () => {
+    if (!fbOpen || typeof document === 'undefined') return null;
+    const rows = fbRows || [];
+    // One entry per event that has feedback, busiest first.
+    const byEvent = [...rows.reduce((m, r) => {
+      const hit = m.get(r.event_id);
+      if (hit) hit.count += 1;
+      else m.set(r.event_id, { id: r.event_id, title: r.event?.title || 'Event', count: 1 });
+      return m;
+    }, new Map()).values()].sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+    const eventPick = byEvent.some((e) => e.id === fbEvent) ? fbEvent : 'all';
+    const q = fbSearch.trim().toLowerCase();
+    const shown = rows.filter((r) => (eventPick === 'all' || r.event_id === eventPick)
+      && (!q || `${r.name || 'anonymous'} ${r.message} ${r.event?.title || ''}`.toLowerCase().includes(q)));
+    const stamp = (iso) => new Date(iso).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila',
+    });
+    return createPortal(
+      <div className="evt-modal-overlay" onClick={() => setFbOpen(false)}>
+        <div className="evt-modal evt-fb-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="evt-modal-head">
+            <div>
+              <h3><i className="fas fa-comment-dots"></i> Event Feedback</h3>
+              <p>What attendees wrote on each event&apos;s page once it was over</p>
+            </div>
+            <button type="button" className="evt-modal-close" onClick={() => setFbOpen(false)}><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            <div className="evt-fb-bar">
+              <FilterSelect
+                value={eventPick}
+                onChange={setFbEvent}
+                ariaLabel="Filter feedback by event"
+                options={[
+                  { value: 'all', label: `All events (${rows.length})` },
+                  ...byEvent.map((e) => ({ value: e.id, label: `${e.title} (${e.count})` })),
+                ]}
+              />
+              <div className="evt-search evt-fb-search">
+                <i className="fas fa-magnifying-glass"></i>
+                <input
+                  type="search"
+                  value={fbSearch}
+                  onChange={(e) => setFbSearch(e.target.value)}
+                  placeholder="Search names and feedback"
+                  aria-label="Search feedback"
+                />
+              </div>
+            </div>
+
+            {fbError && <p className="evt-fb-error"><i className="fas fa-circle-exclamation"></i> {fbError}</p>}
+            {fbRows === null ? (
+              <p className="evt-fb-empty"><i className="fas fa-spinner fa-spin"></i> Loading feedback…</p>
+            ) : shown.length === 0 ? (
+              <p className="evt-fb-empty">
+                <i className="far fa-comment"></i>
+                {rows.length === 0 ? 'No feedback yet. It appears here once attendees send it after an event.' : 'Nothing matches.'}
+              </p>
+            ) : (
+              <ul className="evt-fb-list">
+                {shown.map((r) => (
+                  <li key={r.id} className="evt-fb-item">
+                    <div className="evt-fb-top">
+                      <span className={`evt-fb-who ${r.is_anonymous ? 'is-anon' : ''}`}>
+                        <i className={`fas ${r.is_anonymous ? 'fa-user-secret' : 'fa-user'}`}></i>
+                        {r.is_anonymous ? 'Anonymous' : formatPersonName(r.name)}
+                      </span>
+                      <button type="button" className="evt-fb-del" onClick={() => deleteEventFeedback(r)} title="Delete this feedback" aria-label="Delete this feedback">
+                        <i className="fas fa-trash"></i>
+                      </button>
+                    </div>
+                    <div className="evt-fb-meta">
+                      {eventPick === 'all' && <span className="evt-fb-event"><i className="fas fa-calendar-check"></i> {r.event?.title || 'Event'}</span>}
+                      <span><i className="far fa-clock"></i> {stamp(r.created_at)}</span>
+                      <span>{r.word_count} {r.word_count === 1 ? 'word' : 'words'}</span>
+                    </div>
+                    <p className="evt-fb-msg">{r.message}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="btn-secondary" onClick={() => { setFbRows(null); loadEventFeedback(); }}>
+              <i className="fas fa-rotate"></i> Refresh
+            </button>
+            <button type="button" className="btn-primary" onClick={() => setFbOpen(false)}>Close</button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
   };
   const handleConfirmAccept = async () => {
     if (confirmModal.requireText && confirmTypedText !== confirmModal.requireText) return;
@@ -6686,6 +6835,9 @@ export default function DashboardPage() {
   const [regRepFilter, setRegRepFilter] = useState('all');
   // Clicking a statistic filters the table to the rows behind that number.
   const [regMoneyFilter, setRegMoneyFilter] = useState('all'); // all | cash | online | pending
+  // Paid before the event, or on the day - and by whom.
+  // all | before | day | before|<name> | day|<name>   (name lower-cased)
+  const [regPaidFilter, setRegPaidFilter] = useState('all');
   // Which row's Manage menu is open. One at a time, closed by a click anywhere else.
   const [openRowMenu, setOpenRowMenu] = useState(null);
   // Which way the row menu opens. Decided when it opens, by measuring the
@@ -6802,9 +6954,12 @@ export default function DashboardPage() {
   // on this screen (the Cash Collected and Online Collected cards). Only the
   // status column made them look alike.
   // Whether tapping an event card may open its registrations - the same rule
-  // as the Registrations entry in the Manage menu.
+  // as the Registrations entry in the Manage menu. A finished event still
+  // opens: after the event is exactly when its list, payments, attendance,
+  // reports and feedback are worked through. (Adding NEW attendees to it is
+  // what stays shut - see the Add Attendee buttons.)
   const canOpenEventRegs = (evt) => canManage(MODULES.UPDATE_EVENTS)
-    && evt.is_published !== false && !isEventOver(evt);
+    && evt.is_published !== false;
 
   // Where an event is in its life, for the status pill.
   const eventStatusOf = (evt) => {
@@ -6891,6 +7046,118 @@ export default function DashboardPage() {
   // next, and a filter naming somebody who is not there would show an empty
   // table with no obvious reason why. Falling back to 'all' costs nothing.
   const regRepActive = regRepOptions.some((o) => o.key === regRepFilter) ? regRepFilter : 'all';
+
+  // ---- Paid before the event, or on the day - and by whom ----
+  // The server puts paid_at and paid_by_name on every paid row (see
+  // withPaidBy in api/events/registrations): the desk verifier who took the
+  // money, else the staff account that confirmed it, else whoever is holding
+  // it. "On the day" is by the date in the Philippines against the event's
+  // first day; anything from then on counts, a late payer included.
+  //
+  // The first day is read off the event row itself: evtEventDays is built much
+  // further down this component and is not there yet when this runs.
+  const regEventFirstKey = (() => {
+    const rows = Array.isArray(eventRegsModal?.event_days) ? eventRegsModal.event_days : [];
+    const starts = rows.map((d) => evtDate(d.starts_at)).filter(Boolean);
+    const first = starts.length
+      ? new Date(Math.min(...starts.map((d) => d.getTime())))
+      : evtDate(eventRegsModal?.event_date);
+    return first ? localDateKey(first) : '';
+  })();
+  // 'before' | 'day' | '' (not paid, free, or cancelled)
+  const regPaidWhen = (r) => {
+    if (!r.paid_at || !regEventFirstKey || r.status === 'cancelled') return '';
+    return eventTodayKey(new Date(r.paid_at)) < regEventFirstKey ? 'before' : 'day';
+  };
+  const regPaidByName = (r) => formatPersonName(r.paid_by_name) || 'Not recorded';
+  // "Oct 2, 9:25 AM" - Philippine time, whatever the device is set to.
+  const regMoneyStamp = (iso) => (iso
+    ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' })
+    : '');
+  // The line under a row's status: who handled the money, and exactly when.
+  //   Paid In Cash      Received by Maykka Reneeth Arquillano / Oct 2, 9:25 AM  Event day
+  //   Paid online       Confirmed by Admin JSCI / Sep 30, 10:51 AM
+  //   Cash To Collect   Added by Super Admin / Sep 28, 4:48 PM
+  //                     (or Extra added by - when an extra at the desk is what
+  //                     made money owed again)
+  //   Turnover          just the time - the chip above already names the holder
+  // null when there is nothing to say: free, cancelled, an installment plan.
+  // The holder is typed by hand; "by" is the form's word, not part of a name.
+  const regHolderName = (r) => formatPersonName(String(r.turnover_holder || '').trim().replace(/^by\s+/i, ''));
+  const regMoneyLine = (r) => {
+    if (r.status === 'cancelled') return null;
+    if (r.status === 'paid_pending_turnover') {
+      return r.turnover_marked_at ? {
+        when: regMoneyStamp(r.turnover_marked_at),
+        title: `Money with ${regHolderName(r) || 'someone'} since ${formatStampLine(r.turnover_marked_at)}`,
+      } : null;
+    }
+    if (r.status === 'payment_verified' && r.turned_over_at && r.turnover_holder) {
+      return {
+        when: regMoneyStamp(r.turned_over_at),
+        title: `Turned over by ${regHolderName(r)} · ${formatStampLine(r.turned_over_at)}`,
+      };
+    }
+    const when = regPaidWhen(r);
+    if (when) {
+      const cash = isCashMethod(r.payment_method);
+      const name = regPaidByName(r);
+      return {
+        icon: cash ? 'fa-hand-holding-dollar' : 'fa-circle-check',
+        label: cash ? 'Received by' : 'Confirmed by',
+        name,
+        when: regMoneyStamp(r.paid_at),
+        day: when === 'day',
+        title: `${when === 'day' ? 'Paid on the event day' : 'Paid before the event'} · ${cash ? 'received' : 'confirmed'} by ${name} · ${formatStampLine(r.paid_at)}`,
+      };
+    }
+    if (r.status === 'pending_cash' && Number(r.amount) > 0 && r.due_by_name) {
+      const name = formatPersonName(r.due_by_name);
+      const label = r.due_reason === 'extra' ? 'Extra added by' : 'Added by';
+      return {
+        icon: r.due_reason === 'extra' ? 'fa-circle-plus' : 'fa-user-plus',
+        label,
+        name,
+        when: regMoneyStamp(r.due_at),
+        title: `Cash to collect · ${label.toLowerCase()} ${name} · ${formatStampLine(r.due_at)}`,
+      };
+    }
+    return null;
+  };
+  const regPaidOptions = (() => {
+    const totals = { before: 0, day: 0 };
+    const people = { before: new Map(), day: new Map() };
+    eventRegs.forEach((r) => {
+      const when = regPaidWhen(r);
+      if (!when) return;
+      totals[when] += 1;
+      const name = regPaidByName(r);
+      const key = name.toLowerCase();
+      const hit = people[when].get(key);
+      if (hit) hit.count += 1;
+      else people[when].set(key, { key, name, count: 1 });
+    });
+    // Busiest first: the person who took most of the money is who gets asked.
+    const list = (when) => [...people[when].values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const group = (when, title, short) => (totals[when] === 0 ? [] : [
+      { heading: true, value: `__${when}`, label: title },
+      { value: when, label: `Everyone (${totals[when]})`, short: `${short} (${totals[when]})`, indent: true },
+      ...list(when).map((p) => ({
+        value: `${when}|${p.key}`, label: `${p.name} (${p.count})`, short: `${short} · ${p.name} (${p.count})`, indent: true,
+      })),
+    ]);
+    return {
+      any: totals.before + totals.day > 0,
+      options: [
+        { value: 'all', label: 'All payments' },
+        ...group('before', 'Already paid (before the event)', 'Paid before the event'),
+        ...group('day', 'Paid on the event day', 'Paid on the event day'),
+      ],
+    };
+  })();
+  // Self-healing, like the representative filter: a person picked on one
+  // event is not on the next.
+  const regPaidActive = regPaidOptions.options.some((o) => !o.heading && o.value === regPaidFilter) ? regPaidFilter : 'all';
 
   // ---- Collecting cash at the desk ----
   //
@@ -7059,7 +7326,7 @@ export default function DashboardPage() {
     return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => own.includes(w)) ? 0 : 1;
   };
 
-  useEffect(() => { setRegPage(1); }, [regSearch, regTypeFilter, regChurchFilter, regRepFilter, regMoneyFilter, regSort, eventRegsModal?.id]);
+  useEffect(() => { setRegPage(1); }, [regSearch, regTypeFilter, regChurchFilter, regRepFilter, regMoneyFilter, regPaidFilter, regSort, eventRegsModal?.id]);
 
   const visibleRegs = (() => {
     const q = regSearch.trim().toLowerCase();
@@ -7096,6 +7363,10 @@ export default function DashboardPage() {
         return r.payment_plan !== 'flexible'
           && (r.status === 'payment_submitted' || r.status === 'pending_payment');
       });
+    }
+    if (regPaidActive !== 'all') {
+      const [when, who] = regPaidActive.split('|');
+      rows = rows.filter((r) => regPaidWhen(r) === when && (!who || regPaidByName(r).toLowerCase() === who));
     }
     if (q) rows = rows.filter((r) => regMatchesSearch(r, q));
     return [...rows].sort((a, b) => {
@@ -7590,7 +7861,7 @@ export default function DashboardPage() {
   const regsHaveTiers = hasPriceTiers(eventRegsModal)
     || eventRegs.some((r) => r.price_tier);
   // 8 columns, plus the age group when there is one to show.
-  const regCols = regsHaveTiers ? 9 : 8;
+  const regCols = regsHaveTiers ? 8 : 7;
   // Whether a row's group is one of the children's ones, so a child reads as a
   // child at a glance rather than as one more label.
   const regTierIsChild = (label) => {
@@ -12248,11 +12519,15 @@ Examples:
   //   number  1, 2, 3...
   //   label   the session name the admin typed, else "Day 2"
   //   when    its own date and time, for the picker
-  //   started whether it has begun. A day still in the future is shown but
-  //           cannot be ticked - nobody has attended tomorrow.
+  //   dateKey its calendar date, 'YYYY-MM-DD', or null when it has none
+  //   started whether its DATE has arrived. A day still in the future is
+  //           shown but cannot be ticked - nobody has attended tomorrow. By
+  //           the date, not the start time: the door opens before the
+  //           programme does, and at 7am on Day 2 Day 2 is not "upcoming".
   const evtEventDays = (() => {
     const rows = Array.isArray(eventRegsModal?.event_days) ? eventRegsModal.event_days : [];
     const now = Date.now();
+    const today = eventTodayKey(new Date(now));
 
     if (rows.length > 0) {
       return rows
@@ -12261,12 +12536,14 @@ Examples:
         .map((d, i) => {
           const num = Number(d.day_number) || i + 1;
           const starts = evtDate(d.starts_at);
+          const dateKey = starts ? localDateKey(starts) : null;
           return {
             number: num,
             label: d.label ? String(d.label) : `Day ${num}`,
             when: d.starts_at ? formatSessionRange(d.starts_at, d.ends_at) : '',
+            dateKey,
             // No start time on the row means there is nothing to wait for.
-            started: !starts || starts.getTime() <= now,
+            started: !starts || starts.getTime() <= now || dateKey <= today,
           };
         });
     }
@@ -12283,11 +12560,13 @@ Examples:
     }
     return Array.from({ length: count }, (_, i) => {
       const dayStart = start ? new Date(start.getTime() + i * 86400000) : null;
+      const dateKey = dayStart ? localDateKey(dayStart) : null;
       return {
         number: i + 1,
         label: `Day ${i + 1}`,
         when: dayStart ? dayStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
-        started: !dayStart || dayStart.getTime() <= now,
+        dateKey,
+        started: !dayStart || dayStart.getTime() <= now || dateKey <= today,
       };
     });
   })();
@@ -12758,9 +13037,24 @@ Examples:
       tap: mealLastTapRef.current,
     });
   };
-  // The cards at this event, so a tap can put the name up before the server answers.
-  const mealCardsRef = useRef({ links: {}, regs: [] });
-  mealCardsRef.current = { links: idRfidLinks, regs: eventRegs };
+  // ---- The name screen at the door ----
+  // What the queue sees on /rfid-chekin-display: the event, the day being
+  // checked in for, and the card just tapped (null puts "Tap your card"
+  // back). Read through a ref by the memoised card reader, as above.
+  const checkinScreenRef = useRef(() => {});
+  checkinScreenRef.current = (tap = null) => {
+    const day = Number(evtCheckinDay) || 1;
+    publishCheckinDisplay({
+      event: { id: eventRegsModal?.id || '', title: eventRegsModal?.title || '', image: eventRegsModal?.image_url || '' },
+      day: { number: day, label: evtEventDays.find((d) => d.number === day)?.label || '', days: evtEventDays.length },
+      tap,
+    });
+  };
+  // The cards at this event, so a tap can put the name up before the server
+  // answers - at the Meals Counter and at the door. The day grid rides along
+  // so the door can tell "already in" at the tap too.
+  const mealCardsRef = useRef({ links: {}, regs: [], dayAttend: {} });
+  mealCardsRef.current = { links: idRfidLinks, regs: eventRegs, dayAttend: evtDayAttend };
 
   // A meal ticked by the card itself, when the counter is serving one.
   const serveDeskMeal = useCallback(async (reg, meal, day, seq) => {
@@ -13078,11 +13372,32 @@ Examples:
   }, [eventRegsModal?.id, claimWho, evtClaimBusy, userData?.id, showToast]);
 
   // A tap at the door, from the Attendance tab's scanner.
+  //
+  // Bumped on every tap. An answer that comes back after the next card has
+  // already been read still updates the table, but must not replace the name
+  // of the person now standing at the desk.
+  const evtScanSeqRef = useRef(0);
   const scanEventRfid = useCallback(async (rawUid, source) => {
     const eventId = eventRegsModal?.id;
     if (!eventId) return;
     const uid = normalizeUid(rawUid);
     if (!isPlausibleUid(uid)) return;
+    const seq = ++evtScanSeqRef.current;
+    const latest = () => seq === evtScanSeqRef.current;
+    const dayNumber = evtCheckinDay;
+    // The name screen's id for this tap. The clock rather than seq, which
+    // starts again at 1 on a reload and would look like the same tap to a
+    // screen that is still showing the last one.
+    const shownAs = Date.now();
+    const screen = (result) => checkinScreenRef.current(checkinTapFrom(shownAs, result));
+
+    // The name goes up with the tap, off the event's cards already on this
+    // screen, and the server's answer replaces it a moment later. The queue
+    // is not held for the round trip. A card this screen does not know (a
+    // member's own card) still waits for the server.
+    const guess = guessDoorCheckIn(mealCardsRef.current, uid, dayNumber);
+    setEvtRfidResult(guess);
+    screen(guess);
 
     setEvtRfidBusy(true);
     try {
@@ -13091,49 +13406,74 @@ Examples:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           uid, eventId, source: source || 'manual',
-          dayNumber: evtCheckinDay,
+          dayNumber,
           actorId: userData?.id || null,
         }),
       });
       const data = await res.json();
       if (!data.success) {
-        setEvtRfidResult({ result: 'error', message: data.message, uid });
+        if (latest()) {
+          setEvtRfidResult({ result: 'error', message: data.message, uid });
+          screen({ result: 'error' });
+        }
         return;
       }
-      setEvtRfidResult(data);
+      if (latest()) {
+        setEvtRfidResult(data);
+        screen(data);
+      }
 
       // ---- The table behind the dialog has to agree with what it just said ----
       //
       // Three things on the row mean "they are in", and all three read off
       // state this dialog was not touching: the Attendance column's day
       // buttons and the Actions button both come from evtDayAttend, and the
-      // came-at-all flag from the registration. Refreshing only the
-      // registrations left the day column looking like nobody had arrived and
+      // came-at-all flag from the registration. Leaving either one stale left
       // the row still offering to Mark Attended - the one thing that is now
       // wrong to press, on somebody who is already standing inside.
+      //
+      // Patched from the answer rather than by re-reading the whole event:
+      // the server sends back this person's day list and registration, which
+      // is everything the row needs. Re-downloading every registration and
+      // the whole day grid on each tap was what kept the next card waiting.
       if (data.result === 'checked_in' || data.result === 'already_in') {
         const regId = data.registration?.id;
-        const dayKey = String(data.dayNumber || evtCheckinDay);
+        const dayKey = String(data.dayNumber || dayNumber);
         if (regId) {
-          // Ticked with the tap, not a request later: at a door the next card
-          // is already coming, and a column that catches up a second after
-          // the queue has moved on is a column nobody trusts. The reload
-          // underneath replaces this with the stamp the server actually wrote.
           setEvtDayAttend((prev) => {
-            const forReg = { ...(prev[regId] || {}) };
-            if (!forReg[dayKey]) {
-              forReg[dayKey] = { attended_at: new Date().toISOString(), attended_by: userData?.id || null };
+            const had = prev[regId] || {};
+            // The server's own stamps when it sent them, so the times on the
+            // row are the ones it wrote.
+            if (Array.isArray(data.days) && data.days.length > 0) {
+              const fromServer = {};
+              data.days.forEach((d) => {
+                const k = String(d.day_number);
+                fromServer[k] = { ...(had[k] || {}), attended_at: d.attended_at };
+              });
+              return { ...prev, [regId]: fromServer };
             }
-            return { ...prev, [regId]: forReg };
+            if (had[dayKey]) return prev;
+            return {
+              ...prev,
+              [regId]: { ...had, [dayKey]: { attended_at: new Date().toISOString(), attended_by: userData?.id || null } },
+            };
           });
+          setEventRegs((prev) => prev.map((r) => (r.id === regId
+            ? {
+              ...r,
+              attended: true,
+              attended_at: r.attended_at || data.registration.attended_at || new Date().toISOString(),
+            }
+            : r)));
         }
-        refreshEventRegs(eventId);
-        loadEventDayAttendance(eventId);
       }
     } catch (err) {
-      setEvtRfidResult({ result: 'error', message: err.message, uid });
+      if (latest()) {
+        setEvtRfidResult({ result: 'error', message: err.message, uid });
+        screen({ result: 'error' });
+      }
     } finally {
-      setEvtRfidBusy(false);
+      if (latest()) setEvtRfidBusy(false);
       setEvtRfidInput('');
       // The caret goes back to the capture box for the next card - but only
       // on a computer. On a phone that box is a text field and focusing it
@@ -13141,7 +13481,7 @@ Examples:
       // cannot exist there anyway.
       if (!rfidIsPhoneRef.current) setTimeout(() => evtRfidBoxRef.current?.focus(), 50);
     }
-  }, [eventRegsModal?.id, userData?.id, evtCheckinDay, loadEventDayAttendance]);
+  }, [eventRegsModal?.id, userData?.id, evtCheckinDay]);
 
   // ============================================
   // The room desk: putting names in the rooms
@@ -13493,9 +13833,23 @@ Examples:
   // fast name, and the name screen told which event and meal it is showing.
   useEffect(() => {
     if (claimDesk !== 'meals' || !eventRegsModal?.id) return;
-    setMealServing((m) => m || mealForNow());
+    // By the clock every time it opens - with the day (followEventToday), so
+    // on the morning of Day 2 a card ticks Day 2's lunch, not whatever was
+    // being served when the counter was last closed. Tick by hand is a
+    // choice somebody made, so it is kept.
+    setMealServing((m) => (m === 'manual' ? m : mealForNow()));
     loadIdRfidLinks(eventRegsModal.id);
   }, [claimDesk, eventRegsModal?.id, loadIdRfidLinks]);
+  // The door the same way: with the event's cards on hand, a tap puts the
+  // name up before the server has answered.
+  useEffect(() => {
+    if (evtRfidScanOpen && eventRegsModal?.id) loadIdRfidLinks(eventRegsModal.id);
+  }, [evtRfidScanOpen, eventRegsModal?.id, loadIdRfidLinks]);
+  // And its name screen: the event and the day go up as the door opens, and
+  // again if the day changes (by hand, or at midnight), with "Tap your card".
+  useEffect(() => {
+    if (evtRfidScanOpen && eventRegsModal?.id) checkinScreenRef.current();
+  }, [evtRfidScanOpen, eventRegsModal?.id, evtCheckinDay]);
   useEffect(() => {
     if (claimDesk !== 'meals' || !eventRegsModal?.id || !mealServing) return;
     mealsScreenRef.current();
@@ -15346,7 +15700,21 @@ Examples:
   // is confirmed first.
   const verifyIsPaid = (r) => ['registered', 'payment_verified', 'paid_pending_turnover'].includes(r.status)
     || (regCashDue(r) <= 0 && ['pending_cash', 'installment', 'pending_payment'].includes(r.status));
-  const verifyIsIn = (r) => !!evtDayAttend[r.id]?.[String(evtCheckinDay)];
+  // Registered is once, not once a day. Somebody verified on Day 1 is still
+  // Registered on Day 2: their money is in and their ID is claimed. Reading
+  // it off the day the desk is on is what made everybody verified on Day 1
+  // turn back into "not registered" - and their ID back into "not claimed" -
+  // the moment the desk moved to Day 2. Who is here on Day 2 is the door's
+  // question (Scan RFID to Check In), not a second trip through the desk.
+  const verifyIsIn = (r) => Object.keys(evtDayAttend[r.id] || {}).length > 0;
+  // Which day, and when, they were first checked in - for the tag's tooltip.
+  const verifyInSince = (r) => {
+    const days = evtDayAttend[r.id] || {};
+    const first = Object.keys(days).sort((a, b) => Number(a) - Number(b))[0];
+    if (!first) return '';
+    const at = days[first]?.attended_at ? ` · ${formatStampLine(days[first].attended_at)}` : '';
+    return evtEventDays.length > 1 ? `Registered on Day ${first}${at}` : `Registered${at}`;
+  };
   const verifyCheckIn = async (rows) => {
     if (verifyBusy || !eventRegsModal?.id || rows.length === 0) return;
     setVerifyBusy(true);
@@ -15487,7 +15855,7 @@ Examples:
 
   const verifyStatusBadge = (r) => {
     if (verifyMode && verifyIsIn(r)) {
-      return <span className="evt-status evt-verify-registered"><i className="fas fa-circle-check"></i> Registered</span>;
+      return <span className="evt-status evt-verify-registered" title={verifyInSince(r)}><i className="fas fa-circle-check"></i> Registered</span>;
     }
     if (verifyMode && deskParkedFor(r.id)) {
       return <span className="evt-status evt-verify-ongoing"><i className="fas fa-hourglass-half"></i> Ongoing Transaction</span>;
@@ -18119,18 +18487,35 @@ Examples:
     }
   }, [eventRegsModal?.id, loadEventClaims, loadEventDayAttendance]);
 
-  // The day the desk defaults to: the one happening now, else the first that
-  // has not started, else the last. Opening the door on Day 2 and having it
-  // pre-set to Day 1 is how a whole morning gets recorded against the wrong
-  // session.
+  // ---- The day follows the calendar ----
+  // On the date of Day 2 the desk is on Day 2 - the door, the Meals Counter
+  // (so a card ticks Day 2's lunch) and the Mark Attended buttons alike.
+  // Opening the door on Day 2 and having it pre-set to Day 1 is how a whole
+  // morning gets recorded against the wrong session.
+  //
+  // Set when the event opens and whenever the door or the Meals Counter
+  // opens, then checked every half minute so a desk left open overnight moves
+  // on by itself. A day picked by hand is kept until the date changes again:
+  // the check only acts when the calendar's answer differs from the last one
+  // it gave. See eventDayForToday for before, between and after the event.
+  const evtEventDaysRef = useRef(evtEventDays);
+  evtEventDaysRef.current = evtEventDays;
+  const evtAutoDayRef = useRef(null);
+  const followEventToday = useCallback(() => {
+    const day = eventDayForToday(evtEventDaysRef.current);
+    if (day == null) return;
+    evtAutoDayRef.current = day;
+    setEvtCheckinDay(day);
+  }, []);
+  const evtDaysKey = evtEventDays.map((d) => `${d.number}:${d.dateKey || ''}`).join('|');
   useEffect(() => {
-    if (!eventRegsModal?.id || evtEventDays.length === 0) return;
-    const live = evtEventDays.filter((d) => d.started);
-    setEvtCheckinDay(live.length > 0 ? live[live.length - 1].number : evtEventDays[0].number);
-    // Only when the event changes - re-running on every render would fight
-    // the person who just picked a different day.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventRegsModal?.id]);
+    if (!eventRegsModal?.id || !evtDaysKey) return undefined;
+    followEventToday();
+    const timer = setInterval(() => {
+      if (eventDayForToday(evtEventDaysRef.current) !== evtAutoDayRef.current) followEventToday();
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [eventRegsModal?.id, evtDaysKey, followEventToday]);
 
   // Every reader this device has, and its state, in one strip - and the button
   // that fixes it right here rather than on another page. Being told to go and
@@ -18138,11 +18523,11 @@ Examples:
   // made this dialog impossible to use.
   // Which day of the event this desk is working on.
   //
-  // Chosen, never inferred from the clock: a door open at 8am on Day 2 is
-  // checking people in for Day 2 whatever a timezone says, and an event
-  // running past midnight would roll over mid-queue. Shown with the session
-  // name the admin typed, because "Day 2" and "Evening Rally" are the same
-  // thing to the system and only one of them is the thing on the poster.
+  // Set by the calendar, changeable by hand - see followEventToday above.
+  // Today's day is marked so the desk can see at a glance it is on the right
+  // one. Shown with the session name the admin typed, because "Day 2" and
+  // "Evening Rally" are the same thing to the system and only one of them is
+  // the thing on the poster.
   //
   // A single-day event has nothing to choose, so nothing is shown.
   // opts.attendedDays - the day map of the person whose card was just read,
@@ -18157,6 +18542,7 @@ Examples:
   const renderDayPicker = (opts = {}) => {
     if (evtEventDays.length < 2) return null;
     const attended = opts.attendedDays || null;
+    const today = eventTodayKey();
     return (
       <div className="evt-daypick">
         <span className="evt-daypick-label">
@@ -18179,6 +18565,8 @@ Examples:
                 <em>{d.label === `Day ${d.number}` ? (d.when || 'No date') : d.label}</em>
                 {wasHere ? (
                   <span className="evt-daypick-done"><i className="fas fa-check"></i> attended</span>
+                ) : d.dateKey === today ? (
+                  <span className="evt-daypick-today"><i className="fas fa-circle-dot"></i> today</span>
                 ) : (!d.started && <span className="evt-daypick-ahead">upcoming</span>)}
               </button>
             );
@@ -20972,11 +21360,20 @@ Examples:
                     <span className="evt-hero-sub-long">Create, publish, and manage church events — set audience, pricing, location, and review registrations from one place.</span>
                     <span className="evt-hero-sub-short">Create, publish, and manage church events in one place.</span>
                   </p>
-                  {!showEventForm && canManage(MODULES.CREATE_EVENTS) && featureOn('events.create') && (
-                    <button className="um-hero-btn" onClick={() => openEventEditor(null)}>
-                      <i className="fas fa-plus"></i> Create Event
-                    </button>
-                  )}
+                  <div className="evt-hero-actions">
+                    {!showEventForm && canManage(MODULES.CREATE_EVENTS) && featureOn('events.create') && (
+                      <button className="um-hero-btn" onClick={() => openEventEditor(null)}>
+                        <i className="fas fa-plus"></i> Create Event
+                      </button>
+                    )}
+                    {/* What attendees wrote after each event, on its public page. */}
+                    {!showEventForm && (
+                      <button type="button" className="um-hero-btn is-ghost" onClick={openEventFeedback}>
+                        <i className="fas fa-comment-dots"></i> Feedback
+                      </button>
+                    )}
+                  </div>
+                  {renderEventFeedback()}
                 </div>
               </div>
             ) : (
@@ -21212,8 +21609,19 @@ Examples:
                               ]}
                             />
                           )}
+                          {/* Already paid before the event, or paid on the day
+                              - and by whom. Only on an event where somebody
+                              has paid; a free event has nothing to split. */}
+                          {regPaidOptions.any && (
+                            <FilterSelect
+                              value={regPaidActive}
+                              onChange={setRegPaidFilter}
+                              ariaLabel="Filter by when it was paid, and by whom"
+                              options={regPaidOptions.options}
+                            />
+                          )}
                           </div>
-                          {(regTypeFilter !== 'all' || regChurchFilter !== 'all' || regRepActive !== 'all' || regMoneyFilter !== 'all' || regSearch.trim()) && (
+                          {(regTypeFilter !== 'all' || regChurchFilter !== 'all' || regRepActive !== 'all' || regMoneyFilter !== 'all' || regPaidActive !== 'all' || regSearch.trim()) && (
                             <span className="evt-filter-count">
                               {regMoneyFilter !== 'all' && (
                                 <b className="evt-filter-what">{{ cash: 'Cash', online: 'Online', cashdue: 'Cash to collect', turnover: 'Pending turnover', pending: 'Awaiting check' }[regMoneyFilter]}</b>
@@ -21221,8 +21629,11 @@ Examples:
                               {regRepActive !== 'all' && (
                                 <b className="evt-filter-what">{regRepOptions.find((o) => o.key === regRepActive)?.name}</b>
                               )}
+                              {regPaidActive !== 'all' && (
+                                <b className="evt-filter-what">{regPaidOptions.options.find((o) => !o.heading && o.value === regPaidActive)?.short}</b>
+                              )}
                               {visibleRegs.length} of {eventRegs.length}
-                              <button type="button" onClick={() => { setRegTypeFilter('all'); setRegChurchFilter('all'); setRegRepFilter('all'); setRegMoneyFilter('all'); setRegSearch(''); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
+                              <button type="button" onClick={() => { setRegTypeFilter('all'); setRegChurchFilter('all'); setRegRepFilter('all'); setRegMoneyFilter('all'); setRegPaidFilter('all'); setRegSearch(''); }} title="Clear filters"><i className="fas fa-xmark"></i></button>
                             </span>
                           )}
                         </div>
@@ -21242,7 +21653,11 @@ Examples:
                             {/* Only on an event priced by age. On every other
                                 event it would be a column of dashes. */}
                             {regsHaveTiers && <th>Age Group</th>}
-                            <th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Payment</th><th>Status</th>
+                            {/* No Payment column: the amount and how it was
+                                paid are on the receipt, and Status already
+                                says whether it is settled (and how far along
+                                an installment plan is). */}
+                            <th>Type</th><th>Added By</th><th>Church</th><th>Extras</th><th>Status</th>
                             <th style={{ textAlign: 'right' }}>Actions</th>
                           </tr>
                         </thead>
@@ -21388,30 +21803,6 @@ Examples:
                                   );
                                 })()}
                               </td>
-                              <td data-label="Payment" className="evt-cell-payment">
-                                {r.amount > 0 ? (
-                                  <>
-                                    <strong>₱{r.amount}</strong>
-                                    {/* the split behind the total, in figures */}
-                                    <div className="evt-cell-sub">
-                                      {r.payment_method || '—'}
-                                      {r.base_amount != null && Number(r.base_amount) !== Number(r.amount) && (
-                                        <> · ₱{r.base_amount} + <b className="evt-extra-amt">₱{Number(r.amount) - Number(r.base_amount)}</b></>
-                                      )}
-                                    </div>
-                                    {r.payment_reference && <div className="evt-cell-sub">Ref: {r.payment_reference}</div>}
-                                    {r.payment_plan === 'flexible' && (() => {
-                                      const paidNow = Number(r.amount_paid) || 0;
-                                      const settled = paidNow >= (Number(r.amount) || 0);
-                                      return (
-                                        <span className={`evt-plan-tag ${settled ? 'settled' : ''}`}>
-                                          <i className={`fas ${settled ? 'fa-circle-check' : 'fa-calendar-day'}`}></i> Total Paid: ₱{paidNow}
-                                        </span>
-                                      );
-                                    })()}
-                                  </>
-                                ) : 'Free'}
-                              </td>
                               <td className="evt-nowrap" data-label="Status">
                                 {(() => {
                                   // An installment plan says how far along it is, not
@@ -21474,19 +21865,39 @@ Examples:
                                       <span className={`evt-status evt-status-${r.status}`}>{regStatusLabel(r)}</span>
                                       {/* Who has the money, so the desk knows whom to ask. */}
                                       {r.status === 'paid_pending_turnover' && r.turnover_holder && (
-                                        <span className="evt-turnover-by" title={`Money with ${formatPersonName(r.turnover_holder)}`}>
+                                        <span className="evt-turnover-by" title={`Money with ${regHolderName(r)}`}>
                                           <i className="fas fa-hand-holding-dollar"></i>
-                                          <span>by <b>{formatPersonName(r.turnover_holder)}</b></span>
+                                          <span>by <b>{regHolderName(r)}</b></span>
                                         </span>
                                       )}
                                       {/* Paid, and it came in through a turnover: who brought it. */}
                                       {r.status === 'payment_verified' && r.turned_over_at && r.turnover_holder && (
-                                        <span className="evt-turnover-by is-done" title={`Turned over by ${formatPersonName(r.turnover_holder)}`}>
+                                        <span className="evt-turnover-by is-done" title={`Turned over by ${regHolderName(r)}`}>
                                           <i className="fas fa-circle-check"></i>
-                                          <span>Turnover by <b>{formatPersonName(r.turnover_holder)}</b></span>
+                                          <span>Turnover by <b>{regHolderName(r)}</b></span>
                                         </span>
                                       )}
                                     </>
+                                  );
+                                })()}
+                                {/* Who handled the money, and exactly when - see
+                                    regMoneyLine. */}
+                                {(() => {
+                                  const m = regMoneyLine(r);
+                                  if (!m) return null;
+                                  return (
+                                    <div className={`evt-cell-sub evt-paid-by ${m.day ? 'is-day' : ''}`} title={m.title}>
+                                      {m.name && (
+                                        <span className="evt-paid-who">
+                                          <i className={`fas ${m.icon}`}></i>
+                                          <span>{m.label} <b>{m.name}</b></span>
+                                        </span>
+                                      )}
+                                      <span className="evt-paid-when">
+                                        {m.when}
+                                        {m.day && <em className="evt-paid-day">Event day</em>}
+                                      </span>
+                                    </div>
                                   );
                                 })()}
                                 {/* Somebody is waiting on a refund - that has to be
@@ -21785,7 +22196,10 @@ Examples:
                           />
                         </div>
                         <div className="evt-attbar-actions">
-                          <button className="btn-primary" onClick={() => { setEvtRfidResult(null); setEvtRfidInput(''); setEvtRfidScanOpen(true); }}>
+                          {/* Both open on today's day: on the date of Day 2
+                              the door checks in for Day 2, and a card at the
+                              Meals Counter ticks Day 2's lunch. */}
+                          <button className="btn-primary" onClick={() => { followEventToday(); setEvtRfidResult(null); setEvtRfidInput(''); setEvtRfidScanOpen(true); }}>
                             <i className="fas fa-id-card"></i> Scan RFID to Check In
                           </button>
                           <button
@@ -21796,7 +22210,7 @@ Examples:
                           </button>
                           <button
                             className="btn-primary"
-                            onClick={() => { setClaimWho(null); setClaimManual(''); setClaimDesk('meals'); }}
+                            onClick={() => { followEventToday(); setClaimWho(null); setClaimManual(''); setClaimDesk('meals'); }}
                           >
                             <i className="fas fa-utensils"></i> Meals Counter
                           </button>
@@ -24110,9 +24524,13 @@ Examples:
                         accordingly - it has to be read at arm's length, across
                         a desk, by someone who is also looking at a queue. */}
                     {evtRfidResult ? (
-                      <div className={`evt-rfid-shout ${evtRfidResult.result}`}>
+                      <div className={`evt-rfid-shout ${evtRfidResult.result} ${evtRfidResult.pending ? 'pending' : ''}`}>
+                        {/* pending: the name off this screen's own list, while
+                            the server writes the check-in - it turns into the
+                            tick a moment later. */}
                         <i className={`fas ${
-                          evtRfidResult.result === 'checked_in' ? 'fa-circle-check'
+                          evtRfidResult.pending ? 'fa-spinner fa-spin'
+                            : evtRfidResult.result === 'checked_in' ? 'fa-circle-check'
                             : evtRfidResult.result === 'already_in' ? 'fa-clock-rotate-left'
                               : 'fa-circle-exclamation'}`}></i>
                         <strong>
@@ -24160,6 +24578,16 @@ Examples:
                     />
                   </div>
                   <div className="evt-modal-foot">
+                    {/* The screen the queue reads the names off - a second
+                        window here, or /rfid-chekin-display on a TV or tablet. */}
+                    <button
+                      type="button"
+                      className="evt-chip-btn"
+                      style={{ marginRight: 'auto' }}
+                      onClick={() => window.open('/rfid-chekin-display', 'jsci-checkin-display')}
+                    >
+                      <i className="fas fa-display"></i> Name screen
+                    </button>
                     <button type="button" className="btn-secondary" onClick={() => setEvtRfidScanOpen(false)}>Done</button>
                     {evtRfidResult && (
                       <button
@@ -24167,6 +24595,7 @@ Examples:
                         className="btn-primary"
                         onClick={() => {
                           setEvtRfidResult(null);
+                          checkinScreenRef.current();
                           if (!rfidIsPhone) setTimeout(() => evtRfidBoxRef.current?.focus(), 50);
                         }}
                       >
@@ -26234,12 +26663,12 @@ Examples:
                       );
                     })()}
                     {canManage(MODULES.UPDATE_EVENTS) && (() => {
+                      // Open on a finished event too - see canOpenEventRegs.
                       const draft = evt.is_published === false;
-                      const over = isEventOver(evt);
                       return (
                         <button
-                          disabled={draft || over}
-                          title={draft ? 'Publish the event first to open registrations' : over ? 'This event has already ended' : ''}
+                          disabled={draft}
+                          title={draft ? 'Publish the event first to open registrations' : ''}
                           onClick={() => { setEventActionMenu(null); openEventRegistrations(evt); }}
                         >
                           <i className="fas fa-users"></i> Registrations
