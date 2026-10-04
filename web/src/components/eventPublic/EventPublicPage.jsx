@@ -1147,8 +1147,8 @@ function LovePop({ onDone, big = false }) {
 }
 
 // ---- Downloading ----
-// The photos come down at full size - framed, with the church's lockup
-// stamped in the middle (see DOWNLOAD_T in lib/eventPhotos) - three at a
+// The photos come down at full size - framed, with nothing stamped over the
+// middle (see DOWNLOAD_T in lib/eventPhotos) - three at a
 // time, with real progress. While they do, the church's logo sits in the
 // middle of the screen and Bible fun facts pop up one after another: a fresh
 // batch from the church's AI, with checked ones standing in until it answers.

@@ -33292,12 +33292,113 @@ body.dark-mode .evt-id-printbar { background: rgba(224,180,74,0.08); border-colo
 .evt-photos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
 .evt-photos-grid figure { margin: 0; position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: #eee6d6; }
 .evt-photos-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.evt-photos-grid button {
+/* The whole tile opens the viewer - or, while selecting, picks the photo. */
+.evt-photos-grid .evt-photo-open {
+  display: block; width: 100%; height: 100%; padding: 0; border: none; background: none; cursor: zoom-in;
+}
+.evt-photos-grid.picking .evt-photo-open { cursor: pointer; }
+.evt-photos-grid .evt-photo-del {
   position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer;
   background: rgba(0,0,0,0.6); color: #fff; opacity: 0; transition: opacity 0.15s;
 }
-.evt-photos-grid figure:hover button, .evt-photos-grid button:focus { opacity: 1; }
-@media (hover: none) { .evt-photos-grid button { opacity: 1; } }
+.evt-photos-grid figure:hover .evt-photo-del, .evt-photos-grid .evt-photo-del:focus { opacity: 1; }
+@media (hover: none) { .evt-photos-grid .evt-photo-del { opacity: 1; } }
+
+/* Super Admin: each photo's hearts, bottom-right of its tile, and the total
+   beside the title. */
+.evt-photos-grid .evt-photo-hearts {
+  position: absolute; right: 6px; bottom: 6px; pointer-events: none;
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 7px;
+  font-size: 0.72rem; font-weight: 800; color: #fff; background: rgba(0,0,0,0.62);
+}
+.evt-photos-grid .evt-photo-hearts i { color: #ff5a79; }
+.evt-photos-grid .evt-photo-hearts.none { opacity: 0.7; }
+.evt-photos-grid .evt-photo-hearts.none i { color: #fff; }
+.evt-photo-hearts-total {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; border-radius: 20px;
+  font-size: 0.72rem; font-weight: 700; color: #c2185b; background: rgba(233,30,99,0.1);
+}
+
+/* Super Admin: picking photos to delete together. */
+.evt-photos-grid.picking figure { outline: 3px solid transparent; outline-offset: -3px; transition: outline-color 0.12s; }
+.evt-photos-grid.picking figure.picked { outline-color: var(--primary, #926c15); }
+.evt-photos-grid.picking figure.picked img { opacity: 0.78; }
+.evt-photos-grid .evt-photo-check {
+  position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%; pointer-events: none;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem;
+  border: 2px solid #fff; background: rgba(0,0,0,0.35); color: transparent; box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+}
+.evt-photos-grid figure.picked .evt-photo-check { background: var(--primary, #926c15); border-color: var(--primary, #926c15); color: #fff; }
+.evt-photo-tools {
+  position: sticky; top: 0; z-index: 3;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px;
+  background: var(--bg-card, #fff); border: 1px solid rgba(146,108,21,0.35); box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  font-size: 0.85rem;
+}
+.evt-photo-tools strong { color: var(--primary, #926c15); margin-right: 4px; }
+.evt-photo-tools button {
+  display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+  font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--primary, #926c15);
+  background: transparent; border: 1px solid rgba(146,108,21,0.4);
+}
+.evt-photo-tools button:hover:not(:disabled) { background: rgba(146,108,21,0.1); }
+.evt-photo-tools button.danger { color: #fff; background: #c62828; border-color: #c62828; }
+.evt-photo-tools button.danger:hover:not(:disabled) { background: #a61f1f; }
+.evt-photo-tools button:disabled { opacity: 0.45; cursor: not-allowed; }
+.evt-photo-tools-hint { font-size: 0.76rem; color: var(--text-muted, #8a8a8a); }
+.evt-photo-tools-gap { flex: 1; }
+body.dark-mode .evt-photo-tools { background: #2a2a3a; border-color: rgba(255,255,255,0.18); }
+@media (hover: none) { .evt-photo-tools-hint { display: none; } }
+
+/* The photo viewer: one photo full screen, on this page. Above the event
+   dialogs (15000-16000), below the confirm box (19000) so "Delete this
+   photo?" opens in front of it. */
+.evt-viewer {
+  position: fixed; inset: 0; z-index: 17000;
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  background: rgba(12,10,6,0.94); color: #fff;
+}
+.evt-viewer-top { display: flex; align-items: center; gap: 8px; padding: 12px 16px; }
+.evt-viewer-count { font-weight: 800; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.evt-viewer-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px;
+  font-size: 0.78rem; font-weight: 700; background: rgba(255,255,255,0.12);
+}
+.evt-viewer-chip.hearts i { color: #ff5a79; }
+.evt-viewer-chip.hearts.none i { color: inherit; opacity: 0.7; }
+.evt-viewer-gap { flex: 1; }
+.evt-viewer-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(255,255,255,0.12); color: #fff; font-size: 1.05rem;
+}
+.evt-viewer-btn:hover { background: rgba(255,255,255,0.22); }
+.evt-viewer-btn.danger:hover { background: #c62828; }
+.evt-viewer-stage {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  padding: 0 72px 24px; min-height: 0; touch-action: pan-y;
+}
+.evt-viewer-stage img {
+  max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.2s;
+}
+.evt-viewer-stage img.on { opacity: 1; }
+.evt-viewer-wait { position: absolute; font-size: 2rem; opacity: 0.7; }
+.evt-viewer-fail { display: flex; align-items: center; gap: 8px; opacity: 0.8; margin: 0; }
+.evt-viewer-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 48px; height: 48px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(255,255,255,0.14); color: #fff; font-size: 1.1rem;
+}
+.evt-viewer-nav:hover:not(:disabled) { background: rgba(255,255,255,0.28); }
+.evt-viewer-nav:disabled { opacity: 0.25; cursor: default; }
+.evt-viewer-nav.prev { left: 14px; }
+.evt-viewer-nav.next { right: 14px; }
+@media (max-width: 640px) {
+  .evt-viewer-stage { padding: 0 8px 72px; }
+  .evt-viewer-nav { top: auto; bottom: 14px; transform: none; }
+  .evt-viewer-nav.prev { left: calc(50% - 58px); }
+  .evt-viewer-nav.next { right: calc(50% - 58px); }
+}
 
 /* ---- Day 1 / Day 2 tabs (Programme and Photos) ---- */
 .evt-daytabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 14px; }

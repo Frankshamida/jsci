@@ -12,6 +12,8 @@ import { cacheInvalidate } from '@/lib/serverCache';
 //   (browser uploads each file to Cloudinary with it)
 //   POST { action: 'save', eventId, actorId, photos, dayDate } -> the uploaded photos recorded, on that day
 // PUT  { ids, dayDate, actorId }                     -> photos moved to another day (dayDate null = no day)
+// DELETE ?id=..&actorId=..                           -> one photo gone
+// DELETE { ids, actorId }                            -> several gone at once (Super Admin only)
 
 const EVENT_MANAGER_ROLES = ['Admin', 'Super Admin'];
 
@@ -48,7 +50,14 @@ export async function GET(request) {
       .select(fields)
       .eq('event_id', eventId)
       .order('created_at', { ascending: false });
-    let { data, error } = await query(FIELDS);
+    // Hearts come already added up per photo (the event_photo_heart_counts
+    // view). Before event_feedback_and_photo_hearts.sql is run the view is not
+    // there, heartsReady is false, and the tab shows no counts at all.
+    const [photosRes, countRes] = await Promise.all([
+      query(FIELDS),
+      supabaseAdmin.from('event_photo_heart_counts').select('photo_id, hearts').eq('event_id', eventId),
+    ]);
+    let { data, error } = photosRes;
     // day_date not there yet (event_photo_days.sql not run): list them anyway, on no day.
     let needsDays = false;
     if (error && /day_date/i.test(error.message || '')) {
@@ -56,7 +65,13 @@ export async function GET(request) {
       ({ data, error } = await query(FIELDS.replace(', day_date', '')));
     }
     if (error) throw error;
-    return NextResponse.json({ success: true, needsDays, data: (data || []).map((p) => ({ ...p, ...photoUrls(p) })) });
+    const hearts = new Map((countRes.data || []).map((c) => [c.photo_id, Number(c.hearts) || 0]));
+    return NextResponse.json({
+      success: true,
+      needsDays,
+      heartsReady: !countRes.error,
+      data: (data || []).map((p) => ({ ...p, ...photoUrls(p), hearts: hearts.get(p.id) || 0 })),
+    });
   } catch (error) {
     return NextResponse.json({ success: false, message: explain(error) }, { status: 500 });
   }
@@ -124,27 +139,52 @@ export async function PUT(request) {
   }
 }
 
-// DELETE /api/events/photos?id=..&actorId=..
+// Cloudinary files removed a few at a time: fast enough for a page of photos
+// inside one request, without firing fifty destroys at once.
+async function destroyAll(publicIds, limit = 6) {
+  const queue = [...publicIds];
+  const worker = async () => {
+    while (queue.length) {
+      const id = queue.shift();
+      try { await deleteFromCloudinary(id, 'image'); } catch { /* already gone */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, worker));
+}
+
+// Deleting several at once is the Super Admin's; the dashboard sends them in
+// batches of up to 25 so each request finishes well inside a function's time.
+const BULK_MAX = 25;
+
+// DELETE /api/events/photos?id=..&actorId=..   one photo
+// DELETE /api/events/photos  { ids, actorId }  several (Super Admin only)
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const actor = await verifyEventManager(searchParams.get('actorId'));
+    const body = await request.json().catch(() => ({}));
+    const actor = await verifyEventManager(body?.actorId || searchParams.get('actorId'));
     if (!actor) return denied();
-    const id = searchParams.get('id');
-    if (!id) return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
+    const bulk = Array.isArray(body?.ids);
+    if (bulk && actor.role !== 'Super Admin') {
+      return NextResponse.json({ success: false, message: 'Only a Super Admin can delete several photos at once.' }, { status: 403 });
+    }
+    const ids = [...new Set((bulk ? body.ids : [searchParams.get('id')]).filter((x) => typeof x === 'string' && x))];
+    if (!ids.length) return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
+    if (ids.length > BULK_MAX) return NextResponse.json({ success: false, message: `At most ${BULK_MAX} photos per request.` }, { status: 400 });
 
-    const { data: photo, error: findErr } = await supabaseAdmin
-      .from('event_photos').select('id, event_id, public_id').eq('id', id).maybeSingle();
+    const { data: found, error: findErr } = await supabaseAdmin
+      .from('event_photos').select('id, event_id, public_id').in('id', ids);
     if (findErr) throw findErr;
-    if (!photo) return NextResponse.json({ success: true });
+    // Already gone counts as deleted: the dashboard just drops the tile.
+    if (!found?.length) return NextResponse.json({ success: true, deleted: ids });
 
-    // The file first: a row with no file is a broken tile, a file with no row
+    // The files first: a row with no file is a broken tile, a file with no row
     // is storage nobody can see or clear.
-    try { await deleteFromCloudinary(photo.public_id, 'image'); } catch { /* already gone */ }
-    const { error } = await supabaseAdmin.from('event_photos').delete().eq('id', id);
+    await destroyAll(found.map((p) => p.public_id));
+    const { error } = await supabaseAdmin.from('event_photos').delete().in('id', found.map((p) => p.id));
     if (error) throw error;
-    cacheInvalidate(photosCacheKey(photo.event_id));
-    return NextResponse.json({ success: true });
+    [...new Set(found.map((p) => p.event_id))].forEach((eid) => cacheInvalidate(photosCacheKey(eid)));
+    return NextResponse.json({ success: true, deleted: ids });
   } catch (error) {
     return NextResponse.json({ success: false, message: explain(error) }, { status: 500 });
   }

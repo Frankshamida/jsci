@@ -22768,6 +22768,9 @@ Examples:
                       actorId={userData?.id}
                       publicUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/events/${publicEventSlugFor(eventRegsModal, events)}`}
                       showToast={showToast}
+                      askConfirm={askConfirm}
+                      isSuperAdmin={userRole === 'Super Admin'}
+                      Pager={TablePager}
                     />
                   )}
 

@@ -24,13 +24,6 @@ const FRAME_ID = 'JSCI-System/frames/Frame_1';
 const FRAME_W = 6000;
 const FRAME_H = 4000;
 
-// The church's lockup stamped in the middle of every DOWNLOADED photo:
-// public/Frames/Logo_Stamp.png - the dashboard sidebar's logo over JOYFUL
-// SOUND CHURCH / INTERNATIONAL, in gold with a soft shadow - uploaded by
-// scripts/upload-photo-frame.mjs Logo_Stamp. 1198 x 579; laid on at a fifth
-// of the photo's width (1200 px of 6000), so it prints at its own size.
-const STAMP_ID = 'JSCI-System/frames/Logo_Stamp';
-
 const cloudName = () => process.env.CLOUDINARY_CLOUD_NAME
   || (process.env.CLOUDINARY_URL || '').match(/@([^/?#]+)/)?.[1] || '';
 
@@ -38,11 +31,10 @@ const layer = (id, scale) => [`l_${id.replace(/\//g, ':')},c_scale,fl_relative,$
 
 // The photo cropped to the frame's exact size (3:2, keeping the subject in
 // view), then the frame stretched over it edge to edge - so it always fits,
-// whatever size the photo came in at. `extra` goes on top of the frame.
-const framed = (width, height, delivery, extra = []) => [
+// whatever size the photo came in at.
+const framed = (width, height, delivery) => [
   `c_fill,g_auto,w_${width},h_${height}`,
   ...layer(FRAME_ID, 'w_1.0,h_1.0'),
-  ...extra,
   delivery,
 ].join('/');
 
@@ -52,12 +44,10 @@ const framed = (width, height, delivery, extra = []) => [
 // is already built and cached. The strings here and in the eager list must be
 // identical, or the eager copy is a different image nobody asks for.
 //   preview   1600 x 1067 WebP, ~200 KB - what the full-screen view shows
-//   download  6000 x 4000 JPEG, the frame's own size, with the church's
-//             lockup stamped in the middle at 80% - a copy that leaves the
-//             page says where it came from. The full view stays unstamped,
-//             so the photo itself is what people look at.
+//   download  6000 x 4000 JPEG, the frame's own size - nothing stamped over
+//             the photo, so the middle of the picture stays clear.
 export const PREVIEW_T = framed(1600, 1067, 'q_auto,f_webp');
-export const DOWNLOAD_T = framed(FRAME_W, FRAME_H, 'q_auto:good,f_jpg', layer(STAMP_ID, 'w_0.2,o_80'));
+export const DOWNLOAD_T = framed(FRAME_W, FRAME_H, 'q_auto:good,f_jpg');
 
 const urlFor = (publicId, transformation) => {
   const cloud = cloudName();
@@ -86,7 +76,7 @@ export function signPhotoUpload(eventId) {
 
 /**
  * Grid thumbnail (plain, small), the full view (framed), and the download:
- * framed and stamped with the church's lockup, 6000 x 4000 JPEG.
+ * framed, 6000 x 4000 JPEG.
  */
 export const photoUrls = (p) => ({
   thumb: buildCloudinaryUrl(p.public_id, { width: 400, height: 400, crop: 'fill', gravity: 'auto', quality: 'auto', format: 'auto' }) || p.url,
