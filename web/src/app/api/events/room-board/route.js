@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { compareRoomNumbers } from '@/lib/rooms';
+import { accommodationAddons, compareRoomNumbers } from '@/lib/rooms';
+import { addonFeeFor, findTier } from '@/lib/eventPricing';
 import { holdName, loadHolds, loadPeople } from '@/lib/roomList/data';
 
 // Everything the rooms board shows, in one request (components/accommodation/
@@ -13,6 +14,9 @@ import { holdName, loadHolds, loadPeople } from '@/lib/roomList/data';
 //   people   everybody on the event: whether they availed accommodation,
 //            whether they have been verified at the desk, and what they owe -
 //            the board assigns anybody who availed it, verified or not
+//   bed      the event's accommodation extra, so somebody who did not avail
+//            it can be given it (and a room) from the board - with bedFee on
+//            each of them, priced for their age group
 //
 // GET /api/events/room-board?eventId=..
 
@@ -44,15 +48,28 @@ export async function GET(request) {
     const eventId = new URL(request.url).searchParams.get('eventId');
     if (!eventId) return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
 
-    const [rooms, guestsRes, holds, people, attendance] = await Promise.all([
+    const [rooms, guestsRes, holds, people, attendance, addonsRes, tiersRes] = await Promise.all([
       loadBoardRooms(eventId),
       supabaseAdmin.from('event_room_guests').select('id, room_id, registration_id, assigned_at').eq('event_id', eventId).order('assigned_at'),
       loadHolds(eventId),
       loadPeople(eventId),
       supabaseAdmin.from('event_day_attendance').select('registration_id').eq('event_id', eventId)
         .then((r) => r, () => ({ data: [] })),
+      supabaseAdmin.from('event_addons').select('*').eq('event_id', eventId)
+        .then((r) => r, () => ({ data: [] })),
+      supabaseAdmin.from('event_price_tiers').select('*').eq('event_id', eventId).order('position')
+        .then((r) => r, () => ({ data: [] })),
     ]);
     if (guestsRes.error) throw guestsRes.error;
+
+    // The extra that means a bed. Only when one is worded that way - with no
+    // such extra, any extra counts and there is no one bed to add.
+    const bed = accommodationAddons(addonsRes.data || [])[0] || null;
+    const tiers = { event_price_tiers: tiersRes.data || [] };
+    // Less what an exemption still has, which pays for it.
+    const bedFeeOf = (p) => (bed && !p.entitled
+      ? Math.max(0, addonFeeFor(bed, findTier(tiers, p.tier)) - (p.exempt?.credit || 0))
+      : 0);
 
     // Verified at the desk = checked in on any day (what the desk calls Registered).
     const verified = new Set((attendance.data || []).map((a) => a.registration_id));
@@ -72,7 +89,9 @@ export async function GET(request) {
           verified: verified.has(p.id),
           roomId: roomOf.get(p.id) || null,
           heldRoomId: heldIn.get(p.id) || null,
+          bedFee: bedFeeOf(p),
         })),
+        bed: bed ? { id: bed.id, question: bed.question } : null,
       },
     });
   } catch (error) {

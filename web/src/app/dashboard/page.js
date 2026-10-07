@@ -9,6 +9,7 @@ import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bed
 import { supabase } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, formatUid, sameCard, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
 import { sameAddon } from '@/lib/addons';
+import { exemptCreditLeft, extraNetFee } from '@/lib/exemption';
 import { publishQrDisplay, announceQrDisplayEvent } from '@/lib/qrDisplay';
 import { announceDeskChange, followDeskChanges } from '@/lib/deskSync';
 import { publishMealsDisplay } from '@/lib/mealsDisplay';
@@ -7395,6 +7396,11 @@ export default function DashboardPage() {
   // screen, so only what is left is ever asked for here.
   const regCashDue = (r) => Math.max(0, (Number(r.amount) || 0) - (Number(r.amount_paid) || 0));
 
+  // Exempted from the room board - serving at the event, no registration fee,
+  // accommodation still paid (supabase/migrations/registration_exemption.sql):
+  // "Exemption: Usher".
+  const regExemptLine = (r) => `Exemption: ${String(r?.exempt_note || '').trim() || 'Committee'}`;
+
   // Settled means the money is in: either the status says so, or there is
   // nothing left to hand over.
   const regCashPaid = (r) => r.status === 'payment_verified' || r.status === 'registered' || r.status === 'paid_pending_turnover' || regCashDue(r) <= 0;
@@ -14265,6 +14271,9 @@ Examples:
     setRfidError('');
     setIdRfidReg(reg);
   };
+  // At the verification desk the attendee popup is portaled to <body>, so the
+  // Assign RFID dialog opened from it is too - or it would open underneath.
+  const overDesk = (node) => (verifyMode && typeof document !== 'undefined' ? createPortal(node, document.body) : node);
 
   const assignIdRfid = useCallback(async (rawUid) => {
     const reg = idRfidReg;
@@ -15838,7 +15847,8 @@ Examples:
     && (Array.isArray(r.addons) ? r.addons : []).some((h) => isBedAddon(h))).length;
   const deskBedsLeft = Math.max(0, deskBedCapacity - deskBedReserved);
   const regExtrasOf = (r) => (Array.isArray(r?.addons) ? r.addons : []).filter((a) => a && (a.question || a.id));
-  const regExtrasTotal = (r) => regExtrasOf(r).reduce((t, a) => t + (Number(a.fee) || 0), 0);
+  // What their extras cost them - less what an exemption paid of them.
+  const regExtrasTotal = (r) => regExtrasOf(r).reduce((t, a) => t + extraNetFee(a), 0);
   const deskCanEditExtras = (r) => r.payment_plan !== 'flexible' && ['pending_cash', 'pending_payment', 'payment_verified', 'registered'].includes(r.status);
   const deskAddonFee = (a, r) => addonFeeFor(a, findTier(eventRegsModal, r.price_tier) || defaultTier(eventRegsModal));
   // ---- What the open attendee popup has added, not yet settled ----
@@ -16056,7 +16066,9 @@ Examples:
   const deskCanCancelExtra = (r) => verifyMode && r.payment_plan !== 'flexible'
     && ['pending_cash', 'pending_payment', 'payment_verified', 'registered', 'paid_pending_turnover'].includes(r.status);
   const extraRefundFor = (r, a) => {
-    const fee = Number(a?.fee) || 0;
+    // What it cost them: what an exemption paid of it was never handed over,
+    // so it is never refunded (the server does the same sum).
+    const fee = extraNetFee(a);
     const amountWas = Number(r.amount) || 0;
     const amount = Math.max(0, amountWas - fee);
     const paid = isPaidStatus(r) ? (Number(r.amount_paid) > 0 ? Number(r.amount_paid) : amountWas) : (Number(r.amount_paid) || 0);
@@ -16457,13 +16469,37 @@ Examples:
     if (reg && !idRfidLinks[reg.id]) openIdRfid({ ...reg, deskVerified: true });
   }, [verifyMode, idRfidReg, deskRfidQueue, verifyTap?.regId, deskPay, verifyFindOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // Given their card: on to the next one by itself, after a moment to see it.
+  // The same when it was opened by the desk's own Assign RFID button.
   useEffect(() => {
-    if (!idRfidReg?.deskVerified || !idRfidResult?.ok) return undefined;
+    if (!(idRfidReg?.deskVerified || idRfidReg?.fromDesk) || !idRfidResult?.ok) return undefined;
     const id = idRfidReg.id;
     // Long enough to read their room number out to them, when they have one.
     const t = setTimeout(() => setIdRfidReg((cur) => (cur && cur.id === id ? null : cur)), deskRoomOf(id) ? 3200 : 1400);
     return () => clearTimeout(t);
-  }, [idRfidReg?.id, idRfidReg?.deskVerified, idRfidResult?.ok]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [idRfidReg?.id, idRfidReg?.deskVerified, idRfidReg?.fromDesk, idRfidResult?.ok]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The desk's Assign RFID button: one attendee's card, there and then -
+  // in the popup while they pay or are verified, or on their row once
+  // verified. (Verify also offers it by itself to whoever has none.)
+  const openDeskRfid = (r) => openIdRfid({ ...r, fromDesk: true, deskVerified: verifyIsIn(r) });
+  const renderVerifyRfidRow = (g) => {
+    const link = idRfidLinks[g.id];
+    return (
+      <div>
+        <dt>RFID</dt>
+        <dd>
+          <span className="evt-verify-rfid">
+            {link
+              ? <span className="evt-verify-rfid-uid"><i className="fas fa-wifi"></i> <code>{formatUid(link.uid)}</code></span>
+              : <span className="evt-muted">No card yet</span>}
+            <button type="button" className={`evt-verify-rfidbtn ${link ? 'has' : ''}`} onClick={() => openDeskRfid(g)} title={link ? 'Tap a new card to replace it' : 'Tap the RFID card you are handing them'}>
+              <i className="fas fa-wifi"></i> {link ? 'Change RFID' : 'Assign RFID'}
+            </button>
+          </span>
+        </dd>
+      </div>
+    );
+  };
 
   // Verify Attendee, by name: open them as a card tap would.
   const pickVerifyFind = (r) => {
@@ -16914,6 +16950,16 @@ Examples:
     if (verifyMode && deskParkedFor(r.id)) {
       return <span className="evt-status evt-verify-ongoing"><i className="fas fa-hourglass-half"></i> Ongoing Transaction</span>;
     }
+    // Serving at the event (marked from the room board), registration fee
+    // waived and no accommodation to pay. Owing their accommodation, the
+    // money pill below says so, as for anybody.
+    if (r.exempted_at && r.status === 'registered' && !(Number(r.amount) > 0)) {
+      return (
+        <span className="evt-status evt-verify-exempt" title={`${regExemptLine(r)}${Number(r.exempt_amount) > 0 ? ` · ₱${Number(r.exempt_amount).toLocaleString()} registration fee waived` : ''}`}>
+          <i className="fas fa-id-badge"></i> Exempted
+        </span>
+      );
+    }
     if ((r.guardian_name || r.guardian_registration_id) && !(Number(r.amount) > 0)
       && ['registered', 'pending_cash', 'payment_verified'].includes(r.status)) {
       return <span className="evt-status evt-status-registered">free</span>;
@@ -17124,7 +17170,7 @@ Examples:
               </span>
             )}
             {st.money.free > 0 && (
-              <span className="evt-verify-official-chip is-free" title="Nothing owed - a child with a parent, or a free registration">
+              <span className="evt-verify-official-chip is-free" title="Nothing owed - a child with a parent, an exempted attendee with no accommodation to pay, or a free registration">
                 <i className="fas fa-gift"></i> Free <b>{st.money.free}</b>
               </span>
             )}
@@ -17338,6 +17384,9 @@ Examples:
                       {r.added_by_role === 'Verifier' && (
                         <small className="evt-verify-addedby"><i className="fas fa-user-shield"></i> Added by {formatPersonName(r.added_by)} · Verifier</small>
                       )}
+                      {r.exempted_at && (
+                        <small className="evt-verify-exemptline"><i className="fas fa-id-badge"></i> {regExemptLine(r)}</small>
+                      )}
                     </td>
                     <td className="center" data-label="Tracker">
                       {verifyTracker.get(r.id) && (
@@ -17350,6 +17399,18 @@ Examples:
                       {verifyBucketOf(r) === 'walkin' && stockNumberOf(r.id)
                         ? <span className="evt-idq-chip is-stock" title="The card from the stock, given when they were added"><i className="fas fa-id-card"></i> RFID #{stockNumberOf(r.id)}</span>
                         : renderIdCell(r)}
+                      {/* Verified: their RFID card - assign one, or change it. */}
+                      {verifyIsIn(r) && (
+                        <button
+                          type="button"
+                          className={`evt-verify-rfidmini ${idRfidLinks[r.id] ? 'has' : ''}`}
+                          onClick={(e) => { e.stopPropagation(); openDeskRfid(r); }}
+                          title={idRfidLinks[r.id] ? `RFID ${formatUid(idRfidLinks[r.id].uid)} - click to change it` : 'No RFID card yet - assign one'}
+                          aria-label={`${idRfidLinks[r.id] ? 'Change' : 'Assign'} ${formatPersonName(r.attendee_name)}'s RFID card`}
+                        >
+                          <i className="fas fa-wifi"></i>{idRfidLinks[r.id] ? '' : ' Assign'}
+                        </button>
+                      )}
                     </td>
                     <td className="center" data-label="Age Group">{r.price_tier || '—'}</td>
                     <td className="center" data-label="Type">
@@ -18890,6 +18951,12 @@ Examples:
             {g.added_by_role === 'Verifier' && (
               <p className="evt-verify-addedby"><i className="fas fa-user-shield"></i> Added by {formatPersonName(g.added_by)} · Verifier</p>
             )}
+            {g.exempted_at && (
+              <p className="evt-verify-exemptline">
+                <i className="fas fa-id-badge"></i> {regExemptLine(g)}
+                {g.exempted_by_name ? ` · by ${formatPersonName(g.exempted_by_name)}` : ''}
+              </p>
+            )}
             {/* One person on their own: Substitute here. In a booking it is on every row. */}
             {!hasGroup && (
               <span className="evt-verify-rowacts evt-verify-pop-subacts">
@@ -18910,6 +18977,7 @@ Examples:
           <dl className="evt-verify-pop-facts">
             {renderGuardianRow(g)}
             {renderVerifyRoomRow(g)}
+            {renderVerifyRfidRow(g)}
           </dl>
         ) : (
         <dl className="evt-verify-pop-facts">
@@ -18940,7 +19008,9 @@ Examples:
                       <span className={`evt-verify-extra ${a.desk ? 'is-desk' : ''}`}>
                         <i className={`fas ${isBedAddon(a) ? 'fa-bed' : 'fa-circle-plus'}`}></i>
                         {addonShortLabel(a.question)}
-                        {Number(a.fee) > 0 && <em>+₱{Number(a.fee).toLocaleString()}</em>}
+                        {Number(a.fee) > 0 && (Number(a.waived) > 0
+                          ? <em title={`₱${Number(a.waived).toLocaleString()} covered by the exemption`}>{extraNetFee(a) > 0 ? `+₱${extraNetFee(a).toLocaleString()}` : 'free · exempted'}</em>
+                          : <em>+₱{Number(a.fee).toLocaleString()}</em>)}
                         {a.desk && canEdit && !isPaidStatus(g) && (
                           <button type="button" onClick={() => deskAddon(g, a.id, true)} disabled={!!verifyAddonBusy} title="Remove this extra" aria-label={`Remove ${a.question}`}>
                             <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-xmark'}`}></i>
@@ -19002,7 +19072,11 @@ Examples:
                             </span>
                             {reserve
                               ? <em className="is-reserve">{waiting ? 'In line' : 'Reserve'}</em>
-                              : <em>+₱{deskAddonFee(a, g).toLocaleString()}</em>}
+                              : (() => {
+                                // Exempted: what the exemption still has pays for it.
+                                const net = Math.max(0, deskAddonFee(a, g) - exemptCreditLeft(g));
+                                return <em>{net > 0 ? `+₱${net.toLocaleString()}` : deskAddonFee(a, g) > 0 ? 'free · exempted' : '+₱0'}</em>;
+                              })()}
                           </button>
                         );
                       })}
@@ -19016,6 +19090,7 @@ Examples:
             <dt>Amount</dt>
             <dd>
               <b className="evt-verify-amt">₱{amount.toLocaleString()}</b>
+              {g.exempted_at && Number(g.exempt_amount) > 0 && <small>₱{Number(g.exempt_amount).toLocaleString()} waived - exempted</small>}
               {extrasSum > 0 && <small>₱{Math.max(0, amount - extrasSum).toLocaleString()} + ₱{extrasSum.toLocaleString()} extras</small>}
               {Number(g.amount_paid) > 0 && g.status === 'pending_cash' && <small>Paid ₱{Number(g.amount_paid).toLocaleString()} · ₱{regCashDue(g).toLocaleString()} still due</small>}
             </dd>
@@ -19025,6 +19100,7 @@ Examples:
           )}
           {isKidReg(g) && renderGuardianRow(g)}
           {renderVerifyRoomRow(g)}
+          {renderVerifyRfidRow(g)}
         </dl>
         )}
       </div>
@@ -24798,6 +24874,7 @@ Examples:
                             refreshKey={evtRoomGuests}
                             onChanged={() => { loadEvtRoomGuests(eventRegsModal.id); loadEvtRoomHolds(eventRegsModal.id); }}
                             onRoomsChanged={() => loadEvtRooms(eventRegsModal.id)}
+                            onRegistrationChanged={(row) => setEventRegs((list) => list.map((x) => (x.id === row.id ? { ...x, ...row } : x)))}
                             onToast={showToast}
                           />
                         </>
@@ -25385,8 +25462,8 @@ Examples:
             {/* ---- Assign RFID, from the ID Cards tab ----
                  One person, one tap. The card is linked to this registration
                  for this event only; the same card can be reused next event. */}
-            {idRfidReg && (
-              <div className="evt-modal-overlay" onClick={() => !idRfidBusy && setIdRfidReg(null)}>
+            {idRfidReg && overDesk(
+              <div className={`evt-modal-overlay ${verifyMode ? 'evt-rfid-over-desk' : ''}`} onClick={() => !idRfidBusy && setIdRfidReg(null)}>
                 <div className="evt-modal evt-claim-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
                   <div className="evt-modal-head">
                     <div>
@@ -36912,6 +36989,7 @@ Examples:
                       onToast={showToast}
                       onLoaded={(d) => setAccHeldNames((d?.holds || []).filter((h) => h.registrationId).length)}
                       onRoomsChanged={() => loadAccRooms(accEventId)}
+                      onRegistrationChanged={(row) => setEventRegs((list) => list.map((x) => (x.id === row.id ? { ...x, ...row } : x)))}
                       roomActions={isAdmin ? {
                         onEdit: (room) => openAccRoomForm(accRooms.find((r) => r.id === room.id) || room),
                         onHoldBeds: (room) => openAccReserve([accRooms.find((r) => r.id === room.id) || room]),

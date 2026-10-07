@@ -4,6 +4,7 @@
 // same names.
 import { supabaseAdmin } from '@/lib/supabase';
 import { roomEntitlement } from '@/lib/rooms';
+import { exemptCreditLeft, registrationFeeOf } from '@/lib/exemption';
 
 export async function loadRooms(eventId) {
   const base = 'id, event_id, room_type, room_number, pax';
@@ -75,17 +76,22 @@ export function bedsTaken(guests, holds = []) {
 
 // Everybody on the event who is not cancelled or in the Recycle Bin, and
 // whether they paid for a bed - the same rule the room desk uses.
+const PEOPLE_FIELDS = 'id, attendee_name, church_name, status, addons, deleted_at, representative, registration_type, price_tier, amount, amount_paid';
+
 export async function loadPeople(eventId) {
-  const [{ data: regs, error }, { data: addons }] = await Promise.all([
-    supabaseAdmin
-      .from('event_registrations')
-      .select('id, attendee_name, church_name, status, addons, deleted_at, representative, registration_type, price_tier, amount, amount_paid')
-      .eq('event_id', eventId)
-      .is('deleted_at', null)
-      .neq('status', 'cancelled')
-      .limit(5000),
+  const read = (fields) => supabaseAdmin
+    .from('event_registrations')
+    .select(fields)
+    .eq('event_id', eventId)
+    .is('deleted_at', null)
+    .neq('status', 'cancelled')
+    .limit(5000);
+  const [first, { data: addons }] = await Promise.all([
+    read(`${PEOPLE_FIELDS}, exempt_note, exempt_amount, exempt_cover, exempted_at`),
     supabaseAdmin.from('event_addons').select('id, question, fee').eq('event_id', eventId),
   ]);
+  // Before registration_exemption.sql has run: nobody is exempted.
+  const { data: regs, error } = first.error && /exempt/i.test(first.error.message || '') ? await read(PEOPLE_FIELDS) : first;
   if (error) throw error;
   return (regs || []).map((r) => {
     const ent = roomEntitlement(r.addons, addons || []);
@@ -100,6 +106,14 @@ export async function loadPeople(eventId) {
       bulk: r.registration_type === 'bulk',
       tier: r.price_tier || '',
       due: Math.max(0, (Number(r.amount) || 0) - (Number(r.amount_paid) || 0)),
+      paid: Number(r.amount_paid) || 0,
+      // The registration fee alone - what an exemption is worth.
+      fee: registrationFeeOf(r),
+      // Serving at the event: "Usher", what it waived, and what it can still
+      // pay for (an extra added later).
+      exempt: r.exempted_at
+        ? { note: r.exempt_note || '', waived: Number(r.exempt_amount) || 0, credit: exemptCreditLeft(r) }
+        : null,
     };
   });
 }

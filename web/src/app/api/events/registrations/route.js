@@ -20,6 +20,17 @@ import {
   addonFeeFor, baseAmountFor, defaultTier, findTier, hasPriceTiers, isNameOnlyTier,
   registerableTiers, representativeTiers,
 } from '@/lib/eventPricing';
+import { extraNetFee, waiveAdded } from '@/lib/exemption';
+
+// An exempted registration's exemption (lib/exemption.js), read on its own so
+// a database that has not run registration_exemption.sql still adds extras.
+async function exemptionOf(id) {
+  try {
+    const { data, error } = await supabase.from('event_registrations')
+      .select('exempted_at, exempt_amount, exempt_cover').eq('id', id).maybeSingle();
+    return !error && data?.exempted_at ? data : null;
+  } catch { return null; }
+}
 
 // Churches are typed by hand, so the same church arrives as "joyful sound church"
 // and "Joyful Sound Church". Stored in Title Case so the list stays one entry.
@@ -2181,7 +2192,12 @@ async function putRegistration(request) {
         || held.find((h) => body.addonQuestion && String(h?.question || '').trim() === String(body.addonQuestion).trim());
       if (!target) return NextResponse.json({ success: false, message: 'That extra is no longer on this registration.' }, { status: 404 });
 
-      const fee = Number(target.fee) || 0;
+      // What it cost them: less what an exemption paid of it, which nobody
+      // ever handed over and so is never refunded - it goes back to the
+      // exemption instead.
+      const fee = extraNetFee(target);
+      const waivedBack = (Number(target.fee) || 0) - fee;
+      const exemption = waivedBack > 0 ? await exemptionOf(reg.id) : null;
       const amountWas = Number(reg.amount) || 0;
       const amount = Math.max(0, amountWas - fee);
       const paidSoFar = PAID.includes(reg.status)
@@ -2222,6 +2238,7 @@ async function putRegistration(request) {
       }
 
       const patch = { addons: held.filter((h) => h !== target), amount };
+      if (exemption) patch.exempt_amount = Math.max(0, (Number(exemption.exempt_amount) || 0) - waivedBack);
       // What was paid can never be more than what is now owed - the rest is
       // the refund above.
       if ((Number(reg.amount_paid) || 0) > amount) patch.amount_paid = amount;
@@ -2359,11 +2376,19 @@ async function putRegistration(request) {
       if (removeIds.length && removed.length === 0 && !added.length) {
         return NextResponse.json({ success: false, message: 'Only extras added at the desk can be removed here.' }, { status: 400 });
       }
-      held = [...held.filter((h) => !removed.includes(h)), ...added];
-      amount += added.reduce((t, a) => t + (Number(a.fee) || 0), 0) - removed.reduce((t, a) => t + (Number(a.fee) || 0), 0);
+      // Exempted: what the exemption still has pays for what is added - an
+      // exempted attendee who already paid gets their accommodation free - and
+      // what it paid for an extra taken off goes back to it (lib/exemption.js).
+      const exemption = await exemptionOf(reg.id);
+      const removedWaived = removed.reduce((t, a) => t + (Number(a.waived) || 0), 0);
+      const spent = exemption ? { ...exemption, exempt_amount: Math.max(0, (Number(exemption.exempt_amount) || 0) - removedWaived) } : null;
+      const { added: addedNet, waived: addWaived } = spent ? waiveAdded(spent, added) : { added, waived: 0 };
+      held = [...held.filter((h) => !removed.includes(h)), ...addedNet];
+      amount += addedNet.reduce((t, a) => t + extraNetFee(a), 0) - removed.reduce((t, a) => t + extraNetFee(a), 0);
       amount = Math.max(0, amount);
       patch.addons = held;
       patch.amount = amount;
+      if (spent && (addWaived > 0 || removedWaived > 0)) patch.exempt_amount = spent.exempt_amount + addWaived;
 
       if (wasPaid && amount > amountWas) {
         // Paid for the rest; the new extra is cash still to take at the desk.
@@ -2384,10 +2409,10 @@ async function putRegistration(request) {
       if (saveErr) throw saveErr;
       cacheInvalidate(PENDING_ALERTS_KEY);
       await logAudit(actor, 'event_registration_addons', id,
-        [added.length ? `Desk added ${added.map((a) => `${a.question} (+P${a.fee})`).join(', ')}` : '',
-          removed.length ? `Desk removed ${removed.map((a) => `${a.question} (-P${a.fee})`).join(', ')}` : '']
+        [addedNet.length ? `Desk added ${addedNet.map((a) => `${a.question} (+P${extraNetFee(a)}${a.waived ? `, P${a.waived} covered by exemption` : ''})`).join(', ')}` : '',
+          removed.length ? `Desk removed ${removed.map((a) => `${a.question} (-P${extraNetFee(a)})`).join(', ')}` : '']
           .filter(Boolean).join('; ') + ` for ${reg.attendee_name} - total now P${amount}`);
-      return NextResponse.json({ success: true, data: saved, added, removed });
+      return NextResponse.json({ success: true, data: saved, added: addedNet, removed });
     }
 
     if (action === 'add_addons') {
@@ -2435,17 +2460,20 @@ async function putRegistration(request) {
       // re-created), so what they already hold is matched on the wording too -
       // otherwise somebody gets charged twice for the same bed.
       const alreadyHeld = (x) => held.some((h) => sameAddon(h, x));
-      const added = (addonRows || [])
+      const picked = (addonRows || [])
         .filter((a) => wantedIds.includes(a.id) && !alreadyHeld(a))
         .map((a) => ({ id: a.id, question: a.question, fee: addonFeeFor(a, regTier) }));
-      if (added.length === 0) {
+      if (picked.length === 0) {
         return NextResponse.json({
           success: false,
           message: 'Those extras are already on this registration — nothing was charged again.',
         }, { status: 400 });
       }
+      // Exempted: what the exemption still has pays for them (lib/exemption.js).
+      const exemption = await exemptionOf(reg.id);
+      const { added, waived: addWaived } = exemption ? waiveAdded(exemption, picked) : { added: picked, waived: 0 };
 
-      const extra = added.reduce((sum, a) => sum + a.fee, 0);
+      const extra = added.reduce((sum, a) => sum + extraNetFee(a), 0);
       const owedAfter = (Number(reg.amount) || 0) + extra;
       // Staff at a desk have the money in hand; unticking it is how they say it
       // has not arrived yet.
@@ -2457,6 +2485,7 @@ async function putRegistration(request) {
       }
 
       const patch = { addons: [...held, ...added], amount: owedAfter };
+      if (addWaived > 0) patch.exempt_amount = (Number(exemption.exempt_amount) || 0) + addWaived;
       let note = '';
 
       if (reg.payment_plan === 'flexible') {

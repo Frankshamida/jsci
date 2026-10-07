@@ -34254,6 +34254,17 @@ body.dark-mode .evt-verify-subof { color: #b690ea !important; }
 body.dark-mode .evt-added-admin.verifier { background: rgba(31,122,74,0.18); color: #5fd08f; border-color: rgba(31,122,74,0.35); }
 body.dark-mode .evt-verify-addedby { color: #5fd08f !important; }
 
+/* Exempted from the room board - serving at the event, nothing owed:
+   "Exemption: Usher" under the name, and an Exempted pill for Status. */
+.evt-verify-exemptline { display: block; margin: 2px 0 0; font-size: 0.74rem !important; font-weight: 700; color: #1d5f9c !important; }
+.evt-verify-exemptline i { margin-right: 3px; }
+.evt-status.evt-verify-exempt {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  background: #e0f0fd; color: #1d5f9c; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
+}
+body.dark-mode .evt-verify-exemptline { color: #8cc6f5 !important; }
+body.dark-mode .evt-status.evt-verify-exempt { background: rgba(77,160,230,0.18); color: #8cc6f5; }
+
 /* Paid through a turnover: the green "Turnover by ..." line under the badge */
 .evt-turnover-by.is-done { color: #1f7a4a; }
 .evt-turnover-by.is-done b { color: #1f7a4a; }
@@ -35631,6 +35642,31 @@ body.dark-mode .acc-wait-row + .acc-wait-row { border-color: rgba(255,255,255,0.
 }
 .evt-rfid-desk-note > i { color: #16a34a; margin-top: 2px; }
 body.dark-mode .evt-rfid-desk-note { background: rgba(22,163,74,0.12); border-color: rgba(74,222,128,0.3); color: #bbf7d0; }
+
+/* Assign RFID at the desk: over the attendee popup, which sits on <body>. */
+.evt-modal-overlay.evt-rfid-over-desk { z-index: 15100; }
+/* The popup's RFID row: the card they hold, and the button beside it. */
+.evt-verify-rfid { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.evt-verify-rfid-uid { display: inline-flex; align-items: center; gap: 6px; color: #15803d; font-weight: 700; }
+.evt-verify-rfid-uid code { font-size: 0.82rem; background: #ecfdf3; color: #15803d; padding: 2px 8px; border-radius: 6px; }
+.evt-verify-rfidbtn {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid #e6c873; background: #fffaf0; color: var(--primary, #926c15); font: inherit; font-size: 0.8rem; font-weight: 700;
+}
+.evt-verify-rfidbtn:not(.has) { background: var(--primary, #c9980b); border-color: var(--primary, #c9980b); color: #fff; }
+.evt-verify-rfidbtn:hover { filter: brightness(0.96); }
+/* On a verified row in the table, beside Claimed. */
+.evt-verify-rfidmini {
+  display: inline-flex; align-items: center; gap: 4px; margin: 4px 0 0 4px; height: 26px; padding: 0 9px; border-radius: 999px;
+  border: 1px solid #e6c873; background: #fffaf0; color: var(--primary, #926c15); cursor: pointer;
+  font: inherit; font-size: 0.72rem; font-weight: 800; white-space: nowrap; vertical-align: middle;
+}
+.evt-verify-rfidmini.has { border-color: #bbf7d0; background: #ecfdf3; color: #15803d; padding: 0 8px; }
+.evt-verify-rfidmini:hover { filter: brightness(0.96); }
+body.dark-mode .evt-verify-rfid-uid, body.dark-mode .evt-verify-rfid-uid code { color: #4ade80; }
+body.dark-mode .evt-verify-rfid-uid code { background: rgba(74,222,128,0.12); }
+body.dark-mode .evt-verify-rfidbtn.has, body.dark-mode .evt-verify-rfidmini { background: rgba(224,180,74,0.08); border-color: rgba(224,180,74,0.4); color: #e0b44a; }
+body.dark-mode .evt-verify-rfidmini.has { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.3); color: #4ade80; }
 /* Copy Names: beside Export Report, the same size, outlined so the report
    stays the main action. */
 .evt-verify-copy-btn {

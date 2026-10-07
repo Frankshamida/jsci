@@ -230,3 +230,37 @@ body.dark-mode .rb-count b { color: #fff; }
 .rb-seg > button { white-space: nowrap; }
 @media (max-width: 560px) { .rb-seg > button { padding: 9px 6px; font-size: 0.78rem; gap: 5px; } }
 body.dark-mode .rb-chip.is-guest { background: rgba(17, 118, 106, 0.2); color: #6fd3c4; }
+
+/* Searching: the ones who did not avail accommodation, under their own line. */
+.rb-add .rb-hint.rb-hint-head { margin: 4px 0 -2px; }
+
+/* ---- Exempt: serving at the event, no registration fee ---- */
+.rb-chip.is-exempt { background: #e0f0fd; color: #1d5f9c; }
+.rb-exbtn {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--rb-line); background: var(--rb-card); color: #1d5f9c;
+  font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+}
+.rb-exbtn:hover, .rb-exbtn.on { border-color: #1d5f9c; background: #eef6fe; }
+.rb-exform {
+  flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 2px; padding: 10px 12px; border-radius: 10px; background: #f3f8fd; border: 1px solid #cfe3f6;
+}
+.rb-exform-label { font-size: 0.78rem; font-weight: 800; color: #1d5f9c; }
+.rb-exroles { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.rb-exroles > button {
+  padding: 5px 11px; border-radius: 999px; border: 1px solid #cfe3f6; background: var(--rb-card);
+  font: inherit; font-size: 0.76rem; font-weight: 700; color: #3d5a75; cursor: pointer;
+}
+.rb-exroles > button.on { background: #1d5f9c; border-color: #1d5f9c; color: #fff; }
+.rb-exform input { flex: 1 1 100%; min-width: 0; }
+.rb-exform small { flex: 1 1 100%; font-size: 0.76rem; color: var(--rb-muted); line-height: 1.45; }
+.rb-exform-acts { display: inline-flex; gap: 6px; margin-left: auto; }
+.rb-exform-acts .btn-secondary, .rb-exform-acts .btn-primary { min-height: 34px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; }
+body.dark-mode .rb-chip.is-exempt { background: rgba(77, 160, 230, 0.18); color: #8cc6f5; }
+body.dark-mode .rb-exbtn { color: #8cc6f5; }
+body.dark-mode .rb-exbtn:hover, body.dark-mode .rb-exbtn.on { background: rgba(77, 160, 230, 0.12); border-color: #8cc6f5; }
+body.dark-mode .rb-exform { background: rgba(77, 160, 230, 0.08); border-color: rgba(77, 160, 230, 0.3); }
+body.dark-mode .rb-exform-label { color: #8cc6f5; }
+body.dark-mode .rb-exroles > button { border-color: rgba(77, 160, 230, 0.3); color: #c9dff2; }
+body.dark-mode .rb-exroles > button.on { background: #2f7cc0; border-color: #2f7cc0; color: #fff; }

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import PickList from '@/components/eventDesk/PickList';
 import { bedsToText, occupancyLabel, roomHold } from '@/lib/rooms';
 import { formatChurchName, STATUS_LABELS } from '@/lib/eventFormat';
+import { exemptCreditLeft, extraNetFee, registrationFeeOf } from '@/lib/exemption';
 import './roomBoard.css';
 
 // The rooms of one event, as people look for them: which rooms are full,
@@ -25,6 +26,10 @@ import './roomBoard.css';
 //            accommodation yet (api/events/room-holds, with the registration)
 //   Both take a bed, and their names go on the rooming list and the live
 //   Google Sheets.
+//   exempt   an attendee serving at the event - an usher, the worship team -
+//            pays no registration fee, only their accommodation
+//            (api/events/registrations/exempt, with what they serve as; the
+//            verification desk shows "Exemption: Usher")
 //
 //   eventId, actorId
 //   canEdit          assign, move, reserve and remove (Admin / Super Admin)
@@ -33,12 +38,15 @@ import './roomBoard.css';
 //   onToast(msg, tone)
 //   onLoaded(data)   each time the rooms are read - for counts shown outside
 //   onRoomsChanged() after a room itself changed (beds kept back released)
+//   onRegistrationChanged(row)  after a registration itself changed (exempted)
 //   roomActions      optional { onEdit(room), onHoldBeds(room), onRemove(room) }
 
 const PAID = ['registered', 'payment_verified', 'paid_pending_turnover'];
 const OWING = ['pending_cash', 'installment', 'pending_payment'];
 const VIEW_KEY = 'roomBoardView';
 const LIST_LIMIT = 8;
+// What somebody exempted usually serves as - one tap, or typed.
+const EXEMPT_ROLES = ['Committee', 'Usher', 'Worship Team', 'Technical Team', 'Speaker'];
 
 // Every word with its capital, as the dashboard writes names.
 const fmtName = (name) => String(name || '').trim().replace(/\s+/g, ' ').split(' ')
@@ -52,12 +60,42 @@ const peso = (n) => `₱${Number(n || 0).toLocaleString()}`;
 
 function payChip(p) {
   if (!p) return null;
+  // Exempted with no extras to pay: nothing was ever owed, so not "Paid".
+  if (p.exempt && p.due <= 0 && p.status === 'registered') return null;
   if (PAID.includes(p.status) || (p.due <= 0 && OWING.includes(p.status))) {
     return { tone: 'ok', text: p.status === 'paid_pending_turnover' ? 'Paid · turnover' : 'Paid' };
   }
   if (p.status === 'pending_cash') return { tone: 'warn', text: p.due ? `To collect ${peso(p.due)}` : 'Cash to collect' };
   const label = STATUS_LABELS[p.status] || String(p.status || '').replace(/_/g, ' ');
   return { tone: 'warn', text: label.charAt(0).toUpperCase() + label.slice(1) };
+}
+
+// Registration fee waived - serving at the event. Their extras they still pay,
+// so this sits beside payChip, not in place of it.
+const exemptChip = (p) => (p?.exempt ? (
+  <span
+    className="rb-chip is-exempt"
+    title={[p.exempt.waived > 0 && `₱${p.exempt.waived.toLocaleString()} waived`, p.exempt.credit > 0 && `an extra added later is free up to ₱${p.exempt.credit.toLocaleString()}`].filter(Boolean).join(' · ') || undefined}
+  >
+    {p.exempt.note ? `Exempted · ${p.exempt.note}` : 'Exempted'}
+  </span>
+) : null);
+
+// What exempting them will do - the same sums the server makes
+// (api/events/registrations/exempt): worth the registration fee, it pays
+// what they still owe up to that, and gives nothing back.
+function exemptPreview(p) {
+  const paidAll = PAID.includes(p.status);
+  const paidBefore = paidAll || p.paid > 0;
+  const owed = paidAll ? 0 : p.due;
+  const waive = Math.min(p.fee, owed);
+  const left = owed - waive;
+  if (p.fee <= 0) return <>No registration fee to waive.</>;
+  if (waive <= 0) return <>Already paid - nothing is given back. Accommodation added later is <b>free</b> (up to {peso(p.fee)}).</>;
+  if (paidBefore) {
+    return <>Registration fee already paid, so their <b>{peso(waive)}</b> accommodation is <b>free</b>{left > 0 ? <> - {peso(left)} still to pay</> : ''}.</>;
+  }
+  return <>The <b>{peso(waive)}</b> registration fee is waived{left > 0 ? <> - they still pay <b>{peso(left)}</b> for their accommodation</> : ''}.</>;
 }
 
 const STATUS_TEXT = {
@@ -77,7 +115,7 @@ async function call(url, options) {
 }
 const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKey, onChanged, onToast, onLoaded, onRoomsChanged, roomActions }) {
+export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKey, onChanged, onToast, onLoaded, onRoomsChanged, onRegistrationChanged, roomActions }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -206,6 +244,30 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
     return true;
   };
 
+  // Somebody who did not avail accommodation: the bed extra goes on their
+  // registration first - owed, as the desk adds it (desk_addons: paid before
+  // means the bed is cash still to collect) - and then the room.
+  const addBedAndAssign = async (person, roomId) => {
+    if (!data?.bed || !person || !roomId) return false;
+    setBusy(`assign:${person.id}`);
+    const res = await call('/api/events/registrations', json('PUT', { id: person.id, actorId, action: 'desk_addons', addIds: [data.bed.id] }));
+    setBusy('');
+    if (!res.success) { toast(res.message, 'danger'); return false; }
+    const r = res.data || {};
+    // What it costs them - an exemption may have paid for it.
+    const fee = (res.added || []).reduce((t, a) => t + extraNetFee(a), 0);
+    const free = (res.added || []).some((a) => Number(a.waived) > 0);
+    onRegistrationChanged?.(r);
+    const now = {
+      ...person, entitled: true, why: '', status: r.status || person.status,
+      due: Math.max(0, (Number(r.amount) || 0) - (Number(r.amount_paid) || 0)), bedFee: 0,
+      exempt: r.exempted_at ? { ...(person.exempt || {}), waived: Number(r.exempt_amount) || 0, credit: exemptCreditLeft(r) } : person.exempt,
+    };
+    patchData((d) => ({ ...d, people: d.people.map((p) => (p.id === person.id ? { ...p, ...now } : p)) }));
+    toast(`${data.bed.question} added for ${fmtName(person.name)}${fee > 0 ? ` - ${peso(fee)} to collect` : free ? ' - free, exempted' : ''}`);
+    return assign(now, roomId);
+  };
+
   const unassign = async (guest) => {
     setBusy(`guest:${guest.id}`);
     const res = await call(`/api/events/room-guests?id=${encodeURIComponent(guest.id)}&actorId=${encodeURIComponent(actorId || '')}`, { method: 'DELETE' });
@@ -249,6 +311,33 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
       : `Room ${room.room_number}: no beds kept back any more`);
     changed(); // the screen already shows it; the re-read confirms it in the background
     onRoomsChanged?.();
+  };
+
+  // Serving at the event: what they owe goes to 0, with what they serve as.
+  // restore puts back what was waived.
+  const exempt = async (person, note, restore = false) => {
+    setBusy(`exempt:${person.id}`);
+    const res = await call('/api/events/registrations/exempt', json('POST', restore
+      ? { actorId, registrationId: person.id, restore: true }
+      : { actorId, registrationId: person.id, note }));
+    setBusy('');
+    if (!res.success) { toast(res.message, 'danger'); return false; }
+    const r = res.data || {};
+    patchData((d) => ({
+      ...d,
+      people: d.people.map((p) => (p.id === person.id ? {
+        ...p,
+        status: r.status,
+        due: Math.max(0, (Number(r.amount) || 0) - (Number(r.amount_paid) || 0)),
+        fee: registrationFeeOf(r),
+        paid: Number(r.amount_paid) || 0,
+        exempt: r.exempted_at ? { note: r.exempt_note || '', waived: Number(r.exempt_amount) || 0, credit: exemptCreditLeft(r) } : null,
+      } : p)),
+    }));
+    toast(res.message);
+    onRegistrationChanged?.(r);
+    changed(); // the screen already shows it; the re-read confirms it in the background
+    return true;
   };
 
   const release = async (h) => {
@@ -341,6 +430,7 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
                     <small>{[p.church && formatChurchName(p.church), p.bulk && p.representative && `${fmtName(p.representative)}'s booking`].filter(Boolean).join(' · ')}</small>
                   </span>
                   <span className={`rb-chip ${p.verified ? 'is-ok' : 'is-muted'}`}>{p.verified ? 'Verified' : 'Not verified yet'}</span>
+                  {exemptChip(p)}
                   {pay && <span className={`rb-chip is-${pay.tone}`}>{pay.text}</span>}
                   {canEdit && (
                     <span className="rb-waitacts">
@@ -515,10 +605,13 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
           roomOptions={roomOptions}
           onClose={() => { setOpenId(''); setAskHeld(null); }}
           assign={assign}
+          addBedAndAssign={data.bed ? addBedAndAssign : null}
+          bed={data.bed}
           unassign={unassign}
           hold={hold}
           release={release}
           keepBack={keepBack}
+          exempt={exempt}
           // The page's own dialogs (edit, keep beds back, remove) open in its
           // place, not underneath it.
           roomActions={roomActions && Object.fromEntries(Object.entries(roomActions)
@@ -533,19 +626,21 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
 }
 
 // ---- One room, opened ----
-function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, onClose, assign, unassign, hold, release, keepBack, roomActions, statusPill, bedDots }) {
+function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, onClose, assign, addBedAndAssign, bed, unassign, hold, release, keepBack, exempt, roomActions, statusPill, bedDots }) {
   const [mode, setMode] = useState('assign'); // assign | guest | reserve
   const [search, setSearch] = useState('');
   const [guestName, setGuestName] = useState('');
   const [guestNote, setGuestNote] = useState('');
   const [confirm, setConfirm] = useState(''); // key of a line asking "Remove?"
+  const [exempting, setExempting] = useState(''); // registration id picking what they serve as
+  const [exemptNote, setExemptNote] = useState('');
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  useEffect(() => { setSearch(''); setConfirm(''); }, [v.room.id, mode]);
+  useEffect(() => { setSearch(''); setConfirm(''); setExempting(''); }, [v.room.id, mode]);
 
   const { room } = v;
   const s = search.trim().toLowerCase();
@@ -562,6 +657,12 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
       .slice(0, s ? 30 : LIST_LIMIT);
   })();
   const assignTotal = [...model.people.values()].filter((p) => p.entitled && !p.roomId && !p.heldRoomId).length;
+  // Searching: who matches but did not avail accommodation - shown too, so
+  // nobody seems missing, with the bed added for them on the way in.
+  const notAvailedList = s.length >= 2
+    ? [...model.people.values()].filter((p) => !p.entitled && !p.roomId && matches(p))
+      .sort((a, b) => fmtName(a.name).localeCompare(fmtName(b.name))).slice(0, 12)
+    : [];
   // Reserve: anybody on the event without a room or a held bed.
   const reserveList = s.length >= 2
     ? [...model.people.values()].filter((p) => !p.roomId && !p.heldRoomId && matches(p))
@@ -582,8 +683,9 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
         </span>
         <span className="rb-chips">
           <span className={`rb-chip ${p.verified ? 'is-ok' : 'is-muted'}`}>{p.verified ? 'Verified' : 'Not verified yet'}</span>
+          {exemptChip(p)}
           {pay && <span className={`rb-chip is-${pay.tone}`}>{pay.text}</span>}
-          {p.roomId && <span className="rb-chip is-info">In {roomNo(p.roomId)}</span>}
+          {p.roomId &&<span className="rb-chip is-info">In {roomNo(p.roomId)}</span>}
           {!p.roomId && p.heldRoomId && <span className="rb-chip is-held">Held in {roomNo(p.heldRoomId)}</span>}
           {!p.entitled && <span className="rb-chip is-muted" title={p.why}>No accommodation extra</span>}
         </span>
@@ -625,6 +727,7 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
                   </span>
                   <span className="rb-chips">
                     <span className={`rb-chip ${p.verified ? 'is-ok' : 'is-muted'}`}>{p.verified ? 'Verified' : 'Not verified yet'}</span>
+                    {exemptChip(p)}
                     {payChip(p) && <span className={`rb-chip is-${payChip(p).tone}`}>{payChip(p).text}</span>}
                   </span>
                   {canEdit && (
@@ -636,8 +739,39 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
                           <i className={`fas ${busy === `guest:${g.id}` ? 'fa-spinner fa-spin' : 'fa-user-minus'}`}></i> Yes
                         </button>
                       </span>
+                    ) : confirm === `x:${g.id}` ? (
+                      <span className="rb-acts">
+                        <span className="rb-confirm">
+                          {p.exempt?.waived > 0 ? `Take the exemption back? They owe the ${peso(p.exempt.waived)} it waived again.` : 'Take the exemption back?'}
+                        </span>
+                        <button type="button" className="btn-secondary" onClick={() => setConfirm('')}>No</button>
+                        <button type="button" className="btn-danger" disabled={busy === `exempt:${p.id}`} onClick={() => exempt(p, '', true).finally(() => setConfirm(''))}>
+                          <i className={`fas ${busy === `exempt:${p.id}` ? 'fa-spinner fa-spin' : 'fa-rotate-left'}`}></i> Yes
+                        </button>
+                      </span>
                     ) : (
                       <span className="rb-acts">
+                        {p.exempt ? (
+                          <button
+                            type="button"
+                            className="rb-iconbtn"
+                            onClick={() => { setExempting(''); setConfirm(`x:${g.id}`); }}
+                            title={`Take the exemption back${p.exempt.waived > 0 ? ` - they owe the ${peso(p.exempt.waived)} it waived again` : ''}`}
+                            aria-label={`Take back ${fmtName(p.name)}'s exemption`}
+                          >
+                            <i className="fas fa-rotate-left"></i>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className={`rb-exbtn ${exempting === p.id ? 'on' : ''}`}
+                            onClick={() => { setConfirm(''); setExemptNote(''); setExempting(exempting === p.id ? '' : p.id); }}
+                            title="Serving at the event - committee, usher, worship team. Worth their registration fee: not paid yet, the fee is waived; already paid, their accommodation is free."
+                            aria-expanded={exempting === p.id}
+                          >
+                            <i className="fas fa-id-badge"></i> Exempt
+                          </button>
+                        )}
                         <PickList
                           size="sm"
                           value=""
@@ -653,6 +787,42 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
                         </button>
                       </span>
                     )
+                  )}
+                  {/* Exempt: what they serve as, then no registration fee - their accommodation they still pay. */}
+                  {canEdit && exempting === p.id && !p.exempt && (
+                    <form
+                      className="rb-exform"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (await exempt(p, exemptNote)) { setExempting(''); setExemptNote(''); }
+                      }}
+                    >
+                      <span className="rb-exform-label">Exempt as</span>
+                      <span className="rb-exroles" role="group" aria-label="What they serve as">
+                        {EXEMPT_ROLES.map((r) => (
+                          <button key={r} type="button" className={exemptNote === r ? 'on' : ''} aria-pressed={exemptNote === r} onClick={() => setExemptNote(r)}>{r}</button>
+                        ))}
+                      </span>
+                      <input
+                        className="form-control"
+                        value={exemptNote}
+                        onChange={(e) => setExemptNote(e.target.value)}
+                        placeholder="Or type it - e.g. Sound Team, Registration Desk"
+                        maxLength={80}
+                        aria-label="What they serve as"
+                        autoFocus
+                      />
+                      <small>
+                        {exemptPreview(p)}
+                        {' '}Shows at Registration Verification as <b>Exemption: {exemptNote.trim() || '…'}</b>.
+                      </small>
+                      <span className="rb-exform-acts">
+                        <button type="button" className="btn-secondary" onClick={() => setExempting('')}>Cancel</button>
+                        <button type="submit" className="btn-primary" disabled={!exemptNote.trim() || busy === `exempt:${p.id}`}>
+                          <i className={`fas ${busy === `exempt:${p.id}` ? 'fa-spinner fa-spin' : 'fa-id-badge'}`}></i> Exempt
+                        </button>
+                      </span>
+                    </form>
                   )}
                 </li>
               );
@@ -843,6 +1013,33 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
                       </button>
                     )))}
                   </ul>
+                  {notAvailedList.length > 0 && (
+                    <>
+                      <p className="rb-hint rb-hint-head">
+                        <i className="fas fa-circle-info"></i> Did not avail accommodation{addBedAndAssign
+                          ? <> - <b>Add bed &amp; assign</b> puts {bed?.question || 'accommodation'} on their registration (cash to collect) and gives them this room.</>
+                          : ' - reserve a bed for them, or add accommodation on their registration first.'}
+                      </p>
+                      <ul className="rb-people">
+                        {notAvailedList.map((p) => personRow(p, addBedAndAssign ? (
+                          <button
+                            type="button"
+                            className="btn-primary rb-small"
+                            disabled={busy === `assign:${p.id}`}
+                            onClick={() => addBedAndAssign(p, room.id)}
+                            title={`Add ${bed?.question || 'accommodation'}${p.bedFee > 0 ? ` (+${peso(p.bedFee)})` : ''} and put them in ${room.room_number}`}
+                          >
+                            <i className={`fas ${busy === `assign:${p.id}` ? 'fa-spinner fa-spin' : 'fa-bed'}`}></i>
+                            {' '}Add bed{p.bedFee > 0 ? ` +${peso(p.bedFee)}` : ''} &amp; assign
+                          </button>
+                        ) : !p.heldRoomId && (
+                          <button type="button" className="btn-primary rb-small" disabled={busy === 'hold'} onClick={() => hold(room.id, { registrationId: p.id })}>
+                            <i className={`fas ${busy === 'hold' ? 'fa-spinner fa-spin' : 'fa-lock'}`}></i> Reserve
+                          </button>
+                        )))}
+                      </ul>
+                    </>
+                  )}
                 </>
               ) : mode === 'guest' ? (
                 <>

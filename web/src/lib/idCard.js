@@ -286,13 +286,22 @@ export async function drawIdBack(canvas, { qrText, logo = false }, scale = 1) {
   }
 }
 
+// TEMPORARY: the Cebu IDs keep their own back, but the QR on it opens the
+// Leyte event page. Remove the entry to send it back to the Cebu page.
+const QR_REDIRECTS = {
+  'cebu-miracle-working-god': 'http://localhost:8713/events/leyte-miracle-working-god',
+};
+
 /**
  * What the QR on the back holds: the event's public page,
  * /events/<province>-<event> - the SAME code on every ID of the event.
  * Scanning it opens the programme for anybody; the photos behind it still
  * need the attendee's own password (LASTNAME@YEAR) or their RFID card.
  */
-export const idQrText = ({ origin, eventSlug }) => attendeePageUrl(origin, eventSlug);
+export const idQrText = ({ origin, eventSlug }) => {
+  const redirect = QR_REDIRECTS[String(eventSlug || '').replace(/-\d{4}$/, '')];
+  return redirect || attendeePageUrl(origin, eventSlug);
+};
 
 /**
  * `source` scaled down to width x height in halving steps. One big jump (1416
