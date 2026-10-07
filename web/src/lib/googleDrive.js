@@ -126,6 +126,24 @@ async function getAccessToken(forceRefresh = false) {
   return cachedToken;
 }
 
+/**
+ * A request to any Google API as the connected account (Drive, Sheets), with
+ * the same token and the same one retry on 401 the uploads here use. Returns
+ * the Response; the caller reads it.
+ */
+export async function googleFetch(url, options = {}, timeoutMs = 30000) {
+  for (const forceRefresh of [false, true]) {
+    const token = await getAccessToken(forceRefresh);
+    const response = await fetchWithTimeout(url, {
+      ...options,
+      headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
+    }, timeoutMs);
+    if (response.status !== 401 || forceRefresh) return response;
+    invalidateToken();
+  }
+  return null;
+}
+
 // ============================================
 // UPLOAD
 // ============================================

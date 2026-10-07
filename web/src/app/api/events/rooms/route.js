@@ -12,6 +12,13 @@ import {
   parseRoomNumbers,
   roomTypeName,
 } from '@/lib/rooms';
+import { queueRoomSheetSync } from '@/lib/roomList/liveSheet';
+
+// Always live: rooms change at the desk while this is on screen, and a cached
+// read shows a bed as kept back after it was freed.
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 
 // The rooms booked for an event, and the beds in them.
 //
@@ -216,6 +223,7 @@ export async function POST(request) {
     if (error) throw error;
 
     const made = (data || []).map(shape);
+    queueRoomSheetSync(eventId); // a default-layout live sheet lists every room
     return NextResponse.json({
       success: true,
       data: made,
@@ -401,6 +409,7 @@ export async function PATCH(request) {
     if (error) throw error;
 
     const held = Number(data.reserved_beds) || 0;
+    if (!reserving) queueRoomSheetSync(data.event_id);
     return NextResponse.json({
       success: true,
       data: shape(data),
@@ -437,7 +446,7 @@ export async function DELETE(request) {
 
     const { data: room } = await supabaseAdmin
       .from('event_rooms')
-      .select('id, room_number')
+      .select('id, room_number, event_id')
       .eq('id', id)
       .maybeSingle();
     if (!room) {
@@ -446,6 +455,7 @@ export async function DELETE(request) {
 
     const { error } = await supabaseAdmin.from('event_rooms').delete().eq('id', id);
     if (error) throw error;
+    queueRoomSheetSync(room.event_id); // its guests went with it
 
     return NextResponse.json({ success: true, message: `Room ${room.room_number} removed` });
   } catch (error) {

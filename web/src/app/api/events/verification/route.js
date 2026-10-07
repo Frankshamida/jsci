@@ -56,7 +56,7 @@ export async function GET(request) {
 
     const { data: cards, error } = await supabaseAdmin
       .from('rfid_cards')
-      .select('id, uid, user_id, is_active, users:user_id (id, firstname, lastname, email, role, is_active, profile_picture)')
+      .select('id, uid, label, user_id, is_active, users:user_id (id, firstname, lastname, email, role, is_active, profile_picture)')
       .in('uid', uidCandidates(raw))
       .limit(1);
     if (error) throw error;
@@ -78,7 +78,12 @@ export async function GET(request) {
     if (user.is_active === false) return answer(false, `${nameOf(user)}'s account is deactivated.`);
 
     const staff = { id: user.id, name: nameOf(user), role: user.role, picture: user.profile_picture || null };
-    if (isEventManager(user)) return answer(true, '', { staff: { ...staff, duty: user.role } });
+    // A Super Admin's own access card (Events RFID -> Super Admin Access) says
+    // so on the logs, where a password sign-in says "Test sign-in".
+    if (isEventManager(user)) {
+      const duty = card.label === 'Super Admin Access' && user.role === 'Super Admin' ? 'Super Admin Access card' : user.role;
+      return answer(true, '', { staff: { ...staff, duty } });
+    }
 
     // Committee: assigned to this event with a registration / verification duty.
     const { data: assignment } = await supabaseAdmin

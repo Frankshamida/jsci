@@ -1,0 +1,57 @@
+/* ---- Verify Attendee: find somebody by name at the desk ---- */
+.vfind { width: min(620px, calc(100vw - 32px)); max-width: none; animation: vfind-in 0.22s ease both; }
+.vfind .evt-modal-head h3 i { margin-right: 6px; }
+.vfind-search {
+  display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 52px;
+  border: 2px solid var(--primary, #926c15); border-radius: 14px; background: var(--bg-card, #fff);
+  box-shadow: 0 0 0 4px rgba(146,108,21,0.12);
+}
+.vfind-search > i { color: var(--primary, #926c15); font-size: 1.05rem; }
+.vfind-search input {
+  flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 1.05rem; color: var(--text-primary, #222);
+}
+.vfind-search button {
+  width: 30px; height: 30px; border: 0; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(0,0,0,0.06); color: #666; cursor: pointer;
+}
+.vfind-hint { margin: 14px 4px 4px; font-size: 0.86rem; color: var(--text-secondary, #6c757d); }
+.vfind-hint i { margin-right: 6px; }
+.vfind-hint.is-none { color: #b45309; }
+.vfind-list { list-style: none; margin: 12px 0 0; padding: 0; max-height: min(52vh, 460px); overflow-y: auto; overscroll-behavior: contain; }
+.vfind-list > li + li { margin-top: 4px; }
+.vfind-row {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border: 1px solid transparent; border-radius: 12px; background: transparent;
+  font: inherit; text-align: left; color: inherit; cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.vfind-row.is-active { background: #fbf6ea; border-color: #ecdcb4; }
+.vfind-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.vfind-name b { font-size: 0.98rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vfind-name small { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 0.78rem; color: var(--text-secondary, #6c757d); }
+.vfind-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.vfind-list-tag {
+  flex-shrink: 0; padding: 1px 8px; border-radius: 999px; font-size: 0.68rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.04em; background: #f4eddc; color: #7a560c;
+}
+.vfind-list-tag.is-late { background: #fef3c7; color: #92400e; }
+.vfind-list-tag.is-walkin { background: #e0e7ff; color: #3730a3; }
+.vfind-status { flex-shrink: 0; display: inline-flex; align-items: center; }
+.vfind-go { flex-shrink: 0; color: #b9a46c; font-size: 0.8rem; }
+.vfind-row.is-active .vfind-go { color: var(--primary, #926c15); }
+.vfind-more { padding: 8px 12px; font-size: 0.8rem; color: var(--text-secondary, #6c757d); text-align: center; }
+@keyframes vfind-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .vfind { animation: none; } }
+@media (max-width: 560px) {
+  .vfind-row { flex-wrap: wrap; }
+  .vfind-status { order: 3; width: 100%; padding-left: 0; }
+  .vfind-go { display: none; }
+}
+body.dark-mode .vfind-search { background: rgba(255,255,255,0.04); }
+body.dark-mode .vfind-search input { color: #eee; }
+body.dark-mode .vfind-search button { background: rgba(255,255,255,0.08); color: #ccc; }
+body.dark-mode .vfind-row.is-active { background: rgba(224,180,74,0.10); border-color: rgba(224,180,74,0.3); }
+body.dark-mode .vfind-list-tag { background: rgba(224,180,74,0.15); color: #f0cf7a; }
+body.dark-mode .vfind-list-tag.is-late { background: rgba(245,158,11,0.15); color: #fcd34d; }
+body.dark-mode .vfind-list-tag.is-walkin { background: rgba(129,140,248,0.15); color: #c7d2fe; }

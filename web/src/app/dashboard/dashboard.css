@@ -25346,6 +25346,45 @@ body.dark-mode .evt-export-church em { background: rgba(255,255,255,0.08); }
   margin-top: 8px;
 }
 
+/* One person's own way of paying, under their ticked row: Cash, Online
+   (where it was sent and the reference) or Pending Turnover (who holds it). */
+.evt-collect-item { display: flex; flex-direction: column; flex-shrink: 0; }
+.evt-collect-item.on .evt-collect-row { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.evt-collect-pay {
+  display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 10px 46px;
+  border: 1px solid rgba(146, 108, 21, 0.45); border-top: none;
+  border-radius: 0 0 10px 10px; background: rgba(146, 108, 21, 0.03);
+}
+.evt-collect-seg { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.evt-collect-seg button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid #e6c873; background: #fff; color: #7a560c; font: inherit; font-size: 0.78rem; font-weight: 700;
+}
+.evt-collect-seg button.on { background: linear-gradient(135deg, #926c15, #c8960f); border-color: #926c15; color: #fff; }
+.evt-collect-seg button:disabled { opacity: 0.6; cursor: default; }
+/* Pending Turnover: was it handed to the holder in cash, or sent to them online. */
+.evt-collect-via { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.evt-collect-via > span { font-size: 0.74rem; font-weight: 700; color: var(--text-muted, #888); }
+.evt-collect-seg.is-small button { padding: 3px 10px; font-size: 0.74rem; }
+.evt-collect-payin { display: flex; gap: 8px; flex-wrap: wrap; }
+.evt-collect-payin .form-control { flex: 1 1 160px; min-width: 0; height: 38px; padding-top: 0; padding-bottom: 0; font-size: 0.85rem; }
+.evt-collect-allhead { margin-top: 14px; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6510; }
+.evt-collect-split { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.evt-collect-split span {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  background: rgba(146, 108, 21, 0.08); color: #7a560c; font-size: 0.78rem; font-weight: 700;
+}
+.evt-collect-split b { color: #3e2e08; }
+body.dark-mode .evt-collect-pay { background: rgba(212, 160, 23, 0.05); border-color: rgba(212, 160, 23, 0.45); }
+body.dark-mode .evt-collect-seg button { background: transparent; border-color: rgba(212, 160, 23, 0.45); color: #f5d27a; }
+body.dark-mode .evt-collect-seg button.on { color: #fff; }
+body.dark-mode .evt-collect-allhead { color: #e0b44a; }
+body.dark-mode .evt-collect-split span { background: rgba(212, 160, 23, 0.10); color: #f5d27a; }
+body.dark-mode .evt-collect-split b { color: #fff; }
+@media (max-width: 520px) {
+  .evt-collect-pay { padding-left: 12px; }
+}
+
 body.dark-mode .evt-collect-row {
   background: #1e1e24;
   border-color: rgba(255, 255, 255, 0.10);
@@ -25746,6 +25785,37 @@ body.dark-mode .evt-foot-btn.ghost { color: #ddd; border-color: rgba(255,255,255
 .evt-status-installment { background: rgba(146,108,21,0.16); color: #926c15; }
 body.dark-mode .evt-status-installment { background: rgba(224,182,74,0.20); color: #e0b64a; }
 .evt-status-cancelled { background: rgba(220,38,38,0.15); color: #dc2626; }
+
+/* One row's change saving: its Status cell says so, and only that cell - the
+   rest of the table stays readable. What the cell held is hidden until the
+   fresh row arrives, since it is about to be out of date. */
+.evt-cell-busy > :not(.evt-status-busy) { display: none !important; }
+.evt-status-busy {
+  display: inline-flex; align-items: center; gap: 7px; width: fit-content;
+  padding: 3px 11px; border-radius: 20px; white-space: nowrap;
+  font-size: 0.72rem; font-weight: 700; color: #926c15;
+  background: linear-gradient(90deg, rgba(146,108,21,0.10) 0%, rgba(146,108,21,0.24) 50%, rgba(146,108,21,0.10) 100%);
+  background-size: 200% 100%;
+  animation: evt-busy-shimmer 1.2s linear infinite;
+}
+.evt-status-busy i { font-size: 0.78rem; }
+@keyframes evt-busy-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.evt-table tr.evt-row-busy > td { transition: background 0.2s ease; background-color: rgba(146,108,21,0.04); }
+.evt-manage-trigger:disabled { opacity: 0.5; cursor: progress; }
+.evt-manage-trigger:disabled:hover { border-color: var(--border-color, rgba(0,0,0,0.15)); color: var(--text-primary, #333); }
+body.dark-mode .evt-manage-trigger:disabled:hover { color: #eee; }
+@media (prefers-reduced-motion: reduce) {
+  .evt-status-busy { animation: none; }
+}
+body.dark-mode .evt-status-busy {
+  color: #e0b64a;
+  background: linear-gradient(90deg, rgba(224,182,74,0.10) 0%, rgba(224,182,74,0.24) 50%, rgba(224,182,74,0.10) 100%);
+  background-size: 200% 100%;
+}
+body.dark-mode .evt-table tr.evt-row-busy > td { background-color: rgba(224,182,74,0.05); }
 body.dark-mode .evt-modal { background: #1e1e2e; }
 body.dark-mode .evt-mini-btn { color: #eee; border-color: rgba(255,255,255,0.2); }
 .evt-mini-btn + .evt-mini-btn, .evt-mini-btn + a.evt-mini-btn, a.evt-mini-btn + .evt-mini-btn { margin-left: 6px; }
@@ -32169,14 +32239,6 @@ body.dark-mode .evt-hero-addmenu button > i { background: rgba(234,179,8,0.16); 
 .evt-late-line { display: block; }
 body.dark-mode .evt-late-tag { color: #fb923c; }
 
-/* Late Registration: the card that was tapped, above the details. */
-.evt-late-card {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding: 10px 12px;
-  border-radius: 12px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.35); color: #15803d; font-size: 0.88rem;
-}
-.evt-late-card b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.03em; }
-.evt-late-card .evt-mini-btn { margin-left: auto; }
-body.dark-mode .evt-late-card { color: #4ade80; }
 
 /* Late Registration, before a card: one calm screen that only asks for a tap. */
 .evt-late-scan { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 18px 6px 4px; }
@@ -32230,7 +32292,6 @@ body.dark-mode .evt-late-scan-found code.big { color: #4ade80; }
 .evt-late-scan h4 { margin: 0 0 6px; font-size: 1.15rem; font-weight: 800; color: var(--text-primary, #1a1a1a); }
 .evt-late-scan > p { margin: 0; font-size: 0.88rem; color: var(--text-secondary, #6b6b6b); }
 .evt-late-scan code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; }
-.evt-late-scan-retry { margin-top: 14px; }
 .evt-late-scan .evt-rfid-hint { margin-top: 12px; }
 .evt-late-scan-more { width: 100%; margin-top: 22px; text-align: left; }
 .evt-late-scan-more summary {
@@ -33597,6 +33658,9 @@ body.dark-mode .acc-hotel { background: var(--card-bg, #1e1b16); border-color: #
 .evt-more-menu button > span { flex: 1; min-width: 0; }
 .evt-more-menu button > em.evt-tab-count { font-style: normal; margin-left: auto; }
 body.dark-mode .evt-more-menu-head { color: #9a9aa8; }
+/* A second group in the same menu (the desk's: Money, then The list). */
+.evt-more-menu button + .evt-more-menu-head { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border-color, rgba(0,0,0,0.08)); }
+body.dark-mode .evt-more-menu button + .evt-more-menu-head { border-top-color: rgba(255,255,255,0.08); }
 
 /* ---- ID Cards: whose card was just tapped ---- */
 .evt-tapview { max-width: 440px; }
@@ -33676,6 +33740,33 @@ body.dark-mode .evt-ret-progress-bar { background: rgba(255,255,255,0.08); }
 @media (max-width: 640px) {
   .evt-ret-stats { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Return RFID list: everybody holding a card, each day's attendance, and a
+   tick for the card being back at the desk. */
+.evt-ret-table .num { width: 44px; text-align: right; color: #999; font-variant-numeric: tabular-nums; }
+.evt-ret-name { font-weight: 400; }
+.evt-ret-name b { font-weight: 800; color: var(--primary, #926c15); letter-spacing: 0.01em; }
+body.dark-mode .evt-ret-name b { color: #f5d27a; }
+.evt-ret-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.evt-ret-day {
+  display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase;
+}
+.evt-ret-day.attended { background: #dcfce7; color: #15803d; }
+.evt-ret-day.noshow { background: #e5e7eb; color: #4b5563; }
+.evt-ret-day.notyet { background: transparent; color: var(--text-muted, #999); border: 1px dashed rgba(0,0,0,0.18); }
+body.dark-mode .evt-ret-day.attended { background: rgba(74,222,128,0.16); color: #4ade80; }
+body.dark-mode .evt-ret-day.noshow { background: rgba(255,255,255,0.12); color: #d1d5db; }
+body.dark-mode .evt-ret-day.notyet { border-color: rgba(255,255,255,0.2); }
+.evt-ret-card { display: flex; align-items: center; gap: 12px; }
+.evt-ret-card .evt-kit-check:not(.on) span .fa-spinner { color: #926c15; }
+.evt-ret-card-txt { display: flex; flex-direction: column; min-width: 0; }
+.evt-ret-card-txt b { font-size: 0.82rem; font-weight: 800; color: var(--text-secondary, #6b6b6b); }
+.evt-ret-card-txt b.back { color: #15803d; }
+.evt-ret-card-txt small { font-size: 0.74rem; color: var(--text-muted, #888); white-space: nowrap; }
+body.dark-mode .evt-ret-card-txt b.back { color: #4ade80; }
+.evt-ret-table tbody tr.is-back td { background: rgba(34,197,94,0.04); }
+body.dark-mode .evt-ret-table tbody tr.is-back td { background: rgba(74,222,128,0.05); }
 
 /* ---- Export: row colours (Kid free / accommodation paid / not yet paid) ---- */
 .evt-export-colours-note { font-size: 0.8rem; margin: 0 0 10px; }
@@ -33783,8 +33874,6 @@ body.dark-mode .evt-export-colour em { background: rgba(255,255,255,0.08); }
 .evt-verify-who small { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #1f7a4a; }
 .evt-verify-who b { font-size: 1.05rem; }
 .evt-verify-who span { font-size: 0.78rem; color: var(--text-secondary, #6c757d); }
-.evt-verify-scanhint { font-size: 0.82rem; color: #1f7a4a; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.evt-verify-scanhint i { transform: rotate(90deg); }
 .evt-verify-end {
   border: 1px solid #e3c9c9; background: #fff; color: #b3261e; border-radius: 12px;
   padding: 9px 14px; font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer;
@@ -33863,7 +33952,6 @@ body.dark-mode .evt-verify-pop-group { background: rgba(47,91,211,0.1); border-c
 body.dark-mode .evt-verify-pop-group li.is-me { background: rgba(255,255,255,0.06); }
 @media (max-width: 640px) {
   .evt-hero-action.evt-hero-verify { min-width: 0; }
-  .evt-verify-scanhint { display: none; }
   .evt-verify-pop-facts > div { grid-template-columns: 96px 1fr; }
 }
 
@@ -33943,10 +34031,6 @@ body.dark-mode .rfid-verifiers-card { background: rgba(31,122,74,0.1); border-co
 
 /* The verification lists: hint beside the search, everything on one line */
 .evt-verify-tools { align-items: stretch; }
-.evt-verify-tools .evt-verify-scanhint {
-  display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 12px;
-  background: #eaf7ef; border: 1px solid #cfe9d9; white-space: nowrap;
-}
 .evt-verify-tools .evt-verify-add { display: inline-flex; align-items: center; gap: 8px; }
 .evt-verify-tabs { margin-top: 4px; }
 
@@ -33995,6 +34079,17 @@ button.evt-verify-official-chip:hover { border-color: #1f7a4a; background: #eaf7
 .evt-verify-official-chip.is-due { border-color: #f3dcb0; background: #fffaf0; color: #7a4f0c; }
 .evt-verify-official-chip.is-due b { color: #92400e; }
 .evt-verify-official-chip.is-due i { color: #b45309; }
+/* The banner's categories, per list: online blue, cash green, free grey. */
+.evt-verify-official-chip.is-online { border-color: #c7d7fb; background: #f3f7ff; color: #1e3a8a; }
+.evt-verify-official-chip.is-online b { color: #1d4ed8; }
+.evt-verify-official-chip.is-online i { color: #2563eb; }
+.evt-verify-official-chip.is-free { border-color: #e2e2e2; background: #fafafa; color: #555; }
+.evt-verify-official-chip.is-free b { color: #333; }
+.evt-verify-official-chip.is-free i { color: #888; }
+body.dark-mode .evt-verify-official-chip.is-online { background: rgba(37,99,235,0.12); border-color: rgba(96,165,250,0.35); color: #bfdbfe; }
+body.dark-mode .evt-verify-official-chip.is-online b { color: #93c5fd; }
+body.dark-mode .evt-verify-official-chip.is-free { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.15); color: #ccc; }
+body.dark-mode .evt-verify-official-chip.is-free b { color: #eee; }
 .evt-verify-bucket {
   display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; vertical-align: 1px;
   font-size: 0.64rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
@@ -34017,11 +34112,9 @@ body.dark-mode .evt-verify-bucket.walkin { background: rgba(59,130,246,0.2); col
   .evt-verify-official-bar { grid-column: 1 / -1; grid-row: 2; }
   .evt-verify-official-more { padding-left: 0; }
 }
-body.dark-mode .evt-verify-tools .evt-verify-scanhint { background: rgba(31,122,74,0.15); border-color: rgba(31,122,74,0.35); }
 body.dark-mode .evt-verify-endask-facts span { background: rgba(255,255,255,0.08); }
 @media (max-width: 640px) {
   .evt-hero-verifier { min-width: 0; flex-basis: 100%; }
-  .evt-verify-tools .evt-verify-scanhint { display: none; }
 }
 
 /* ---- Verifying: Back to Events and Add Attendee fold away, the verifier card
@@ -34463,6 +34556,21 @@ body.dark-mode .evt-verify-amt { color: #e0b44a; }
 body.dark-mode .evt-verify-extra { background: rgba(224,180,74,0.15); color: #f0cf7a; }
 body.dark-mode .evt-verify-extra.is-desk { background: rgba(74,222,128,0.14); color: #86efac; }
 body.dark-mode .evt-verify-addmenu button:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+/* Rooms full: the bed is a place in line instead - blue, like the waiting
+   list on the Accommodation tab, so it does not read as a dead option. */
+.evt-verify-addmenu button.is-reserve > i { color: #2563eb; }
+.evt-verify-addmenu button.is-reserve small.is-full { color: #b45309; }
+.evt-verify-addmenu button.is-reserve:hover:not(:disabled) { background: #eef4ff; }
+.evt-verify-addmenu em.is-reserve {
+  padding: 3px 10px; border-radius: 999px; font-size: 0.74rem;
+  background: #2563eb; color: #fff;
+}
+.evt-verify-addmenu button.is-reserve:disabled em.is-reserve { background: #94a3b8; }
+/* In line for a bed: shown with the extras, not counted in the amount. */
+.evt-verify-extra.is-wait { background: #eef4ff; color: #1d4ed8; }
+.evt-verify-extra.is-wait em { font-weight: 700; }
+body.dark-mode .evt-verify-extra.is-wait { background: rgba(96,165,250,0.15); color: #93c5fd; }
+body.dark-mode .evt-verify-addmenu button.is-reserve:hover:not(:disabled) { background: rgba(96,165,250,0.10); }
 
 /* The booking list: a tick taken off by a click, put back only by a tap. */
 .evt-verify-tick { display: inline-grid; place-items: center; width: 16px; color: #b8c4dc; }
@@ -34479,6 +34587,47 @@ button.evt-verify-tick:hover { color: #dc2626; }
   background: #dcfce7; color: #15803d; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
 }
 body.dark-mode .evt-status.evt-verify-registered { background: rgba(74,222,128,0.16); color: #4ade80; }
+
+/* Verified at the desk, on the Verification Logs: "Paid online -> REGISTERED".
+   Reverted since, the pill is struck through and greyed. */
+.evt-vlogs-reg { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.evt-vlogs-reg .evt-status.evt-verify-registered { font-size: 0.7rem; padding: 2px 9px; }
+.evt-vlogs-reg .evt-status.evt-verify-registered.is-off { background: #eee; color: #8a8a8a; text-decoration: line-through; }
+.evt-vlogs-action.a-verified { background: #dcfce7; color: #15803d; }
+.evt-vlogs-sums span.is-registered { background: #ecfdf3; border-color: #bbf7d0; }
+.evt-vlogs-sums span.is-registered b { color: #15803d; }
+body.dark-mode .evt-vlogs-reg .evt-status.evt-verify-registered.is-off { background: rgba(255,255,255,0.06); color: #888; }
+body.dark-mode .evt-vlogs-action.a-verified { background: rgba(74,222,128,0.16); color: #4ade80; }
+body.dark-mode .evt-vlogs-sums span.is-registered { background: rgba(74,222,128,0.10); border-color: rgba(74,222,128,0.25); }
+body.dark-mode .evt-vlogs-sums span.is-registered b { color: #4ade80; }
+
+/* The desk pop-up: take a mistaken verification back. Red-edged, because it
+   undoes something - but quiet next to Verify. */
+.evt-verify-pop-foot .evt-verify-revert { color: #b3261e; border-color: #e3c9c9; }
+.evt-verify-pop-foot .evt-verify-revert:hover:not(:disabled) { background: #fdecec; }
+body.dark-mode .evt-verify-pop-foot .evt-verify-revert { color: #f87171; border-color: rgba(248,113,113,0.4); }
+body.dark-mode .evt-verify-pop-foot .evt-verify-revert:hover:not(:disabled) { background: rgba(220,38,38,0.12); }
+
+/* Events RFID: the Super Admin's own access card. Gold, like the role. */
+.rfid-super-access .rfid-verifiers-avatar { background: #926c15; }
+.rfid-super-access .rfid-verifiers-head h3 > i { color: #926c15; }
+
+/* The event is over and they were never verified: the row goes grey, and the
+   pill stays readable on top of it. */
+.evt-status.evt-verify-noshow {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #e5e7eb; color: #4b5563; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
+}
+body.dark-mode .evt-status.evt-verify-noshow { background: rgba(255,255,255,0.12); color: #d1d5db; }
+.evt-verify-table tbody tr.is-noshow,
+.evt-verify-table tbody tr.is-noshow:hover { background: #f1f2f4; }
+.evt-verify-table tbody tr.is-noshow > td { color: #8b9098; filter: grayscale(1); }
+.evt-verify-table tbody tr.is-noshow > td:not([data-label="Status"]) { opacity: 0.6; }
+.evt-verify-table tbody tr.is-noshow .evt-verify-last { color: #6b7280; }
+body.dark-mode .evt-verify-table tbody tr.is-noshow,
+body.dark-mode .evt-verify-table tbody tr.is-noshow:hover { background: rgba(255,255,255,0.05); }
+body.dark-mode .evt-verify-table tbody tr.is-noshow > td { color: #9ca3af; }
+body.dark-mode .evt-verify-table tbody tr.is-noshow .evt-verify-last { color: #9ca3af; }
 
 /* "Close this attendee?" */
 .evt-verify-ask-overlay { z-index: 15100; animation: evt-desk-fade 0.18s ease both; }
@@ -34767,6 +34916,14 @@ body.dark-mode .evt-desk-later-box { background: transparent; }
 /* A status on one line: the pill, then who holds the money. */
 .evt-verify-status.is-line { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; max-width: 100%; min-width: 0; vertical-align: middle; }
 .evt-verify-status.is-line > .evt-status { flex-shrink: 0; white-space: nowrap; }
+/* Paid at the desk lists: "Paid Online" and the channel's logo beside it,
+   shrunk to the height of the pill. */
+.evt-verify-paid { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.evt-verify-paid > .evt-status { white-space: nowrap; }
+.evt-verify-paid .pm-logo-sm {
+  width: 22px; height: 22px; flex: 0 0 22px; font-size: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
 .evt-status.evt-verify-turnover { display: inline-flex; align-items: center; gap: 5px; background: #e0ecff; color: #1d4ed8; }
 .evt-status.evt-verify-turnover i { font-size: 0.72rem; }
 .evt-verify-holder {
@@ -34813,12 +34970,21 @@ body.dark-mode .evt-verify-holder.is-done { color: #5fd08f; }
 
 /* ---- RFID Card column: ask for the ID, looking, found, claimed ---- */
 @media (min-width: 1025px) {
-  .evt-verify-fixed col.c-rfid { width: 10%; }
-  .evt-verify-fixed col.c-age { width: 12%; }
-  .evt-verify-fixed col.c-type { width: 12%; }
-  .evt-verify-fixed col.c-extras { width: 8%; }
-  .evt-verify-fixed col.c-status { width: 22%; }
+  .evt-verify-fixed col.c-track { width: 8%; }
+  .evt-verify-fixed col.c-rfid { width: 9%; }
+  .evt-verify-fixed col.c-age { width: 11%; }
+  .evt-verify-fixed col.c-type { width: 11%; }
+  .evt-verify-fixed col.c-extras { width: 7%; }
+  .evt-verify-fixed col.c-status { width: 21%; }
 }
+/* Tracker: the ID's box (A-C...) and its number in it. */
+.evt-verify-track {
+  display: inline-flex; align-items: baseline; gap: 4px; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  background: #fdf1d3; color: #7a560c; font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.evt-verify-track b { font-weight: 800; color: #926c15; }
+body.dark-mode .evt-verify-track { background: rgba(224,180,74,0.14); color: #f5d27a; }
+body.dark-mode .evt-verify-track b { color: #f5d27a; }
 .evt-idq-btn {
   width: 36px; height: 36px; border-radius: 10px; display: inline-grid; place-items: center; cursor: pointer;
   border: 1px solid #e6c873; background: #fffaf0; color: var(--primary, #926c15); font-size: 1rem;
@@ -34922,6 +35088,54 @@ body.dark-mode .evt-verify-family.is-kid { color: #5eead4; }
 .evt-hero-side .evt-hero-dues .evt-due-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .evt-hero-side .evt-hero-dues .evt-due-txt { min-width: 0; }
 .evt-hero-side .evt-hero-dues .evt-due-txt > b { flex-shrink: 0; }
+
+/* ---- The event's money tiles, two by two ----
+   Total Collected | Total Online Collected
+   Cash to Collect | Cash Collected
+   The two cash tiles are figures, not filters: no pointer, no lift. Cash
+   Collected is green - money in the box. */
+.evt-hero-regs .evt-stat.is-static { cursor: default; }
+.evt-hero-regs .evt-stat.is-static:hover {
+  background: rgba(255,255,255,0.96); border-color: rgba(255,255,255,0.9); box-shadow: 0 4px 14px rgba(60,40,0,0.12);
+}
+.evt-hero-regs .evt-stat-txt > em i { font-size: 0.72rem; margin-right: 2px; opacity: 0.8; }
+/* "106 attendees | 98 Attended" under a collected figure. */
+.evt-hero-regs .evt-stat-txt > em .evt-stat-sep { margin: 0 7px; opacity: 0.45; }
+.evt-hero-regs .evt-stat-txt > em .evt-stat-came { font-weight: 700; color: #15803d; white-space: nowrap; }
+.evt-hero-regs .evt-stat-txt > em .evt-stat-came i { color: #16a34a; opacity: 1; }
+/* The same attendees by list, so the tile is seen to cover Early, Late and Walk-In. */
+.evt-hero-regs .evt-stat-lists { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; font-size: 0.72rem; font-weight: 600; color: #8a7a55; }
+.evt-hero-regs .evt-stat-lists > span { white-space: nowrap; }
+.evt-hero-regs .evt-stat-lists b { font-weight: 800; color: #5c4508; }
+.evt-hero-regs .evt-stat.cashin .evt-stat-lists { color: #3f7a55; }
+.evt-hero-regs .evt-stat.cashin .evt-stat-lists b { color: #166534; }
+.evt-hero-regs .evt-stat.cashdue > span.evt-stat-ico { background: #fff3dc; color: #c2770c; }
+.evt-hero-regs .evt-stat.cashdue .evt-stat-txt > b { color: #92400e; }
+.evt-hero-regs .evt-stat.cashin { background: #f0fdf4; border-color: #bbf7d0; }
+.evt-hero-regs .evt-stat.cashin.is-static:hover { background: #f0fdf4; border-color: #bbf7d0; }
+.evt-hero-regs .evt-stat.cashin > span.evt-stat-ico { background: #dcfce7; color: #16a34a; }
+.evt-hero-regs .evt-stat.cashin .evt-stat-txt > span { color: #15803d; }
+.evt-hero-regs .evt-stat.cashin .evt-stat-txt > b { color: #15803d; }
+.evt-hero-regs .evt-stat.cashin .evt-stat-txt > em { color: #166534; }
+
+/* A figure changing: it glides there (AnimatedNumber), and flashes - green
+   going up, amber going down - so the move is seen from across the desk. */
+.anim-num { display: inline-block; border-radius: 6px; font-variant-numeric: tabular-nums; transition: background-color 0.6s ease, box-shadow 0.6s ease; }
+.anim-num.is-up { animation: anim-num-up 1.2s ease; }
+.anim-num.is-down { animation: anim-num-down 1.2s ease; }
+@keyframes anim-num-up {
+  0% { background-color: rgba(34,197,94,0); box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+  25% { background-color: rgba(34,197,94,0.20); box-shadow: 0 0 0 4px rgba(34,197,94,0.20); }
+  100% { background-color: rgba(34,197,94,0); box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+@keyframes anim-num-down {
+  0% { background-color: rgba(245,158,11,0); box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+  25% { background-color: rgba(245,158,11,0.22); box-shadow: 0 0 0 4px rgba(245,158,11,0.22); }
+  100% { background-color: rgba(245,158,11,0); box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-num.is-up, .anim-num.is-down { animation: none; }
+}
 
 /* ---- Cancel / refund an extra ---- */
 .evt-verify-extra-act {
@@ -35152,6 +35366,40 @@ body.dark-mode .evt-wcard-num { background: rgba(224,180,74,0.16); color: #f0cf7
 .evt-addon-avail.is-low { color: #b45309; }
 .evt-addon-avail.is-full { color: #dc2626; }
 .evt-addon-option.is-full { opacity: 0.6; cursor: not-allowed; }
+/* Full, but Reserve puts them in line for the next free bed. */
+/* The row itself stays at full strength so Reserve reads as a button; only
+   the parts that cannot be used are faded. */
+.evt-addon-option.is-full.has-reserve { opacity: 1; cursor: default; }
+.evt-addon-option.has-reserve:not(.is-reserved) > input,
+.evt-addon-option.has-reserve:not(.is-reserved) .evt-addon-option-text > strong,
+.evt-addon-option.has-reserve:not(.is-reserved) .evt-addon-option-fee { opacity: 0.6; }
+.evt-addon-option.is-full.is-reserved { border-color: #c8960f; background: #fffaf0; }
+.evt-addon-reserve {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+  padding: 5px 12px; border-radius: 999px; border: 1px solid #c8960f; background: #fff; color: #926c15;
+  font: inherit; font-size: 0.78rem; font-weight: 800; cursor: pointer;
+}
+.evt-addon-reserve:hover { background: #fbf6ea; }
+.evt-addon-reserve.on { background: linear-gradient(135deg, #926c15, #c8960f); border-color: #926c15; color: #fff; }
+.evt-addon-reserve-note { margin-top: 4px; font-size: 0.76rem; color: #8a6510 !important; }
+body.dark-mode .evt-addon-option.is-full.is-reserved { background: rgba(224,180,74,0.08); border-color: rgba(224,180,74,0.5); }
+body.dark-mode .evt-addon-reserve { background: transparent; border-color: rgba(224,180,74,0.5); color: #f5d27a; }
+body.dark-mode .evt-addon-reserve.on { color: #fff; }
+body.dark-mode .evt-addon-reserve-note { color: #f5d27a !important; }
+
+/* Accommodation tab: the line for the next free bed. */
+.acc-bedwait-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.acc-bedwait-list li {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px;
+  background: var(--bg-card, #fff); border: 1px solid #f0e2bd;
+}
+.acc-bedwait-pos { flex: 0 0 auto; min-width: 34px; font-weight: 800; color: #926c15; font-variant-numeric: tabular-nums; }
+.acc-bedwait-who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.acc-bedwait-who b { color: #926c15; font-weight: 800; }
+.acc-bedwait-who small { font-size: 0.76rem; color: var(--text-muted, #888); }
+.acc-bedwait-who small.acc-bedwait-held { color: #b45309; font-weight: 700; }
+body.dark-mode .acc-bedwait-list li { background: #23232f; border-color: rgba(255,255,255,0.08); }
+body.dark-mode .acc-bedwait-who b, body.dark-mode .acc-bedwait-pos { color: #f5d27a; }
 .evt-walkins { margin-top: 4px; }
 .evt-walkins-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .evt-walkins-head h3 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; }
@@ -35258,6 +35506,32 @@ body.dark-mode .evt-kit-undo { background: transparent; border-color: rgba(255,2
 body.dark-mode .evt-kit-table tbody tr.is-claimed td { background: rgba(74,222,128,0.05); }
 body.dark-mode .evt-kit-check span { background: transparent; border-color: rgba(224,180,74,0.45); }
 
+/* ---- ID Cards: row numbers ---- */
+.evt-table.evt-id-cards th.evt-id-num,
+.evt-table.evt-id-cards td.evt-id-num { width: 48px; padding-right: 4px; text-align: right; color: #999; font-variant-numeric: tabular-nums; }
+.evt-id-num-m { display: none; }
+/* Phones: no # column in a card - the number sits beside Printed instead. */
+@media (max-width: 1024px) {
+  .evt-table.evt-id-cards tbody td.evt-id-num { display: none; }
+  .evt-id-num-m { display: inline; font-size: 0.74rem; font-weight: 800; color: var(--text-muted, #999); font-variant-numeric: tabular-nums; }
+}
+
+/* ---- ID Cards: Double Check, a second look at a printed ID ---- */
+.evt-id-check-th { white-space: nowrap; }
+.evt-id-check-in { display: flex; align-items: center; gap: 10px; }
+.evt-id-check .evt-kit-check:not(.on) span .fa-spinner { color: #926c15; }
+.evt-id-check-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.evt-id-check-txt b { font-size: 0.8rem; font-weight: 800; color: var(--text-secondary, #6b6b6b); white-space: nowrap; }
+.evt-id-check-txt b.done { color: #15803d; }
+.evt-id-check-txt small { font-size: 0.72rem; color: var(--text-muted, #888); white-space: nowrap; }
+.evt-id-check-none { color: var(--text-muted, #aaa); }
+body.dark-mode .evt-id-check-txt b.done { color: #4ade80; }
+/* Phones: the row under the church, and nothing at all for an ID not printed. */
+@media (max-width: 1024px) {
+  .evt-table.evt-id-cards tbody td.evt-id-check { grid-area: num; }
+  .evt-table.evt-id-cards tbody td.evt-id-check.is-empty { display: none; }
+}
+
 /* ---- Accommodation: waiting for a room ---- */
 .acc-wait { margin: 14px 0 18px; padding: 16px 18px; border-radius: 16px; border: 1px solid #ecdcae; background: linear-gradient(180deg, #fffaf0, #fff); }
 .acc-wait-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -35349,6 +35623,26 @@ body.dark-mode .acc-wait-row + .acc-wait-row { border-color: rgba(255,255,255,0.
   box-shadow: 0 6px 16px rgba(146, 108, 21, 0.25); transition: transform 0.15s, box-shadow 0.15s;
 }
 .evt-verify-report-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(146, 108, 21, 0.32); }
+/* Assign RFID, straight after verifying at the desk. */
+.evt-rfid-desk-note {
+  display: flex; align-items: flex-start; gap: 10px; margin: 0 0 14px; padding: 10px 14px; border-radius: 12px;
+  background: #ecfdf3; border: 1px solid #bbf7d0; color: #14532d; font-size: 0.88rem; line-height: 1.4;
+  animation: evt-desk-slide 0.3s ease both;
+}
+.evt-rfid-desk-note > i { color: #16a34a; margin-top: 2px; }
+body.dark-mode .evt-rfid-desk-note { background: rgba(22,163,74,0.12); border-color: rgba(74,222,128,0.3); color: #bbf7d0; }
+/* Copy Names: beside Export Report, the same size, outlined so the report
+   stays the main action. */
+.evt-verify-copy-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; min-height: 44px; border-radius: 12px;
+  border: 1px solid #c8960f; background: var(--bg-card, #fff); color: #926c15;
+  font: inherit; font-size: 0.86rem; font-weight: 800; cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, transform 0.15s;
+}
+.evt-verify-copy-btn:hover:not(:disabled) { background: #fbf6ea; transform: translateY(-1px); }
+.evt-verify-copy-btn:disabled { opacity: 0.5; cursor: default; }
+body.dark-mode .evt-verify-copy-btn { background: #2a2a3a; border-color: rgba(224, 180, 74, 0.5); color: #f5d27a; }
+body.dark-mode .evt-verify-copy-btn:hover:not(:disabled) { background: rgba(224, 180, 74, 0.1); }
 .vrep-loading { margin: 14px 0 4px; font-size: 0.86rem; color: var(--text-muted, #777); }
 .vrep-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
 .vrep-sum > div {
@@ -35374,7 +35668,7 @@ body.dark-mode .vrep-sum span { color: #e0b44a; }
 body.dark-mode .vrep-who > div { background: rgba(255, 255, 255, 0.04); }
 @media (max-width: 520px) {
   .vrep-sum { grid-template-columns: 1fr; }
-  .evt-verify-report-btn { flex: 1 1 100%; justify-content: center; }
+  .evt-verify-report-btn, .evt-verify-copy-btn { flex: 1 1 100%; justify-content: center; }
 }
 
 /* ---- Registered Attendees report: the cash count and the balance ---- */
@@ -35496,3 +35790,104 @@ body.dark-mode .evt-fb-item { background: #23232f; border-color: rgba(255,255,25
 body.dark-mode .evt-fb-who, body.dark-mode .evt-fb-msg { color: #eee; }
 body.dark-mode .evt-fb-event, body.dark-mode .evt-fb-who i { color: #f5d27a; }
 body.dark-mode .evt-fb-error { background: rgba(180,35,24,0.18); color: #f19a91; }
+
+/* ---- Attendee popup: ticking by hand ----
+   Unlocked by the verifier tapping their own card. Attendees get their card
+   only once verified, so most of a booking has none to tap yet. */
+.evt-verify-handon {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
+  padding: 7px 10px; border-radius: 10px;
+  background: #e3f5ea; color: #1f6b43; font-size: 0.8rem;
+}
+.evt-verify-handon > span { flex: 1; min-width: 0; }
+.evt-verify-handon > button {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border-radius: 8px; border: 1px solid rgba(31, 107, 67, 0.35);
+  background: #fff; color: inherit; font: inherit; font-size: 0.74rem; font-weight: 700; cursor: pointer;
+}
+.evt-verify-handon > button:hover { border-color: #1f6b43; }
+button.evt-verify-tick.is-hand { color: #8aa0c8; }
+button.evt-verify-tick.is-hand:hover { color: #1f7a4a; }
+.evt-verify-pop-group li.is-locked { opacity: 0.55; }
+.evt-verify-pop-group li.is-locked .evt-verify-tick { color: #9aa3b2; }
+
+.evt-verify-handsearch { margin: 0 0 8px; }
+.evt-verify-handsearch .evt-search { display: flex; min-width: 0; }
+.evt-verify-handsearch .evt-search input { height: 38px; font-size: 0.82rem; }
+.evt-verify-handhits {
+  margin: 6px 0 0 !important; padding: 4px !important;
+  border: 1px solid #dbe5fb; border-radius: 10px; background: #fff;
+}
+.evt-verify-pop-group .evt-verify-handhits li { padding: 0; }
+.evt-verify-pop-group .evt-verify-handhits li.evt-muted { padding: 6px 8px; font-size: 0.78rem; }
+.evt-verify-handhits button {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; border: none; border-radius: 8px; background: transparent;
+  font: inherit; font-size: 0.82rem; text-align: left; color: inherit; cursor: pointer;
+}
+.evt-verify-handhits button:hover:not(:disabled) { background: #f0f5ff; }
+.evt-verify-handhits button:disabled { opacity: 0.55; cursor: not-allowed; }
+.evt-verify-handhits button > i { color: #2f5bd3; }
+.evt-verify-handhits .evt-verify-gname small { display: block; font-size: 0.7rem; color: #6b7a99; font-weight: 500; }
+.evt-verify-addedhead { margin: 8px 0 4px !important; font-size: 0.78rem !important; color: #6b4fbb !important; }
+.evt-verify-together { margin-top: 10px; }
+
+/* The payment step: who is verified along with it. */
+.evt-desk-also {
+  display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0;
+  padding: 8px 11px; border-radius: 10px; background: #e3f5ea; color: #1f6b43;
+  font-size: 0.8rem; line-height: 1.45;
+}
+.evt-desk-also > i { margin-top: 3px; }
+
+body.dark-mode .evt-verify-handon,
+body.dark-mode .evt-desk-also { background: rgba(31, 122, 74, 0.18); color: #7fdba6; }
+body.dark-mode .evt-verify-handon > button { background: rgba(255, 255, 255, 0.06); }
+body.dark-mode .evt-verify-handhits { background: #22222f; border-color: rgba(255, 255, 255, 0.12); }
+body.dark-mode .evt-verify-handhits button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
+
+/* "Close this attendee?" - inside the attendee popup, over its contents, so
+   nothing in the popup can show through it. */
+.evt-verify-attendee { position: relative; }
+.evt-verify-ask-layer {
+  position: absolute; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(20, 20, 30, 0.5);
+  animation: evt-desk-fade 0.18s ease both;
+}
+.evt-verify-ask-card {
+  width: 100%; max-width: 400px; padding: 26px 24px 20px;
+  border-radius: 16px; background: var(--bg-card, #fff);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  animation: evt-desk-rise 0.24s ease both;
+}
+.evt-verify-ask-card h4 { margin: 10px 0 6px; font-size: 1.15rem; }
+.evt-verify-ask-card p { margin: 0 0 16px; font-size: 0.9rem; line-height: 1.5; }
+.evt-verify-ask-card .evt-verify-pop-actions { justify-content: center; }
+.evt-verify-ask-overlay .evt-verify-ask-layer { position: static; background: none; padding: 0; }
+body.dark-mode .evt-verify-ask-card { background: #1e1e2e; }
+@media (prefers-reduced-motion: reduce) {
+  .evt-verify-ask-layer, .evt-verify-ask-card { animation: none; }
+}
+.evt-verify-handnone { margin: 6px 2px 0; font-size: 0.78rem; color: #6b7a99; }
+.evt-verify-addedhead.is-this { color: #2f5bd3 !important; }
+.evt-verify-handsearch .evt-verify-addedhead { margin-top: 8px !important; }
+
+/* ---- The attendee's room, at the desk ---- */
+.evt-verify-room { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.evt-verify-room > i { color: #c9980b; }
+.evt-verify-room > b { padding: 1px 9px; border-radius: 8px; background: #f4e8c4; color: #926c15; font-size: 0.95rem; }
+.evt-verify-room > small { color: #7a7f8c; font-size: 0.76rem; }
+.evt-verify-room.is-reserved > i { color: #6d4fc2; }
+.evt-verify-room.is-reserved > b { background: #ece6fb; color: #6d4fc2; }
+.evt-rfid-room {
+  display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+  margin: 2px auto 8px; padding: 6px 14px; border-radius: 999px;
+  background: #f4e8c4; color: #926c15; font-size: 0.9rem;
+}
+.evt-rfid-room b { font-size: 1.05rem; }
+.evt-rfid-room small { font-size: 0.74rem; opacity: 0.85; }
+.evt-rfid-room.is-reserved { background: #ece6fb; color: #6d4fc2; }
+body.dark-mode .evt-verify-room > b, body.dark-mode .evt-rfid-room { background: rgba(240, 196, 25, 0.16); color: #f0c419; }
+body.dark-mode .evt-verify-room.is-reserved > b, body.dark-mode .evt-rfid-room.is-reserved { background: rgba(109, 79, 194, 0.2); color: #b9a6f2; }

@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { roomEntitlement, roomHold } from '@/lib/rooms';
+import { queueRoomSheetSync } from '@/lib/roomList/liveSheet';
+
+// Always live: rooms change at the desk while this is on screen, and a cached
+// read shows a bed as kept back after it was freed.
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 
 // Who is sleeping in which room.
 //
@@ -103,6 +110,25 @@ async function carryLabel(fromOcc, toRoom) {
       .update({ occupancy: fromOcc }).eq('id', toRoom.id).is('occupancy', null).select('id, occupancy');
     return data?.[0] || null;
   } catch { return null; }
+}
+
+// Beds held for somebody by name (event_room_holds.sql) take a bed like a
+// guest does - except the one held for the person being put in, which their
+// room replaces. Before that migration there are none.
+async function heldCount(roomId, exceptRegistrationId) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('event_room_holds').select('id, registration_id').eq('room_id', roomId);
+    if (error) return 0;
+    return (data || []).filter((h) => !exceptRegistrationId || h.registration_id !== exceptRegistrationId).length;
+  } catch { return 0; }
+}
+
+// Given a room: the bed held for them, wherever it was, is not needed now.
+async function dropHoldOf(eventId, registrationId) {
+  try {
+    await supabaseAdmin.from('event_room_holds').delete().eq('event_id', eventId).eq('registration_id', registrationId);
+  } catch { /* no holds table yet */ }
 }
 
 async function releaseIfEmpty(roomId) {
@@ -245,7 +271,7 @@ export async function POST(request) {
       });
     }
 
-    const taken = (inRoom || []).length;
+    const taken = (inRoom || []).length + await heldCount(roomId, registrationId);
     if (taken >= (Number(room.pax) || 1)) {
       return NextResponse.json({
         success: false,
@@ -284,8 +310,10 @@ export async function POST(request) {
       .single();
     if (error) throw error;
 
+    await dropHoldOf(eventId, registrationId);
     const from = prior?.room?.room_number;
     const clearedRooms = prior?.room_id && prior.room_id !== roomId && (await releaseIfEmpty(prior.room_id)) ? [prior.room_id] : [];
+    queueRoomSheetSync(eventId); // the live Google Sheet, if the event has one
     return NextResponse.json({
       success: true,
       clearedRooms,
@@ -350,13 +378,14 @@ export async function PATCH(request) {
         .from('event_room_guests')
         .select('id', { count: 'exact', head: true })
         .eq('room_id', body.roomId);
-      if ((count || 0) >= (Number(room.pax) || 1)) {
+      const used = (count || 0) + await heldCount(body.roomId, guest.registration_id);
+      if (used >= (Number(room.pax) || 1)) {
         return NextResponse.json({
           success: false,
-          message: `${room.room_type} ${room.room_number} is full — ${count} of ${room.pax} pax.`,
+          message: `${room.room_type} ${room.room_number} is full — ${used} of ${room.pax} pax.`,
         }, { status: 409 });
       }
-      const held = heldRefusal(room, count || 0, !!body.useReserved);
+      const held = heldRefusal(room, used, !!body.useReserved);
       if (held) return NextResponse.json(held, { status: 409 });
       const refusal = moveRefusal(moveFromOcc, room, guest.registration?.attendee_name || 'This guest');
       if (refusal) return NextResponse.json({ success: false, result: 'wrong_room', message: refusal }, { status: 409 });
@@ -378,6 +407,7 @@ export async function PATCH(request) {
     if (error) throw error;
 
     const labelled = patch.room_id ? await carryLabel(moveFromOcc, moveToRoom) : null;
+    if (patch.room_id) queueRoomSheetSync(guest.event_id);
     const clearedRooms = patch.room_id && (await releaseIfEmpty(guest.room_id)) ? [guest.room_id] : [];
     return NextResponse.json({
       success: true,
@@ -409,7 +439,7 @@ export async function DELETE(request) {
 
     const { data: guest } = await supabaseAdmin
       .from('event_room_guests')
-      .select('id, room_id, registration:event_registrations (attendee_name), room:event_rooms (room_number)')
+      .select('id, room_id, event_id, registration:event_registrations (attendee_name), room:event_rooms (room_number)')
       .eq('id', id)
       .maybeSingle();
     if (!guest) {
@@ -420,6 +450,7 @@ export async function DELETE(request) {
     if (error) throw error;
 
     const cleared = await releaseIfEmpty(guest.room_id);
+    queueRoomSheetSync(guest.event_id);
     return NextResponse.json({
       success: true,
       clearedRooms: cleared ? [guest.room_id] : [],

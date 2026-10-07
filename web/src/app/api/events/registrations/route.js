@@ -13,7 +13,9 @@ import { findEventActor, canWorkEvent, actorRoleLabel, staffDeniedMessage } from
 import { resolveCashPayment } from '@/lib/cashPayment';
 import { sameAddon } from '@/lib/addons';
 import { accommodationAddons } from '@/lib/rooms';
+import { queueRoomSheetSync } from '@/lib/roomList/liveSheet';
 import { normalizeUid, isPlausibleUid, uidCandidates } from '@/lib/rfid';
+import { splitReturnedLinks, releaseLinks } from '@/lib/rfidEventCard';
 import {
   addonFeeFor, baseAmountFor, defaultTier, findTier, hasPriceTiers, isNameOnlyTier,
   registerableTiers, representativeTiers,
@@ -197,6 +199,122 @@ async function logAudit(actor, action, resourceId, details) {
   } catch { /* non-fatal */ }
 }
 
+// ---- Accommodation waiting list ----
+// Once the rooms are full, staff can Reserve accommodation for somebody
+// instead of turning it away (bed_wait_since - see
+// event_accommodation_waitlist.sql). Whenever a bed is free - a room added, a
+// booking cancelled or its accommodation taken off - whoever has waited
+// longest is given it: the extra goes onto their registration and its fee onto
+// what they owe, the same way the desk adds an extra. Run whenever staff read
+// an event's registrations, which every desk does every few seconds, so a
+// freed bed is given out within moments. Returns the rows it changed.
+//
+// Money already mid-way - an online payment nobody has checked yet, or cash
+// still with whoever took it - keeps its place in line but is passed over
+// until it settles, so a fee is never added to an amount being confirmed.
+const BED_WAIT_PASS_OVER = new Set(['payment_submitted', 'paid_pending_turnover']);
+async function promoteBedWaitlist(eventId) {
+  // bed_wait_paid: the bed already paid for on the Payments tab
+  // (event_payment_records.sql). A database without it still promotes.
+  const COLS = 'id, attendee_name, addons, amount, amount_paid, price_tier, payment_plan, status, bed_wait_since, bed_wait_addon_id';
+  const readWaiting = (cols) => supabase.from('event_registrations')
+    .select(cols)
+    .eq('event_id', eventId)
+    .not('bed_wait_since', 'is', null)
+    .is('deleted_at', null)
+    .neq('status', 'cancelled')
+    .order('bed_wait_since', { ascending: true });
+  let { data: waiting, error } = await readWaiting(`${COLS}, bed_wait_paid`);
+  if (error && /bed_wait_paid|column/i.test(error.message || '')) ({ data: waiting, error } = await readWaiting(COLS));
+  if (error || !waiting?.length) return [];
+
+  // No rooms set up means no limit, and nobody is put in line for one.
+  const { data: rooms } = await supabase.from('event_rooms').select('pax').eq('event_id', eventId);
+  const capacity = (rooms || []).reduce((t, r) => t + (Number(r.pax) || 0), 0);
+  if (capacity <= 0) return [];
+  const { data: addonRows } = await supabase.from('event_addons').select('*').eq('event_id', eventId);
+  const beds = accommodationAddons(addonRows || []);
+  if (!beds.length) return [];
+  const holdsBed = (r) => (Array.isArray(r.addons) ? r.addons : []).some((h) => beds.some((b) => sameAddon(h, b)));
+  const { data: all } = await supabase.from('event_registrations')
+    .select('addons, status, deleted_at').eq('event_id', eventId);
+  let left = capacity - (all || []).filter((r) => !r.deleted_at && r.status !== 'cancelled' && holdsBed(r)).length;
+
+  let tierRows = null;
+  const promoted = [];
+  for (const reg of waiting) {
+    // Given accommodation some other way while waiting: simply off the list.
+    if (holdsBed(reg)) {
+      await supabase.from('event_registrations').update({ bed_wait_since: null, bed_wait_addon_id: null }).eq('id', reg.id);
+      continue;
+    }
+    if (left <= 0) break;
+    if (BED_WAIT_PASS_OVER.has(reg.status)) continue;
+
+    const bed = beds.find((b) => b.id === reg.bed_wait_addon_id) || beds[0];
+    let tier = null;
+    if (reg.price_tier) {
+      if (tierRows === null) {
+        try {
+          const { data } = await supabase.from('event_price_tiers').select('*').eq('event_id', eventId).order('position');
+          tierRows = data || [];
+        } catch { tierRows = []; }
+      }
+      tier = findTier({ event_price_tiers: tierRows }, reg.price_tier);
+    }
+    const fee = addonFeeFor(bed, tier);
+    const amountWas = Number(reg.amount) || 0;
+    const paid = Number(reg.amount_paid) || 0;
+    const wasPaid = ['payment_verified', 'registered'].includes(reg.status);
+    const amount = amountWas + fee;
+    // Paid for in advance on the Payments tab while they waited - as much of
+    // the fee as that covers.
+    const prepaid = Math.min(fee, Math.max(0, Number(reg.bed_wait_paid) || 0));
+    // desk: true and prevStatus, like an extra added at the desk - so the desk
+    // can take it back off, and the status goes back with it.
+    const patch = {
+      addons: [...(Array.isArray(reg.addons) ? reg.addons : []),
+        { id: bed.id, question: bed.question, fee, desk: true, waitlist: true, prevStatus: wasPaid ? reg.status : null, ...(prepaid > 0 ? { prepaid } : {}) }],
+      amount,
+      bed_wait_since: null,
+      bed_wait_addon_id: null,
+    };
+    // Used up: the money is now part of what the registration has paid.
+    if (Number(reg.bed_wait_paid) > 0) patch.bed_wait_paid = 0;
+    if (fee > 0) {
+      if (reg.payment_plan === 'flexible') {
+        // A plan simply owes more; settled only if what is paid covers it.
+        // Money taken in advance is already one of its payments.
+        patch.status = paid >= amount ? 'payment_verified' : 'installment';
+        if (patch.status === 'installment') { patch.verified_by = null; patch.verified_at = null; }
+      } else if (wasPaid && prepaid >= fee) {
+        // Paid for in advance: the bed arrives paid, nothing more to collect.
+      } else if (wasPaid) {
+        // Paid for the rest; the bed (or what is left of it) is cash still to
+        // take at the desk.
+        patch.amount_paid = Math.max(paid, amountWas) + prepaid;
+        patch.status = 'pending_cash';
+        patch.verified_by = null;
+        patch.verified_at = null;
+      } else if (prepaid > 0) {
+        // Still owing for the registration, but not for the part already paid.
+        patch.amount_paid = paid + prepaid;
+      }
+    }
+    // Only while still waiting: two desks reading at once give the bed once.
+    const { data: saved } = await supabase.from('event_registrations')
+      .update(patch).eq('id', reg.id).not('bed_wait_since', 'is', null).select().maybeSingle();
+    if (!saved) continue;
+    left -= 1;
+    promoted.push(saved);
+    await logAudit(null, 'event_registration_addons', reg.id,
+      `Accommodation given from the waiting list to ${reg.attendee_name} (+P${fee}) - total now P${amount}`
+      + (prepaid > 0 ? ` (P${prepaid} of it already paid on the Payments tab)` : ''));
+  }
+  if (promoted.length) cacheInvalidate(PENDING_ALERTS_KEY);
+  return promoted;
+}
+
 // ---- Who took the money, and when ----
 // For the Registrations table's "Paid before the event / Paid on the event
 // day" filter, and the name under each paid row's status. Added to every
@@ -210,6 +328,7 @@ async function logAudit(actor, action, resourceId, details) {
 //                     confirmed it (verified_by)
 //   paid_at       when: that desk payment, else when it was confirmed, else
 //                 when the registration was made
+//   paid_at_desk  true when that desk payment is what paid it
 //
 // Cash To Collect gets the same two answers about the money still owed:
 //
@@ -274,6 +393,9 @@ async function withPaidBy(eventId, rows) {
       ...r,
       paid_by_name: holder || desk?.verifier_name || staffName.get(r.verified_by) || null,
       paid_at: (holder && r.turnover_marked_at) || desk?.created_at || r.verified_at || r.created_at || null,
+      // Taken at the verification desk - so the Payments tab never mistakes a
+      // GCash payment made there for one sent with the registration.
+      paid_at_desk: !!desk,
     };
   });
 }
@@ -578,7 +700,19 @@ export async function GET(request) {
 
     const { data, error } = await query;
     if (error) throw error;
-    return NextResponse.json({ success: true, data: await withPaidBy(eventId, data || []) });
+    let rows = data || [];
+    // Somebody is waiting for accommodation: give out any bed that has come
+    // free since the last read (see promoteBedWaitlist).
+    if (!userId && rows.some((r) => r.bed_wait_since && r.status !== 'cancelled')) {
+      try {
+        const promoted = await promoteBedWaitlist(eventId);
+        if (promoted.length) {
+          const byId = new Map(promoted.map((p) => [p.id, p]));
+          rows = rows.map((r) => byId.get(r.id) || r);
+        }
+      } catch { /* the list still loads; the next read tries again */ }
+    }
+    return NextResponse.json({ success: true, data: await withPaidBy(eventId, rows) });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
@@ -749,12 +883,15 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'Registration is closed for this event' }, { status: 400 });
     }
 
-    // Late Registration: an Admin or Super Admin at the desk, one person, on a
-    // card tapped before anything else. The card is checked here, before the
-    // row exists, so a card that is already somebody's stops the entry instead
-    // of leaving a registration with no card behind it.
+    // Late Registration: an Admin or Super Admin at the desk, one person. No
+    // card is needed - it is assigned later, on the ID Cards tab. If one is
+    // sent it is checked here, before the row exists, so a card that is
+    // already somebody's stops the entry instead of half-saving it.
     const isLate = fields.lateRegistration === true || fields.lateRegistration === 'true';
     let lateUid = null;
+    // The chosen card's old link at this event, from somebody who handed it
+    // back - let go of when the new one is made (one card, one link).
+    let releaseAtEvent = [];
     if (isLate) {
       if (!staffPastDeadline) {
         return NextResponse.json({ success: false, message: 'Only an Admin or Super Admin can add a late registration.' }, { status: 403 });
@@ -762,19 +899,24 @@ export async function POST(request) {
       if (Array.isArray(fields.attendees) && fields.attendees.length > 0) {
         return NextResponse.json({ success: false, message: 'A late registration is one person at a time.' }, { status: 400 });
       }
+    }
+    if (isLate && fields.rfidUid) {
       if (!isPlausibleUid(fields.rfidUid)) {
-        return NextResponse.json({ success: false, message: 'Tap the RFID card first.' }, { status: 400 });
+        return NextResponse.json({ success: false, message: 'That does not look like a card number.' }, { status: 400 });
       }
       lateUid = normalizeUid(fields.rfidUid);
       const { data: holders } = await supabase
         .from('rfid_event_cards')
-        .select('registration_id')
+        .select('*')
         .eq('event_id', eventId)
         .in('uid', uidCandidates(fields.rfidUid));
-      if ((holders || []).length > 0) {
+      // Handed back by whoever had it: free.
+      const { held, returned } = await splitReturnedLinks(holders);
+      releaseAtEvent = returned;
+      if (held.length > 0) {
         const { data: other } = await supabase
           .from('event_registrations').select('attendee_name')
-          .eq('id', holders[0].registration_id).maybeSingle();
+          .eq('id', held[0].registration_id).maybeSingle();
         return NextResponse.json({
           success: false,
           message: `That card is already ${other?.attendee_name || 'someone else'}'s at this event. Tap a different card.`,
@@ -783,8 +925,7 @@ export async function POST(request) {
     }
 
     // Walk-In: an Admin or Super Admin chose a card from the stock before
-    // anything else. One person, one card - linked when the row is saved,
-    // exactly like a late registration's.
+    // anything else. One person, one card - linked when the row is saved.
     const isWalkInCard = !isLate && (fields.walkInCard === true || fields.walkInCard === 'true');
     if (isWalkInCard) {
       if (!staffPastDeadline) {
@@ -796,9 +937,13 @@ export async function POST(request) {
       if (!isPlausibleUid(fields.rfidUid)) {
         return NextResponse.json({ success: false, message: 'Choose the RFID card first.' }, { status: 400 });
       }
-      const { data: anyHolder } = await supabase
-        .from('rfid_event_cards').select('registration_id').in('uid', uidCandidates(fields.rfidUid)).limit(1);
-      if ((anyHolder || []).length > 0) {
+      // Held by anybody, at this event or another, who has not handed it back.
+      // A returned card is free again - here as much as at the next event.
+      const { data: cardLinks } = await supabase
+        .from('rfid_event_cards').select('*').in('uid', uidCandidates(fields.rfidUid));
+      const { held, returned } = await splitReturnedLinks(cardLinks);
+      releaseAtEvent = returned.filter((l) => l.event_id === eventId);
+      if (held.length > 0) {
         return NextResponse.json({ success: false, message: 'That card was just given to somebody else. Choose another one.' }, { status: 409 });
       }
       lateUid = normalizeUid(fields.rfidUid);
@@ -1235,10 +1380,11 @@ export async function POST(request) {
         + 'run supabase/migrations/event_late_registration.sql.';
     }
 
-    // The card tapped at the start of a late registration becomes theirs.
+    // The card chosen for a walk-in (or sent with a late registration) becomes theirs.
     // Checked free above; if the link still fails the registration stands and
     // the card can be given again from the ID Cards tab.
     if (lateUid && inserted.length === 1) {
+      try { await releaseLinks(releaseAtEvent); } catch { /* the upsert below says so if it mattered */ }
       const { error: cardError } = await supabase
         .from('rfid_event_cards')
         .upsert(
@@ -1374,10 +1520,41 @@ export async function POST(request) {
             : `${inserted.length} people are registered!`),
       });
     }
+    // Accommodation was full, so staff Reserved it: saved without it and put
+    // in line. A bed that came free meanwhile is given at once.
+    let bedWait = null;
+    if (adminActor && fields.bedWaitAddonId && inserted.length === 1) {
+      const bed = accommodationAddons(addonRows || []).find((b) => b.id === String(fields.bedWaitAddonId));
+      const already = (Array.isArray(inserted[0].addons) ? inserted[0].addons : []).some((h) => bed && sameAddon(h, bed));
+      if (bed && !already) {
+        const since = new Date().toISOString();
+        const { error: waitErr } = await supabase.from('event_registrations')
+          .update({ bed_wait_since: since, bed_wait_addon_id: bed.id }).eq('id', inserted[0].id);
+        if (waitErr) {
+          columnWarning = `${columnWarning ? `${columnWarning} ` : ''}Registered, but not put on the accommodation waiting list: `
+            + 'run supabase/migrations/event_accommodation_waitlist.sql.';
+        } else {
+          const promoted = await promoteBedWaitlist(eventId).catch(() => []);
+          const mine = promoted.find((p) => p.id === inserted[0].id);
+          if (mine) {
+            inserted[0] = mine;
+            bedWait = { given: true };
+          } else {
+            inserted[0] = { ...inserted[0], bed_wait_since: since, bed_wait_addon_id: bed.id };
+            const { count } = await supabase.from('event_registrations')
+              .select('id', { count: 'exact', head: true })
+              .eq('event_id', eventId).is('deleted_at', null).neq('status', 'cancelled')
+              .not('bed_wait_since', 'is', null).lte('bed_wait_since', since);
+            bedWait = { given: false, position: count || 1 };
+          }
+        }
+      }
+    }
+
     const data = inserted[0];
     await logAudit(null, 'event_register', data.id, `${attendeeName} registered for "${event.title}" (${status})`);
     return NextResponse.json({
-      success: true, data, warning: columnWarning,
+      success: true, data, warning: columnWarning, bedWait,
       message: amount > 0 ? 'Registration submitted' : 'You are registered!',
     });
   } catch (error) {
@@ -1388,6 +1565,9 @@ export async function POST(request) {
 // PUT /api/events/registrations  { id, actorId, status }            -> staff verifies/updates a registration
 //                                { id, actorId, attended: true|false } -> staff marks/clears attendance (QR check-in)
 //                                { id, actorId, action: 'id_printed', printed: true|false } -> staff marks the attendee's ID as printed (or not)
+//                                { id, actorId, action: 'id_checked', checked: true|false } -> staff double-check a printed ID (or take the check off)
+//                                { id, actorId, action: 'bed_wait_remove' } -> staff take someone off the accommodation waiting list
+//                                { id, actorId, action: 'bed_wait_add', addonId } -> the desk puts somebody already registered on it
 //   "staff" = an Admin/Super Admin, or an Event Committee member assigned to
 //   that registration's event. The bin actions and the edit below stay Admin-only.
 //                                { id, actorId, action: 'add_addons', addonIds, paymentMethod, paymentReference, collectNow }
@@ -1400,7 +1580,7 @@ export async function POST(request) {
 // DELETE /api/events/registrations?id=..&userId=..  -> a member cancels their OWN registration
 //        /api/events/registrations?id=..&actorId=..&purge=1      -> admin permanently deletes a binned registration
 //        /api/events/registrations?ids=a,b,c&actorId=..&purge=1   -> ...or several at once
-export async function DELETE(request) {
+async function deleteRegistration(request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -1476,7 +1656,7 @@ export async function DELETE(request) {
   }
 }
 
-export async function PUT(request) {
+async function putRegistration(request) {
   try {
     const body = await request.json();
     const { id, ids, actorId, status, attended, action, reason, turnoverHolder, turnedOver } = body;
@@ -1521,6 +1701,12 @@ export async function PUT(request) {
           return NextResponse.json({ success: false, message: 'Run supabase/migrations/event_id_printed.sql first.' }, { status: 500 });
         }
         throw error;
+      }
+      // Unprinted: their double checks go too (see the single-row branch).
+      if (!printed && data?.length) {
+        const { error: chkErr } = await supabase.from('event_registrations')
+          .update({ id_checked_at: null, id_checked_by: null }).in('id', data.map((x) => x.id));
+        if (!chkErr) data.forEach((x) => { x.id_checked_at = null; x.id_checked_by = null; });
       }
       const n = (data || []).length;
       await logAudit(who, 'event_registration_update', events[0],
@@ -1574,9 +1760,119 @@ export async function PUT(request) {
         }
         throw error;
       }
+      // Not printed any more: its double check goes too - a reprint has not
+      // been looked at. Before event_id_checked.sql there is nothing to clear.
+      if (!printed) {
+        const { error: chkErr } = await supabase.from('event_registrations')
+          .update({ id_checked_at: null, id_checked_by: null }).eq('id', id);
+        if (!chkErr) { data.id_checked_at = null; data.id_checked_by = null; }
+      }
       await logAudit(actor, 'event_registration_update', id,
         `${printed ? 'Marked the ID as printed' : 'Unmarked the printed ID'}: ${data.attendee_name}`);
       return NextResponse.json({ success: true, data, message: printed ? 'Marked as printed' : 'No longer marked as printed' });
+    }
+
+    // A printed ID has been double-checked before it goes out - or that tick
+    // was a mistake. Only a printed ID can be checked.
+    if (action === 'id_checked') {
+      const checked = body.checked !== false;
+      if (checked) {
+        const { data: cur } = await supabase.from('event_registrations').select('id_printed_at').eq('id', id).single();
+        if (!cur?.id_printed_at) {
+          return NextResponse.json({ success: false, message: 'Print the ID first - only a printed ID is double-checked.' }, { status: 400 });
+        }
+      }
+      const { data, error } = await supabase.from('event_registrations')
+        .update(checked
+          ? { id_checked_at: new Date().toISOString(), id_checked_by: actor.id }
+          : { id_checked_at: null, id_checked_by: null })
+        .eq('id', id).select().single();
+      if (error) {
+        if (/id_checked|column/i.test(error.message || '')) {
+          return NextResponse.json({ success: false, message: 'Run supabase/migrations/event_id_checked.sql first.' }, { status: 500 });
+        }
+        throw error;
+      }
+      await logAudit(actor, 'event_registration_update', id,
+        `${checked ? 'Double-checked the printed ID' : 'Took the double check off the ID'}: ${data.attendee_name}`);
+      return NextResponse.json({ success: true, data, message: checked ? 'ID double-checked' : 'Double check removed' });
+    }
+
+    // Off the accommodation waiting list: they no longer want a bed, or
+    // sorted one out themselves. Nothing else about the registration changes.
+    if (action === 'bed_wait_remove') {
+      const { data, error } = await supabase.from('event_registrations')
+        .update({ bed_wait_since: null, bed_wait_addon_id: null })
+        .eq('id', id).select().single();
+      if (error) {
+        if (/bed_wait|column/i.test(error.message || '')) {
+          return NextResponse.json({ success: false, message: 'Run supabase/migrations/event_accommodation_waitlist.sql first.' }, { status: 500 });
+        }
+        throw error;
+      }
+      await logAudit(actor, 'event_registration_update', id, `Taken off the accommodation waiting list: ${data.attendee_name}`);
+      return NextResponse.json({ success: true, data, message: `${data.attendee_name} is off the accommodation waiting list` });
+    }
+
+    // Onto the accommodation waiting list, from the desk's Add extra: the rooms
+    // are full, so somebody already registered waits in line for a bed - the
+    // same line Reserve puts a new registration in. Nothing is charged now;
+    // when a bed comes free it is given to whoever has waited longest and its
+    // fee added then (promoteBedWaitlist). A bed already free is given at once.
+    if (action === 'bed_wait_add') {
+      const { data: reg, error: regErr } = await supabase.from('event_registrations')
+        .select('id, event_id, attendee_name, status, deleted_at, addons, bed_wait_since')
+        .eq('id', id).single();
+      if (regErr) {
+        if (/bed_wait|column/i.test(regErr.message || '')) {
+          return NextResponse.json({ success: false, message: 'Run supabase/migrations/event_accommodation_waitlist.sql first.' }, { status: 500 });
+        }
+        throw regErr;
+      }
+      if (reg.deleted_at || reg.status === 'cancelled') {
+        return NextResponse.json({ success: false, message: `${reg.attendee_name}'s registration is ${reg.deleted_at ? 'in the Recycle Bin' : 'cancelled'}.` }, { status: 400 });
+      }
+      const { data: addonRows } = await supabase.from('event_addons').select('*').eq('event_id', reg.event_id);
+      const beds = accommodationAddons(addonRows || []);
+      const bed = body.addonId ? beds.find((b) => b.id === String(body.addonId)) : beds[0];
+      if (!bed) return NextResponse.json({ success: false, message: 'That extra is not accommodation at this event.' }, { status: 400 });
+      if ((Array.isArray(reg.addons) ? reg.addons : []).some((h) => beds.some((b) => sameAddon(h, b)))) {
+        return NextResponse.json({ success: false, message: `${reg.attendee_name} already has accommodation.` }, { status: 409 });
+      }
+
+      // In line from now - or, already waiting, from when they joined.
+      const since = reg.bed_wait_since || new Date().toISOString();
+      if (!reg.bed_wait_since) {
+        const { error: waitErr } = await supabase.from('event_registrations')
+          .update({ bed_wait_since: since, bed_wait_addon_id: bed.id }).eq('id', id);
+        if (waitErr) {
+          if (/bed_wait|column/i.test(waitErr.message || '')) {
+            return NextResponse.json({ success: false, message: 'Run supabase/migrations/event_accommodation_waitlist.sql first.' }, { status: 500 });
+          }
+          throw waitErr;
+        }
+      }
+      const promoted = await promoteBedWaitlist(reg.event_id).catch(() => []);
+      const mine = promoted.find((p) => p.id === id);
+      if (mine) {
+        await logAudit(actor, 'event_registration_update', id, `Put on the accommodation waiting list and given a bed at once: ${reg.attendee_name}`);
+        return NextResponse.json({
+          success: true, data: mine, bedWait: { given: true },
+          message: `A bed was free - accommodation given to ${reg.attendee_name}`,
+        });
+      }
+      const { count } = await supabase.from('event_registrations')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', reg.event_id).is('deleted_at', null).neq('status', 'cancelled')
+        .not('bed_wait_since', 'is', null).lte('bed_wait_since', since);
+      const { data } = await supabase.from('event_registrations').select().eq('id', id).single();
+      if (!reg.bed_wait_since) {
+        await logAudit(actor, 'event_registration_update', id, `Put on the accommodation waiting list from the desk: ${reg.attendee_name} (#${count || 1})`);
+      }
+      return NextResponse.json({
+        success: true, data, bedWait: { given: false, position: count || 1 },
+        message: `${reg.attendee_name} is on the accommodation waiting list - #${count || 1} in line`,
+      });
     }
 
     // Labelling an existing registration as a late one - or taking the label
@@ -2286,9 +2582,14 @@ export async function PUT(request) {
         turnoverFields.turnover_marked_at = new Date().toISOString();
         turnoverFields.turned_over_at = null;
         turnoverFields.turned_over_by = null;
-        // Put back (a reverted turnover): the method it had before it came in.
+        // How it was paid to the holder - Cash, or sent online to them (GCash,
+        // with its reference) - or, for a reverted turnover, the method it had
+        // before it came in.
         const backTo = String(body.paymentMethod || '').trim().slice(0, 80);
-        if (backTo) { update.payment_method = backTo; update.payment_reference = null; }
+        if (backTo) {
+          update.payment_method = backTo;
+          update.payment_reference = String(body.paymentReference || '').trim().slice(0, 120) || null;
+        }
       }
       // Taken at the verification desk: cash, or sent online there and then
       // (GCash, Maya, a bank) - so it is counted under the right one.
@@ -2408,4 +2709,41 @@ export async function PUT(request) {
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
+}
+
+// ---- The live rooming list ----
+// A registration cancelled, binned, purged, restored, renamed or taken off
+// accommodation changes the names on the event's live Google Sheet (see
+// lib/roomList/liveSheet.js). Which events is read BEFORE the change - a
+// purged row is not there to ask afterwards - and the sheet is updated after
+// it, in the background, only if the change went through.
+async function eventsOf(ids) {
+  const list = [...new Set(ids.filter(Boolean).map(String))].slice(0, 500);
+  if (!list.length) return [];
+  try {
+    const { data } = await supabase.from('event_registrations').select('event_id').in('id', list);
+    return [...new Set((data || []).map((r) => r.event_id).filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+export async function PUT(request) {
+  let ids = [];
+  try {
+    const b = await request.clone().json();
+    ids = [b?.id, ...(Array.isArray(b?.ids) ? b.ids : [])];
+  } catch { /* putRegistration answers a bad body */ }
+  const events = await eventsOf(ids);
+  const res = await putRegistration(request);
+  if (res.ok) events.forEach((eventId) => queueRoomSheetSync(eventId));
+  return res;
+}
+
+export async function DELETE(request) {
+  const { searchParams } = new URL(request.url);
+  const events = await eventsOf([searchParams.get('id'), ...String(searchParams.get('ids') || '').split(',')]);
+  const res = await deleteRegistration(request);
+  if (res.ok) events.forEach((eventId) => queueRoomSheetSync(eventId));
+  return res;
 }

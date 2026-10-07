@@ -10,6 +10,7 @@ import { findEventActor, canWorkEvent, staffDeniedMessage } from '@/lib/eventCom
 //   POST   { actorId, eventId, registrationId, by }          ask for an attendee's ID
 //   PATCH  { actorId, id, action: 'found' | 'undo' | 'cancel', by }
 //          { actorId, registrationIds, action: 'claimed' }   the attendees were verified
+//          { actorId, registrationIds, action: 'unclaimed' } their verification was reverted
 
 export const dynamic = 'force-dynamic';
 
@@ -95,6 +96,18 @@ export async function PATCH(request) {
       const { data, error } = await supabaseAdmin.from('registration_id_queue')
         .update({ claimed_at: new Date().toISOString() })
         .in('registration_id', ids).is('claimed_at', null).select(COLUMNS);
+      if (error) return fail(error);
+      return NextResponse.json({ success: true, data: data || [] });
+    }
+
+    // Their desk verification was reverted: the ID is not theirs again until
+    // they are verified.
+    if (body.action === 'unclaimed') {
+      const ids = (Array.isArray(body.registrationIds) ? body.registrationIds : []).filter(Boolean).slice(0, 200);
+      if (!ids.length) return NextResponse.json({ success: true, data: [] });
+      const { data, error } = await supabaseAdmin.from('registration_id_queue')
+        .update({ claimed_at: null })
+        .in('registration_id', ids).not('claimed_at', 'is', null).select(COLUMNS);
       if (error) return fail(error);
       return NextResponse.json({ success: true, data: data || [] });
     }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, uidCandidates } from '@/lib/rfid';
-import { resolveEventCard } from '@/lib/rfidEventCard';
+import { resolveEventCard, splitReturnedLinks, releaseLinks } from '@/lib/rfidEventCard';
 
 // Checking people in at an event door with a card.
 //
@@ -105,6 +105,8 @@ export async function GET(request) {
       if (!found.registration) {
         return NextResponse.json({
           success: true, result: found.result, uid,
+          // Handed back: who had it, so the desk can say it is free now.
+          returned: found.returned || null,
           message: found.message || 'This card is not linked to anyone at this event yet.',
         });
       }
@@ -150,13 +152,15 @@ export async function GET(request) {
     // the event - paid or not. The ID Cards tab shows a card number beside
     // everybody it prints an ID for, and an unpaid attendee's card is still
     // their card; it is the door that decides whether it lets them in.
+    // A card handed back is nobody's, so it is not listed as theirs.
     if (searchParams.get('links')) {
       const { data: links, error: linkErr } = await supabaseAdmin
         .from('rfid_event_cards')
-        .select('registration_id, uid, assigned_at')
+        .select('id, registration_id, uid, assigned_at')
         .eq('event_id', eventId);
       if (linkErr) throw linkErr;
-      return NextResponse.json({ success: true, data: links || [] });
+      const { held } = await splitReturnedLinks(links);
+      return NextResponse.json({ success: true, data: held.map(({ id, ...l }) => l) });
     }
 
     const { data: regs, error } = await supabaseAdmin
@@ -168,12 +172,13 @@ export async function GET(request) {
       .order('attendee_name', { ascending: true });
     if (error) throw error;
 
-    const { data: links } = await supabaseAdmin
+    const { data: allLinks } = await supabaseAdmin
       .from('rfid_event_cards')
       .select('*')
       .eq('event_id', eventId);
+    const { held: links } = await splitReturnedLinks(allLinks);
 
-    const byReg = new Map((links || []).map((l) => [l.registration_id, l]));
+    const byReg = new Map(links.map((l) => [l.registration_id, l]));
     const data = (regs || []).map((r) => ({ ...r, card: byReg.get(r.id) || null }));
 
     return NextResponse.json({
@@ -245,6 +250,7 @@ export async function POST(request) {
         success: true,
         result: found.result,
         uid,
+        returned: found.returned || null,
         message: found.message || 'This card is not linked to anyone at this event yet.',
       });
     }
@@ -398,12 +404,15 @@ export async function PUT(request) {
     // Is this card already somebody else's at this event? Every row that
     // answers to it, not maybeSingle(): with two spellings of one card already
     // saved, that returned nothing and the card went to a third person too.
+    // A card somebody handed back is not theirs any more: it is let go of
+    // below, and given to this attendee.
     const { data: holders } = await supabaseAdmin
       .from('rfid_event_cards')
       .select('*')
       .eq('event_id', eventId)
       .in('uid', uidCandidates(raw));
-    const clash = (holders || []).find((h) => h.registration_id !== registrationId) || null;
+    const { held, returned } = await splitReturnedLinks(holders);
+    const clash = held.find((h) => h.registration_id !== registrationId) || null;
 
     if (clash) {
       const { data: other } = await supabaseAdmin
@@ -416,6 +425,10 @@ export async function PUT(request) {
         message: `That card is already ${other?.attendee_name || 'someone else'}'s at this event.`,
       }, { status: 409 });
     }
+
+    // The one card at an event is one link (unique on uid, event_id), so the
+    // returned link goes first. Their return stays on the log.
+    await releaseLinks(returned.filter((h) => h.registration_id !== registrationId));
 
     // upsert on registration_id: handing a replacement card to someone who
     // lost theirs simply moves the link rather than needing an unlink first.

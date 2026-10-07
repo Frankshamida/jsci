@@ -8,9 +8,17 @@ import './qrDisplay.css';
 // QR to scan and who it goes to. Open it on a tablet or in a second window
 // turned towards the attendee; the desk fills it when an online method is
 // picked, live, on any device.
+//
+// Behind it all, the event's poster, blurred. Idle, it greets the room -
+// WELCOME DELEGATES; when the desk puts a QR up, the QR pops up over the same
+// backdrop. The event is the one the desk is on (it says so when it opens);
+// a screen that has not heard from a desk yet shows the last one it knew, or
+// the event on today.
 
 // An account's QR can change; a screen left up all day looks again this often.
 const METHODS_STALE_MS = 2 * 60 * 1000;
+// The event whose poster this screen last showed, so a reload keeps it.
+const EVENT_KEY = 'jsci.qrDisplay.event';
 
 const STATUS_LABEL = { live: 'Live', connecting: 'Connecting…', offline: 'Offline' };
 
@@ -18,10 +26,44 @@ export default function QrDisplayPage() {
   const [qr, setQr] = useState(null);
   const [status, setStatus] = useState('connecting');
   const [methods, setMethods] = useState(null);
+  const [eventId, setEventId] = useState('');
+  const [poster, setPoster] = useState(null); // { id, title, image }
+  const [posterReady, setPosterReady] = useState(false);
   const fetchedAt = useRef(0);
   const triedFor = useRef('');
 
-  useEffect(() => subscribeQrDisplay(setQr, setStatus), []);
+  useEffect(() => subscribeQrDisplay(setQr, setStatus, setEventId), []);
+
+  // ---- The backdrop ----
+  // The desk's event, else the one this screen last showed, else today's.
+  const loadPoster = useCallback(async (id) => {
+    try {
+      const res = await fetch(`/api/events/poster${id ? `?id=${encodeURIComponent(id)}` : ''}`);
+      const data = await res.json();
+      if (!data.success) {
+        // A remembered event that is gone or unpublished: today's instead.
+        if (id) loadPoster('');
+        return;
+      }
+      setPoster(data.data);
+      try { localStorage.setItem(EVENT_KEY, data.data.id); } catch { /* private window */ }
+    } catch { /* the gold backdrop stays */ }
+  }, []);
+  useEffect(() => {
+    if (eventId) { loadPoster(eventId); return; }
+    let saved = '';
+    try { saved = localStorage.getItem(EVENT_KEY) || ''; } catch { /* private window */ }
+    loadPoster(saved);
+  }, [eventId, loadPoster]);
+  // Faded in once the picture has actually arrived, never half-drawn.
+  useEffect(() => {
+    setPosterReady(false);
+    if (!poster?.image) return undefined;
+    const img = new Image();
+    img.onload = () => setPosterReady(true);
+    img.src = poster.image;
+    return () => { img.onload = null; };
+  }, [poster?.image]);
 
   // The QR and the account come from the church's own list, never the message.
   const loadMethods = useCallback(async (fresh) => {
@@ -60,15 +102,27 @@ export default function QrDisplayPage() {
   const initials = String(m?.name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
   return (
-    <main className="qrd">
+    <main className={`qrd ${posterReady ? 'has-poster' : ''}`}>
+      {/* The event's poster, blurred, behind everything. */}
+      <div
+        className="qrd-bg"
+        style={posterReady ? { backgroundImage: `url("${poster.image}")` } : undefined}
+        aria-hidden="true"
+      ></div>
+      <div className="qrd-shade" aria-hidden="true"></div>
+
       {!m ? (
         <div className="qrd-idle" key="idle">
-          <div className="qrd-idle-ring"><span>₱</span></div>
-          <h1>Welcome!</h1>
-          <p>
-            {!qr?.methodId && 'The payment QR code will appear here.'}
-            {qr?.methodId && (waiting ? 'Getting the payment details…' : 'Please ask the verifier where to send your payment.')}
-          </p>
+          <h1 className="qrd-welcome">
+            <span className="qrd-welcome-1">Welcome</span>
+            <span className="qrd-welcome-2">Delegates</span>
+          </h1>
+          {poster?.title && <p className="qrd-event">{poster.title}</p>}
+          {qr?.methodId && (
+            <p className="qrd-idle-note">
+              {waiting ? 'Getting the payment details…' : 'Please ask the verifier where to send your payment.'}
+            </p>
+          )}
         </div>
       ) : (
         <div className="qrd-card" key={`${m.id}-${qr.amount}-${(qr.names || []).join('|')}`}>

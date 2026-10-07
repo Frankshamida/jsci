@@ -41,6 +41,12 @@ const DASHBOARD_SECTIONS = [
 
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // Read PDFs on the server (Accommodation > Import). pdf.js loads its own
+    // worker file at run time, which only works when it is required from
+    // node_modules as it is, not bundled.
+    serverComponentsExternalPackages: ['pdfjs-dist'],
+  },
   images: {
     domains: ['img.youtube.com', 'i.ytimg.com', 'res.cloudinary.com'],
   },

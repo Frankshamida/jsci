@@ -1,4 +1,5 @@
 import { sameAddon } from '@/lib/addons';
+import { addonFeeFor, findTier } from '@/lib/eventPricing';
 
 // ============================================================
 // Rooms at an event: what a room is, and how beds become a head count
@@ -241,6 +242,36 @@ const ACCOMMODATION_WORDS = /accommodat|accomodat|lodg|billet|hotel|dorm|room|be
 export function accommodationAddons(eventAddons) {
   return (Array.isArray(eventAddons) ? eventAddons : [])
     .filter((a) => ACCOMMODATION_WORDS.test(String(a?.question || '')));
+}
+
+/**
+ * What the bed a registration is waiting for will cost them - the same fee
+ * promoteBedWaitlist (api/events/registrations) adds when it gives the bed.
+ * 0 when they are not on the accommodation waiting list, or already hold one.
+ *
+ * Taken in advance on the Payments tab, so the money they hand over covers
+ * the bed they are still waiting for (event_registrations.bed_wait_paid).
+ *
+ * @param {object} reg the registration
+ * @param {object} evt the event, with event_addons (and event_price_tiers)
+ * @returns {{fee: number, bed: object|null}}
+ */
+export function bedWaitCharge(reg, evt) {
+  const none = { fee: 0, bed: null };
+  if (!reg?.bed_wait_since || reg.status === 'cancelled') return none;
+  const beds = accommodationAddons(evt?.event_addons);
+  if (!beds.length) return none;
+  const held = Array.isArray(reg.addons) ? reg.addons : [];
+  if (held.some((h) => beds.some((b) => sameAddon(h, b)))) return none;
+  const bed = beds.find((b) => b.id === reg.bed_wait_addon_id) || beds[0];
+  const tier = reg.price_tier ? findTier(evt, reg.price_tier) : null;
+  return { fee: addonFeeFor(bed, tier), bed };
+}
+
+/** What is still to pay for that bed, after anything paid for it in advance. */
+export function bedWaitDue(reg, evt) {
+  const { fee } = bedWaitCharge(reg, evt);
+  return Math.max(0, fee - (Number(reg?.bed_wait_paid) || 0));
 }
 
 /**

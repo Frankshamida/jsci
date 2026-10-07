@@ -8,11 +8,15 @@ import { findEventActor, isEventManager } from '@/lib/eventCommittee';
 //   GET    ?eventId=..&actorId=..               newest first
 //   POST   { actorId, eventId, entries: [{ action, registrationId, attendeeName,
 //            verifier: { id, name, duty }, details }] }
-//   PATCH  { actorId, id, reason }              mark a payment reverted
+//   PATCH  { actorId, id, reason }              mark a payment, a substitute or
+//                                               a desk verification reverted
+//   PATCH  { actorId, eventId, registrationId, days, reason, byName }
+//          every desk verification of one attendee on those days - the desk's
+//          own Revert, which has no log id to hand
 //
-// The revert itself - putting the registration back to details.from - goes
-// through PUT /api/events/registrations first, with all of its own checks;
-// this only records that it was done.
+// The revert itself - putting the registration back to details.from, or
+// taking the attendee off the check-in - is done first, through the routes
+// with their own checks; this only records that it was done.
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +31,7 @@ const fail = (error) => NextResponse.json(
 );
 const clip = (v, n = 200) => (v === null || v === undefined ? null : String(v).slice(0, n));
 const nameOf = (u) => [u?.firstname, u?.lastname].filter(Boolean).join(' ').trim() || 'Admin';
+const REVERTIBLE = ['payment', 'substitute', 'verified'];
 
 async function manager(actorId) {
   const actor = await findEventActor(actorId);
@@ -87,16 +92,45 @@ export async function PATCH(request) {
     const body = await request.json();
     const actor = await manager(body.actorId);
     if (!actor) return denied();
+    // Who reverted it: the verifier on the desk when it was done from there,
+    // otherwise the Admin signed in.
+    const stamp = {
+      reverted_at: new Date().toISOString(),
+      reverted_by: actor.id,
+      reverted_by_name: clip(String(body.byName || '').trim(), 120) || nameOf(actor),
+      revert_reason: clip(body.reason, 300),
+    };
+
+    // From the desk: every Verified log of this attendee on those days.
+    if (!body.id && body.registrationId) {
+      if (!body.eventId) return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
+      const days = (Array.isArray(body.days) ? body.days : []).map(Number).filter((d) => d > 0);
+      const { data: open, error: openError } = await supabaseAdmin
+        .from('registration_verification_logs')
+        .select('id, details')
+        .eq('event_id', body.eventId)
+        .eq('registration_id', body.registrationId)
+        .eq('action', 'verified')
+        .is('reverted_at', null);
+      if (openError) return fail(openError);
+      const ids = (open || []).filter((l) => !days.length || days.includes(Number(l.details?.day))).map((l) => l.id);
+      if (!ids.length) return NextResponse.json({ success: true, data: [] });
+      const { data, error } = await supabaseAdmin
+        .from('registration_verification_logs').update(stamp).in('id', ids).select(COLUMNS);
+      if (error) return fail(error);
+      return NextResponse.json({ success: true, data: data || [] });
+    }
+
     if (!body.id) return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
     const { data: log, error: readError } = await supabaseAdmin
       .from('registration_verification_logs').select('id, action, reverted_at').eq('id', body.id).maybeSingle();
     if (readError) return fail(readError);
     if (!log) return NextResponse.json({ success: false, message: 'Log not found.' }, { status: 404 });
-    if (!['payment', 'substitute'].includes(log.action)) return NextResponse.json({ success: false, message: 'Only a payment or a substitute can be reverted.' }, { status: 400 });
+    if (!REVERTIBLE.includes(log.action)) return NextResponse.json({ success: false, message: 'Only a payment, a substitute or a verification can be reverted.' }, { status: 400 });
     if (log.reverted_at) return NextResponse.json({ success: false, message: 'This was already reverted.' }, { status: 409 });
     const { data, error } = await supabaseAdmin
       .from('registration_verification_logs')
-      .update({ reverted_at: new Date().toISOString(), reverted_by: actor.id, reverted_by_name: nameOf(actor), revert_reason: clip(body.reason, 300) })
+      .update(stamp)
       .eq('id', body.id)
       .select(COLUMNS)
       .single();

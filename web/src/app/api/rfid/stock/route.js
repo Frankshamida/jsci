@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { isPlausibleUid, normalizeUid, uidCandidates } from '@/lib/rfid';
 import { findEventActor, isEventManager } from '@/lib/eventCommittee';
+import { splitReturnedLinks } from '@/lib/rfidEventCard';
 
 // The card stock under Events RFID - see supabase/migrations/rfid_card_stock.sql.
 // Admin / Super Admin only.
@@ -24,12 +25,20 @@ async function denied(actorId) {
   return { no: NextResponse.json({ success: false, message: 'Only an Admin or Super Admin can manage the card stock.' }, { status: 403 }) };
 }
 
+// Event card links still in somebody's hand: a card handed back is free, and
+// a return now lets go of its link anyway (see api/rfid/card-returns). The
+// rule is shared with every desk - src/lib/rfidEventCard.js.
+async function withoutReturned(links) {
+  return (await splitReturnedLinks(links)).held;
+}
+
 // Who already holds this card, anywhere: an attendee at any event, a
 // member, or a verifier. A card that is somebody's is never stock.
 async function holderOf(raw) {
   const ids = uidCandidates(raw);
-  const { data: ev } = await supabaseAdmin.from('rfid_event_cards')
-    .select('registration_id, event_registrations:registration_id (attendee_name)').in('uid', ids).limit(1);
+  const { data: evLinks } = await supabaseAdmin.from('rfid_event_cards')
+    .select('id, registration_id, uid, assigned_at, event_registrations:registration_id (attendee_name)').in('uid', ids);
+  const ev = await withoutReturned(evLinks);
   if (ev?.[0]) return `${ev[0].event_registrations?.attendee_name || 'an attendee'}'s (event card)`;
   const { data: mem } = await supabaseAdmin.from('rfid_cards')
     .select('users:user_id (firstname, lastname)').in('uid', ids).limit(1);
@@ -48,13 +57,14 @@ export async function GET(request) {
       .select('id, number, uid, created_at').order('number', { ascending: true }).limit(5000);
     if (error) return fail(error);
     const rows = data || [];
-    // Used: linked to an attendee at any event.
+    // Used: linked to an attendee at any event, and not handed back.
     let used = {};
     if (rows.length) {
-      const { data: links } = await supabaseAdmin.from('rfid_event_cards')
-        .select('uid, event_id, registration_id, event_registrations:registration_id (attendee_name), events:event_id (title)')
+      const { data: allLinks } = await supabaseAdmin.from('rfid_event_cards')
+        .select('id, uid, event_id, registration_id, assigned_at, event_registrations:registration_id (attendee_name), events:event_id (title)')
         .in('uid', rows.map((r) => r.uid));
-      used = Object.fromEntries((links || []).map((l) => [l.uid, {
+      const links = await withoutReturned(allLinks);
+      used = Object.fromEntries(links.map((l) => [l.uid, {
         name: l.event_registrations?.attendee_name || '',
         event: l.events?.title || '',
         eventId: l.event_id,

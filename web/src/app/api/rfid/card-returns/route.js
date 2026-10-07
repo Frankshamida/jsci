@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { findEventActor, isEventManager } from '@/lib/eventCommittee';
+import { splitReturnedLinks, releaseLinks } from '@/lib/rfidEventCard';
 
 // Cards handed back at the end of an event. See
 // supabase/migrations/rfid_card_returns.sql.
 //
-// Returning a card removes its rfid_event_cards link - the card is free for
-// the next person - and logs the return. Reverting puts the same card back on
-// the same attendee and drops the log row. Deleting drops the log row only.
+// Returning a card logs the return - who, which card, when - and lets go of
+// the rfid_event_cards link, so the card is free at once: for somebody else at
+// this event as much as for the next one, and a tap no longer answers to the
+// person who returned it. The log row is the record of whose it was.
+// Reverting drops the log row and puts the same card back on the same
+// attendee, as long as nobody has been given it since.
 
 const MIGRATION_HINT = 'Run supabase/migrations/rfid_card_returns.sql first.';
 const missingTable = (err) => /rfid_card_returns/i.test(err?.message || '');
@@ -61,12 +65,18 @@ export async function POST(request) {
 
     const { data: link } = await supabaseAdmin
       .from('rfid_event_cards')
-      .select('uid')
+      .select('id, registration_id, uid, assigned_at')
       .eq('registration_id', registrationId)
       .eq('event_id', eventId)
       .maybeSingle();
     if (!link) {
       return NextResponse.json({ success: false, message: 'This attendee has no card to return.' }, { status: 409 });
+    }
+    // Returned since it was given to them (a link kept by an older return).
+    const { returned: earlier } = await splitReturnedLinks([link]);
+    if (earlier.length) {
+      await releaseLinks(earlier);
+      return NextResponse.json({ success: false, already: true, message: 'This card is already marked as returned.' }, { status: 409 });
     }
 
     const { data: row, error } = await supabaseAdmin
@@ -79,21 +89,16 @@ export async function POST(request) {
       throw error;
     }
 
-    const { error: unlinkErr } = await supabaseAdmin
-      .from('rfid_event_cards')
-      .delete()
-      .eq('registration_id', registrationId);
-    if (unlinkErr) {
-      // Nothing half-done: without the unlink the return did not happen.
-      await supabaseAdmin.from('rfid_card_returns').delete().eq('id', row.id);
-      throw unlinkErr;
-    }
+    // Free again. The return row is logged first, so a failure here leaves a
+    // card that still counts as handed back (splitReturnedLinks), never one
+    // that is let go with no record of whose it was.
+    await releaseLinks([link]);
 
     const { event_registrations: reg, ...rest } = row;
     return NextResponse.json({
       success: true,
       data: { ...rest, attendee_name: reg?.attendee_name || '', church_name: reg?.church_name || '' },
-      message: `${reg?.attendee_name || 'The attendee'}'s card marked as returned`,
+      message: `${reg?.attendee_name || 'The attendee'}'s card marked as returned - it is free for somebody else`,
     });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
@@ -101,7 +106,7 @@ export async function POST(request) {
 }
 
 // PUT /api/rfid/card-returns  { id, actorId }
-//   Revert a return: the same card goes back on the same attendee.
+//   Revert a return: the card is theirs and out again, not back at the desk.
 export async function PUT(request) {
   try {
     const { id, actorId } = await request.json();
@@ -117,12 +122,21 @@ export async function PUT(request) {
     if (!ret) return NextResponse.json({ success: false, message: 'That return is no longer on record.' }, { status: 404 });
 
     const { data: own } = await supabaseAdmin
-      .from('rfid_event_cards').select('uid').eq('registration_id', ret.registration_id).maybeSingle();
+      .from('rfid_event_cards').select('*').eq('registration_id', ret.registration_id).maybeSingle();
+    // Still linked (an older return kept the link): only the log row goes.
+    if (own && own.uid === ret.uid) {
+      const { error: delErr } = await supabaseAdmin.from('rfid_card_returns').delete().eq('id', ret.id);
+      if (delErr) throw delErr;
+      return NextResponse.json({ success: true, data: own, message: 'Marked as not returned' });
+    }
     if (own) {
       return NextResponse.json({ success: false, message: 'This attendee already holds another card. Remove it first.' }, { status: 409 });
     }
-    const { data: taken } = await supabaseAdmin
-      .from('rfid_event_cards').select('registration_id').eq('event_id', ret.event_id).eq('uid', ret.uid).maybeSingle();
+    // Given to somebody else since - unless they have handed it back too.
+    const { data: others } = await supabaseAdmin
+      .from('rfid_event_cards').select('*').eq('event_id', ret.event_id).eq('uid', ret.uid);
+    const { held, returned } = await splitReturnedLinks(others);
+    const taken = held[0] || null;
     if (taken) {
       const { data: other } = await supabaseAdmin
         .from('event_registrations').select('attendee_name').eq('id', taken.registration_id).maybeSingle();
@@ -132,6 +146,7 @@ export async function PUT(request) {
       }, { status: 409 });
     }
 
+    await releaseLinks(returned);
     const { data: link, error } = await supabaseAdmin
       .from('rfid_event_cards')
       .insert({ uid: ret.uid, registration_id: ret.registration_id, event_id: ret.event_id, assigned_by: actorId || null })
