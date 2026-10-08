@@ -57,7 +57,10 @@ function useDarkMode() {
   return [dark, toggle];
 }
 
-const VIEWS = ['photos', 'profile', 'extras'];
+// Every tab has its own address - the Programme too, /events/<slug>/programme:
+// the bare /events/<slug> is what an old ID's QR holds, and for some events it
+// opens the conference chooser (QR_CHOOSER_SLUGS, lib/eventPublic.js).
+const VIEWS = ['programme', 'photos', 'profile', 'extras'];
 const NO_SONGS = [];
 const viewPath = (slug, view, code) => {
   const base = `/events/${slug}${VIEWS.includes(view) ? `/${view}` : ''}`;

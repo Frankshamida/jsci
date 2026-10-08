@@ -75,7 +75,9 @@ export default async function ConferencePage() {
             const cover = e.image_url ? eventImageUrl(e.image_url, 880) : '';
             return (
               <li key={e.id}>
-                <a href={`/events/${e.slug}`} className={`conf-card is-${e.state}`}>
+                {/* /programme, not the bare address: that is what an old ID's QR holds,
+                    and for Cebu it comes back here (QR_CHOOSER_SLUGS). */}
+                <a href={`/events/${e.slug}/programme`} className={`conf-card is-${e.state}`}>
                   <span className="conf-cover" style={cover ? { backgroundImage: `url("${cover}")` } : undefined} aria-hidden="true" />
                   <span className="conf-body">
                     <span className={`conf-state is-${e.state}`}>

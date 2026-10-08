@@ -232,7 +232,7 @@ export default function EventProgrammeTab({ event, actorId, publicUrl, showToast
         </div>
         <div className="evt-prog-bar-actions">
           {publicUrl && (
-            <a className="btn-secondary" href={publicUrl} target="_blank" rel="noreferrer">
+            <a className="btn-secondary" href={`${publicUrl}/programme`} target="_blank" rel="noreferrer">
               <i className="fas fa-arrow-up-right-from-square"></i> Public Page
             </a>
           )}

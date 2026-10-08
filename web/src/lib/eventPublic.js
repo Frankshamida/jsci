@@ -86,6 +86,15 @@ export const findEventByPublicSlug = (events, slug) => {
   return byTitle.length ? nearest(byTitle) : null;
 };
 
+// ---- Old IDs, sent to the conference chooser ----
+// The Cebu delegates' IDs were printed with the Cebu event page in their QR -
+// /events/cebu-miracle-working-god, with nothing after it. That exact address
+// now opens Choose your conference (/conference) instead, so the same printed
+// QR offers Leyte and Cebu. Everything inside the event page goes to
+// /events/<slug>/programme (or /photos, /profile ...), never the bare address,
+// so choosing Cebu there - or a reload on its Programme tab - is not sent back.
+export const QR_CHOOSER_SLUGS = new Set(['cebu-miracle-working-god']);
+
 /**
  * What the ID's QR holds: the event page, with the attendee's own code, so
  * the page can greet them and the photo unlock is checked against them.
