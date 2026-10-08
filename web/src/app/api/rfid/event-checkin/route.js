@@ -65,9 +65,17 @@ async function eventOverview() {
     c.verified += 1;
     if (r.attended) c.attended += 1;
   });
+  // Carded counts the verified attendees who hold a card - each once. A card
+  // linked to somebody not verified (yet), cancelled or binned is not one of
+  // them, and counting it made "still without a card" go below zero.
+  const verifiedIds = new Set((regs || []).map((r) => String(r.id)));
+  const carded = new Set();
   (links || []).forEach((l) => {
     const c = counts.get(l.event_id);
-    if (c) c.carded += 1;
+    const reg = String(l.registration_id);
+    if (!c || !verifiedIds.has(reg) || carded.has(reg)) return;
+    carded.add(reg);
+    c.carded += 1;
   });
 
   return (events || []).map((e) => ({ ...e, summary: counts.get(e.id) }));

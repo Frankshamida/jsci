@@ -562,3 +562,57 @@ body.dark-mode .pay-result.paid .pay-result-icon { background: rgba(22, 163, 74,
 body.dark-mode .pay-result.paid .pay-result-who b { color: #cbbf9f; }
 body.dark-mode .pay-result-go { background: rgba(59, 130, 246, 0.14); border-color: rgba(147, 197, 253, 0.4); color: #93c5fd; }
 body.dark-mode .pay-tag.info { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
+
+/* ---- A recorded payment: receipt, edit, delete, take somebody off ---- */
+.pay-btn.sm { padding: 7px 14px; font-size: 0.8rem; border-radius: 10px; }
+.pay-record-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed #efe3c2; }
+.pay-record-itemend { display: inline-flex; align-items: center; gap: 8px; }
+.pay-record-x {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid #f1e7cc; background: transparent; color: #9a8f74;
+  cursor: pointer; font-size: 0.72rem; display: inline-grid; place-items: center;
+}
+.pay-record-x:hover:not(:disabled) { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+.pay-record-x:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pay-modal-overlay { position: fixed; inset: 0; z-index: 15000; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.pay-modal {
+  width: 100%; max-width: 520px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg-card, #fff); border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+.pay-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; background: linear-gradient(135deg, #926c15, #c8960f); color: #fff; }
+.pay-modal-head h3 { margin: 0; font-size: 1.08rem; display: flex; align-items: center; gap: 8px; }
+.pay-modal-head p { margin: 2px 0 0; font-size: 0.8rem; opacity: 0.9; }
+.pay-modal-x { width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.2); color: #fff; cursor: pointer; }
+.pay-modal-body { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.pay-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #f1e7cc; }
+
+.pay-receipt-top { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid #f1e7cc; }
+.pay-receipt-top b { font-size: 0.98rem; }
+.pay-receipt-top span { font-size: 0.8rem; color: var(--text-muted, #777); }
+.pay-receipt-top code { font-weight: 700; color: inherit; }
+.pay-receipt-person { padding: 8px 0; border-bottom: 1px dashed #efe3c2; }
+.pay-receipt-name { display: flex; flex-direction: column; margin-bottom: 4px; }
+.pay-receipt-name b { font-size: 0.92rem; }
+.pay-receipt-name em { font-style: normal; font-size: 0.74rem; color: var(--text-muted, #888); }
+.pay-receipt-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 0.85rem; }
+.pay-receipt-line > span { color: var(--text-muted, #555); min-width: 0; }
+.pay-receipt-line > span small { color: #1d5f9c; font-weight: 600; }
+.pay-receipt-line > b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pay-receipt-line.minus > b { color: #15803d; }
+.pay-receipt-line.paid { margin-top: 3px; padding-top: 4px; border-top: 1px solid #f1e7cc; }
+.pay-receipt-line.paid > span { font-weight: 700; color: inherit; }
+.pay-receipt-total {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;
+  background: #fffaf0; border: 1px solid #f0d68a; font-weight: 800;
+}
+.pay-receipt-total b { font-size: 1.15rem; color: #15803d; }
+.pay-receipt-notes { margin: 0; font-size: 0.82rem; color: var(--text-muted, #555); white-space: pre-wrap; }
+.pay-receipt-notes i { color: #c8960f; margin-right: 4px; }
+
+body.dark-mode .pay-modal { background: #1f1f30; color: #eee; }
+body.dark-mode .pay-modal-foot, body.dark-mode .pay-receipt-top, body.dark-mode .pay-receipt-line.paid { border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .pay-receipt-person, body.dark-mode .pay-record-acts { border-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .pay-receipt-line > span { color: #c9cdd6; }
+body.dark-mode .pay-receipt-total { background: rgba(224, 180, 74, 0.07); border-color: rgba(224, 180, 74, 0.3); }
+body.dark-mode .pay-receipt-total b { color: #4ade80; }
+body.dark-mode .pay-record-x { border-color: rgba(255, 255, 255, 0.12); color: #a8a29e; }

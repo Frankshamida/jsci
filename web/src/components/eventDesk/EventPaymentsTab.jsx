@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import ProofDrop from '@/components/ProofDrop';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import { bedWaitDue } from '@/lib/rooms';
+import { addonShortLabel } from '@/lib/eventPricing';
+import { extraNetFee } from '@/lib/exemption';
 import './eventPayments.css';
 
 // Event -> Payments (Super Admin). One sum of money, and the attendees it pays
@@ -198,6 +200,10 @@ export default function EventPaymentsTab({
   const [recShown, setRecShown] = useState(REC_PAGE);
   useEffect(() => { setRecShown(REC_PAGE); }, [kind, recFilter]);
   const searchRef = useRef(null);
+  // A recorded payment: its receipt open, being edited, or being changed.
+  const [receiptRec, setReceiptRec] = useState(null);
+  const [editing, setEditing] = useState(null); // { rec, holder, bank, recipient, reference, notes, saving, error }
+  const [recBusy, setRecBusy] = useState('');
 
   // The verification view has no form of its own; the online one stands in
   // so the arithmetic below never reads undefined.
@@ -477,6 +483,80 @@ export default function EventPaymentsTab({
         confirmIcon: 'fa-check',
       });
     } else submit();
+  };
+
+  // ---- Changing a recorded payment (api/events/payments PATCH / DELETE) ----
+  const send = async (method, url, body) => {
+    try {
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+      return await res.json().catch(() => ({ success: false, message: `The server answered ${res.status}.` }));
+    } catch (e) { return { success: false, message: e.message || 'Could not reach the server.' }; }
+  };
+  const afterChange = (data) => {
+    showToast?.(data.message, 'success');
+    if (data.warning) showToast?.(data.warning, 'warning');
+    reloadRecords?.();
+    onPaid?.(data.updated || []);
+  };
+  const recordLabel = (rec) => (rec.kind === 'cash'
+    ? `the ${peso(rec.total_amount)} cash on hand from ${formatName(rec.holder_name)}`
+    : `the ${peso(rec.total_amount)} ${rec.bank_name} payment${rec.reference ? ` (ref ${rec.reference})` : ''}`);
+
+  const removeItem = (rec, it) => {
+    const go = async () => {
+      setRecBusy(`${rec.id}:${it.id}`);
+      const data = await send('PATCH', '/api/events/payments', { actorId, id: rec.id, action: 'remove_items', registrationIds: [it.id] });
+      setRecBusy('');
+      if (!data.success) { showToast?.(data.message, 'danger'); return; }
+      afterChange(data);
+    };
+    const left = (Number(rec.total_amount) || 0) - (Number(it.amount) || 0);
+    const message = `Take ${formatName(it.name)} off ${recordLabel(rec)}? The ${peso(it.amount)} it paid for them is undone - they owe it again`
+      + (left > 0 ? `, and the payment comes down to ${peso(left)}.` : ' - and, with nobody left on it, the payment is deleted.');
+    if (askConfirm) askConfirm(message, go, { title: 'Take off this payment?', subtitle: event?.title || 'Payments', confirmLabel: 'Take off', icon: 'fa-user-minus', confirmIcon: 'fa-user-minus' });
+    else go();
+  };
+
+  const deleteRecord = (rec) => {
+    const n = (rec.items || []).length;
+    const go = async () => {
+      setRecBusy(rec.id);
+      const data = await send('DELETE', `/api/events/payments?id=${encodeURIComponent(rec.id)}&actorId=${encodeURIComponent(actorId || '')}`);
+      setRecBusy('');
+      if (!data.success) { showToast?.(data.message, 'danger'); return; }
+      afterChange(data);
+    };
+    const message = `Delete ${recordLabel(rec)}? ${n === 1 ? 'The attendee on it goes' : `All ${n} attendees on it go`} back to owing what it paid for them. Anybody already checked in stays checked in.`;
+    if (askConfirm) askConfirm(message, go, { title: 'Delete this payment?', subtitle: event?.title || 'Payments', confirmLabel: 'Delete payment', icon: 'fa-trash', confirmIcon: 'fa-trash' });
+    else go();
+  };
+
+  const openEdit = (rec) => setEditing({
+    rec,
+    holder: rec.holder_name || '',
+    bank: rec.bank_name || '',
+    recipient: rec.recipient_name || '',
+    reference: rec.reference || '',
+    notes: rec.notes || '',
+    saving: false,
+    error: '',
+  });
+  const saveEdit = async () => {
+    const e = editing;
+    if (!e || e.saving) return;
+    const cash = e.rec.kind === 'cash';
+    const missingField = cash
+      ? (!e.holder.trim() && 'Enter the name of the person holding the money.')
+      : (!e.bank.trim() && 'Enter the bank or e-wallet.') || (!e.recipient.trim() && 'Enter the name of the recipient.') || (!e.reference.trim() && 'Enter the reference ID.');
+    if (missingField) { setEditing({ ...e, error: missingField }); return; }
+    setEditing({ ...e, saving: true, error: '' });
+    const data = await send('PATCH', '/api/events/payments', {
+      actorId, id: e.rec.id, action: 'edit', notes: e.notes,
+      ...(cash ? { holderName: e.holder } : { bankName: e.bank, recipientName: e.recipient, reference: e.reference }),
+    });
+    if (!data.success) { setEditing((cur) => (cur ? { ...cur, saving: false, error: data.message } : cur)); return; }
+    setEditing(null);
+    afterChange(data);
   };
 
   // What each kind has recorded: Cash On Hand its own records, Online Payment
@@ -914,7 +994,20 @@ export default function EventPaymentsTab({
           </p>
         ) : (
           <div className="pay-records">
-            {history.slice(0, recShown).map((rec) => <RecordRow key={rec.id} rec={rec} reviews={reviews} formatName={formatName} formatChurch={formatChurch} />)}
+            {history.slice(0, recShown).map((rec) => (
+              <RecordRow
+                key={rec.id}
+                rec={rec}
+                reviews={reviews}
+                formatName={formatName}
+                formatChurch={formatChurch}
+                busy={recBusy}
+                onReceipt={() => setReceiptRec(rec)}
+                onEdit={() => openEdit(rec)}
+                onDelete={() => deleteRecord(rec)}
+                onRemove={(it) => removeItem(rec, it)}
+              />
+            ))}
             {history.length > recShown && (
               <button type="button" className="pay-btn ghost pay-vmore" onClick={() => setRecShown((n) => n + REC_PAGE)}>
                 Show {Math.min(REC_PAGE, history.length - recShown)} more <span>({history.length - recShown} left)</span>
@@ -925,7 +1018,225 @@ export default function EventPaymentsTab({
       </section>
       </>
       )}
+
+      {receiptRec && (
+        <RecordReceipt
+          rec={receiptRec}
+          regById={regById}
+          eventTitle={event?.title || ''}
+          onClose={() => setReceiptRec(null)}
+          formatName={formatName}
+          formatChurch={formatChurch}
+          showToast={showToast}
+        />
+      )}
+      {editing && (
+        <RecordEdit
+          e={editing}
+          set={(p) => setEditing((cur) => (cur ? { ...cur, ...p, error: '' } : cur))}
+          channels={channels}
+          onSave={saveEdit}
+          onClose={() => !editing.saving && setEditing(null)}
+          formatName={formatName}
+        />
+      )}
     </div>
+  );
+}
+
+// ---- A recorded payment's receipt ----
+// Who it was from (or where it was sent), when, by whom; each attendee with
+// their registration fee and extras as their registration reads now, and what
+// this payment took for them; the total. Printable.
+function receiptLinesOf(reg) {
+  if (!reg) return [];
+  const extras = (Array.isArray(reg.addons) ? reg.addons : []).filter((a) => a && (a.question || a.id)).map((a) => ({
+    label: addonShortLabel(a.question),
+    amount: extraNetFee(a),
+    note: Number(a.waived) > 0 ? (extraNetFee(a) > 0 ? `${peso(a.waived)} exempted` : 'free · exempted') : '',
+  }));
+  const amount = Number(reg.amount) || 0;
+  const discount = Number(reg.discount_amount) || 0;
+  const fee = Math.max(0, amount - extras.reduce((t, e) => t + e.amount, 0)) + discount;
+  return [
+    { label: `Registration fee${reg.price_tier ? ` · ${reg.price_tier}` : ''}`, amount: fee },
+    ...extras,
+    ...(discount > 0 ? [{ label: `Discount${reg.discount_note ? ` · ${reg.discount_note}` : ''}`, amount: -discount }] : []),
+  ];
+}
+const signedPeso = (n) => `${n < 0 ? '−' : ''}${peso(Math.abs(Number(n) || 0))}`;
+
+function RecordReceipt({ rec, regById, eventTitle, onClose, formatName, formatChurch, showToast }) {
+  const items = Array.isArray(rec.items) ? rec.items : [];
+  const cash = rec.kind === 'cash';
+  const fromReg = rec.source === 'registration';
+  const title = cash ? `Cash on hand from ${formatName(rec.holder_name)}`
+    : fromReg ? `${rec.bank_name} · sent by ${formatName(rec.sender_name) || 'the attendee'}`
+      : `${rec.bank_name} → ${rec.recipient_name}`;
+  const people = items.map((it) => {
+    const reg = regById.get(it.id);
+    const lines = receiptLinesOf(reg);
+    const total = reg ? Number(reg.amount) || 0 : Number(it.total) || Number(it.amount) || 0;
+    return { it, reg, lines, total, paid: Number(it.amount) || 0, bed: Number(it.bedFee) || 0 };
+  });
+  const by = fromReg ? (rec.recorded_by_name ? `verified by ${formatName(rec.recorded_by_name)}` : 'verified')
+    : `recorded by ${formatName(rec.recorded_by_name) || 'Super Admin'}`;
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const print = () => {
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const row = (label, amount, cls = '') => `<tr class="${cls}"><td>${esc(label)}</td><td class="amt">${esc(signedPeso(amount))}</td></tr>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt - ${esc(title)}</title>
+<style>
+  body { font-family: Arial, sans-serif; color: #222; max-width: 440px; margin: 24px auto; padding: 0 16px; font-size: 13px; }
+  h1 { font-size: 17px; margin: 0; } .sub { color: #666; margin: 2px 0 14px; } .ref { margin: 0 0 12px; }
+  h2 { font-size: 13px; margin: 14px 0 2px; } .church { color: #777; font-size: 11px; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; } td { padding: 3px 0; } .amt { text-align: right; white-space: nowrap; }
+  .paid td { border-top: 1px dashed #bbb; font-weight: bold; } .grand td { border-top: 2px solid #222; font-size: 15px; font-weight: bold; padding-top: 6px; }
+  .notes { margin-top: 12px; color: #444; white-space: pre-wrap; } .muted { color: #777; font-size: 11px; margin-top: 12px; }
+</style></head><body>
+<h1>${esc(eventTitle)}</h1>
+<div class="sub">${esc(title)} · ${esc(stamp(rec.created_at))} · ${esc(by)}</div>
+${!cash && rec.reference ? `<div class="ref">Reference: <b>${esc(rec.reference)}</b></div>` : ''}
+${people.map((p) => `<h2>${esc(formatName(p.it.name))}</h2><div class="church">${esc(formatChurch(p.it.church) || '')}</div><table>${p.lines.map((l) => row(l.note ? `${l.label} (${l.note})` : l.label, l.amount)).join('')}${p.bed > 0 ? row('Accommodation (waiting list)', p.bed) : ''}${row('Paid on this payment', p.paid, 'paid')}</table>`).join('')}
+<table style="margin-top:14px">${row(cash ? 'Total money on hand' : 'Total amount sent', rec.total_amount, 'grand')}</table>
+${rec.notes ? `<div class="notes"><b>Notes:</b> ${esc(rec.notes)}</div>` : ''}
+<div class="muted">${items.length} attendee${items.length === 1 ? '' : 's'}</div>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=540,height=720');
+    if (!w) { showToast?.('Allow pop-ups to print the receipt', 'warning'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 250);
+  };
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="pay-modal-overlay" onClick={onClose}>
+      <div className="pay-modal pay-receipt" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Receipt">
+        <div className="pay-modal-head">
+          <div>
+            <h3><i className="fas fa-receipt"></i> Receipt</h3>
+            <p>{eventTitle}</p>
+          </div>
+          <button type="button" className="pay-modal-x" onClick={onClose} aria-label="Close"><i className="fas fa-xmark"></i></button>
+        </div>
+        <div className="pay-modal-body">
+          <div className="pay-receipt-top">
+            <b>{title}</b>
+            <span>{stamp(rec.created_at)} · {by}</span>
+            {!cash && rec.reference && <span>Reference <code>{rec.reference}</code></span>}
+          </div>
+          {people.map((p) => (
+            <div key={p.it.id} className="pay-receipt-person">
+              <div className="pay-receipt-name">
+                <b>{formatName(p.it.name)}</b>
+                <em>{formatChurch(p.it.church) || 'No church given'}</em>
+              </div>
+              {p.lines.map((l, i) => (
+                <div key={i} className={`pay-receipt-line ${l.amount < 0 ? 'minus' : ''}`}>
+                  <span>{l.label}{l.note && <small> · {l.note}</small>}</span>
+                  <b>{signedPeso(l.amount)}</b>
+                </div>
+              ))}
+              {p.bed > 0 && (
+                <div className="pay-receipt-line"><span>Accommodation · waiting list</span><b>{peso(p.bed)}</b></div>
+              )}
+              {!p.reg && <div className="pay-receipt-line"><span><small>No longer on the event</small></span><b /></div>}
+              <div className="pay-receipt-line paid">
+                <span>Paid on this payment{p.reg && cents(p.paid - p.bed) < cents(p.total) ? <small> · of {peso(p.total)}</small> : null}</span>
+                <b>{peso(p.paid)}</b>
+              </div>
+            </div>
+          ))}
+          <div className="pay-receipt-total">
+            <span>{cash ? 'Total money on hand' : 'Total amount sent'}</span>
+            <b>{peso(rec.total_amount)}</b>
+          </div>
+          {rec.notes && <p className="pay-receipt-notes"><i className="fas fa-note-sticky"></i> {rec.notes}</p>}
+          {rec.proof_url && (
+            <a href={rec.proof_url} target="_blank" rel="noopener noreferrer" className="pay-link">
+              <i className={`fas ${isImageProof(rec.proof_url) ? 'fa-image' : 'fa-file-lines'}`}></i> View proof of payment
+            </a>
+          )}
+        </div>
+        <div className="pay-modal-foot">
+          <button type="button" className="pay-btn ghost" onClick={onClose}>Close</button>
+          <button type="button" className="pay-btn primary" onClick={print}><i className="fas fa-print"></i> Print</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ---- Editing a recorded payment: the names on it, and its notes ----
+function RecordEdit({ e, set, channels, onSave, onClose, formatName }) {
+  const cash = e.rec.kind === 'cash';
+  useEffect(() => {
+    const onKey = (ev) => { if (ev.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="pay-modal-overlay" onClick={onClose}>
+      <form className="pay-modal pay-edit" onClick={(ev) => ev.stopPropagation()} onSubmit={(ev) => { ev.preventDefault(); onSave(); }} role="dialog" aria-modal="true" aria-label="Edit payment">
+        <div className="pay-modal-head">
+          <div>
+            <h3><i className="fas fa-pen"></i> Edit payment</h3>
+            <p>{peso(e.rec.total_amount)} · {(e.rec.items || []).length} attendee{(e.rec.items || []).length === 1 ? '' : 's'} · {stamp(e.rec.created_at)}</p>
+          </div>
+          <button type="button" className="pay-modal-x" onClick={onClose} aria-label="Close"><i className="fas fa-xmark"></i></button>
+        </div>
+        <div className="pay-modal-body">
+          {cash ? (
+            <label className="pay-field">
+              <span>Name of the person holding the money <i>*</i></span>
+              <input className="pay-input" value={e.holder} onChange={(ev) => set({ holder: ev.target.value })} maxLength={120} disabled={e.saving} autoFocus />
+            </label>
+          ) : (
+            <>
+              <label className="pay-field">
+                <span>Bank / e-wallet <i>*</i></span>
+                <input className="pay-input" value={e.bank} onChange={(ev) => set({ bank: ev.target.value })} maxLength={80} disabled={e.saving} list="pay-edit-banks" autoFocus />
+                <datalist id="pay-edit-banks">{channels.map((m) => <option key={m.id} value={m.name} />)}</datalist>
+              </label>
+              <label className="pay-field">
+                <span>Name of recipient <i>*</i></span>
+                <input className="pay-input" value={e.recipient} onChange={(ev) => set({ recipient: ev.target.value })} maxLength={120} disabled={e.saving} />
+              </label>
+              <label className="pay-field">
+                <span>Reference ID <i>*</i></span>
+                <input className="pay-input" value={e.reference} onChange={(ev) => set({ reference: ev.target.value })} maxLength={120} disabled={e.saving} />
+              </label>
+            </>
+          )}
+          <label className="pay-field">
+            <span>Notes</span>
+            <textarea className="pay-input" rows={3} value={e.notes} onChange={(ev) => set({ notes: ev.target.value })} maxLength={2000} disabled={e.saving} />
+          </label>
+          <p className="pay-hint">
+            <i className="fas fa-circle-info"></i> The attendees it paid are changed with it, where they still show {cash ? `${formatName(e.rec.holder_name)} as holding the money` : 'this bank and reference'}.
+            To change who it paid for, take an attendee off it - or delete it and record it again.
+          </p>
+          {e.error && <p className="pay-hint is-error"><i className="fas fa-triangle-exclamation"></i> {e.error}</p>}
+        </div>
+        <div className="pay-modal-foot">
+          <button type="button" className="pay-btn ghost" onClick={onClose} disabled={e.saving}>Cancel</button>
+          <button type="submit" className="pay-btn primary" disabled={e.saving}>
+            <i className={`fas ${e.saving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {e.saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </form>
+    </div>,
+    document.body,
   );
 }
 
@@ -948,12 +1259,14 @@ function StatusTag({ status }) {
   return <span className={`pay-tag ${t.tone}`}>{t.label}</span>;
 }
 
-function RecordRow({ rec, reviews, formatName, formatChurch }) {
+function RecordRow({ rec, reviews, formatName, formatChurch, busy, onReceipt, onEdit, onDelete, onRemove }) {
   const items = Array.isArray(rec.items) ? rec.items : [];
   const cash = rec.kind === 'cash';
   // Sent online with the registration and verified, not recorded on this tab
-  // (transferRecord) - it has no record of its own to disagree with.
+  // (transferRecord) - it has no record of its own to disagree with, and
+  // nothing here to edit or delete: it is changed where it was verified.
   const fromReg = rec.source === 'registration';
+  const deleting = busy === rec.id;
   // Attendees on this payment whose registration no longer agrees with it.
   const flagged = fromReg ? [] : items.filter((it) => reviews.get(it.id)?.record?.id === rec.id);
   return (
@@ -998,7 +1311,21 @@ function RecordRow({ rec, reviews, formatName, formatChurch }) {
                     <small key={why} className="pay-review-why"><i className="fas fa-triangle-exclamation"></i> {why}</small>
                   ))}
                 </span>
-                <span>{peso(it.amount)}</span>
+                <span className="pay-record-itemend">
+                  {peso(it.amount)}
+                  {!fromReg && onRemove && (
+                    <button
+                      type="button"
+                      className="pay-record-x"
+                      onClick={() => onRemove(it)}
+                      disabled={!!busy}
+                      title="Take them off this payment - their payment is undone"
+                      aria-label={`Take ${formatName(it.name)} off this payment`}
+                    >
+                      <i className={`fas ${busy === `${rec.id}:${it.id}` ? 'fa-spinner fa-spin' : 'fa-user-minus'}`}></i>
+                    </button>
+                  )}
+                </span>
               </li>
             );
           })}
@@ -1022,6 +1349,23 @@ function RecordRow({ rec, reviews, formatName, formatChurch }) {
             <a href={rec.proof_url} target="_blank" rel="noopener noreferrer" className="pay-link">
               <i className={`fas ${isImageProof(rec.proof_url) ? 'fa-image' : 'fa-file-lines'}`}></i> View proof of payment
             </a>
+          )}
+        </div>
+        <div className="pay-record-acts">
+          {onReceipt && (
+            <button type="button" className="pay-btn ghost sm" onClick={onReceipt}>
+              <i className="fas fa-receipt"></i> View receipt
+            </button>
+          )}
+          {!fromReg && onEdit && (
+            <button type="button" className="pay-btn ghost sm" onClick={onEdit} disabled={!!busy}>
+              <i className="fas fa-pen"></i> Edit
+            </button>
+          )}
+          {!fromReg && onDelete && (
+            <button type="button" className="pay-btn ghost sm danger" onClick={onDelete} disabled={!!busy}>
+              <i className={`fas ${deleting ? 'fa-spinner fa-spin' : 'fa-trash'}`}></i> Delete
+            </button>
           )}
         </div>
       </div>

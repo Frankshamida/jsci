@@ -146,7 +146,10 @@ const SEPARATORS = /\s*(?:\r?\n|;|\/|\||\s&\s|\sand\s|,)\s*/i;
  * @returns {Array<{text, status, regId, options}>}
  */
 export function readBox(text, index) {
-  const whole = String(text ?? '').trim();
+  // A kid written with their adult - "Frank Gomez [Kid: Miaka Arquilano]",
+  // as the export writes it (event_room_kids.sql) - is not a bed of their own:
+  // the box is the adult's.
+  const whole = String(text ?? '').replace(/\s*\[\s*kids?\s*:[^\]]*\]/gi, '').trim();
   if (!whole) return [];
   const one = matchName(whole, index);
   if (one.status === 'matched' || one.status === 'ambiguous' || one.status === 'no_accommodation') {

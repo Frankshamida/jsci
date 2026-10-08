@@ -401,17 +401,262 @@ export async function POST(request) {
   }
 }
 
+// ---- Changing a recorded payment ----
+//
+// A record can be corrected after the fact:
+//
+//   edit         who held the money (Cash On Hand), or where it was sent - the
+//                bank, the recipient, the reference (Online Payment) - and the
+//                notes. The registrations it paid carry the same names, so they
+//                are changed with it where they still say what it said.
+//   remove       an attendee taken off it: their payment is undone - back to the
+//                status, method and reference they had before it (kept on the
+//                record's items for exactly this) - and the record's total comes
+//                down by what it took for them. The last one off deletes it.
+//   delete       every attendee's payment undone, and the record gone.
+//
+// A payment is only undone while the registration still stands on it: paid,
+// as this record left it. One that has moved on since (cancelled, paid again
+// some other way) is reported and left alone.
+
+const noteOf = (rec) => (rec.kind === 'cash'
+  ? `Payments tab - cash on hand from ${rec.holder_name}`
+  : `Payments tab - ${rec.bank_name} to ${rec.recipient_name}`);
+
+async function loadRecord(id) {
+  const { data, error } = await supabase.from(RECORDS_TABLE).select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// Undo what `rec` did for one attendee (`item`, as it stood when it was
+// recorded). Returns { ok: true, data } or { ok: false, why }.
+async function unsettle(reg, item, rec) {
+  const who = reg?.attendee_name || item.name || 'An attendee';
+  if (!reg || reg.deleted_at) return { ok: true, data: null }; // nothing left to undo
+  const amt = Number(item.amount) || 0;
+  const bedFee = Number(item.bedFee) || 0;
+  const bedBack = bedFee > 0 ? { bed_wait_paid: Math.max(0, (Number(reg.bed_wait_paid) || 0) - bedFee) } : {};
+
+  if (reg.payment_plan === 'flexible') {
+    // The installment this payment made goes, and the plan is worked out again.
+    const { data: pays } = await supabase.from('event_registration_payments')
+      .select('id, amount, note, created_at').eq('registration_id', reg.id).order('created_at', { ascending: false });
+    const list = pays || [];
+    const mine = list.find((p) => cents(p.amount) === cents(amt) && p.note === noteOf(rec))
+      || list.find((p) => cents(p.amount) === cents(amt) && String(p.note || '').startsWith('Payments tab'));
+    if (!mine) return { ok: false, why: `${who}: the installment this payment made is not on their plan any more.` };
+    const { error: delErr } = await supabase.from('event_registration_payments').delete().eq('id', mine.id);
+    if (delErr) throw delErr;
+    const paid = list.filter((p) => p.id !== mine.id).reduce((t, p) => t + (Number(p.amount) || 0), 0);
+    const settledNow = paid >= (Number(reg.amount) || 0) && paid > 0;
+    const { data, error } = await supabase.from('event_registrations').update({
+      amount_paid: paid,
+      status: settledNow ? 'payment_verified' : 'installment',
+      ...(settledNow ? {} : { verified_by: null, verified_at: null }),
+      ...bedBack,
+    }).eq('id', reg.id).select().single();
+    if (error) throw error;
+    return { ok: true, data };
+  }
+
+  // Only the bed they were waiting for was paid here.
+  if (amt - bedFee <= 0) {
+    if (!bedFee) return { ok: true, data: reg };
+    const { data, error } = await supabase.from('event_registrations').update(bedBack).eq('id', reg.id).select().single();
+    if (error) throw error;
+    return { ok: true, data };
+  }
+
+  if (reg.status !== 'payment_verified') {
+    return { ok: false, why: `${who} is ${String(reg.status || '').replace(/_/g, ' ')} now - no longer the payment this record made.` };
+  }
+  const back = item.from && !['payment_verified', 'registered', 'cancelled'].includes(item.from) ? item.from : 'pending_cash';
+  const update = {
+    status: back,
+    verified_by: null,
+    verified_at: null,
+    payment_method: item.prevMethod ?? null,
+    payment_reference: item.prevReference ?? null,
+    ...bedBack,
+  };
+  // The receipt this record attached is not theirs any more.
+  if (rec.proof_url && reg.payment_proof_url === rec.proof_url) update.payment_proof_url = null;
+  const turnover = {
+    turned_over_at: null,
+    turned_over_by: null,
+    turnover_holder: back === 'paid_pending_turnover' ? (item.prevHolder || null) : null,
+  };
+  let { data, error } = await supabase.from('event_registrations').update({ ...update, ...turnover }).eq('id', reg.id).select().single();
+  if (error && /turnover|turned_over|column/i.test(error.message || '')) {
+    ({ data, error } = await supabase.from('event_registrations').update(update).eq('id', reg.id).select().single());
+  }
+  if (error) throw error;
+  return { ok: true, data };
+}
+
+// Undo the payment for `ids` (every attendee when null). Returns what was
+// undone, what could not be, and the record's items left.
+async function undoItems(rec, ids) {
+  const items = Array.isArray(rec.items) ? rec.items : [];
+  const targets = items.filter((it) => !ids || ids.includes(String(it.id)));
+  const { data: regs } = targets.length
+    ? await supabase.from('event_registrations').select('*').in('id', targets.map((it) => it.id))
+    : { data: [] };
+  const byId = new Map((regs || []).map((r) => [String(r.id), r]));
+  const undone = [];
+  const refused = [];
+  const updated = [];
+  for (const it of targets) {
+    const res = await unsettle(byId.get(String(it.id)), it, rec);
+    if (res.ok) { undone.push(it); if (res.data) updated.push(res.data); } else refused.push(res.why);
+  }
+  const gone = new Set(undone.map((it) => String(it.id)));
+  return { undone, refused, updated, left: items.filter((it) => !gone.has(String(it.id))) };
+}
+
+async function patchRecord(body, actor) {
+  const rec = await loadRecord(clean(body.id, 64));
+  if (!rec) return NextResponse.json({ success: false, message: 'That payment is no longer recorded.' }, { status: 404 });
+
+  if (body.action === 'remove_items') {
+    const ids = [...new Set((Array.isArray(body.registrationIds) ? body.registrationIds : []).map((x) => clean(x, 64)).filter(Boolean))];
+    if (!ids.length) return NextResponse.json({ success: false, message: 'Choose who to take off this payment.' }, { status: 400 });
+    const { undone, refused, updated, left } = await undoItems(rec, ids);
+    if (!undone.length) return NextResponse.json({ success: false, message: refused[0] || 'Nothing was changed.' }, { status: 409 });
+    const took = undone.reduce((t, it) => t + (Number(it.amount) || 0), 0);
+    let data = null;
+    if (left.length === 0) {
+      const { error } = await supabase.from(RECORDS_TABLE).delete().eq('id', rec.id);
+      if (error) throw error;
+    } else {
+      const { data: saved, error } = await supabase.from(RECORDS_TABLE).update({
+        items: left,
+        registration_ids: left.map((it) => it.id),
+        total_amount: Math.max(0.01, (Number(rec.total_amount) || 0) - took),
+      }).eq('id', rec.id).select().single();
+      if (error) throw error;
+      data = saved;
+    }
+    cacheInvalidate(PENDING_ALERTS_KEY);
+    await logAudit(actor, 'event_payment_batch', rec.event_id,
+      `Took ${undone.map((it) => it.name).join(', ')} off a ${rec.kind === 'cash' ? `cash on hand payment from ${rec.holder_name}` : `${rec.bank_name} payment ref ${rec.reference}`} - P${took} undone`
+      + (left.length ? `, P${(Number(rec.total_amount) || 0) - took} left` : ', record deleted'));
+    return NextResponse.json({
+      success: true, data, deleted: left.length === 0, updated,
+      warning: refused.join(' '),
+      message: `${undone.length === 1 ? undone[0].name : `${undone.length} attendees`} taken off - ₱${took.toLocaleString('en-PH')} payment undone${left.length ? '' : ', and the record deleted'}.`,
+    });
+  }
+
+  // edit: the names on it, and the notes.
+  const patch = {};
+  const regPatch = []; // [{ match: {col: old}, set: {col: new} }]
+  if (body.notes !== undefined) patch.notes = String(body.notes || '').trim().slice(0, 2000) || null;
+  if (rec.kind === 'cash' && body.holderName !== undefined) {
+    const holder = clean(body.holderName, 120).replace(/^by\s+/i, '');
+    if (!holder) return NextResponse.json({ success: false, message: 'Enter the name of the person holding the money.' }, { status: 400 });
+    if (holder !== rec.holder_name) { patch.holder_name = holder; regPatch.push({ col: 'turnover_holder', from: rec.holder_name, to: holder }); }
+  }
+  if (rec.kind === 'online') {
+    if (body.bankName !== undefined) {
+      const bank = clean(body.bankName, 80);
+      if (!bank) return NextResponse.json({ success: false, message: 'Enter the bank or e-wallet it was sent through.' }, { status: 400 });
+      if (bank !== rec.bank_name) { patch.bank_name = bank; regPatch.push({ col: 'payment_method', from: rec.bank_name, to: bank }); }
+    }
+    if (body.recipientName !== undefined) {
+      const recipient = clean(body.recipientName, 120);
+      if (!recipient) return NextResponse.json({ success: false, message: 'Enter the name of the recipient.' }, { status: 400 });
+      if (recipient !== rec.recipient_name) patch.recipient_name = recipient;
+    }
+    if (body.reference !== undefined) {
+      const reference = clean(body.reference, 120);
+      if (!reference) return NextResponse.json({ success: false, message: 'Enter the reference ID.' }, { status: 400 });
+      if (reference !== rec.reference) { patch.reference = reference; regPatch.push({ col: 'payment_reference', from: rec.reference, to: reference }); }
+    }
+  }
+  if (!Object.keys(patch).length) return NextResponse.json({ success: true, data: rec, message: 'Nothing to change.' });
+
+  const { data, error } = await supabase.from(RECORDS_TABLE).update(patch).eq('id', rec.id).select().single();
+  if (error) throw error;
+  // The registrations it paid, where they still say what the record said.
+  const ids = (Array.isArray(rec.items) ? rec.items : []).map((it) => it.id).filter(Boolean);
+  for (const p of regPatch) {
+    if (!ids.length || !p.from) continue;
+    try {
+      await supabase.from('event_registrations').update({ [p.col]: p.to })
+        .in('id', ids).eq(p.col, p.from).eq('status', 'payment_verified');
+    } catch { /* a column the database does not have yet */ }
+  }
+  // The installments it made carry the old names in their note.
+  if (patch.holder_name || patch.bank_name || patch.recipient_name) {
+    try {
+      await supabase.from('event_registration_payments').update({ note: noteOf(data) })
+        .in('registration_id', ids).eq('note', noteOf(rec));
+    } catch { /* no plans on it */ }
+  }
+  await logAudit(actor, 'event_payment_batch', rec.event_id,
+    `Edited a ${rec.kind === 'cash' ? 'cash on hand' : 'online'} payment of P${Number(rec.total_amount) || 0}: `
+    + Object.entries(patch).map(([k, v]) => `${k} -> ${v ?? '(none)'}`).join(', '));
+  return NextResponse.json({ success: true, data, message: 'Payment updated.' });
+}
+
+// DELETE ?id=..&actorId=..  -> every attendee's payment undone, and the record gone.
+export async function DELETE(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const actor = await superAdmin(searchParams.get('actorId'));
+    if (!actor) return NextResponse.json({ success: false, message: 'Only a Super Admin can delete a payment.' }, { status: 403 });
+    const rec = await loadRecord(clean(searchParams.get('id'), 64));
+    if (!rec) return NextResponse.json({ success: false, message: 'That payment is no longer recorded.' }, { status: 404 });
+
+    const { undone, refused, updated, left } = await undoItems(rec, null);
+    if (refused.length) {
+      // Some could not be undone: they stay on the record, so it still says
+      // what paid them; the rest come off.
+      if (!undone.length) return NextResponse.json({ success: false, message: refused[0] }, { status: 409 });
+      const took = undone.reduce((t, it) => t + (Number(it.amount) || 0), 0);
+      await supabase.from(RECORDS_TABLE).update({
+        items: left, registration_ids: left.map((it) => it.id),
+        total_amount: Math.max(0.01, (Number(rec.total_amount) || 0) - took),
+      }).eq('id', rec.id);
+    } else {
+      const { error } = await supabase.from(RECORDS_TABLE).delete().eq('id', rec.id);
+      if (error) throw error;
+    }
+    cacheInvalidate(PENDING_ALERTS_KEY);
+    await logAudit(actor, 'event_payment_batch', rec.event_id,
+      `Deleted a ${rec.kind === 'cash' ? `cash on hand payment from ${rec.holder_name}` : `${rec.bank_name} payment ref ${rec.reference}`} of P${Number(rec.total_amount) || 0}`
+      + ` - undone for ${undone.map((it) => it.name).join(', ') || 'nobody'}`
+      + (refused.length ? `; kept for ${left.map((it) => it.name).join(', ')}` : ''));
+    return NextResponse.json({
+      success: true, updated, deleted: !refused.length,
+      warning: refused.join(' '),
+      message: refused.length
+        ? `${undone.length} payment${undone.length === 1 ? '' : 's'} undone - ${left.length} could not be, and ${left.length === 1 ? 'stays' : 'stay'} on the record.`
+        : `Payment deleted - ${undone.length} attendee${undone.length === 1 ? '' : 's'} back to owing it.`,
+    });
+  } catch (error) {
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+  }
+}
+
 // PATCH { actorId, registrationId, keys: string[], reasons: string[] }
 //   Review Payment, resolved: the registration is right as it is now. Nothing
 //   about it or the payment changes - the flags that were raised (their keys,
 //   from src/lib/paymentReview.js) are kept on the registration so they are
 //   not raised again. A key holds the values it was raised over, so anything
 //   that changes after this is flagged afresh.
+// PATCH { actorId, id, action: 'edit' | 'remove_items', ... } - see above.
 const MAX_RESOLVED_KEYS = 60;
 export async function PATCH(request) {
   try {
     const body = await request.json();
     const actor = await superAdmin(body.actorId);
+    if (body.action === 'edit' || body.action === 'remove_items') {
+      if (!actor) return NextResponse.json({ success: false, message: 'Only a Super Admin can change a payment.' }, { status: 403 });
+      return await patchRecord(body, actor);
+    }
     if (!actor) return NextResponse.json({ success: false, message: 'Only a Super Admin can resolve a payment review.' }, { status: 403 });
 
     const id = clean(body.registrationId, 64);

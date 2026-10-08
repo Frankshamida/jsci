@@ -312,6 +312,29 @@ export function roomEntitlement(regAddons, eventAddons) {
   };
 }
 
+// ---- A kid in a parent's bed ----
+// A small child shares the bed of the adult they came with, so it takes no
+// bed of its own (see event_room_kids.sql). Which attendees are children is
+// read off their age group: one with an upper age - "Kid" (up to 5), "6-10
+// years old" - is a child's; the adults' group has none.
+
+/**
+ * Is `label` (a registration's price_tier) a child's age group at this event?
+ *
+ * @param {object} evt the event, with event_price_tiers
+ * @param {string} label the registration's price_tier
+ */
+export function isChildTier(evt, label) {
+  const tier = label ? findTier(evt, label) : null;
+  return !!tier && tier.maxAge !== null;
+}
+
+/** "Frank Gomez [Kid: Miaka Arquilano]" - an adult, with the kids in their bed. */
+export function withKids(name, kids) {
+  const list = (kids || []).map((k) => String(k || '').trim()).filter(Boolean);
+  return list.length ? `${name} [${list.length > 1 ? 'Kids' : 'Kid'}: ${list.join(', ')}]` : name;
+}
+
 // ---- Who a room is for ----
 // Set by the desk as the rooms fill (see event_room_occupancy.sql). Null means
 // nobody has said, and the room takes anybody.

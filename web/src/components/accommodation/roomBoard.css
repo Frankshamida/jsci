@@ -231,6 +231,32 @@ body.dark-mode .rb-count b { color: #fff; }
 @media (max-width: 560px) { .rb-seg > button { padding: 9px 6px; font-size: 0.78rem; gap: 5px; } }
 body.dark-mode .rb-chip.is-guest { background: rgba(17, 118, 106, 0.2); color: #6fd3c4; }
 
+/* ---- A kid in an adult's bed ---- */
+.rb-kids { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.rb-kid {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px 2px 9px; border-radius: 999px;
+  background: #fff3e0; color: #b45309; font-size: 0.72rem; font-weight: 700;
+}
+.rb-kid > button { width: 20px; height: 20px; border: none; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; font-size: 0.7rem; }
+.rb-kid > button:hover { background: rgba(180, 83, 9, 0.14); }
+.rb-kidbtn {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--rb-line); background: var(--rb-card); color: #b45309;
+  font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+}
+.rb-kidbtn:hover, .rb-kidbtn.on { border-color: #d97706; background: #fff7ed; }
+.rb-kidform { background: #fffaf3; border-color: #fcd9a8; }
+.rb-kidform .rb-exform-label { color: #b45309; }
+.rb-kidlist { list-style: none; margin: 0; padding: 0; flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.rb-kidlist li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; border-radius: 10px; background: var(--rb-card); border: 1px solid var(--rb-line); }
+.rb-kidlist li.rb-muted { justify-content: center; border-style: dashed; font-size: 0.8rem; }
+.rb-kidcount { font-style: normal; color: #b45309; font-size: 0.72rem; font-weight: 700; }
+body.dark-mode .rb-kid { background: rgba(217, 119, 6, 0.18); color: #fbbf72; }
+body.dark-mode .rb-kidbtn { color: #fbbf72; }
+body.dark-mode .rb-kidbtn:hover, body.dark-mode .rb-kidbtn.on { background: rgba(217, 119, 6, 0.12); border-color: #fbbf72; }
+body.dark-mode .rb-kidform { background: rgba(217, 119, 6, 0.07); border-color: rgba(217, 119, 6, 0.3); }
+body.dark-mode .rb-kidform .rb-exform-label, body.dark-mode .rb-kidcount { color: #fbbf72; }
+
 /* Searching: the ones who did not avail accommodation, under their own line. */
 .rb-add .rb-hint.rb-hint-head { margin: 4px 0 -2px; }
 

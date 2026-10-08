@@ -935,8 +935,9 @@ export async function POST(request) {
       }
     }
 
-    // Walk-In: an Admin or Super Admin chose a card from the stock before
-    // anything else. One person, one card - linked when the row is saved.
+    // Walk-In: an Admin or Super Admin tapped their card (or chose one from the
+    // stock) before anything else. One person, one card - linked when the row
+    // is saved.
     const isWalkInCard = !isLate && (fields.walkInCard === true || fields.walkInCard === 'true');
     if (isWalkInCard) {
       if (!staffPastDeadline) {
@@ -946,7 +947,7 @@ export async function POST(request) {
         return NextResponse.json({ success: false, message: 'A walk-in is one person at a time - one card each.' }, { status: 400 });
       }
       if (!isPlausibleUid(fields.rfidUid)) {
-        return NextResponse.json({ success: false, message: 'Choose the RFID card first.' }, { status: 400 });
+        return NextResponse.json({ success: false, message: 'Tap the walk-in’s RFID card first.' }, { status: 400 });
       }
       // Held by anybody, at this event or another, who has not handed it back.
       // A returned card is free again - here as much as at the next event.
@@ -955,7 +956,7 @@ export async function POST(request) {
       const { held, returned } = await splitReturnedLinks(cardLinks);
       releaseAtEvent = returned.filter((l) => l.event_id === eventId);
       if (held.length > 0) {
-        return NextResponse.json({ success: false, message: 'That card was just given to somebody else. Choose another one.' }, { status: 409 });
+        return NextResponse.json({ success: false, message: 'That card is still somebody else’s - at this event or another, and not handed back. Tap a different card.' }, { status: 409 });
       }
       lateUid = normalizeUid(fields.rfidUid);
     }

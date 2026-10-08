@@ -131,6 +131,14 @@ async function dropHoldOf(eventId, registrationId) {
   } catch { /* no holds table yet */ }
 }
 
+// Given a bed of their own: a kid sharing an adult's bed (event_room_kids.sql)
+// is not sharing it any more.
+async function dropKidOf(eventId, registrationId) {
+  try {
+    await supabaseAdmin.from('event_room_kids').delete().eq('event_id', eventId).eq('registration_id', registrationId);
+  } catch { /* no kids table yet */ }
+}
+
 async function releaseIfEmpty(roomId) {
   if (!roomId) return false;
   try {
@@ -311,6 +319,7 @@ export async function POST(request) {
     if (error) throw error;
 
     await dropHoldOf(eventId, registrationId);
+    await dropKidOf(eventId, registrationId);
     const from = prior?.room?.room_number;
     const clearedRooms = prior?.room_id && prior.room_id !== roomId && (await releaseIfEmpty(prior.room_id)) ? [prior.room_id] : [];
     queueRoomSheetSync(eventId); // the live Google Sheet, if the event has one
@@ -446,6 +455,13 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, message: 'That assignment could not be found' }, { status: 404 });
     }
 
+    // The kids in their bed go out with them (event_room_kids.sql cascades).
+    let kids = 0;
+    try {
+      const { count } = await supabaseAdmin.from('event_room_kids').select('id', { count: 'exact', head: true }).eq('guest_id', id);
+      kids = count || 0;
+    } catch { /* no kids table yet */ }
+
     const { error } = await supabaseAdmin.from('event_room_guests').delete().eq('id', id);
     if (error) throw error;
 
@@ -455,6 +471,7 @@ export async function DELETE(request) {
       success: true,
       clearedRooms: cleared ? [guest.room_id] : [],
       message: `${guest.registration?.attendee_name || 'Guest'} taken out of ${guest.room?.room_number || 'the room'}`
+        + (kids ? `, with the ${kids === 1 ? 'kid' : `${kids} kids`} in their bed` : '')
         + (cleared ? ' - the room is empty, so its label was cleared' : ''),
     });
   } catch (error) {

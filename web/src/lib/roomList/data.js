@@ -3,7 +3,7 @@
 // import/export route and the live Google Sheets, so all of them show the
 // same names.
 import { supabaseAdmin } from '@/lib/supabase';
-import { roomEntitlement } from '@/lib/rooms';
+import { roomEntitlement, withKids } from '@/lib/rooms';
 import { exemptCreditLeft, registrationFeeOf } from '@/lib/exemption';
 
 export async function loadRooms(eventId) {
@@ -19,14 +19,44 @@ export async function loadRooms(eventId) {
 // Everybody in a room, oldest assignment first. A registration that was
 // cancelled or binned keeps its row through the foreign key but is nobody's
 // roommate any more, so it is left out - of the screen and of the list.
+// Each carries `kids`: the children sharing their bed (event_room_kids.sql),
+// who take no bed and are written with them.
 export async function loadGuests(eventId) {
-  const { data, error } = await supabaseAdmin
-    .from('event_room_guests')
-    .select('id, room_id, registration_id, assigned_at, registration:event_registrations (attendee_name, status, deleted_at)')
-    .eq('event_id', eventId)
-    .order('assigned_at', { ascending: true });
+  const [{ data, error }, kids] = await Promise.all([
+    supabaseAdmin
+      .from('event_room_guests')
+      .select('id, room_id, registration_id, assigned_at, registration:event_registrations (attendee_name, status, deleted_at)')
+      .eq('event_id', eventId)
+      .order('assigned_at', { ascending: true }),
+    loadKids(eventId),
+  ]);
   if (error) throw error;
-  return (data || []).filter((g) => g.registration && !g.registration.deleted_at && g.registration.status !== 'cancelled');
+  const kidsOf = new Map();
+  kids.forEach((k) => {
+    if (!kidsOf.has(k.guest_id)) kidsOf.set(k.guest_id, []);
+    kidsOf.get(k.guest_id).push({ id: k.id, registrationId: k.registration_id, name: k.registration.attendee_name });
+  });
+  return (data || [])
+    .filter((g) => g.registration && !g.registration.deleted_at && g.registration.status !== 'cancelled')
+    .map((g) => ({ ...g, kids: kidsOf.get(g.id) || [] }));
+}
+
+/** Missing table = the migration has not been run: no kids in a bed yet, not an error. */
+export const kidsMissing = (error) => /event_room_kids/i.test(error?.message || '');
+
+// Kids sharing an adult's bed (event_room_kids.sql), oldest first. A kid who
+// has since cancelled is nobody's.
+export async function loadKids(eventId) {
+  const { data, error } = await supabaseAdmin
+    .from('event_room_kids')
+    .select('id, guest_id, registration_id, created_at, registration:event_registrations (attendee_name, status, deleted_at)')
+    .eq('event_id', eventId)
+    .order('created_at', { ascending: true });
+  if (error) {
+    if (kidsMissing(error)) return [];
+    throw error;
+  }
+  return (data || []).filter((k) => k.registration && !k.registration.deleted_at && k.registration.status !== 'cancelled');
 }
 
 /** Missing table = the migration has not been run: no holds yet, not an error. */
@@ -54,7 +84,8 @@ export const holdName = (h) => (h.registration_id && h.registration?.attendee_na
 /**
  * roomId -> [{ registrationId, name, held? }]: the people in each room in the
  * order they were given it, then the beds held for somebody by name. A held
- * bed is keyed "hold:<id>", so the lists keep it on its own line too.
+ * bed is keyed "hold:<id>", so the lists keep it on its own line too. A kid
+ * in an adult's bed is written with them: "Frank Gomez [Kid: Miaka Arquilano]".
  */
 export function guestsByRoom(guests, holds = []) {
   const out = new Map();
@@ -62,7 +93,10 @@ export function guestsByRoom(guests, holds = []) {
     if (!out.has(roomId)) out.set(roomId, []);
     out.get(roomId).push(entry);
   };
-  guests.forEach((g) => add(g.room_id, { registrationId: g.registration_id, name: g.registration.attendee_name }));
+  guests.forEach((g) => add(g.room_id, {
+    registrationId: g.registration_id,
+    name: withKids(g.registration.attendee_name, (g.kids || []).map((k) => k.name)),
+  }));
   holds.forEach((h) => add(h.room_id, { registrationId: `hold:${h.id}`, name: holdName(h), held: true }));
   return out;
 }

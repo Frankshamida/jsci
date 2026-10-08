@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { accommodationAddons, compareRoomNumbers } from '@/lib/rooms';
+import { accommodationAddons, compareRoomNumbers, isChildTier } from '@/lib/rooms';
 import { addonFeeFor, findTier } from '@/lib/eventPricing';
-import { holdName, loadHolds, loadPeople } from '@/lib/roomList/data';
+import { holdName, loadHolds, loadKids, loadPeople } from '@/lib/roomList/data';
 
 // Everything the rooms board shows, in one request (components/accommodation/
 // RoomBoard.jsx - Events & Content > Accommodation, and an event's
@@ -14,6 +14,8 @@ import { holdName, loadHolds, loadPeople } from '@/lib/roomList/data';
 //   people   everybody on the event: whether they availed accommodation,
 //            whether they have been verified at the desk, and what they owe -
 //            the board assigns anybody who availed it, verified or not
+//   kids     kids sharing an adult's bed (event_room_kids.sql) - they take no
+//            bed, and are written with the adult: "Frank Gomez [Kid: ...]"
 //   bed      the event's accommodation extra, so somebody who did not avail
 //            it can be given it (and a room) from the board - with bedFee on
 //            each of them, priced for their age group
@@ -48,7 +50,7 @@ export async function GET(request) {
     const eventId = new URL(request.url).searchParams.get('eventId');
     if (!eventId) return NextResponse.json({ success: false, message: 'eventId required' }, { status: 400 });
 
-    const [rooms, guestsRes, holds, people, attendance, addonsRes, tiersRes] = await Promise.all([
+    const [rooms, guestsRes, holds, people, attendance, addonsRes, tiersRes, kidRows] = await Promise.all([
       loadBoardRooms(eventId),
       supabaseAdmin.from('event_room_guests').select('id, room_id, registration_id, assigned_at').eq('event_id', eventId).order('assigned_at'),
       loadHolds(eventId),
@@ -59,6 +61,7 @@ export async function GET(request) {
         .then((r) => r, () => ({ data: [] })),
       supabaseAdmin.from('event_price_tiers').select('*').eq('event_id', eventId).order('position')
         .then((r) => r, () => ({ data: [] })),
+      loadKids(eventId),
     ]);
     if (guestsRes.error) throw guestsRes.error;
 
@@ -77,6 +80,11 @@ export async function GET(request) {
     const guests = (guestsRes.data || []).filter((g) => live.has(g.registration_id));
     const roomOf = new Map(guests.map((g) => [g.registration_id, g.room_id]));
     const heldIn = new Map(holds.filter((h) => h.registration_id).map((h) => [h.registration_id, h.room_id]));
+    // Kids in an adult's bed (event_room_kids.sql): no bed of their own, in
+    // the adult's room.
+    const guestById = new Map(guests.map((g) => [g.id, g]));
+    const kids = kidRows.filter((k) => live.has(k.registration_id) && guestById.has(k.guest_id));
+    const kidIn = new Map(kids.map((k) => [k.registration_id, guestById.get(k.guest_id)]));
 
     return NextResponse.json({
       success: true,
@@ -84,12 +92,18 @@ export async function GET(request) {
         rooms,
         guests: guests.map((g) => ({ id: g.id, roomId: g.room_id, registrationId: g.registration_id, assignedAt: g.assigned_at })),
         holds: holds.map((h) => ({ id: h.id, roomId: h.room_id, registrationId: h.registration_id, name: holdName(h), note: h.note || '', createdAt: h.created_at })),
+        kids: kids.map((k) => ({ id: k.id, guestId: k.guest_id, registrationId: k.registration_id })),
         people: people.map((p) => ({
           ...p,
           verified: verified.has(p.id),
           roomId: roomOf.get(p.id) || null,
           heldRoomId: heldIn.get(p.id) || null,
           bedFee: bedFeeOf(p),
+          // A child's age group: can share an adult's bed.
+          child: isChildTier(tiers, p.tier),
+          // Sharing an adult's bed: the adult, and their room.
+          withAdult: kidIn.get(p.id)?.registration_id || null,
+          kidRoomId: kidIn.get(p.id)?.room_id || null,
         })),
         bed: bed ? { id: bed.id, question: bed.question } : null,
       },

@@ -35317,6 +35317,24 @@ body.dark-mode .rfid-stock-list li.is-used { background: rgba(255,255,255,0.03);
 body.dark-mode .evt-walkin-card { background: rgba(224,180,74,0.06); border-color: rgba(224,180,74,0.35); }
 body.dark-mode .evt-walkin-card.is-set { background: rgba(74,222,128,0.07); border-color: rgba(74,222,128,0.3); }
 
+/* Walk-In: the card is tapped first - the ring, then what it read. */
+.evt-walkin-scan { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px 4px; text-align: center; }
+.evt-walkin-scan .evt-late-scan-ring { margin: 4px auto 6px; }
+.evt-walkin-scan > b { font-size: 1rem; }
+.evt-walkin-scan .evt-late-scan-bad { margin: 0; }
+.evt-walkin-tapped { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.evt-walkin-tapped-ico { font-size: 1.6rem; color: #16a34a; }
+.evt-walkin-tapped-txt { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.evt-walkin-tapped-txt b { font-size: 1rem; color: #14532d; }
+.evt-walkin-tapped-txt code { font-size: 0.84rem; color: #15803d; }
+.evt-walkin-tapped .btn-secondary { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; }
+.evt-walkin-pick { margin-top: 2px; }
+.evt-walkin-pick .evt-wdrop { margin: 8px 0; }
+body.dark-mode .evt-walkin-tapped-txt b { color: #bbf7d0; }
+body.dark-mode .evt-walkin-tapped-txt code { color: #4ade80; }
+/* The desk's Add Walk-In, beside the search. */
+.evt-verify-tools .evt-verify-addwalkin { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+
 /* ---- Card stock and the walk-in card picker, tidied ---- */
 .rfid-stock-list { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
 .rfid-stock-list li { gap: 10px; padding: 10px 12px; border-radius: 12px; min-height: 58px; }
@@ -35642,6 +35660,41 @@ body.dark-mode .acc-wait-row + .acc-wait-row { border-color: rgba(255,255,255,0.
 }
 .evt-rfid-desk-note > i { color: #16a34a; margin-top: 2px; }
 body.dark-mode .evt-rfid-desk-note { background: rgba(22,163,74,0.12); border-color: rgba(74,222,128,0.3); color: #bbf7d0; }
+
+/* ---- Change to Give: the receipt behind a row ---- */
+.evt-verify-receiptbtn {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid #e6c873; background: #fffaf0; color: var(--primary, #926c15); font: inherit; font-size: 0.74rem; font-weight: 700;
+}
+.evt-verify-receiptbtn:hover { filter: brightness(0.96); }
+.evt-receipt-modal { max-width: 520px; }
+.evt-receipt-by { margin: 0 0 12px; font-size: 0.84rem; color: var(--text-secondary, #6c757d); }
+.evt-receipt-person { padding: 10px 0; border-top: 1px dashed var(--border-color, #e6e0d0); }
+.evt-receipt-person:first-of-type { border-top: none; padding-top: 0; }
+.evt-receipt-person.is-missing { opacity: 0.6; }
+.evt-receipt-name { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.evt-receipt-name > b { font-size: 0.95rem; }
+.evt-receipt-name .evt-verify-exemptline { display: inline; margin: 0; }
+.evt-receipt-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 0.86rem; }
+.evt-receipt-line > span { color: var(--text-secondary, #555); min-width: 0; }
+.evt-receipt-line > span small { color: #1d5f9c; font-weight: 600; }
+.evt-receipt-line > b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.evt-receipt-line.is-minus > b { color: #15803d; }
+.evt-receipt-line.is-sub { margin-top: 2px; padding-top: 4px; border-top: 1px solid var(--border-color, #eee5cf); }
+.evt-receipt-line.is-sub > span { font-weight: 700; color: inherit; }
+.evt-receipt-totals { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: #fffaf0; border: 1px solid #f0d68a; }
+.evt-receipt-line.is-total { font-size: 1rem; }
+.evt-receipt-line.is-total > span { font-weight: 800; color: inherit; }
+.evt-receipt-line.is-change { margin-top: 4px; padding-top: 6px; border-top: 2px solid #e6c873; font-size: 1.05rem; }
+.evt-receipt-line.is-change > span { font-weight: 800; color: inherit; }
+.evt-receipt-line.is-change > b { color: var(--primary, #926c15); font-size: 1.15rem; }
+.evt-receipt-note { margin: 10px 0 0; font-size: 0.78rem; }
+.evt-receipt-status { margin: 12px 0 0; font-size: 0.84rem; color: #a35d00; }
+.evt-receipt-status.is-given { color: #15803d; }
+body.dark-mode .evt-verify-receiptbtn { background: rgba(224,180,74,0.08); border-color: rgba(224,180,74,0.4); color: #e0b44a; }
+body.dark-mode .evt-receipt-totals { background: rgba(224,180,74,0.07); border-color: rgba(224,180,74,0.3); }
+body.dark-mode .evt-receipt-line > span { color: #c9cdd6; }
+body.dark-mode .evt-receipt-line.is-change > b { color: #f0c419; }
 
 /* Assign RFID at the desk: over the attendee popup, which sits on <body>. */
 .evt-modal-overlay.evt-rfid-over-desk { z-index: 15100; }

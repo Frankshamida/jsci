@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import PickList from '@/components/eventDesk/PickList';
-import { bedsToText, occupancyLabel, roomHold } from '@/lib/rooms';
+import { bedsToText, occupancyLabel, roomHold, withKids } from '@/lib/rooms';
 import { formatChurchName, STATUS_LABELS } from '@/lib/eventFormat';
 import { exemptCreditLeft, extraNetFee, registrationFeeOf } from '@/lib/exemption';
 import './roomBoard.css';
@@ -163,8 +163,17 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
   const model = useMemo(() => {
     if (!data) return null;
     const people = new Map(data.people.map((p) => [p.id, p]));
+    // Kids in an adult's bed: with the adult, taking no bed of their own.
+    const kidsOf = new Map();
+    (data.kids || []).forEach((k) => {
+      if (!kidsOf.has(k.guestId)) kidsOf.set(k.guestId, []);
+      kidsOf.get(k.guestId).push({ ...k, person: people.get(k.registrationId) });
+    });
     const guestsBy = new Map();
-    data.guests.forEach((g) => { if (!guestsBy.has(g.roomId)) guestsBy.set(g.roomId, []); guestsBy.get(g.roomId).push({ ...g, person: people.get(g.registrationId) }); });
+    data.guests.forEach((g) => {
+      if (!guestsBy.has(g.roomId)) guestsBy.set(g.roomId, []);
+      guestsBy.get(g.roomId).push({ ...g, person: people.get(g.registrationId), kids: kidsOf.get(g.id) || [] });
+    });
     const holdsBy = new Map();
     data.holds.forEach((h) => { if (!holdsBy.has(h.roomId)) holdsBy.set(h.roomId, []); holdsBy.get(h.roomId).push({ ...h, person: h.registrationId ? people.get(h.registrationId) : null }); });
     const views = data.rooms.map((room) => {
@@ -179,19 +188,21 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
       else if (taken === 0 && h.held === 0) status = 'empty';
       const names = [
         ...guests.map((g) => fmtName(g.person?.name)),
+        ...guests.flatMap((g) => g.kids.map((k) => fmtName(k.person?.name))),
         ...holds.map((x) => fmtName(x.name)),
       ].join(' ').toLowerCase();
+      const kidCount = guests.reduce((t, g) => t + g.kids.length, 0);
       // Not an attendee: in the room like anybody. An attendee's held bed: reserved.
       const visitors = holds.filter((x) => !x.registrationId);
       const reservedNamed = holds.filter((x) => x.registrationId);
       return {
-        room, guests, holds, visitors, reservedNamed, pax, taken, status,
+        room, guests, holds, visitors, reservedNamed, pax, taken, status, kidCount,
         free: Math.max(0, pax - taken), open: h.open, held: h.held, reservedAnon: h.reserved,
         text: `${room.room_number} ${room.room_type} ${room.floor || ''} ${room.reserved_for || ''} ${occupancyLabel(room.occupancy)} ${names}`.toLowerCase(),
       };
     });
     const entitled = data.people.filter((p) => p.entitled);
-    const waiting = entitled.filter((p) => !p.roomId && !p.heldRoomId)
+    const waiting = entitled.filter((p) => !p.roomId && !p.heldRoomId && !p.withAdult)
       .sort((a, b) => (b.verified - a.verified) || fmtName(a.name).localeCompare(fmtName(b.name)));
     const totals = views.reduce((t, v) => ({
       beds: t.beds + v.pax, taken: t.taken + v.taken, open: t.open + v.open, held: t.held + v.held,
@@ -266,6 +277,32 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
     patchData((d) => ({ ...d, people: d.people.map((p) => (p.id === person.id ? { ...p, ...now } : p)) }));
     toast(`${data.bed.question} added for ${fmtName(person.name)}${fee > 0 ? ` - ${peso(fee)} to collect` : free ? ' - free, exempted' : ''}`);
     return assign(now, roomId);
+  };
+
+  // A kid in an adult's bed (api/events/room-kids): no bed of their own,
+  // written with the adult - "Frank Gomez [Kid: Miaka Arquilano]".
+  const addKid = async (guest, kid) => {
+    if (!guest || !kid) return false;
+    setBusy(`kid:${kid.id}`);
+    const res = await call('/api/events/room-kids', json('POST', { eventId, guestId: guest.id, registrationId: kid.id, actorId }));
+    setBusy('');
+    if (!res.success) { toast(res.message, 'danger'); return false; }
+    toast(res.message);
+    await changed();
+    return true;
+  };
+  const removeKid = async (k) => {
+    setBusy(`kidout:${k.id}`);
+    const res = await call(`/api/events/room-kids?id=${encodeURIComponent(k.id)}&actorId=${encodeURIComponent(actorId || '')}`, { method: 'DELETE' });
+    setBusy('');
+    if (!res.success) { toast(res.message, 'danger'); return; }
+    patchData((d) => ({
+      ...d,
+      kids: (d.kids || []).filter((x) => x.id !== k.id),
+      people: d.people.map((p) => (p.id === k.registrationId ? { ...p, withAdult: null, kidRoomId: null } : p)),
+    }));
+    toast(res.message);
+    changed(); // the screen already shows it; the re-read confirms it in the background
   };
 
   const unassign = async (guest) => {
@@ -381,7 +418,8 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
     return <span className="rb-dots" aria-hidden="true">{dots}</span>;
   };
   const namesOf = (v) => [
-    ...v.guests.map((g) => ({ key: g.id, name: fmtName(g.person?.name) || 'Attendee', held: false })),
+    // A kid in their bed is written with them: "Frank Gomez [Kid: Miaka Arquilano]".
+    ...v.guests.map((g) => ({ key: g.id, name: withKids(fmtName(g.person?.name) || 'Attendee', g.kids.map((k) => fmtName(k.person?.name))), held: false })),
     ...v.visitors.map((h) => ({ key: h.id, name: fmtName(h.name), held: false, visitor: true })),
     ...v.reservedNamed.map((h) => ({ key: h.id, name: fmtName(h.name), held: true })),
   ];
@@ -528,7 +566,7 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
                     )}
                     <span className="rb-card-beds">
                       {bedDots(v)}
-                      <span className="rb-count"><b>{v.taken}</b> / {v.pax} pax</span>
+                      <span className="rb-count"><b>{v.taken}</b> / {v.pax} pax{v.kidCount > 0 && <em className="rb-kidcount"> + {v.kidCount} {v.kidCount === 1 ? 'kid' : 'kids'}</em>}</span>
                     </span>
                     {names.length > 0 ? (
                       <span className="rb-names">
@@ -607,6 +645,8 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
           assign={assign}
           addBedAndAssign={data.bed ? addBedAndAssign : null}
           bed={data.bed}
+          addKid={addKid}
+          removeKid={removeKid}
           unassign={unassign}
           hold={hold}
           release={release}
@@ -626,7 +666,7 @@ export default function RoomBoard({ eventId, actorId, canEdit = false, refreshKe
 }
 
 // ---- One room, opened ----
-function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, onClose, assign, addBedAndAssign, bed, unassign, hold, release, keepBack, exempt, roomActions, statusPill, bedDots }) {
+function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, onClose, assign, addBedAndAssign, bed, addKid, removeKid, unassign, hold, release, keepBack, exempt, roomActions, statusPill, bedDots }) {
   const [mode, setMode] = useState('assign'); // assign | guest | reserve
   const [search, setSearch] = useState('');
   const [guestName, setGuestName] = useState('');
@@ -634,13 +674,15 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
   const [confirm, setConfirm] = useState(''); // key of a line asking "Remove?"
   const [exempting, setExempting] = useState(''); // registration id picking what they serve as
   const [exemptNote, setExemptNote] = useState('');
+  const [kidFor, setKidFor] = useState(''); // guest id picking a kid for their bed
+  const [kidSearch, setKidSearch] = useState('');
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  useEffect(() => { setSearch(''); setConfirm(''); setExempting(''); }, [v.room.id, mode]);
+  useEffect(() => { setSearch(''); setConfirm(''); setExempting(''); setKidFor(''); }, [v.room.id, mode]);
 
   const { room } = v;
   const s = search.trim().toLowerCase();
@@ -651,7 +693,7 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
   // ones first; then the ones in another room, to move here.
   const assignList = (() => {
     const all = [...model.people.values()].filter((p) => p.entitled && p.roomId !== room.id && matches(p));
-    const rank = (p) => (p.roomId ? 2 : p.heldRoomId && p.heldRoomId !== room.id ? 1 : 0);
+    const rank = (p) => (p.roomId || p.withAdult ? 2 : p.heldRoomId && p.heldRoomId !== room.id ? 1 : 0);
     return all
       .sort((a, b) => rank(a) - rank(b) || (b.verified - a.verified) || fmtName(a.name).localeCompare(fmtName(b.name)))
       .slice(0, s ? 30 : LIST_LIMIT);
@@ -660,12 +702,12 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
   // Searching: who matches but did not avail accommodation - shown too, so
   // nobody seems missing, with the bed added for them on the way in.
   const notAvailedList = s.length >= 2
-    ? [...model.people.values()].filter((p) => !p.entitled && !p.roomId && matches(p))
+    ? [...model.people.values()].filter((p) => !p.entitled && !p.roomId && !p.withAdult && matches(p))
       .sort((a, b) => fmtName(a.name).localeCompare(fmtName(b.name))).slice(0, 12)
     : [];
   // Reserve: anybody on the event without a room or a held bed.
   const reserveList = s.length >= 2
-    ? [...model.people.values()].filter((p) => !p.roomId && !p.heldRoomId && matches(p))
+    ? [...model.people.values()].filter((p) => !p.roomId && !p.heldRoomId && !p.withAdult && matches(p))
       .sort((a, b) => fmtName(a.name).localeCompare(fmtName(b.name))).slice(0, 12)
     : [];
 
@@ -686,6 +728,7 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
           {exemptChip(p)}
           {pay && <span className={`rb-chip is-${pay.tone}`}>{pay.text}</span>}
           {p.roomId &&<span className="rb-chip is-info">In {roomNo(p.roomId)}</span>}
+          {p.withAdult && <span className="rb-chip is-info">With {fmtName(model.people.get(p.withAdult)?.name)} · {roomNo(p.kidRoomId)}</span>}
           {!p.roomId && p.heldRoomId && <span className="rb-chip is-held">Held in {roomNo(p.heldRoomId)}</span>}
           {!p.entitled && <span className="rb-chip is-muted" title={p.why}>No accommodation extra</span>}
         </span>
@@ -724,6 +767,21 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
                   <span className="rb-who">
                     <b>{fmtName(p.name)}</b>
                     <small>{[p.church && formatChurchName(p.church), p.bulk && p.representative && `${fmtName(p.representative)}'s booking`].filter(Boolean).join(' · ')}</small>
+                    {/* Kids in their bed: no bed of their own. */}
+                    {g.kids.length > 0 && (
+                      <span className="rb-kids">
+                        {g.kids.map((k) => (
+                          <span key={k.id} className="rb-kid">
+                            <i className="fas fa-child"></i> Kid: {fmtName(k.person?.name) || 'Kid'}
+                            {canEdit && (
+                              <button type="button" onClick={() => removeKid(k)} disabled={busy === `kidout:${k.id}`} title="Take the kid out of this bed" aria-label={`Take ${fmtName(k.person?.name)} out`}>
+                                <i className={`fas ${busy === `kidout:${k.id}` ? 'fa-spinner fa-spin' : 'fa-xmark'}`}></i>
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </span>
                   <span className="rb-chips">
                     <span className={`rb-chip ${p.verified ? 'is-ok' : 'is-muted'}`}>{p.verified ? 'Verified' : 'Not verified yet'}</span>
@@ -772,6 +830,15 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
                             <i className="fas fa-id-badge"></i> Exempt
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className={`rb-kidbtn ${kidFor === g.id ? 'on' : ''}`}
+                          onClick={() => { setConfirm(''); setExempting(''); setKidSearch(''); setKidFor(kidFor === g.id ? '' : g.id); }}
+                          title="A kid or 6-10 year old who sleeps in their bed - takes no bed of their own"
+                          aria-expanded={kidFor === g.id}
+                        >
+                          <i className="fas fa-child"></i> Kid
+                        </button>
                         <PickList
                           size="sm"
                           value=""
@@ -824,6 +891,54 @@ function RoomPanel({ v, model, canEdit, busy, askHeld, setAskHeld, roomOptions, 
                       </span>
                     </form>
                   )}
+                  {/* A kid in their bed: the kids registered at the event - their
+                      own booking first - with where each is now. */}
+                  {canEdit && kidFor === g.id && (() => {
+                    const ks = kidSearch.trim().toLowerCase();
+                    const sameBooking = (k) => !!p.representative && fmtName(k.representative) === fmtName(p.representative);
+                    const where = (k) => (k.withAdult ? 2 : k.roomId ? 1 : 0);
+                    const kids = [...model.people.values()]
+                      .filter((k) => k.child && k.id !== p.id && k.withAdult !== p.id
+                        && (!ks || `${k.name} ${k.church} ${k.representative}`.toLowerCase().includes(ks)))
+                      .sort((a, b) => (sameBooking(b) - sameBooking(a)) || (where(a) - where(b)) || fmtName(a.name).localeCompare(fmtName(b.name)))
+                      .slice(0, ks ? 20 : 8);
+                    return (
+                      <div className="rb-exform rb-kidform">
+                        <span className="rb-exform-label"><i className="fas fa-child"></i> A kid in {fmtName(p.name)}&apos;s bed</span>
+                        <input
+                          className="form-control"
+                          value={kidSearch}
+                          onChange={(e) => setKidSearch(e.target.value)}
+                          placeholder="Search a kid's name"
+                          aria-label="Search a kid"
+                          autoFocus
+                        />
+                        <ul className="rb-kidlist">
+                          {kids.length === 0 && <li className="rb-muted">{ks ? 'No kid matches.' : 'No Kid or 6-10 years old attendees at this event.'}</li>}
+                          {kids.map((k) => (
+                            <li key={k.id}>
+                              <span className="rb-who">
+                                <b>{fmtName(k.name)}</b>
+                                <small>{[k.tier, k.bulk && k.representative && `${fmtName(k.representative)}'s booking`].filter(Boolean).join(' · ')}</small>
+                              </span>
+                              {k.withAdult
+                                ? <span className="rb-chip is-info">With {fmtName(model.people.get(k.withAdult)?.name)}</span>
+                                : k.roomId ? <span className="rb-chip is-info">Own bed in {roomNo(k.roomId)}</span> : null}
+                              <button type="button" className="btn-primary rb-small" disabled={busy === `kid:${k.id}`} onClick={async () => { if (await addKid(g, k)) setKidFor(''); }}>
+                                <i className={`fas ${busy === `kid:${k.id}` ? 'fa-spinner fa-spin' : 'fa-child'}`}></i> {k.withAdult || k.roomId ? 'Move here' : 'Add'}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        <small>
+                          Shares this bed - takes no bed of their own - and is written as <b>{fmtName(p.name)} [Kid: …]</b> on the rooming list and the live Google Sheets.
+                        </small>
+                        <span className="rb-exform-acts">
+                          <button type="button" className="btn-secondary" onClick={() => setKidFor('')}>Close</button>
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </li>
               );
             })}

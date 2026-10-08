@@ -1625,6 +1625,7 @@ export default function DashboardPage() {
   const [verifyHandSearch, setVerifyHandSearch] = useState(''); // the popup's "add from another booking" search
   const [verifyChange, setVerifyChange] = useState(null);     // change still to give back (null = not loaded)
   const [verifyChangeBusy, setVerifyChangeBusy] = useState('');
+  const [changeReceipt, setChangeReceipt] = useState(null);     // the Change to Give row whose receipt is open
   // Verification Logs (Events > More)
   const [verifyLogs, setVerifyLogs] = useState(null);
   const [verifyLogsError, setVerifyLogsError] = useState('');
@@ -1654,6 +1655,7 @@ export default function DashboardPage() {
   const [adminLate, setAdminLate] = useState(false);
   const [adminWalkIn, setAdminWalkIn] = useState(false);
   const [walkinCardMenu, setWalkinCardMenu] = useState(false);   // the walk-in's card dropdown
+  const [walkinScan, setWalkinScan] = useState(null);           // the walk-in's card tap: { busy } | { error } | { ok, inStock }
   const [kitSearch, setKitSearch] = useState('');
   const [kitDraft, setKitDraft] = useState({});                  // regId -> the kit items ticked but not saved yet
   const [kitBusy, setKitBusy] = useState('');
@@ -8734,7 +8736,8 @@ export default function DashboardPage() {
     if (!adminWalkIn || !adminLateUid || !cardStock) return;
     if (cardStock.some((c) => c.uid === adminLateUid && c.used)) {
       setAdminLateUid('');
-      showToast('That card was just given to somebody else - choose another one.', 'warning');
+      setWalkinScan(null);
+      showToast('That card was just given to somebody else - tap another one.', 'warning');
     }
   }, [cardStock]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -8764,8 +8767,45 @@ export default function DashboardPage() {
   };
   const freeStockCards = () => (cardStock || []).filter((c) => !c.used && !adminStockTaken.has(c.uid));
 
+  // Walk-In: their RFID card is tapped first, and the name fields open once it
+  // is read. A free card from the stock is taken as it is; a card not in the
+  // stock is taken too, as long as nobody holds it - the server checks that
+  // again when the walk-in is saved.
+  const scanWalkinCard = async (rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid) || !eventRegsModal?.id || walkinScan?.busy) return;
+    setWalkinCardMenu(false);
+    const stock = (cardStock || []).find((c) => normalizeUid(c.uid) === uid);
+    if (stock) {
+      if (stock.used || adminStockTaken.has(stock.uid)) {
+        setWalkinScan({ error: `RFID #${stock.number} is already given to somebody. Tap a different card.`, uid });
+        return;
+      }
+      setAdminLateUid(stock.uid);
+      setAdminAddErrors((er) => ({ ...er, rfid: undefined }));
+      setWalkinScan({ ok: true, inStock: true });
+      return;
+    }
+    setWalkinScan({ busy: true, uid });
+    try {
+      const res = await fetch(`/api/rfid/event-checkin?eventId=${encodeURIComponent(eventRegsModal.id)}&uid=${encodeURIComponent(uid)}`);
+      const data = await res.json();
+      if (!data.success) { setWalkinScan({ error: data.message || 'Could not read that card.', uid }); return; }
+      if (data.registration) {
+        setWalkinScan({ error: `That card is already ${formatPersonName(data.registration.attendee_name)}'s at this event. Tap a different card.`, uid });
+        return;
+      }
+      setAdminLateUid(data.uid || uid);
+      setAdminAddErrors((er) => ({ ...er, rfid: undefined }));
+      setWalkinScan({ ok: true, inStock: false });
+    } catch (err) {
+      setWalkinScan({ error: err.message || 'Could not read that card.', uid });
+    }
+  };
+
   const openAdminAddReg = (late = false, walkIn = false) => {
     setWalkinCardMenu(false);
+    setWalkinScan(null);
     setAdminLate(!!late);
     setAdminWalkIn(!late && !!walkIn);
     if (!late && walkIn) { loadAddCards(eventRegsModal?.id); setAdminRegType('individual'); }
@@ -9086,7 +9126,7 @@ export default function DashboardPage() {
   // Step 1 of the walk-in form: who is coming.
   const adminStepOneErrors = () => {
     const errs = {};
-    if (adminWalkIn && !adminLateUid) errs.rfid = 'Choose the RFID card first.';
+    if (adminWalkIn && !adminLateUid) errs.rfid = 'Tap the walk-in’s RFID card first.';
     if (!adminAddRegForm.attendeeFirstName?.trim()) errs.firstName = 'First name is required.';
     if (!adminAddRegForm.attendeeLastName?.trim()) errs.lastName = 'Last name is required.';
     if (adminIsKidSolo) {
@@ -9297,7 +9337,10 @@ export default function DashboardPage() {
       if (data.warning) showToast(data.warning, 'danger');
 
       showToast(adminLate ? 'Late registration added'
-        : adminWalkIn && adminLateUid ? `Walk-in added · card #${(cardStock || []).find((c) => c.uid === adminLateUid)?.number || ''} ${formatUid(adminLateUid)}`
+        : adminWalkIn && adminLateUid ? (() => {
+          const n = (cardStock || []).find((c) => c.uid === adminLateUid)?.number;
+          return `Walk-in added · ${n ? `card #${n}` : 'card'} ${formatUid(adminLateUid)}`;
+        })()
           : 'Registration added', 'success');
       if (data.bedWait?.given) showToast('A bed came free - accommodation was given to them straight away', 'success');
       else if (data.bedWait) showToast(`On the accommodation waiting list - #${data.bedWait.position} in line`, 'info');
@@ -16337,6 +16380,141 @@ Examples:
     }
   };
 
+  // ---- The receipt behind a Change to Give row ----
+  // Who was paid for, each one's registration fee and extras, then the total,
+  // the cash handed over and the change. The total, cash and change are the
+  // transaction's own, as taken at the desk; each person's lines are read off
+  // their registration as it is now, so a registration changed since is said.
+  const changeReceiptOf = (c) => {
+    const people = (c.registration_ids || []).map((id) => {
+      const r = eventRegs.find((x) => x.id === id);
+      if (!r) return { id, name: 'Not on the event any more', lines: [], subtotal: 0, missing: true };
+      const extras = regExtrasOf(r).map((a) => ({
+        label: addonShortLabel(a.question),
+        amount: extraNetFee(a),
+        note: Number(a.waived) > 0 ? (extraNetFee(a) > 0 ? `₱${Number(a.waived).toLocaleString()} exempted` : 'free · exempted') : '',
+      }));
+      const amount = Number(r.amount) || 0;
+      const discount = Number(r.discount_amount) || 0;
+      // What is left of the amount once the extras are out is the registration
+      // fee - as charged, so before any discount taken off it.
+      const fee = Math.max(0, amount - extras.reduce((t, e) => t + e.amount, 0)) + discount;
+      const lines = [
+        { label: `Registration fee${r.price_tier ? ` · ${r.price_tier}` : ''}`, amount: fee, note: r.exempted_at && !(fee > 0) ? regExemptLine(r) : '' },
+        ...extras,
+        ...(discount > 0 ? [{ label: `Discount${r.discount_note ? ` · ${r.discount_note}` : ''}`, amount: -discount }] : []),
+      ];
+      return { id, name: formatPersonName(r.attendee_name), exempt: r.exempted_at ? regExemptLine(r) : '', lines, subtotal: amount };
+    });
+    const sum = people.reduce((t, p) => t + p.subtotal, 0);
+    const total = Number(c.total_due) || 0;
+    const cash = Number(c.cash_received) || 0;
+    return {
+      people, sum, total, cash, change: Number(c.amount) || 0,
+      // Paid part of it before (an installment, a deposit), or changed since.
+      before: sum > total ? sum - total : 0,
+      changedSince: sum < total || people.some((p) => p.missing),
+    };
+  };
+  const pesoText = (n) => `${n < 0 ? '−' : ''}₱${Math.abs(Number(n) || 0).toLocaleString()}`;
+  const receiptStamp = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+
+  // The same receipt on its own page, for the printer.
+  const printChangeReceipt = (c) => {
+    const rc = changeReceiptOf(c);
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const row = (label, amount, cls = '') => `<tr class="${cls}"><td>${esc(label)}</td><td class="amt">${esc(pesoText(amount))}</td></tr>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt - ${esc(c.attendee_names)}</title>
+<style>
+  body { font-family: Arial, sans-serif; color: #222; max-width: 420px; margin: 24px auto; padding: 0 16px; font-size: 13px; }
+  h1 { font-size: 17px; margin: 0; } .sub { color: #666; margin: 2px 0 14px; }
+  h2 { font-size: 13px; margin: 14px 0 4px; } .ex { color: #1d5f9c; font-size: 11px; font-weight: normal; }
+  table { width: 100%; border-collapse: collapse; } td { padding: 3px 0; } .amt { text-align: right; white-space: nowrap; }
+  .sub-total td { border-top: 1px dashed #bbb; font-weight: bold; } .grand td { border-top: 2px solid #222; font-size: 14px; font-weight: bold; padding-top: 6px; }
+  .change td { font-size: 15px; font-weight: bold; } .muted { color: #777; font-size: 11px; margin-top: 12px; }
+</style></head><body>
+<h1>${esc(verifyEventName)}</h1>
+<div class="sub">Receipt · ${esc(receiptStamp(c.created_at))} · by ${esc(formatPersonName(c.taken_by_name))}</div>
+${rc.people.map((p) => `<h2>${esc(p.name)}${p.exempt ? ` <span class="ex">${esc(p.exempt)}</span>` : ''}</h2><table>${p.lines.map((l) => row(l.note ? `${l.label} (${l.note})` : l.label, l.amount)).join('')}${row('Subtotal', p.subtotal, 'sub-total')}</table>`).join('')}
+<table style="margin-top:14px">
+${rc.before > 0 ? row('Paid before', -rc.before) : ''}
+${row('Total', rc.total, 'grand')}
+${row('Cash received', rc.cash)}
+${row('Change', rc.change, 'change')}
+</table>
+<div class="muted">${c.given_at ? `Change given by ${esc(formatPersonName(c.given_by_name))} · ${esc(receiptStamp(c.given_at))}` : 'Change not given yet.'}</div>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=520,height=720');
+    if (!w) { showToast('Allow pop-ups to print the receipt', 'warning'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 250);
+  };
+
+  const renderChangeReceipt = () => {
+    const c = changeReceipt;
+    if (!c) return null;
+    const rc = changeReceiptOf(c);
+    const close = () => setChangeReceipt(null);
+    return createPortal(
+      <div className="evt-modal-overlay" onClick={close}>
+        <div className="evt-modal evt-receipt-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div className="evt-modal-head">
+            <div>
+              <h3><i className="fas fa-receipt"></i> Receipt</h3>
+              <p>{verifyEventName} · {receiptStamp(c.created_at)}</p>
+            </div>
+            <button type="button" className="evt-modal-close" onClick={close} aria-label="Close"><i className="fas fa-times"></i></button>
+          </div>
+          <div className="evt-modal-body">
+            <p className="evt-receipt-by"><i className="fas fa-user-shield"></i> Taken by <b>{formatPersonName(c.taken_by_name)}</b></p>
+            {rc.people.map((p) => (
+              <div key={p.id} className={`evt-receipt-person ${p.missing ? 'is-missing' : ''}`}>
+                <div className="evt-receipt-name">
+                  <b>{p.name}</b>
+                  {p.exempt && <span className="evt-verify-exemptline"><i className="fas fa-id-badge"></i> {p.exempt}</span>}
+                </div>
+                {p.lines.map((l, i) => (
+                  <div key={i} className={`evt-receipt-line ${l.amount < 0 ? 'is-minus' : ''}`}>
+                    <span>{l.label}{l.note && <small> · {l.note}</small>}</span>
+                    <b>{pesoText(l.amount)}</b>
+                  </div>
+                ))}
+                {!p.missing && (
+                  <div className="evt-receipt-line is-sub"><span>Subtotal</span><b>{pesoText(p.subtotal)}</b></div>
+                )}
+              </div>
+            ))}
+            <div className="evt-receipt-totals">
+              {rc.before > 0 && <div className="evt-receipt-line is-minus"><span>Paid before</span><b>{pesoText(-rc.before)}</b></div>}
+              <div className="evt-receipt-line is-total"><span>Total</span><b>{pesoText(rc.total)}</b></div>
+              <div className="evt-receipt-line"><span>Cash received</span><b>{pesoText(rc.cash)}</b></div>
+              <div className="evt-receipt-line is-change"><span>Change</span><b>{pesoText(rc.change)}</b></div>
+            </div>
+            {rc.changedSince && (
+              <p className="evt-muted evt-receipt-note">
+                <i className="fas fa-circle-info"></i> A registration here has changed since this payment - the lines show it as it is now; the total, cash and change are as taken.
+              </p>
+            )}
+            <p className={`evt-receipt-status ${c.given_at ? 'is-given' : ''}`}>
+              {c.given_at
+                ? <><i className="fas fa-circle-check"></i> Change given by <b>{formatPersonName(c.given_by_name)}</b> · {receiptStamp(c.given_at)}</>
+                : <><i className="fas fa-hourglass-half"></i> Change not given yet</>}
+            </p>
+          </div>
+          <div className="evt-modal-foot">
+            <button type="button" className="evt-pill-btn evt-pill-ghost" onClick={close}>Close</button>
+            <button type="button" className="evt-pill-btn evt-pill-gold" onClick={() => printChangeReceipt(c)}>
+              <i className="fas fa-print"></i> Print
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
   // Take the money, then verify everybody it covered. Cash needs what was
   // handed over; online needs the channel and at least the last 6 of the
   // reference. Change the desk cannot give now is written down to give later.
@@ -17275,6 +17453,9 @@ Examples:
                     <td className="name evt-td-primary" data-label="Attendee(s)">
                       {c.attendee_names}
                       <small className="evt-muted">Paid ₱{Number(c.cash_received || 0).toLocaleString()} for ₱{Number(c.total_due || 0).toLocaleString()}</small>
+                      <button type="button" className="evt-verify-receiptbtn" onClick={() => setChangeReceipt(c)}>
+                        <i className="fas fa-receipt"></i> View receipt
+                      </button>
                     </td>
                     <td data-label="Change"><b className="evt-verify-changeamt">₱{Number(c.amount).toLocaleString()}</b></td>
                     <td data-label="Transaction by">
@@ -17298,6 +17479,7 @@ Examples:
               </tbody>
             </table>
           </div>
+          {renderChangeReceipt()}
           {renderDeskParked()}
         </div>
       );
@@ -17331,6 +17513,22 @@ Examples:
             />
             {verifySearch && <button type="button" onClick={() => setVerifySearch('')} aria-label="Clear search"><i className="fas fa-times"></i></button>}
           </div>
+          {/* Somebody registering at the door: their RFID card is tapped
+              first, then their names. On the event day itself. */}
+          {(userRole === 'Admin' || userRole === 'Super Admin') && (() => {
+            const onTheDay = verifyEventDays.has(manilaDay(new Date().toISOString()));
+            return (
+              <button
+                type="button"
+                className="btn-primary evt-verify-addwalkin"
+                onClick={() => openAdminAddReg(false, true)}
+                disabled={!onTheDay || isEventOver(eventRegsModal)}
+                title={onTheDay ? 'Tap their RFID card, then enter their names' : 'Walk-ins open on the event day itself'}
+              >
+                <i className="fas fa-person-walking"></i> Add Walk-In
+              </button>
+            );
+          })()}
         </div>
 
         <div className="evt-table-wrapper evt-table-steady">
@@ -19990,6 +20188,11 @@ Examples:
   const idsTabScan = canEditRegistrations && !!eventRegsModal?.id && manageTab === 'ids'
     && (activeSection === 'events' || activeSection === 'events-management')
     && !idModalReg && !showAdminAddReg && !returnDeskOpen;
+  // The Walk-In form listens while it is open: their card is tapped first.
+  // Read through a ref, so a tap always sees the latest stock.
+  const walkinCardScan = showAdminAddReg && adminWalkIn && !!eventRegsModal?.id;
+  const scanWalkinCardRef = useRef(null);
+  scanWalkinCardRef.current = scanWalkinCard;
   // The Return RFID tab listens too: a tap opens the return desk on that card,
   // even after the desk was closed.
   const returnsTabScan = canEditRegistrations && !!eventRegsModal?.id && manageTab === 'returns'
@@ -20024,6 +20227,8 @@ Examples:
     else if (verifyScanOpen) rfidSinkRef.current = (uid) => { if (!verifyScan?.busy) checkVerifierCard(uid); };
     else if (verifierForm?.step === 'scan') rfidSinkRef.current = (uid) => onVerifierCard(uid);
     else if (superAccessScan) rfidSinkRef.current = (uid) => { if (!superAccessScan.busy) onSuperAccessCard(uid); };
+    // The Walk-In form: the card is tapped first, before the names.
+    else if (walkinCardScan) rfidSinkRef.current = (uid) => scanWalkinCardRef.current?.(uid);
     else if (returnDeskOpen || returnsTabScan) rfidSinkRef.current = (uid) => { setReturnDeskOpen(true); lookupReturnCard(uid); };
     else if (idRfidReg) rfidSinkRef.current = (uid) => { if (!idRfidBusy) checkIdRfidCard(uid); };
     else if (accScanOpen) rfidSinkRef.current = (uid) => lookupAccScanCard(uid);
@@ -20034,7 +20239,7 @@ Examples:
     else if (verifyAttendeeScan) rfidSinkRef.current = (uid) => lookupVerifyTap(uid);
     else rfidSinkRef.current = null;
     return () => { rfidSinkRef.current = null; };
-  }, [evtUnlockOpen, tryUnlockTable, cardStockOpen, addStockCard, returnDeskOpen, returnsTabScan, lookupReturnCard, idRfidReg, idRfidBusy, checkIdRfidCard, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid, idsTabScan, lookupIdTap, verifyScanOpen, verifyScan, checkVerifierCard, verifyAttendeeScan, lookupVerifyTap, verifierForm?.step, onVerifierCard, superAccessScan, onSuperAccessCard]);
+  }, [evtUnlockOpen, tryUnlockTable, cardStockOpen, addStockCard, walkinCardScan, returnDeskOpen, returnsTabScan, lookupReturnCard, idRfidReg, idRfidBusy, checkIdRfidCard, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid, idsTabScan, lookupIdTap, verifyScanOpen, verifyScan, checkVerifierCard, verifyAttendeeScan, lookupVerifyTap, verifierForm?.step, onVerifierCard, superAccessScan, onSuperAccessCard]);
 
   // The claims grid and the attendance grid for the event on screen.
   useEffect(() => {
@@ -20733,7 +20938,8 @@ Examples:
   // RFID Reader section nor an assign/scan dialog somewhere else - a port
   // closed out from under an open dialog would leave it silently dead.
   const rfidInUse = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
-    || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen || idsTabScan || returnDeskOpen || returnsTabScan;
+    || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen || idsTabScan || returnDeskOpen || returnsTabScan
+    || walkinCardScan;
 
   // The events as the cards show them, filtered by the search box.
   const rfidVisibleEventCards = rfidEventCards.filter((ev) => {
@@ -20957,7 +21163,7 @@ Examples:
     // is none, and not listening for it is indistinguishable from a broken one.
     const wanted = activeSection === 'rfid-reader' || evtRfidScanOpen || !!claimDesk
       || !!roomDesk || evtUnlockOpen || !!idRfidReg || accScanOpen || idsTabScan || returnDeskOpen || returnsTabScan
-      || verifyScanOpen || verifyAttendeeScan || verifierForm?.step === 'scan';
+      || verifyScanOpen || verifyAttendeeScan || verifierForm?.step === 'scan' || walkinCardScan;
     if (!wanted) return undefined;
 
     const onKeyDown = (e) => {
@@ -20994,7 +21200,7 @@ Examples:
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg, accScanOpen, idsTabScan, returnDeskOpen, returnsTabScan, verifyScanOpen, verifyAttendeeScan, verifierForm?.step]);
+  }, [activeSection, evtRfidScanOpen, claimDesk, roomDesk, evtUnlockOpen, idRfidReg, accScanOpen, idsTabScan, returnDeskOpen, returnsTabScan, verifyScanOpen, verifyAttendeeScan, verifierForm?.step, walkinCardScan]);
 
   // ============================================
   // ACCOMMODATION - the rooms booked for an event
@@ -30137,16 +30343,46 @@ Examples:
                         </div>
 
                         {adminWalkIn && (() => {
-                          // Only the free cards are offered - a card that is taken is gone
-                          // from the list, so the next number is simply the first one in it.
+                          // Tapped first: the walk-in's card is read, then the
+                          // names open. Choosing from the stock is still there,
+                          // for a reader that is not working.
                           const free = freeStockCards();
-                          const chosen = free.find((c) => c.uid === adminLateUid);
+                          const stockCard = adminLateUid ? (cardStock || []).find((c) => c.uid === adminLateUid) : null;
+                          const chosen = adminLateUid ? { uid: adminLateUid, number: stockCard?.number || null } : null;
+                          const st = walkinScan;
                           return (
                             <div className={`evt-walkin-card ${chosen ? 'is-set' : ''} ${adminAddErrors.rfid ? 'invalid' : ''}`}>
                               <div className="evt-walkin-card-head">
                                 <span className="evt-walkin-card-label"><i className="fas fa-id-card"></i> RFID Card *</span>
                                 {cardStock !== null && <span className="evt-walkin-card-count">{free.length} free</span>}
                               </div>
+                              {chosen ? (
+                                <div className="evt-walkin-tapped">
+                                  <span className="evt-walkin-tapped-ico"><i className="fas fa-circle-check"></i></span>
+                                  <span className="evt-walkin-tapped-txt">
+                                    <b>{chosen.number ? `RFID #${chosen.number}` : 'Card read'}</b>
+                                    <code>{formatUid(chosen.uid)}</code>
+                                    {!chosen.number && <small>Not in the card stock - it is theirs once they are added.</small>}
+                                  </span>
+                                  <button type="button" className="btn-secondary" onClick={() => { setAdminLateUid(''); setWalkinScan(null); }} title="Tap a different card">
+                                    <i className="fas fa-rotate"></i> Change
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className={`evt-walkin-scan ${st?.error ? 'is-bad' : ''}`}>
+                                  <div className={`evt-late-scan-ring ${st?.busy ? 'busy' : st?.error ? 'bad' : ''}`}>
+                                    <i className={`fas ${st?.busy ? 'fa-spinner fa-spin' : st?.error ? 'fa-circle-exclamation' : 'fa-wifi'}`}></i>
+                                  </div>
+                                  <b>{st?.busy ? 'Reading the card…' : 'Tap the walk-in’s RFID card'}</b>
+                                  {st?.error
+                                    ? <p className="evt-late-scan-bad">{st.error}</p>
+                                    : <small>Their name and details open once the card is read.</small>}
+                                  {st?.uid && st?.error && <small className="evt-muted">Card <code>{formatUid(st.uid)}</code></small>}
+                                </div>
+                              )}
+                              {!chosen && (
+                              <details className="evt-late-scan-more evt-walkin-pick">
+                                <summary><i className="fas fa-sliders"></i> Reader not working? Choose from the card stock</summary>
                               <div className="evt-wdrop">
                                 <button
                                   type="button"
@@ -30176,7 +30412,7 @@ Examples:
                                             role="option"
                                             aria-selected={c.uid === adminLateUid}
                                             className={c.uid === adminLateUid ? 'on' : ''}
-                                            onClick={() => { setAdminLateUid(c.uid); setWalkinCardMenu(false); setAdminAddErrors((er) => ({ ...er, rfid: undefined })); }}
+                                            onClick={() => { setAdminLateUid(c.uid); setWalkinCardMenu(false); setWalkinScan({ ok: true, inStock: true }); setAdminAddErrors((er) => ({ ...er, rfid: undefined })); }}
                                           >
                                             <span className="evt-wcard-num">{c.number}</span>
                                             <b>RFID #{c.number}</b>
@@ -30189,7 +30425,9 @@ Examples:
                                   </>
                                 )}
                               </div>
-                              {!chosen && free.length > 0 && <small className="evt-walkin-card-hint">Choose the card first - the details open once it is chosen.</small>}
+                                {renderRfidStatus()}
+                              </details>
+                              )}
                               {adminAddErrors.rfid && <small className="evt-field-error">{adminAddErrors.rfid}</small>}
                             </div>
                           );
@@ -34698,7 +34936,7 @@ Examples:
                           <span className="rfid-event-card-foot">
                             {sum.verified === 0
                               ? 'Nobody verified yet'
-                              : sum.carded === sum.verified
+                              : sum.carded >= sum.verified
                                 ? 'Everyone has a card'
                                 : `${sum.verified - sum.carded} still without a card`}
                             <i className="fas fa-chevron-right"></i>

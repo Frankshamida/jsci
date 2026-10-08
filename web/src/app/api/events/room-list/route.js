@@ -363,6 +363,10 @@ async function apply({ form, eventId, actor, got, kind, sha, rooms, layout, peop
       .from('event_room_guests')
       .upsert(rows, { onConflict: 'event_id,registration_id', ignoreDuplicates: false });
     if (error) throw error;
+    // A bed of their own now: a kid who was sharing an adult's is not.
+    try {
+      await supabaseAdmin.from('event_room_kids').delete().eq('event_id', eventId).in('registration_id', rows.map((r) => r.registration_id));
+    } catch { /* no kids table yet */ }
   }
   // Somebody given a room no longer needs a bed held for them.
   const heldFor = holds.filter((h) => h.registration_id && wantRoom.has(h.registration_id)).map((h) => h.id);
