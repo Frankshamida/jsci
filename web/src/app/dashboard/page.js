@@ -13485,9 +13485,15 @@ Examples:
   const checkinScreenRef = useRef(() => {});
   checkinScreenRef.current = (tap = null) => {
     const day = Number(evtCheckinDay) || 1;
+    const dayRow = evtEventDays.find((d) => d.number === day);
     publishCheckinDisplay({
-      event: { id: eventRegsModal?.id || '', title: eventRegsModal?.title || '', image: eventRegsModal?.image_url || '' },
-      day: { number: day, label: evtEventDays.find((d) => d.number === day)?.label || '', days: evtEventDays.length },
+      // Dates and venue too: the screen's welcome half says where and when.
+      event: {
+        id: eventRegsModal?.id || '', title: eventRegsModal?.title || '', image: eventRegsModal?.image_url || '',
+        start: eventRegsModal?.event_date || '', end: eventRegsModal?.end_date || '',
+        venue: eventRegsModal?.location || '', city: eventRegsModal?.loc_city || '',
+      },
+      day: { number: day, label: dayRow?.label || '', days: evtEventDays.length, date: dayRow?.dateKey || '' },
       tap,
     });
   };
@@ -13924,6 +13930,45 @@ Examples:
     }
   }, [eventRegsModal?.id, userData?.id, evtCheckinDay]);
 
+  // ---- A card the door does not know: give it to a verified attendee ----
+  // The tap shows its UID; the desk finds the attendee standing there, the
+  // card is linked to them (the same link the ID Cards tab makes), and the
+  // same card is read again - which now checks them in for the day.
+  const [doorAssignQuery, setDoorAssignQuery] = useState('');
+  const [doorAssignBusy, setDoorAssignBusy] = useState('');
+  const [doorAssignError, setDoorAssignError] = useState('');
+  useEffect(() => { setDoorAssignQuery(''); setDoorAssignError(''); }, [evtRfidResult?.uid]);
+  const assignDoorCard = async (reg) => {
+    const uid = evtRfidResult?.uid;
+    const eventId = eventRegsModal?.id;
+    if (!uid || !reg || !eventId || doorAssignBusy) return;
+    setDoorAssignBusy(reg.id);
+    setDoorAssignError('');
+    try {
+      const res = await fetch('/api/rfid/event-checkin', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, registrationId: reg.id, eventId, actorId: userData?.id || null }),
+      });
+      const data = await res.json();
+      if (!data.success) { setDoorAssignError(data.message || 'Could not assign the card.'); return; }
+      const link = { registration_id: reg.id, uid: data.data?.uid || uid, assigned_at: data.data?.assigned_at };
+      setIdRfidLinks((prev) => ({ ...prev, [reg.id]: link }));
+      // Known at once to the door's quick guess too - not only after the next
+      // render - so the name screen turns its ID over to them the moment the
+      // card is read again, instead of waiting for the server's answer.
+      mealCardsRef.current = { ...mealCardsRef.current, links: { ...mealCardsRef.current.links, [reg.id]: link } };
+      showToast(`Card ${formatUid(uid)} is ${formatPersonName(reg.attendee_name)}'s now`, 'success');
+      // The same card again: they are checked in for the day, and the name
+      // screen (/rfid-chekin-display) flips to their ID.
+      await scanEventRfid(uid, 'assigned');
+    } catch (err) {
+      setDoorAssignError(err.message || 'Could not assign the card.');
+    } finally {
+      setDoorAssignBusy('');
+    }
+  };
+
   // ============================================
   // The room desk: putting names in the rooms
   // ============================================
@@ -14287,6 +14332,10 @@ Examples:
       }
     } catch { /* the numbers redraw on the next load */ }
   }, [showToast]);
+  // The door scanner: who already holds a card, for assigning one it does not know.
+  useEffect(() => {
+    if (evtRfidScanOpen && eventRegsModal?.id) loadIdRfidLinks(eventRegsModal.id);
+  }, [evtRfidScanOpen, eventRegsModal?.id, loadIdRfidLinks]);
 
   // Opening the Meals Counter: the meal by the clock, the event's cards for a
   // fast name, and the name screen told which event and meal it is showing.
@@ -26362,6 +26411,76 @@ ${row('Change', rc.change, 'change')}
                         <p>The attendee&apos;s name appears here and they are checked in.</p>
                       </div>
                     )}
+
+                    {/* A card nobody holds at this event: give it to the verified
+                        attendee standing here, and they are checked in with it. */}
+                    {evtRfidResult && !evtRfidResult.registration && !evtRfidResult.pending
+                      && evtRfidResult.uid && evtRfidResult.result !== 'error' && (() => {
+                      const words = doorAssignQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+                      const hits = words.join('').length >= 2
+                        ? eventRegs
+                          .filter((r) => !r.deleted_at && ['registered', 'payment_verified', 'paid_pending_turnover'].includes(r.status)
+                            && words.every((w) => `${r.attendee_name || ''} ${r.church_name || ''} ${r.representative || ''}`.toLowerCase().includes(w)))
+                          .sort((a, b) => formatPersonName(a.attendee_name).localeCompare(formatPersonName(b.attendee_name)))
+                          .slice(0, 8)
+                        : [];
+                      return (
+                        <div className="evt-door-assign">
+                          <p className="evt-door-assign-head">
+                            <i className="fas fa-link"></i>
+                            <span>
+                              <b>Give card <code>{formatUid(evtRfidResult.uid)}</code> to a verified attendee</b>
+                              <small>It is saved as theirs, and they are checked in for Day {evtCheckinDay}.</small>
+                            </span>
+                          </p>
+                          <div className="evt-door-assign-search">
+                            <i className="fas fa-magnifying-glass"></i>
+                            <input
+                              value={doorAssignQuery}
+                              onChange={(e) => { setDoorAssignQuery(e.target.value); setDoorAssignError(''); }}
+                              onKeyDown={(e) => {
+                                // Another card tapped while the caret is here: read it.
+                                if (e.key === 'Enter' && /^[0-9A-Fa-f:\s-]{6,}$/.test(doorAssignQuery.trim()) && /\d/.test(doorAssignQuery)) {
+                                  e.preventDefault();
+                                  const v = doorAssignQuery;
+                                  setDoorAssignQuery('');
+                                  if (isPlausibleUid(v)) scanEventRfid(v, 'keyboard');
+                                }
+                              }}
+                              placeholder="Search the attendee's name or church"
+                              aria-label="Search a verified attendee"
+                              autoComplete="off"
+                            />
+                          </div>
+                          {words.join('').length < 2 ? (
+                            <small className="evt-muted">Type at least two letters. Only verified attendees are listed.</small>
+                          ) : hits.length === 0 ? (
+                            <small className="evt-muted">No verified attendee matches &ldquo;{doorAssignQuery.trim()}&rdquo;.</small>
+                          ) : (
+                            <ul className="evt-door-assign-list">
+                              {hits.map((r) => {
+                                const has = idRfidLinks[r.id];
+                                const inToday = !!evtDayAttend[r.id]?.[String(evtCheckinDay)];
+                                return (
+                                  <li key={r.id}>
+                                    <span className="evt-door-assign-who">
+                                      <b>{formatPersonName(r.attendee_name)}</b>
+                                      <small>{[formatChurchName(r.church_name), r.price_tier].filter(Boolean).join(' · ') || '—'}</small>
+                                      {has && <small className="evt-door-assign-has"><i className="fas fa-id-card"></i> Has card {formatUid(has.uid)} - this one replaces it</small>}
+                                    </span>
+                                    {inToday && <span className="evt-status evt-verify-registered">In · Day {evtCheckinDay}</span>}
+                                    <button type="button" className="btn-primary" onClick={() => assignDoorCard(r)} disabled={!!doorAssignBusy}>
+                                      <i className={`fas ${doorAssignBusy === r.id ? 'fa-spinner fa-spin' : 'fa-link'}`}></i> Assign &amp; check in
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                          {doorAssignError && <p className="evt-rfid-hint bad"><i className="fas fa-triangle-exclamation"></i>{doorAssignError}</p>}
+                        </div>
+                      );
+                    })()}
 
                     <input
                       ref={evtRfidBoxRef}

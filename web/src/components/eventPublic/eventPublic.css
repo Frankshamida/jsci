@@ -1069,3 +1069,170 @@
 .dark-mode .ep-dl-status.is-ok { color: #7fe0a3; }
 .dark-mode .ep-dl-status.is-bad { color: #f19a91; }
 .dark-mode .ep-pager button.active { color: #fff; }
+
+/* ============================================================
+   The app layer - motion, touch and the phone, over everything above.
+   Phones 320-430px are the first audience; tablets and desks get room.
+   Only transform and opacity move, so it stays smooth on a cheap phone.
+   ============================================================ */
+
+/* ---- Page to page ----
+   Choose your conference -> this page (and Back): the old page fades as the
+   new one rises, and the poster carries across - it has the same
+   view-transition-name as its card there. */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: ep-vt-out 0.22s ease both; }
+::view-transition-new(root) { animation: ep-vt-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+::view-transition-group(*) { animation-duration: 0.32s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes ep-vt-out { to { opacity: 0; } }
+@keyframes ep-vt-in { from { opacity: 0; transform: translateY(14px); } }
+
+/* ---- The page itself ---- */
+.ep-page { overflow-x: clip; padding-bottom: env(safe-area-inset-bottom); -webkit-tap-highlight-color: transparent; }
+.ep-hero-in { padding-top: max(36px, calc(env(safe-area-inset-top) + 22px)); }
+.ep-theme { top: max(12px, calc(env(safe-area-inset-top) + 8px)); right: max(12px, env(safe-area-inset-right)); width: 44px; height: 44px; font-size: 0.95rem; }
+.ep-hero-poster { animation: ep-rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+
+/* ---- Tab to tab, day to day ----
+   The new one slides in from the side it is on; the first one rises.
+   `backwards`, never `both`: an animation still holding a transform makes the
+   box the frame of everything fixed inside it - the full photo view, the
+   download bar - which then stopped at the box instead of filling the screen. */
+.ep-view.is-none { animation: ep-rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.ep-view.is-fwd, .ep-dayview.is-fwd { animation: ep-in-right 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.ep-view.is-back, .ep-dayview.is-back { animation: ep-in-left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.ep-dayview.is-fwd, .ep-dayview.is-back { animation-duration: 0.26s; }
+@keyframes ep-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes ep-in-right { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: none; } }
+@keyframes ep-in-left { from { opacity: 0; transform: translateX(-22px); } to { opacity: 1; transform: none; } }
+
+/* ---- The sliding highlight (useSlidingIndicator) ---- */
+.has-ind { position: relative; isolation: isolate; }
+.has-ind > .ep-ind {
+  position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
+  width: var(--ind-w, 0px); height: var(--ind-h, 0px);
+  transform: translate(var(--ind-x, 0px), var(--ind-y, 0px));
+}
+.has-ind.ind-ready > .ep-ind {
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.32s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.32s ease;
+}
+.has-ind > :not(.ep-ind) { position: relative; z-index: 1; }
+
+/* The section tabs: the gold pill glides under the words. */
+.ep-tabs.has-ind > .ep-ind {
+  border-radius: 12px; background: linear-gradient(135deg, var(--ep-gold), var(--ep-gold-2));
+  box-shadow: 0 4px 14px rgba(146, 108, 21, 0.3);
+}
+.ep-tabs.has-ind a.active, .ep-tabs.has-ind a.active:hover { background: transparent; box-shadow: none; color: #fff; }
+.ep-tabs.has-ind a { transition: color 0.2s ease, transform 0.12s ease, background 0.15s; }
+.ep-tabs a { min-height: 44px; }
+
+/* The days: one segmented control, a white tile sliding along a cream track. */
+.ep-days.has-ind {
+  gap: 4px; padding: 4px; margin-bottom: 16px; border-radius: 16px;
+  background: #efe7d4; border: 1px solid #e6dcc4; scrollbar-width: none;
+}
+.ep-days.has-ind::-webkit-scrollbar { display: none; }
+.ep-days.has-ind > .ep-ind {
+  border-radius: 12px; background: var(--ep-card);
+  border: 1.5px solid var(--ep-gold-2); box-sizing: border-box;
+  box-shadow: 0 3px 10px rgba(146, 108, 21, 0.16);
+}
+.ep-days.has-ind button,
+.ep-days.has-ind button.active { min-height: 52px; border-color: transparent; background: transparent; transition: transform 0.12s ease, color 0.2s ease; }
+.ep-days.has-ind button:not(.active):hover span { color: var(--ep-gold); }
+.ep-days button span { transition: color 0.2s ease; }
+
+/* On the Programme the days stay in reach while the day scrolls by - just
+   under the section tabs, never over a card. */
+.ep-programme { scroll-margin-top: calc(var(--ep-tabs-h, 64px) + 8px); }
+.ep-programme > .ep-days {
+  position: sticky; top: calc(var(--ep-tabs-h, 64px) + 8px); z-index: 4;
+  box-shadow: 0 6px 16px -10px rgba(60, 40, 0, 0.35);
+}
+
+/* ---- Touch: a press you can feel, a focus you can see ---- */
+.ep-btn, .ep-link, .ep-days button, .ep-tabs a, .ep-thumb, .ep-pager button, .ep-heart { -webkit-tap-highlight-color: transparent; }
+.ep-btn { transition: transform 0.12s ease, box-shadow 0.15s ease, opacity 0.15s ease; }
+.ep-btn:active:not(:disabled), .ep-tabs a:active, .ep-days button:active, .ep-pager button:active:not(:disabled) { transform: scale(0.97); }
+.ep-thumb:active img { transform: scale(0.95); }
+.ep-btn:focus-visible, .ep-link:focus-visible, .ep-tabs a:focus-visible, .ep-days button:focus-visible,
+.ep-thumb:focus-visible, .ep-heart:focus-visible, .ep-lb-close:focus-visible, .ep-lb-nav:focus-visible {
+  outline: 3px solid rgba(200, 150, 28, 0.6); outline-offset: 2px;
+}
+.ep-link { min-height: 44px; }
+
+/* ---- Photos: each fades in as it arrives; no shift while it loads ---- */
+.ep-thumb { aspect-ratio: 1; }
+.ep-thumb img.ep-fadeimg { opacity: 0; transition: opacity 0.3s ease, transform 0.25s ease; }
+.ep-thumb img.ep-fadeimg.is-in { opacity: 1; }
+
+/* ---- The full view: as large as the screen, clear of the notch ---- */
+.ep-lightbox { touch-action: pan-y; }
+.ep-lb-top { padding-top: max(12px, env(safe-area-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); z-index: 2; background: linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0)); }
+.ep-lb-close, .ep-lb-nav { width: 44px; height: 44px; transition: background 0.15s, transform 0.12s; }
+.ep-lb-close:active, .ep-lb-nav:active { transform: scale(0.94); }
+.ep-lb-nav:active { transform: translateY(-50%) scale(0.94); }
+
+/* ---- Phones ---- */
+@media (max-width: 600px) {
+  .ep-hero-in { padding: max(30px, calc(env(safe-area-inset-top) + 20px)) 16px 22px; }
+  .ep-hero h1 { font-size: clamp(1.5rem, 6.6vw, 1.875rem); line-height: 1.18; }
+  .ep-hero-poster { max-width: clamp(130px, 46vw, 196px); max-height: clamp(160px, 52vw, 230px); }
+  .ep-meta { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  .ep-meta span { font-size: clamp(0.78rem, 3.4vw, 0.875rem); }
+  .ep-tabs { padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left)); }
+  .ep-tabs.has-ind > .ep-ind { border-radius: 14px; }
+  .ep-body { padding: 16px 16px 28px; }
+  .ep-day-title { font-size: clamp(1.125rem, 4.8vw, 1.375rem); margin-bottom: 14px; }
+  .ep-days.has-ind button { padding: 8px 6px; }
+  /* The timeline: the line through the middle of every circle, the cards in
+     whatever width is left, every word of a long title kept. */
+  .ep-item::before { left: calc(62px + 8px + 15px - 1px); }
+  .ep-card { padding: 11px 13px; border-radius: 14px; }
+  .ep-card h3 { font-size: clamp(0.94rem, 4.1vw, 1.06rem); line-height: 1.3; }
+  .ep-card p { font-size: clamp(0.8rem, 3.5vw, 0.875rem); line-height: 1.4; }
+  .ep-chip, .ep-now, .ep-done-chip { font-size: 0.68rem; }
+  .ep-time strong { font-size: clamp(0.78rem, 3.4vw, 0.88rem); }
+  .ep-time span { font-size: clamp(0.7rem, 3vw, 0.78rem); }
+  /* Photos: the count over two even buttons, full width, thumb-high. */
+  .ep-photos-bar { flex-wrap: wrap; gap: 10px; }
+  .ep-photos-actions { width: 100%; gap: 8px; }
+  .ep-photos-actions .ep-btn { flex: 1 1 0; min-height: 44px; padding: 10px 12px; }
+  .ep-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .ep-lb-stage { width: 100vw; max-width: calc((100dvh - 150px) * 1.5); border-radius: 0; }
+  .ep-lb-nav { display: none; } /* a swipe does it on a phone */
+  .ep-btn { min-height: 44px; }
+}
+/* The narrowest phones (iPhone SE, 320-360px): a slimmer time column. */
+@media (max-width: 360px) {
+  .ep-item { grid-template-columns: 56px 28px minmax(0, 1fr); gap: 0 7px; }
+  .ep-item::before { left: calc(56px + 7px + 14px - 1px); top: 28px; }
+  .ep-dot { width: 28px; height: 28px; font-size: 0.72rem; }
+  .ep-card { padding: 10px 11px; }
+  .ep-tabs a { font-size: 0.7rem; }
+  .ep-body { padding-left: 12px; padding-right: 12px; }
+}
+/* Wider than a phone: the day track only as long as its days. */
+@media (min-width: 601px) {
+  .ep-days.has-ind { width: fit-content; max-width: 100%; }
+  .ep-days.has-ind button { min-width: 128px; align-items: center; text-align: center; }
+}
+/* Tablets and desks: more room around everything. */
+@media (min-width: 768px) {
+  .ep-body { padding: 28px 24px 48px; }
+  .ep-grid { gap: 8px; }
+  .ep-card { padding: 14px 18px; }
+}
+
+/* ---- Dark ---- */
+.dark-mode .ep-days.has-ind { background: #221d15; border-color: #3a3122; }
+.dark-mode .ep-days.has-ind > .ep-ind { background: #2a2214; border-color: #e0b44a; }
+
+/* ---- Less motion, when asked for ---- */
+@media (prefers-reduced-motion: reduce) {
+  .ep-view, .ep-dayview, .ep-hero-poster { animation: none !important; }
+  .has-ind.ind-ready > .ep-ind { transition: none; }
+  .ep-thumb img.ep-fadeimg { transition: none; }
+  ::view-transition-group(*), ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+}

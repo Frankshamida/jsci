@@ -20,6 +20,14 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
+// Edge to edge on a phone; conference.css keeps clear of the notch and home bar.
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#f6f1e4',
+};
+
 const TZ = 'Asia/Manila';
 const dayOf = (iso) => String(iso || '').slice(0, 10);
 const todayInManila = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ });
@@ -77,8 +85,15 @@ export default async function ConferencePage() {
               <li key={e.id}>
                 {/* /programme, not the bare address: that is what an old ID's QR holds,
                     and for Cebu it comes back here (QR_CHOOSER_SLUGS). */}
-                <a href={`/events/${e.slug}/programme`} className={`conf-card is-${e.state}`}>
-                  <span className="conf-cover" style={cover ? { backgroundImage: `url("${cover}")` } : undefined} aria-hidden="true" />
+                <a href={`/events/${e.slug}/programme`} className={`conf-card is-${e.state}`} aria-label={`${place ? `${place} Conference` : e.title} - ${STATE_LABEL[e.state]}, ${datesOf(e)}`}>
+                  {/* A frame as tall as the card, the poster cropped to fill it -
+                      never stretched. Named like the event page's poster, so it
+                      carries across when the page opens. */}
+                  <span className="conf-cover" aria-hidden="true">
+                    {cover
+                      ? <img src={cover} alt="" loading="lazy" decoding="async" style={{ viewTransitionName: `ep-poster-${e.slug}` }} />
+                      : <i className="fas fa-calendar-days"></i>}
+                  </span>
                   <span className="conf-body">
                     <span className={`conf-state is-${e.state}`}>
                       {e.state === 'now' && <i className="fas fa-circle"></i>} {STATE_LABEL[e.state]}

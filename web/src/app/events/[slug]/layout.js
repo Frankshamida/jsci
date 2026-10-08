@@ -24,6 +24,15 @@ export async function generateMetadata({ params }) {
   }
 }
 
+// Edge to edge on a phone: the hero runs under the notch and the page keeps
+// clear of the home bar itself (env(safe-area-inset-*) in eventPublic.css).
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#2a1d05',
+};
+
 export default function EventPublicLayout({ children }) {
   return children;
 }

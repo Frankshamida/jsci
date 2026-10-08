@@ -183,9 +183,15 @@ export default function useEventDesk({
   const screenRef = useRef(() => {});
   screenRef.current = (tap = null) => {
     const day = Number(checkinDay) || 1;
+    const dayRow = days.find((d) => d.number === day);
     publishCheckinDisplay({
-      event: { id: eventId || '', title: event?.title || '', image: event?.image_url || '' },
-      day: { number: day, label: days.find((d) => d.number === day)?.label || '', days: days.length },
+      // Dates and venue too: the screen's welcome half says where and when.
+      event: {
+        id: eventId || '', title: event?.title || '', image: event?.image_url || '',
+        start: event?.event_date || '', end: event?.end_date || '',
+        venue: event?.location || '', city: event?.loc_city || '',
+      },
+      day: { number: day, label: dayRow?.label || '', days: days.length, date: dayRow?.dateKey || '' },
       tap,
     });
   };

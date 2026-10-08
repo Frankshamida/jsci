@@ -5,8 +5,9 @@
 // lib/screenLink.js): another window, or another device.
 //
 // The message:
-//   { at, event: { id, title, image }, day: { number, label, days }, tap: null | {
-//       seq, name, church, status, day, attendedAt } }
+//   { at, event: { id, title, image, start, end, venue, city }, day: { number, label, days, date },
+//     tap: null | { seq, name, first, last, church, status, day, attendedAt } }
+//   first / last  the name as the ID prints it - the screen draws their ID front
 //   status  'reading' | 'checking' | 'checked_in' | 'already_in'
 //           | 'not_verified' | 'unknown' | 'error'
 
@@ -29,7 +30,7 @@ export const subscribeCheckinDisplay = link.subscribe;
    "not verified yet (pending cash)" or another member's name is the desk's
    business, not the room's - the page says its own plain line for each. */
 export function checkinTapFrom(seq, result) {
-  if (!result) return { seq, name: '', church: '', status: 'reading' };
+  if (!result) return { seq, name: '', first: '', last: '', church: '', status: 'reading' };
   const reg = result.registration || null;
   const day = Number(result.dayNumber) || null;
   let status = result.result;
@@ -43,6 +44,8 @@ export function checkinTapFrom(seq, result) {
   return {
     seq,
     name: reg?.attendee_name || '',
+    first: reg?.attendee_firstname || '',
+    last: reg?.attendee_lastname || '',
     church: reg?.church_name || '',
     status,
     day,

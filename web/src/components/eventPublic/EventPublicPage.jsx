@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   FEEDBACK_MAX_NAME, FEEDBACK_MAX_WORDS, countWords,
   daysWith, formatClock, formatDay, groupProgramme, programmeKind, publicEventTitle, shortDay,
@@ -68,6 +68,35 @@ const viewPath = (slug, view, code) => {
 };
 // Which tab an address is: /events/<slug>[/photos|/profile|/extras].
 const viewOf = (pathname) => VIEWS.find((v) => pathname.endsWith(`/${v}`)) || 'programme';
+
+// ---- Motion ----
+// Somebody who has asked their phone for less motion gets none of it.
+const calm = () => typeof window !== 'undefined'
+  && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+// The highlight behind the chosen tab glides to the next one instead of
+// jumping: the box measures its active child and puts --ind-x/-y/-w/-h on
+// itself, and an .ep-ind inside it is drawn from those. It only starts to
+// glide once it has been placed, so it never flies in from the corner.
+function useSlidingIndicator(ref, active) {
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box) return undefined;
+    const place = () => {
+      const on = box.querySelector('[aria-selected="true"], [aria-current="page"]');
+      if (!on) { box.style.setProperty('--ind-w', '0px'); return; }
+      box.style.setProperty('--ind-x', `${on.offsetLeft}px`);
+      box.style.setProperty('--ind-y', `${on.offsetTop}px`);
+      box.style.setProperty('--ind-w', `${on.offsetWidth}px`);
+      box.style.setProperty('--ind-h', `${on.offsetHeight}px`);
+    };
+    place();
+    const ready = requestAnimationFrame(() => box.classList.add('ind-ready'));
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(place) : null;
+    ro?.observe(box);
+    return () => { cancelAnimationFrame(ready); ro?.disconnect(); };
+  }, [ref, active]);
+}
 
 // "Fri, Oct 2 - Sun, Oct 4, 2026", from the event's wall-clock dates.
 const dateRange = (evt) => {
@@ -154,17 +183,31 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
   }, [slug]);
 
   // Tabs change the address without reloading, and Back goes back a tab.
+  // Which way the new tab slides in: from the right going along the tabs,
+  // from the left coming back.
+  const [viewDir, setViewDir] = useState('none');
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const dirTo = (next) => (VIEWS.indexOf(next) >= VIEWS.indexOf(viewRef.current) ? 'fwd' : 'back');
   useEffect(() => {
-    const onPop = () => setView(viewOf(window.location.pathname));
+    const onPop = () => {
+      const next = viewOf(window.location.pathname);
+      if (next === viewRef.current) return;
+      setViewDir(dirTo(next));
+      setView(next);
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
   const go = (next) => {
     if (next === view) return;
     window.history.pushState(null, '', viewPath(slug, next, code));
+    setViewDir(dirTo(next));
     setView(next);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: calm() ? 'auto' : 'smooth' });
   };
+  const tabsRef = useRef(null);
+  const pageRef = useRef(null);
 
   const [dark, toggleDark] = useDarkMode();
   // The name in the welcome is only there while the photos are unlocked: it
@@ -290,6 +333,22 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
   const closeNowPlaying = useCallback(() => setNowPlayingOpen(false), []);
   const showMiniPlayer = !!lineup && !!player.current && !nowPlayingOpen;
 
+  // The tab bar's height, for whatever sticks just below it (the day tabs),
+  // and the highlight behind its active tab - measured again whenever the
+  // tabs themselves change (Profile and Extras appear once signed in).
+  const tabsKey = `${view}|${!!info}|${!!unlocked}|${hasExtras}`;
+  useLayoutEffect(() => {
+    const bar = tabsRef.current;
+    const page = pageRef.current;
+    if (!bar || !page) return undefined;
+    const put = () => page.style.setProperty('--ep-tabs-h', `${bar.offsetHeight}px`);
+    put();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(put) : null;
+    ro?.observe(bar);
+    return () => ro?.disconnect();
+  }, [tabsKey]);
+  useSlidingIndicator(tabsRef, tabsKey);
+
   if (loadError) {
     return (
       <main className="ep-page ep-center">
@@ -316,7 +375,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
   const over = eventIsOver(event, info.programme, nowMs);
 
   return (
-    <main className={`ep-page ${showMiniPlayer ? 'has-mini-player' : ''}`}>
+    <main ref={pageRef} className={`ep-page ${showMiniPlayer ? 'has-mini-player' : ''}`}>
       <header className="ep-hero">
         {event.image_url && <div className="ep-hero-bg" style={{ backgroundImage: `url("${event.image_url}")` }} />}
         <button
@@ -329,7 +388,11 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
           <i className={`fas ${dark ? 'fa-sun' : 'fa-moon'}`}></i>
         </button>
         <div className="ep-hero-in">
-          {event.image_url && <img className="ep-hero-poster" src={event.image_url} alt="" />}
+          {/* Named the same as its card on Choose your conference, so the
+              poster carries over from that page to this one. */}
+          {event.image_url && (
+            <img className="ep-hero-poster" src={event.image_url} alt="" style={{ viewTransitionName: `ep-poster-${slug}` }} />
+          )}
           <div className="ep-hero-text">
             <h1>{publicEventTitle(event)}</h1>
             {guestName && <p className="ep-welcome"><i className="fas fa-hand-sparkles"></i> Welcome, {guestName}!</p>}
@@ -341,10 +404,13 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
         </div>
       </header>
 
-      <nav className="ep-tabs" aria-label="Event sections">
+      <nav ref={tabsRef} className="ep-tabs has-ind" aria-label="Event sections">
+        {/* The gold highlight, gliding to whichever tab is open. */}
+        <span className="ep-ind" aria-hidden="true" />
         <a
           href={viewPath(slug, 'programme', code)}
           className={view === 'programme' ? 'active' : ''}
+          aria-current={view === 'programme' ? 'page' : undefined}
           onClick={(e) => { e.preventDefault(); go('programme'); }}
         >
           <i className="fas fa-list-ol"></i><span>Programme</span>
@@ -352,6 +418,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
         <a
           href={viewPath(slug, 'photos', code)}
           className={view === 'photos' ? 'active' : ''}
+          aria-current={view === 'photos' ? 'page' : undefined}
           onClick={(e) => { e.preventDefault(); go('photos'); }}
         >
           <i className="fas fa-images"></i><span>Event Photos</span>
@@ -360,6 +427,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
           <a
             href={viewPath(slug, 'profile', code)}
             className={`ep-tab-new ${view === 'profile' ? 'active' : ''}`}
+            aria-current={view === 'profile' ? 'page' : undefined}
             onClick={(e) => { e.preventDefault(); go('profile'); }}
           >
             <i className="fas fa-id-badge"></i><span>Profile</span>
@@ -369,6 +437,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
           <a
             href={viewPath(slug, 'extras', code)}
             className={`ep-tab-new ${view === 'extras' ? 'active' : ''}`}
+            aria-current={view === 'extras' ? 'page' : undefined}
             onClick={(e) => { e.preventDefault(); go('extras'); }}
           >
             <i className="fas fa-gift"></i><span>Extras</span>
@@ -377,6 +446,8 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
       </nav>
 
       <section className="ep-body">
+        {/* A new tab slides in from the side it is on, and fades up. */}
+        <div key={view} className={`ep-view is-${viewDir}`}>
         {view === 'programme' && (
           <>
             {over && (
@@ -422,6 +493,7 @@ export default function EventPublicPage({ slug, view: initialView = 'programme' 
         {view === 'photos' && <Photos event={event} slug={slug} name={guestName} />}
         {view === 'profile' && unlocked && <Profile slug={slug} code={code} year={info.passwordYear} onName={onUnlockedName} onLock={onLocked} />}
         {view === 'extras' && unlocked && <Extras info={extrasInfo} />}
+        </div>
       </section>
 
       {credsOpen && (
@@ -479,9 +551,13 @@ const nowClock = () => {
 };
 
 // Day 1 / Day 2 ... - one tab per day of the event, with "Day N" and its date.
+// A segmented control: the highlight slides from day to day.
 function DayTabs({ days, value, onChange, all }) {
+  const ref = useRef(null);
+  useSlidingIndicator(ref, `${value}|${days.join(',')}|${all || ''}`);
   return (
-    <div className="ep-days" role="tablist">
+    <div ref={ref} className="ep-days has-ind" role="tablist">
+      <span className="ep-ind" aria-hidden="true" />
       {all && (
         <button type="button" role="tab" aria-selected={value === 'all'} className={value === 'all' ? 'active' : ''} onClick={() => onChange('all')}>
           <span>All Days</span>
@@ -680,6 +756,18 @@ function Programme({ event, items, over = false, songsById, songsPaused = false,
   }, [event, items]);
   // Opens on today when the event is on, else the first day.
   const [day, setDay] = useState(() => (days.find((d) => d.day === todayIso()) || days[0])?.day || '');
+  // Day 1 -> Day 2 slides in from the right, back again from the left; and
+  // somebody scrolled far down the day lands back at its top.
+  const [dayDir, setDayDir] = useState('none');
+  const topRef = useRef(null);
+  const pickDay = (d) => {
+    if (d === day) return;
+    const at = (x) => days.findIndex((g) => g.day === x);
+    setDayDir(at(d) > at(day) ? 'fwd' : 'back');
+    setDay(d);
+    const top = topRef.current;
+    if (top && top.getBoundingClientRect().top < 0) top.scrollIntoView({ behavior: calm() ? 'auto' : 'smooth', block: 'start' });
+  };
   const [clock, setClock] = useState(nowClock);
   useEffect(() => {
     const id = setInterval(() => setClock(nowClock()), 60_000);
@@ -720,8 +808,9 @@ function Programme({ event, items, over = false, songsById, songsPaused = false,
   };
 
   return (
-    <div className="ep-programme">
-      {days.length > 1 && <DayTabs days={days.map((d) => d.day)} value={current.day} onChange={setDay} />}
+    <div className="ep-programme" ref={topRef}>
+      {days.length > 1 && <DayTabs days={days.map((d) => d.day)} value={current.day} onChange={pickDay} />}
+      <div key={current.day} className={`ep-dayview is-${dayDir}`}>
       <h2 className="ep-day-title">{formatDay(current.day)}</h2>
 
       {current.rows.length === 0 && (
@@ -767,6 +856,7 @@ function Programme({ event, items, over = false, songsById, songsPaused = false,
           );
         })}
       </ol>
+      </div>
     </div>
   );
 }
@@ -887,10 +977,17 @@ function Photos({ event, slug, name }) {
     setPop({ id: photo.id, key: Date.now() });
     if (!photo.hearted) toggleHeart(photo);
   }, [toggleHeart]);
-  const tapThumb = (photo, index) => {
+  // Where the tapped thumbnail is on the screen: the full view grows out of it.
+  const [openFrom, setOpenFrom] = useState(null);
+  const openAt = (index, el) => {
+    const r = el?.getBoundingClientRect?.();
+    setOpenFrom(r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null);
+    setOpen(index);
+  };
+  const tapThumb = (photo, index, el) => {
     if (picking) { togglePick(photo.id); return; }
     if (selecting) { toggleSelect(photo.id); return; }
-    if (!heartsReady) { setOpen(index); return; }
+    if (!heartsReady) { openAt(index, el); return; }
     const t = tapRef.current;
     const now = Date.now();
     clearTimeout(t.timer);
@@ -902,7 +999,7 @@ function Photos({ event, slug, name }) {
     tapRef.current = {
       id: photo.id,
       at: now,
-      timer: setTimeout(() => { tapRef.current = { id: null, at: 0, timer: null }; setOpen(index); }, 260),
+      timer: setTimeout(() => { tapRef.current = { id: null, at: 0, timer: null }; openAt(index, el); }, 260),
     };
   };
 
@@ -986,11 +1083,20 @@ function Photos({ event, slug, name }) {
                   <button
                     type="button"
                     className={`ep-thumb ${busyMode ? 'is-picking' : ''} ${n >= 0 || ticked ? 'is-picked' : ''} ${selecting ? 'is-selecting' : ''}`}
-                    onClick={() => tapThumb(p, index)}
+                    onClick={(e) => tapThumb(p, index, e.currentTarget)}
                     aria-pressed={busyMode ? (n >= 0 || ticked) : undefined}
                     aria-label={selecting ? `${ticked ? 'Unselect' : 'Select'} photo ${numberOf(p)}` : undefined}
                   >
-                    <img src={p.thumb} alt={p.caption || `Event photo ${numberOf(p)}`} loading="lazy" />
+                    {/* Fades in once it has loaded - already in the browser, at once. */}
+                    <img
+                      src={p.thumb}
+                      alt={p.caption || `Event photo ${numberOf(p)}`}
+                      loading="lazy"
+                      decoding="async"
+                      className="ep-fadeimg"
+                      ref={(img) => { if (img?.complete) img.classList.add('is-in'); }}
+                      onLoad={(e) => e.currentTarget.classList.add('is-in')}
+                    />
                     {picking && <span className="ep-pick">{n >= 0 ? n + 1 : ''}</span>}
                     {selecting && <span className="ep-pick ep-tick">{ticked && <i className="fas fa-check"></i>}</span>}
                   </button>
@@ -1063,6 +1169,7 @@ function Photos({ event, slug, name }) {
         <Lightbox
           photos={shown}
           index={open}
+          from={openFrom}
           onIndex={setOpen}
           // Back to the page the last photo looked at is on.
           onClose={() => { setPage(Math.floor(open / PHOTOS_PER_PAGE) + 1); setOpen(-1); }}
@@ -2623,12 +2730,81 @@ function StoryMaker({ photos, event, slug, name, onClose, onDone }) {
   );
 }
 
-function Lightbox({ photos, index, onIndex, onClose, onHeart = null, onDownload = null }) {
+function Lightbox({ photos, index, from = null, onIndex, onClose: closeNow, onHeart = null, onDownload = null }) {
   const photo = photos[index];
-  const prev = useCallback(() => onIndex((index - 1 + photos.length) % photos.length), [index, photos.length, onIndex]);
-  const next = useCallback(() => onIndex((index + 1) % photos.length), [index, photos.length, onIndex]);
   const touch = useRef(null);
   const [loaded, setLoaded] = useState('');
+  const rootRef = useRef(null);
+  const stageRef = useRef(null);
+
+  // ---- In and out ----
+  // It grows out of the thumbnail that was tapped and the room darkens; it
+  // shrinks away when closed. The phone's Back button closes it too - the
+  // viewer is a step in the history, like a page of its own.
+  const closing = useRef(false);
+  const ownEntry = useRef(false);
+  const finish = useCallback(() => {
+    if (!closing.current) closing.current = true;
+    const stage = stageRef.current;
+    const root = rootRef.current;
+    if (calm() || !stage?.animate || !root?.animate) { closeNow(); return; }
+    const opts = { duration: 180, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' };
+    stage.animate([{ transform: 'none', opacity: 1 }, { transform: 'scale(0.94)', opacity: 0 }], opts);
+    root.animate([{ opacity: 1 }, { opacity: 0 }], opts).finished.then(closeNow, closeNow);
+  }, [closeNow]);
+  const onClose = useCallback(() => {
+    if (closing.current) return;
+    closing.current = true;
+    if (ownEntry.current && window.history.state?.epLightbox) {
+      ownEntry.current = false;
+      window.history.back(); // its popstate is ignored below: closing already
+    }
+    finish();
+  }, [finish]);
+  useEffect(() => {
+    window.history.pushState({ ...(window.history.state || {}), epLightbox: true }, '');
+    ownEntry.current = true;
+    const onPop = () => {
+      ownEntry.current = false;
+      if (closing.current) return;
+      closing.current = true;
+      finish();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const root = rootRef.current;
+    if (calm() || !stage?.animate || !root?.animate) return;
+    root.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
+    const r = stage.getBoundingClientRect();
+    if (from && r.width > 0) {
+      const dx = (from.left + from.width / 2) - (r.left + r.width / 2);
+      const dy = (from.top + from.height / 2) - (r.top + r.height / 2);
+      const s = Math.max(0.05, from.width / r.width);
+      stage.animate(
+        [{ transform: `translate(${dx}px, ${dy}px) scale(${s})`, opacity: 0.6 }, { transform: 'none', opacity: 1 }],
+        { duration: 300, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
+      );
+    } else {
+      stage.animate([{ transform: 'scale(0.92)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Next and previous slide the photo in from the side it comes from.
+  const stepDir = useRef(0);
+  const prev = useCallback(() => { stepDir.current = -1; onIndex((index - 1 + photos.length) % photos.length); }, [index, photos.length, onIndex]);
+  const next = useCallback(() => { stepDir.current = 1; onIndex((index + 1) % photos.length); }, [index, photos.length, onIndex]);
+  const firstIndex = useRef(index);
+  useLayoutEffect(() => {
+    if (index === firstIndex.current && !stepDir.current) return;
+    const stage = stageRef.current;
+    const d = stepDir.current || 1;
+    stepDir.current = 0;
+    if (calm() || !stage?.animate) return;
+    stage.animate([{ transform: `translateX(${d * 42}px)`, opacity: 0.35 }, { transform: 'none', opacity: 1 }], { duration: 220, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+  }, [index]);
   // Double-tap the photo to heart it, with the logo popping up in the middle.
   // A single tap on the photo does nothing here, so there is nothing to wait
   // for - two taps close together are the heart.
@@ -2670,6 +2846,7 @@ function Lightbox({ photos, index, onIndex, onClose, onHeart = null, onDownload 
 
   return (
     <div
+      ref={rootRef}
       className="ep-lightbox"
       onClick={onClose}
       onTouchStart={(e) => { touch.current = e.touches[0].clientX; }}
@@ -2694,7 +2871,7 @@ function Lightbox({ photos, index, onIndex, onClose, onHeart = null, onDownload 
       </div>
       {/* The thumbnail is already in the browser, so it shows at once; the
           sharp framed version fades in over it when it arrives. */}
-      <div className="ep-lb-stage" onClick={tapPhoto}>
+      <div className="ep-lb-stage" ref={stageRef} onClick={tapPhoto}>
         {pop > 0 && <LovePop key={pop} big onDone={() => setPop(0)} />}
         <img className="ep-lb-thumb" src={photo.thumb} alt="" aria-hidden="true" />
         <img

@@ -16,7 +16,8 @@ import { resolveEventCard, splitReturnedLinks, releaseLinks } from '@/lib/rfidEv
 // 'paid_pending_turnover' is paid too - only the money is not on hand yet.
 const VERIFIED_STATUSES = ['registered', 'payment_verified', 'paid_pending_turnover'];
 
-const REG_FIELDS = 'id, event_id, user_id, attendee_name, attendee_mobile, church_name, status, attended, attended_at, amount_paid, registration_type';
+// First and last name too: the door's name screen draws their ID front with them.
+const REG_FIELDS = 'id, event_id, user_id, attendee_name, attendee_firstname, attendee_lastname, attendee_mobile, church_name, status, attended, attended_at, amount_paid, registration_type';
 
 const resolveCard = (eventId, raw) => resolveEventCard(eventId, raw, REG_FIELDS);
 
