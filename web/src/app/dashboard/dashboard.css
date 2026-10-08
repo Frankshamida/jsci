@@ -35675,6 +35675,18 @@ body.dark-mode .evt-rfid-desk-note { background: rgba(22,163,74,0.12); border-co
 .evt-receipt-name { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
 .evt-receipt-name > b { font-size: 0.95rem; }
 .evt-receipt-name .evt-verify-exemptline { display: inline; margin: 0; }
+/* Exempted, free, discounted, a substitute - under the name. */
+.evt-receipt-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 6px; }
+.evt-receipt-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; background: #eef0f4; color: #4b5563; }
+.evt-receipt-tag.is-exempt { background: #e0f0fd; color: #1d5f9c; }
+.evt-receipt-tag.is-free { background: #dcfce7; color: #15803d; }
+.evt-receipt-tag.is-discount { background: #fff3e0; color: #b45309; }
+.evt-receipt-tag.is-info { background: #ede9fe; color: #6d28d9; }
+body.dark-mode .evt-receipt-tag { background: rgba(255,255,255,0.08); color: #d1d5db; }
+body.dark-mode .evt-receipt-tag.is-exempt { background: rgba(77,160,230,0.18); color: #8cc6f5; }
+body.dark-mode .evt-receipt-tag.is-free { background: rgba(74,222,128,0.14); color: #4ade80; }
+body.dark-mode .evt-receipt-tag.is-discount { background: rgba(217,119,6,0.18); color: #fbbf72; }
+body.dark-mode .evt-receipt-tag.is-info { background: rgba(139,92,246,0.18); color: #c4b5fd; }
 .evt-receipt-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 0.86rem; }
 .evt-receipt-line > span { color: var(--text-secondary, #555); min-width: 0; }
 .evt-receipt-line > span small { color: #1d5f9c; font-weight: 600; }

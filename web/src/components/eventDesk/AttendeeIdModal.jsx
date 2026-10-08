@@ -52,7 +52,8 @@ export default function AttendeeIdModal({ reg, eventTitle, eventSlug, actorId, o
     return () => { live = false; clearTimeout(timer); };
   }, [lastName, firstName]);
 
-  // One QR for the whole event - the same on every attendee's ID.
+  // One QR on every ID: the conference chooser (/conference), which opens
+  // each conference's own page.
   const qrText = idQrText({ origin: siteOrigin(), eventSlug });
 
   useEffect(() => {
@@ -188,7 +189,7 @@ export default function AttendeeIdModal({ reg, eventTitle, eventSlug, actorId, o
             </figure>
             <figure>
               <canvas ref={backRef} className="evt-id-canvas" aria-label="Back of the ID" />
-              <figcaption>Back · event QR (same for all)</figcaption>
+              <figcaption>Back · opens Choose your conference (same for all)</figcaption>
             </figure>
           </div>
         </div>

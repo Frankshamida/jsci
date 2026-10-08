@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, formatUid, sameCard, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
 import { sameAddon } from '@/lib/addons';
 import { exemptCreditLeft, extraNetFee } from '@/lib/exemption';
+import { receiptOf } from '@/lib/receipt';
 import { publishQrDisplay, announceQrDisplayEvent } from '@/lib/qrDisplay';
 import { announceDeskChange, followDeskChanges } from '@/lib/deskSync';
 import { publishMealsDisplay } from '@/lib/mealsDisplay';
@@ -270,9 +271,15 @@ const VALID_SECTIONS = new Set([
   'spiritual-assistant', 'system-config', 'terms-conditions', 'user-events-oversight',
   'user-management', 'weekly-schedule',
 ]);
+// A section whose clean URL is not its own name. /accommodation is the
+// attendees' own Find your room page (src/app/accommodation), so the
+// Accommodation section the desk works in lives at /accommodation-desk.
+const SECTION_PATHS = { accommodation: 'accommodation-desk' };
+const PATH_SECTIONS = Object.fromEntries(Object.entries(SECTION_PATHS).map(([section, path]) => [path, section]));
 const resolveSectionFromPath = () => {
   if (typeof window === 'undefined') return 'home';
-  const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+  const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+  const slug = PATH_SECTIONS[path] || path;
   if (slug && slug !== 'dashboard' && VALID_SECTIONS.has(slug)) return slug;
   const hash = window.location.hash.replace('#', '');
   return (hash && VALID_SECTIONS.has(hash)) ? hash : 'home';
@@ -3443,7 +3450,7 @@ export default function DashboardPage() {
     }
     // Reflect the section as a clean top-level URL (e.g. /bible-reader). Home = /dashboard.
     if (typeof window !== 'undefined') {
-      const targetPath = sectionId === 'home' ? '/dashboard' : `/${sectionId}`;
+      const targetPath = sectionId === 'home' ? '/dashboard' : `/${SECTION_PATHS[sectionId] || sectionId}`;
       if (window.location.pathname !== targetPath) {
         window.history.pushState(null, '', targetPath);
       }
@@ -16386,25 +16393,13 @@ Examples:
   // transaction's own, as taken at the desk; each person's lines are read off
   // their registration as it is now, so a registration changed since is said.
   const changeReceiptOf = (c) => {
+    // Each at full price, then what came off it - exemption, discount - with
+    // what is special about them as tags (lib/receipt.js).
     const people = (c.registration_ids || []).map((id) => {
       const r = eventRegs.find((x) => x.id === id);
-      if (!r) return { id, name: 'Not on the event any more', lines: [], subtotal: 0, missing: true };
-      const extras = regExtrasOf(r).map((a) => ({
-        label: addonShortLabel(a.question),
-        amount: extraNetFee(a),
-        note: Number(a.waived) > 0 ? (extraNetFee(a) > 0 ? `₱${Number(a.waived).toLocaleString()} exempted` : 'free · exempted') : '',
-      }));
-      const amount = Number(r.amount) || 0;
-      const discount = Number(r.discount_amount) || 0;
-      // What is left of the amount once the extras are out is the registration
-      // fee - as charged, so before any discount taken off it.
-      const fee = Math.max(0, amount - extras.reduce((t, e) => t + e.amount, 0)) + discount;
-      const lines = [
-        { label: `Registration fee${r.price_tier ? ` · ${r.price_tier}` : ''}`, amount: fee, note: r.exempted_at && !(fee > 0) ? regExemptLine(r) : '' },
-        ...extras,
-        ...(discount > 0 ? [{ label: `Discount${r.discount_note ? ` · ${r.discount_note}` : ''}`, amount: -discount }] : []),
-      ];
-      return { id, name: formatPersonName(r.attendee_name), exempt: r.exempted_at ? regExemptLine(r) : '', lines, subtotal: amount };
+      if (!r) return { id, name: 'Not on the event any more', lines: [], tags: [], subtotal: 0, missing: true };
+      const { lines, tags, subtotal } = receiptOf(r);
+      return { id, name: formatPersonName(r.attendee_name), lines, tags, subtotal };
     });
     const sum = people.reduce((t, p) => t + p.subtotal, 0);
     const total = Number(c.total_due) || 0;
@@ -16428,14 +16423,17 @@ Examples:
 <style>
   body { font-family: Arial, sans-serif; color: #222; max-width: 420px; margin: 24px auto; padding: 0 16px; font-size: 13px; }
   h1 { font-size: 17px; margin: 0; } .sub { color: #666; margin: 2px 0 14px; }
-  h2 { font-size: 13px; margin: 14px 0 4px; } .ex { color: #1d5f9c; font-size: 11px; font-weight: normal; }
+  h2 { font-size: 13px; margin: 14px 0 3px; }
+  .tags { margin: 0 0 4px; } .tag { display: inline-block; margin: 0 4px 3px 0; padding: 1px 7px; border: 1px solid #999; border-radius: 9px; font-size: 10px; font-weight: bold; }
+  .tag.exempt { border-color: #1d5f9c; color: #1d5f9c; } .tag.free { border-color: #15803d; color: #15803d; } .tag.discount { border-color: #b45309; color: #b45309; }
   table { width: 100%; border-collapse: collapse; } td { padding: 3px 0; } .amt { text-align: right; white-space: nowrap; }
-  .sub-total td { border-top: 1px dashed #bbb; font-weight: bold; } .grand td { border-top: 2px solid #222; font-size: 14px; font-weight: bold; padding-top: 6px; }
+  .note { color: #15803d; font-size: 11px; } .deduct td { color: #15803d; }
+  .sub-total td { border-top: 1px dashed #bbb; font-weight: bold; color: #222; } .grand td { border-top: 2px solid #222; font-size: 14px; font-weight: bold; padding-top: 6px; }
   .change td { font-size: 15px; font-weight: bold; } .muted { color: #777; font-size: 11px; margin-top: 12px; }
 </style></head><body>
 <h1>${esc(verifyEventName)}</h1>
 <div class="sub">Receipt · ${esc(receiptStamp(c.created_at))} · by ${esc(formatPersonName(c.taken_by_name))}</div>
-${rc.people.map((p) => `<h2>${esc(p.name)}${p.exempt ? ` <span class="ex">${esc(p.exempt)}</span>` : ''}</h2><table>${p.lines.map((l) => row(l.note ? `${l.label} (${l.note})` : l.label, l.amount)).join('')}${row('Subtotal', p.subtotal, 'sub-total')}</table>`).join('')}
+${rc.people.map((p) => `<h2>${esc(p.name)}</h2>${p.tags.length ? `<div class="tags">${p.tags.map((t) => `<span class="tag ${t.tone}">${esc(t.text)}</span>`).join('')}</div>` : ''}<table>${p.lines.map((l) => `<tr class="${l.deduct ? 'deduct' : ''}"><td>${esc(l.label)}${l.tag ? ` <span class="note">(${esc(l.tag)})</span>` : ''}</td><td class="amt">${esc(pesoText(l.amount))}</td></tr>`).join('')}${row('Subtotal', p.subtotal, 'sub-total')}</table>`).join('')}
 <table style="margin-top:14px">
 ${rc.before > 0 ? row('Paid before', -rc.before) : ''}
 ${row('Total', rc.total, 'grand')}
@@ -16473,11 +16471,20 @@ ${row('Change', rc.change, 'change')}
               <div key={p.id} className={`evt-receipt-person ${p.missing ? 'is-missing' : ''}`}>
                 <div className="evt-receipt-name">
                   <b>{p.name}</b>
-                  {p.exempt && <span className="evt-verify-exemptline"><i className="fas fa-id-badge"></i> {p.exempt}</span>}
                 </div>
+                {/* Exempted, free, discounted, a substitute - at a glance. */}
+                {p.tags.length > 0 && (
+                  <div className="evt-receipt-tags">
+                    {p.tags.map((t) => (
+                      <span key={t.text} className={`evt-receipt-tag is-${t.tone}`}>
+                        <i className={`fas ${{ exempt: 'fa-id-badge', free: 'fa-gift', discount: 'fa-tag', info: 'fa-user-pen' }[t.tone] || 'fa-circle-info'}`}></i> {t.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {p.lines.map((l, i) => (
-                  <div key={i} className={`evt-receipt-line ${l.amount < 0 ? 'is-minus' : ''}`}>
-                    <span>{l.label}{l.note && <small> · {l.note}</small>}</span>
+                  <div key={i} className={`evt-receipt-line ${l.deduct ? 'is-minus' : ''}`}>
+                    <span>{l.label}{l.tag && <small> · {l.tag}</small>}</span>
                     <b>{pesoText(l.amount)}</b>
                   </div>
                 ))}

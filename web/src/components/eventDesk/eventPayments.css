@@ -594,6 +594,17 @@ body.dark-mode .pay-tag.info { background: rgba(59, 130, 246, 0.18); color: #93c
 .pay-receipt-name { display: flex; flex-direction: column; margin-bottom: 4px; }
 .pay-receipt-name b { font-size: 0.92rem; }
 .pay-receipt-name em { font-style: normal; font-size: 0.74rem; color: var(--text-muted, #888); }
+.pay-receipt-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 6px; }
+.pay-receipt-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; background: #eef0f4; color: #4b5563; }
+.pay-receipt-tag.exempt { background: #e0f0fd; color: #1d5f9c; }
+.pay-receipt-tag.free { background: #dcfce7; color: #15803d; }
+.pay-receipt-tag.discount { background: #fff3e0; color: #b45309; }
+.pay-receipt-tag.info { background: #ede9fe; color: #6d28d9; }
+body.dark-mode .pay-receipt-tag { background: rgba(255, 255, 255, 0.08); color: #d1d5db; }
+body.dark-mode .pay-receipt-tag.exempt { background: rgba(77, 160, 230, 0.18); color: #8cc6f5; }
+body.dark-mode .pay-receipt-tag.free { background: rgba(74, 222, 128, 0.14); color: #4ade80; }
+body.dark-mode .pay-receipt-tag.discount { background: rgba(217, 119, 6, 0.18); color: #fbbf72; }
+body.dark-mode .pay-receipt-tag.info { background: rgba(139, 92, 246, 0.18); color: #c4b5fd; }
 .pay-receipt-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 0.85rem; }
 .pay-receipt-line > span { color: var(--text-muted, #555); min-width: 0; }
 .pay-receipt-line > span small { color: #1d5f9c; font-weight: 600; }

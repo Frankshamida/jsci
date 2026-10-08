@@ -36,6 +36,15 @@ export async function eventForPublicSlug(slug) {
   return findEventByPublicSlug(await publishedEvents(), slug);
 }
 
+/**
+ * Every published event with the slug its public page answers to - what the
+ * ID's QR opens on (/conference): one button per conference.
+ */
+export async function publicEventChoices() {
+  const events = await publishedEvents();
+  return events.map((e) => ({ ...e, slug: publicEventSlugFor(e, events) })).filter((e) => e.slug);
+}
+
 const cleanCode = (code) => {
   const clean = String(code || '').trim();
   return /^[A-Za-z0-9_-]{6,64}$/.test(clean) ? clean : '';

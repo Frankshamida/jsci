@@ -4,7 +4,9 @@
 // (e.g. /bible-reader). They all render the single dashboard page, which reads
 // the pathname to open the matching section. Keep in sync with dashboard sections.
 const DASHBOARD_SECTIONS = [
-  'accommodation',
+  // The Accommodation section. /accommodation itself is the attendees' Find
+  // your room page (src/app/accommodation) - see SECTION_PATHS in the dashboard.
+  'accommodation-desk',
   'announcements',
   'announcements-management',
   'attendance-management',

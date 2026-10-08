@@ -286,22 +286,20 @@ export async function drawIdBack(canvas, { qrText, logo = false }, scale = 1) {
   }
 }
 
-// TEMPORARY: the Cebu IDs keep their own back, but the QR on it opens the
-// Leyte event page. Remove the entry to send it back to the Cebu page.
-const QR_REDIRECTS = {
-  'cebu-miracle-working-god': 'http://localhost:8713/events/leyte-miracle-working-god',
-};
-
 /**
- * What the QR on the back holds: the event's public page,
- * /events/<province>-<event> - the SAME code on every ID of the event.
- * Scanning it opens the programme for anybody; the photos behind it still
- * need the attendee's own password (LASTNAME@YEAR) or their RFID card.
+ * What the QR on the back holds: the conference chooser, /conference - the
+ * SAME code on every ID, of every event. It opens one button per conference
+ * (Leyte Conference, Cebu Conference), each to that event's own page,
+ * /events/<province>-<event>. The programme there is for anybody; the photos
+ * and the profile need the attendee's own password (LASTNAME@YEAR) or card,
+ * and only open the event they are registered in.
+ *
+ * `eventSlug` is still taken, for a QR that should open one event directly:
+ * pass `direct: true`.
  */
-export const idQrText = ({ origin, eventSlug }) => {
-  const redirect = QR_REDIRECTS[String(eventSlug || '').replace(/-\d{4}$/, '')];
-  return redirect || attendeePageUrl(origin, eventSlug);
-};
+export const idQrText = ({ origin, eventSlug, direct = false }) => (direct && eventSlug
+  ? attendeePageUrl(origin, eventSlug)
+  : `${String(origin || '').replace(/\/+$/, '')}/conference`);
 
 /**
  * `source` scaled down to width x height in halving steps. One big jump (1416

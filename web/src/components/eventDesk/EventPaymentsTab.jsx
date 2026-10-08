@@ -5,8 +5,7 @@ import { createPortal } from 'react-dom';
 import ProofDrop from '@/components/ProofDrop';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import { bedWaitDue } from '@/lib/rooms';
-import { addonShortLabel } from '@/lib/eventPricing';
-import { extraNetFee } from '@/lib/exemption';
+import { receiptOf, receiptPeso } from '@/lib/receipt';
 import './eventPayments.css';
 
 // Event -> Payments (Super Admin). One sum of money, and the attendees it pays
@@ -1048,23 +1047,10 @@ export default function EventPaymentsTab({
 // Who it was from (or where it was sent), when, by whom; each attendee with
 // their registration fee and extras as their registration reads now, and what
 // this payment took for them; the total. Printable.
-function receiptLinesOf(reg) {
-  if (!reg) return [];
-  const extras = (Array.isArray(reg.addons) ? reg.addons : []).filter((a) => a && (a.question || a.id)).map((a) => ({
-    label: addonShortLabel(a.question),
-    amount: extraNetFee(a),
-    note: Number(a.waived) > 0 ? (extraNetFee(a) > 0 ? `${peso(a.waived)} exempted` : 'free · exempted') : '',
-  }));
-  const amount = Number(reg.amount) || 0;
-  const discount = Number(reg.discount_amount) || 0;
-  const fee = Math.max(0, amount - extras.reduce((t, e) => t + e.amount, 0)) + discount;
-  return [
-    { label: `Registration fee${reg.price_tier ? ` · ${reg.price_tier}` : ''}`, amount: fee },
-    ...extras,
-    ...(discount > 0 ? [{ label: `Discount${reg.discount_note ? ` · ${reg.discount_note}` : ''}`, amount: -discount }] : []),
-  ];
-}
-const signedPeso = (n) => `${n < 0 ? '−' : ''}${peso(Math.abs(Number(n) || 0))}`;
+// Each at full price, then what came off it, with what is special about them
+// as tags - exempted, free, discounted (lib/receipt.js, the desk's receipt too).
+const signedPeso = receiptPeso;
+const TAG_ICON = { exempt: 'fa-id-badge', free: 'fa-gift', discount: 'fa-tag', info: 'fa-user-pen' };
 
 function RecordReceipt({ rec, regById, eventTitle, onClose, formatName, formatChurch, showToast }) {
   const items = Array.isArray(rec.items) ? rec.items : [];
@@ -1075,9 +1061,9 @@ function RecordReceipt({ rec, regById, eventTitle, onClose, formatName, formatCh
       : `${rec.bank_name} → ${rec.recipient_name}`;
   const people = items.map((it) => {
     const reg = regById.get(it.id);
-    const lines = receiptLinesOf(reg);
+    const { lines, tags } = receiptOf(reg);
     const total = reg ? Number(reg.amount) || 0 : Number(it.total) || Number(it.amount) || 0;
-    return { it, reg, lines, total, paid: Number(it.amount) || 0, bed: Number(it.bedFee) || 0 };
+    return { it, reg, lines, tags, total, paid: Number(it.amount) || 0, bed: Number(it.bedFee) || 0 };
   });
   const by = fromReg ? (rec.recorded_by_name ? `verified by ${formatName(rec.recorded_by_name)}` : 'verified')
     : `recorded by ${formatName(rec.recorded_by_name) || 'Super Admin'}`;
@@ -1096,6 +1082,9 @@ function RecordReceipt({ rec, regById, eventTitle, onClose, formatName, formatCh
   body { font-family: Arial, sans-serif; color: #222; max-width: 440px; margin: 24px auto; padding: 0 16px; font-size: 13px; }
   h1 { font-size: 17px; margin: 0; } .sub { color: #666; margin: 2px 0 14px; } .ref { margin: 0 0 12px; }
   h2 { font-size: 13px; margin: 14px 0 2px; } .church { color: #777; font-size: 11px; margin-bottom: 4px; }
+  .tags { margin: 0 0 4px; } .tag { display: inline-block; margin: 0 4px 3px 0; padding: 1px 7px; border: 1px solid #999; border-radius: 9px; font-size: 10px; font-weight: bold; }
+  .tag.exempt { border-color: #1d5f9c; color: #1d5f9c; } .tag.free { border-color: #15803d; color: #15803d; } .tag.discount { border-color: #b45309; color: #b45309; }
+  .note { color: #15803d; font-size: 11px; } .deduct td { color: #15803d; }
   table { width: 100%; border-collapse: collapse; } td { padding: 3px 0; } .amt { text-align: right; white-space: nowrap; }
   .paid td { border-top: 1px dashed #bbb; font-weight: bold; } .grand td { border-top: 2px solid #222; font-size: 15px; font-weight: bold; padding-top: 6px; }
   .notes { margin-top: 12px; color: #444; white-space: pre-wrap; } .muted { color: #777; font-size: 11px; margin-top: 12px; }
@@ -1103,7 +1092,7 @@ function RecordReceipt({ rec, regById, eventTitle, onClose, formatName, formatCh
 <h1>${esc(eventTitle)}</h1>
 <div class="sub">${esc(title)} · ${esc(stamp(rec.created_at))} · ${esc(by)}</div>
 ${!cash && rec.reference ? `<div class="ref">Reference: <b>${esc(rec.reference)}</b></div>` : ''}
-${people.map((p) => `<h2>${esc(formatName(p.it.name))}</h2><div class="church">${esc(formatChurch(p.it.church) || '')}</div><table>${p.lines.map((l) => row(l.note ? `${l.label} (${l.note})` : l.label, l.amount)).join('')}${p.bed > 0 ? row('Accommodation (waiting list)', p.bed) : ''}${row('Paid on this payment', p.paid, 'paid')}</table>`).join('')}
+${people.map((p) => `<h2>${esc(formatName(p.it.name))}</h2><div class="church">${esc(formatChurch(p.it.church) || '')}</div>${p.tags.length ? `<div class="tags">${p.tags.map((t) => `<span class="tag ${t.tone}">${esc(t.text)}</span>`).join('')}</div>` : ''}<table>${p.lines.map((l) => `<tr class="${l.deduct ? 'deduct' : ''}"><td>${esc(l.label)}${l.tag ? ` <span class="note">(${esc(l.tag)})</span>` : ''}</td><td class="amt">${esc(signedPeso(l.amount))}</td></tr>`).join('')}${p.bed > 0 ? row('Accommodation (waiting list)', p.bed) : ''}${row('Paid on this payment', p.paid, 'paid')}</table>`).join('')}
 <table style="margin-top:14px">${row(cash ? 'Total money on hand' : 'Total amount sent', rec.total_amount, 'grand')}</table>
 ${rec.notes ? `<div class="notes"><b>Notes:</b> ${esc(rec.notes)}</div>` : ''}
 <div class="muted">${items.length} attendee${items.length === 1 ? '' : 's'}</div>
@@ -1139,9 +1128,16 @@ ${rec.notes ? `<div class="notes"><b>Notes:</b> ${esc(rec.notes)}</div>` : ''}
                 <b>{formatName(p.it.name)}</b>
                 <em>{formatChurch(p.it.church) || 'No church given'}</em>
               </div>
+              {p.tags.length > 0 && (
+                <div className="pay-receipt-tags">
+                  {p.tags.map((t) => (
+                    <span key={t.text} className={`pay-receipt-tag ${t.tone}`}><i className={`fas ${TAG_ICON[t.tone] || 'fa-circle-info'}`}></i> {t.text}</span>
+                  ))}
+                </div>
+              )}
               {p.lines.map((l, i) => (
-                <div key={i} className={`pay-receipt-line ${l.amount < 0 ? 'minus' : ''}`}>
-                  <span>{l.label}{l.note && <small> · {l.note}</small>}</span>
+                <div key={i} className={`pay-receipt-line ${l.deduct ? 'minus' : ''}`}>
+                  <span>{l.label}{l.tag && <small> · {l.tag}</small>}</span>
                   <b>{signedPeso(l.amount)}</b>
                 </div>
               ))}
