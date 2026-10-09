@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { normalizeUid, isPlausibleUid, formatUid } from '@/lib/rfid';
+import { normalizeUid, isPlausibleUid, formatUid, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
 
 /* ============================================================
    Every reader a desk can have, in one hook.
@@ -44,7 +44,10 @@ import { normalizeUid, isPlausibleUid, formatUid } from '@/lib/rfid';
    it, so there is no second code path to keep in step.
    ============================================================ */
 
-export default function useRfidReader({ active = false, onTap } = {}) {
+// autoSerial: open a board this browser was given before, by itself. A
+// screen that only borrows the board (a name screen) passes false until it
+// is asked to, so it never takes the port from the desk's dialog.
+export default function useRfidReader({ active = false, onTap, autoSerial = true } = {}) {
   // ---- The serial board ----
   const [serialStatus, setSerialStatus] = useState('idle'); // idle|opening|open|error
   const [baud, setBaud] = useState(9600);
@@ -579,9 +582,9 @@ export default function useRfidReader({ active = false, onTap } = {}) {
      Let go of the port when the desk is left or the page is closed. A port
      left open stays locked to this tab and the next connect attempt fails. */
   useEffect(() => {
-    if (active) { autoConnect(); return; }
+    if (active) { if (autoSerial) autoConnect(); return; }
     if (portRef.current) disconnect();
-  }, [active, autoConnect, disconnect]);
+  }, [active, autoSerial, autoConnect, disconnect]);
 
   useEffect(() => () => { disconnect(); }, [disconnect]);
 
@@ -590,7 +593,7 @@ export default function useRfidReader({ active = false, onTap } = {}) {
   useEffect(() => {
     if (!webSerialSupported || !active) return undefined;
 
-    const onConnect = () => { if (!portRef.current) autoConnect(); };
+    const onConnect = () => { if (!portRef.current && autoSerial) autoConnect(); };
     // Unplugged. The read loop notices too, but only when a read fails, and
     // that can be a while - this says so at once, and clears the state so the
     // next plug-in is a clean open rather than an InvalidStateError.
@@ -612,7 +615,7 @@ export default function useRfidReader({ active = false, onTap } = {}) {
       navigator.serial.removeEventListener('connect', onConnect);
       navigator.serial.removeEventListener('disconnect', onDisconnect);
     };
-  }, [webSerialSupported, active, autoConnect]);
+  }, [webSerialSupported, active, autoSerial, autoConnect]);
 
   /* ---- NFC lifecycle ---- */
   useEffect(() => {
@@ -702,15 +705,22 @@ export default function useRfidReader({ active = false, onTap } = {}) {
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
 
+      // One pause in the middle of a tap must not cost the digits before it -
+      // resetting on any gap over 120ms turned 0011179659 into 79659 whenever
+      // the page stalled mid-tap. So the digits are kept through a pause and
+      // the tap is judged as a whole when Enter arrives (wedgeCapture), the
+      // same as the Admin dashboard's listener.
       const now = Date.now();
       const state = keyRef.current;
-      if (now - state.at > 120) state.buf = '';
+      if (!state.gaps || now - state.at > WEDGE_IDLE_RESET_MS) { state.buf = ''; state.gaps = []; }
+      else if (state.buf || e.key === 'Enter') state.gaps.push(now - state.at);
       state.at = now;
 
       if (e.key === 'Enter') {
-        const captured = state.buf;
+        const captured = wedgeCapture(state.buf, state.gaps);
         state.buf = '';
-        if (isPlausibleUid(captured)) {
+        state.gaps = [];
+        if (captured) {
           e.preventDefault();
           sinkRef.current?.(captured, 'keyboard');
         }

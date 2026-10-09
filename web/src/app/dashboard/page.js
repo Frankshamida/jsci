@@ -13,7 +13,7 @@ import { exemptCreditLeft, extraNetFee } from '@/lib/exemption';
 import { receiptOf } from '@/lib/receipt';
 import { publishQrDisplay, announceQrDisplayEvent } from '@/lib/qrDisplay';
 import { announceDeskChange, followDeskChanges } from '@/lib/deskSync';
-import { publishMealsDisplay } from '@/lib/mealsDisplay';
+import { publishMealsDisplay, MEAL_LINE_BUSY, mealForNow } from '@/lib/mealsDisplay';
 import { checkinTapFrom, publishCheckinDisplay } from '@/lib/checkinDisplay';
 import { POLL_MS, useSmartPoll } from '@/lib/pollingConfig';
 import { printReport, buildPrintHtml, buildXlsx, buildDocx, buildCsv, downloadBlob, safeFilename } from '@/lib/exportDoc';
@@ -212,11 +212,29 @@ const BLANK_ROOM_FORM = {
   notes: '',
 };
 
-// The meal a Meals Counter opened now is serving: lunch until 3 pm in Manila,
-// dinner after.
-const mealForNow = () => {
-  const hour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', hourCycle: 'h23' }));
-  return hour < 15 ? 'lunch' : 'dinner';
+// The Meals Counter's line (see mealLine in the component).
+//   KEEP       answered taps kept on it - and on the name screen - after
+//              the people still waiting
+//   BOUNCE_MS  the same card again this soon after it was tapped is one tap
+//              that bounced, not a second visit
+//   BEAT_MS    a meal ticked by hand stays up this long before the next card
+//              in line replaces it, so whoever ticked it sees it land
+const MEAL_LINE_KEEP = 8;
+const MEAL_BOUNCE_MS = 4000;
+const MEAL_TICK_BEAT_MS = 1200;
+
+// One answered tap, as the line under the Meals Counter says it.
+const mealLineSay = (e) => {
+  const what = e.meal && e.day ? `Day ${e.day} ${e.meal}` : 'Meal';
+  switch (e.status) {
+    case 'served': return { tone: 'ok', icon: 'fa-circle-check', text: `${what} given` };
+    case 'already': return { tone: 'warn', icon: 'fa-clock-rotate-left', text: `${what} already taken` };
+    case 'blocked': return { tone: 'bad', icon: 'fa-user-clock', text: 'Not checked in' };
+    case 'not_verified': return { tone: 'bad', icon: 'fa-user-clock', text: 'Not verified' };
+    case 'skipped': return { tone: 'warn', icon: 'fa-forward', text: 'Skipped \u2014 nothing recorded' };
+    case 'error': return { tone: 'bad', icon: 'fa-rotate-right', text: 'Not read \u2014 tap again' };
+    default: return { tone: 'bad', icon: 'fa-circle-exclamation', text: 'Card not recognised' };
+  }
 };
 
 const claimDeskRecorded = (desk, who, dayNumber) => {
@@ -2457,10 +2475,23 @@ export default function DashboardPage() {
   // once; 'manual' leaves the ticking to the person at the counter. Picked by
   // the clock the first time the counter opens.
   const [mealServing, setMealServing] = useState(null); // null | 'lunch' | 'dinner' | 'manual'
-  // Which tap the name screen (/rfid-meals-display) is on, so a slow write
-  // for one person never paints over the next one, and what it last showed.
-  const mealTapSeqRef = useRef(0);
-  const mealLastTapRef = useRef(null);
+  // ---- The line at the Meals Counter ----
+  // Cards tapped faster than the counter can answer them wait their turn
+  // here, in the order they were tapped, each with its name up the moment it
+  // is read - nobody is lost under the card tapped after them. They are
+  // answered one at a time, so a card tapped twice is "already claimed",
+  // never two lunches. The name screen (/rfid-meals-display) is sent the
+  // whole line and turns the ID over to each of them in turn.
+  //   [{ seq, uid, name, first, last, church, status, note, meal, day, claimedAt, tapped, t }]
+  //   status  MEAL_LINE_BUSY ('waiting' | 'reading' | 'serving' | 'matched'),
+  //           then 'served' | 'already' | 'blocked' | 'not_verified'
+  //           | 'unknown' | 'error' | 'skipped'
+  // The ref is the line itself, for the worker going through it; the state
+  // draws it.
+  const [mealLine, setMealLine] = useState([]);
+  const mealLineRef = useRef([]);
+  const mealLineBusyRef = useRef(false);
+  const mealSeqRef = useRef(0);
 
   // ---- Attendance, per day ----
   // { registrationId: { '1': { attended_at }, '2': {...} } }. An event that
@@ -13468,14 +13499,27 @@ Examples:
 
   // ---- The name screen at the Meals Counter ----
   // What the queue sees on /rfid-meals-display: the event, the meal, and the
-  // last person to tap. Read through refs by the memoised card reader.
+  // line - every card tapped, in order, with what happened to it - so the
+  // screen can turn the ID over to each of them in turn. Read through refs
+  // by the memoised card reader.
   const mealsScreenRef = useRef(() => {});
-  mealsScreenRef.current = (tap) => {
-    if (tap !== undefined) mealLastTapRef.current = tap;
+  mealsScreenRef.current = () => {
+    const day = Number(evtCheckinDay) || 1;
+    const dayRow = evtEventDays.find((d) => d.number === day);
     publishMealsDisplay({
-      event: { id: eventRegsModal?.id || '', title: eventRegsModal?.title || '', image: eventRegsModal?.image_url || '' },
-      meal: { kind: mealServing === 'lunch' || mealServing === 'dinner' ? mealServing : '', day: Number(evtCheckinDay) || 1, days: evtEventDays.length },
-      tap: mealLastTapRef.current,
+      // Dates and venue too: the screen's left half says where and when.
+      event: {
+        id: eventRegsModal?.id || '', title: eventRegsModal?.title || '', image: eventRegsModal?.image_url || '',
+        start: eventRegsModal?.event_date || '', end: eventRegsModal?.end_date || '',
+        venue: eventRegsModal?.location || '', city: eventRegsModal?.loc_city || '',
+      },
+      meal: {
+        kind: mealServing === 'lunch' || mealServing === 'dinner' ? mealServing : '',
+        day, days: evtEventDays.length, label: dayRow?.label || '', date: dayRow?.dateKey || '',
+      },
+      // Never the card number or the server's wording: the channel is public
+      // and the screen faces the queue.
+      taps: mealLineRef.current.map(({ uid, note, tapped, ...tap }) => tap),
     });
   };
   // ---- The name screen at the door ----
@@ -13503,13 +13547,28 @@ Examples:
   const mealCardsRef = useRef({ links: {}, regs: [], dayAttend: {} });
   mealCardsRef.current = { links: idRfidLinks, regs: eventRegs, dayAttend: evtDayAttend };
 
+  // ---- Keeping the Meals Counter's line ----
+  // Everybody still being answered, and the last few answered after them -
+  // drawn under the counter and sent to the name screen with every change.
+  const setMealLineTo = useCallback((list) => {
+    const done = list.filter((e) => !MEAL_LINE_BUSY.includes(e.status));
+    const kept = new Set(done.slice(-MEAL_LINE_KEEP).map((e) => e.seq));
+    const next = list.filter((e) => MEAL_LINE_BUSY.includes(e.status) || kept.has(e.seq));
+    mealLineRef.current = next;
+    setMealLine(next);
+    mealsScreenRef.current();
+  }, []);
+  // What happened to one card in the line, by its place in it.
+  const patchMealTap = useCallback((seq, patch) => {
+    if (!seq || !mealLineRef.current.some((e) => e.seq === seq)) return;
+    setMealLineTo(mealLineRef.current.map((e) => (e.seq === seq ? { ...e, ...patch, t: Date.now() } : e)));
+  }, [setMealLineTo]);
+
   // A meal ticked by the card itself, when the counter is serving one.
   const serveDeskMeal = useCallback(async (reg, meal, day, seq) => {
     const eventId = eventRegsModal?.id;
     if (!eventId || !reg) return;
     const key = `${meal}-${day}`;
-    const base = { seq, name: reg.attendee_name, church: reg.church_name || '', meal, day };
-    const stillOnScreen = () => seq === mealTapSeqRef.current;
     const stopServing = () => setClaimWho((prev) => (prev?.registration?.id === reg.id ? { ...prev, serving: '' } : prev));
     setEvtClaimBusy(`${reg.id}:${key}`);
     try {
@@ -13522,9 +13581,7 @@ Examples:
       if (!data.success) {
         showToast(data.message, 'danger');
         stopServing();
-        if (stillOnScreen()) {
-          mealsScreenRef.current({ ...base, status: /not checked in/i.test(data.message || '') ? 'blocked' : 'unknown', note: data.message });
-        }
+        patchMealTap(seq, { status: /not checked in/i.test(data.message || '') ? 'blocked' : 'error', note: data.message });
         return;
       }
       const claim = data.claim || { claimed_at: new Date().toISOString() };
@@ -13533,15 +13590,15 @@ Examples:
         : prev));
       setEvtClaims((prev) => ({ ...prev, [reg.id]: { ...(prev[reg.id] || {}), [key]: claim } }));
       showToast(`Day ${day} ${meal} given to ${reg.attendee_name}`, 'success');
-      if (stillOnScreen()) mealsScreenRef.current({ ...base, status: 'served', claimedAt: claim.claimed_at });
+      patchMealTap(seq, { status: 'served', claimedAt: claim.claimed_at });
     } catch (err) {
       showToast(err.message, 'danger');
       stopServing();
-      if (stillOnScreen()) mealsScreenRef.current({ ...base, status: 'unknown', note: 'The meal could not be recorded - tap the card again.' });
+      patchMealTap(seq, { status: 'error', note: 'The meal could not be recorded - tap the card again.' });
     } finally {
       setEvtClaimBusy('');
     }
-  }, [eventRegsModal?.id, userData?.id, showToast]);
+  }, [eventRegsModal?.id, userData?.id, showToast, patchMealTap]);
 
   // A tap at a counter. Who is this, and what do they already hold?
   //
@@ -13549,29 +13606,34 @@ Examples:
   // walking through the door, and a tap at the merch table must not mark
   // somebody as having arrived. The API's ?uid= mode resolves without
   // touching attendance - see api/rfid/event-checkin/route.js.
-  const lookupClaimCard = useCallback(async (rawUid) => {
+  //
+  // At the Meals Counter every card is a place in the line first (see
+  // enqueueMealTap) and comes here in its turn, with lineSeq saying which.
+  const lookupClaimCard = useCallback(async (rawUid, lineSeq = 0) => {
     const eventId = eventRegsModal?.id;
     if (!eventId) return;
     const uid = normalizeUid(rawUid);
     if (!isPlausibleUid(uid)) return;
 
-    // The name screen moves on at the tap, not when the server answers: with
-    // the event's cards loaded, whose card it is is already known here.
-    const seq = claimDesk === 'meals' ? ++mealTapSeqRef.current : 0;
-    const screen = (tap) => { if (seq && seq === mealTapSeqRef.current) mealsScreenRef.current({ seq, ...tap }); };
-    if (seq) {
-      const link = Object.values(mealCardsRef.current.links).find((l) => l?.uid && sameCard(l.uid, uid));
-      const known = link && mealCardsRef.current.regs.find((r) => r.id === link.registration_id);
-      if (known) screen({ name: known.attendee_name, church: known.church_name || '', status: 'reading' });
-    }
+    // What happens to a card in the line is written on it - and so goes on
+    // the name screen, whose name for it went up off the event's cards the
+    // moment it was tapped.
+    const seq = claimDesk === 'meals' ? lineSeq : 0;
+    const screen = (tap) => patchMealTap(seq, tap);
+    screen({ status: 'reading' });
+    // A meal recorded by the card itself, waited for before this returns so
+    // the line only moves on once it is on the record.
+    let serving = null;
 
     // The button will not skip somebody whose visit was never recorded - and
     // neither should the next card in the queue, silently. It still replaces
     // them, because the alternative is a desk that refuses to read a card
     // while the person it is waiting for has walked off; but it says whose
-    // record was left empty, by name, while that is still fixable.
+    // record was left empty, by name, while that is still fixable. (The
+    // Meals Counter's line never replaces anybody: the next card waits its
+    // turn, and Skip says the name - see skipMealDesk.)
     const leaving = claimWho;
-    if (leaving?.result === 'matched' && !leaving.serving && !claimDeskRecorded(claimDesk, leaving, evtCheckinDay)
+    if (claimDesk === 'kit' && leaving?.result === 'matched' && !claimDeskRecorded(claimDesk, leaving, evtCheckinDay)
       && !sameCard(leaving.uid, uid)) {
       showToast(
         `Nothing was recorded for ${leaving.registration?.attendee_name || 'the last card'}`,
@@ -13587,8 +13649,8 @@ Examples:
       );
       const data = await res.json();
       if (!data.success) {
-        setClaimWho({ result: 'error', message: data.message, uid });
-        screen({ name: '', status: 'unknown', note: data.message || 'That card could not be read' });
+        setClaimWho({ result: 'error', message: data.message, uid, seq });
+        screen({ status: 'error', note: data.message || 'That card could not be read' });
         return;
       }
 
@@ -13666,15 +13728,21 @@ Examples:
         already,
         blocked,
         serving: autoServe ? servingKey : '',
+        seq,
       });
 
       if (seq) {
         const reg = data.registration;
-        const base = { name: reg?.attendee_name || '', church: reg?.church_name || '', meal: servingMeal, day };
-        if (data.result !== 'matched') screen({ ...base, status: 'unknown', note: data.message });
+        const base = {
+          name: reg?.attendee_name || '', first: reg?.attendee_firstname || '', last: reg?.attendee_lastname || '',
+          church: reg?.church_name || '', meal: servingMeal, day,
+        };
+        if (data.result === 'not_verified') screen({ ...base, status: 'not_verified', note: data.message });
+        else if (data.result !== 'matched') screen({ ...base, status: 'unknown', note: data.message });
         else if (blocked) screen({ ...base, status: 'blocked', note: blocked });
         else if (servingMeal && held[servingKey]) screen({ ...base, status: 'already', claimedAt: held[servingKey].claimed_at });
-        else if (autoServe) { screen({ ...base, status: 'serving' }); serveDeskMeal(reg, servingMeal, day, seq); }
+        else if (autoServe) { screen({ ...base, status: 'serving' }); serving = serveDeskMeal(reg, servingMeal, day, seq); }
+        // Ticked by hand: the line waits for it (pumpMealLine).
         else screen({ ...base, status: 'matched' });
       }
 
@@ -13695,12 +13763,13 @@ Examples:
         }
       }
     } catch (err) {
-      setClaimWho({ result: 'error', message: err.message, uid });
-      screen({ name: '', status: 'unknown', note: 'That card could not be read - tap it again.' });
+      setClaimWho({ result: 'error', message: err.message, uid, seq });
+      screen({ status: 'error', note: 'That card could not be read - tap it again.' });
     } finally {
       setClaimLookupBusy(false);
     }
-  }, [eventRegsModal?.id, claimDesk, claimWho, evtCheckinDay, evtEventDayNumbers, formatStampLine, showToast, mealServing, serveDeskMeal]);
+    await serving;
+  }, [eventRegsModal?.id, claimDesk, claimWho, evtCheckinDay, evtEventDayNumbers, formatStampLine, showToast, mealServing, serveDeskMeal, patchMealTap]);
 
   // The kit, handed over. One button at the end rather than a write per tick:
   // the person at the counter is checking a bag against a list, and each item
@@ -13802,10 +13871,9 @@ Examples:
         if (nextClaim) claims[key] = nextClaim; else delete claims[key];
         return { ...prev, claims, served: nextClaim ? key : '' };
       });
-      const last = mealLastTapRef.current;
-      if (last && last.seq === mealTapSeqRef.current && last.name === reg.attendee_name) {
-        mealsScreenRef.current({ ...last, meal, day, status: nextClaim ? 'served' : 'matched', claimedAt: nextClaim?.claimed_at });
-      }
+      // On the card's place in the line, and so on the name screen. Taken
+      // back puts them on the counter again, waiting for the right one.
+      patchMealTap(claimWho.seq, { meal, day, status: nextClaim ? 'served' : 'matched', claimedAt: nextClaim?.claimed_at || null });
       setEvtClaims((prev) => {
         const forReg = { ...(prev[reg.id] || {}) };
         if (nextClaim) forReg[key] = nextClaim; else delete forReg[key];
@@ -13816,7 +13884,111 @@ Examples:
     } finally {
       setEvtClaimBusy('');
     }
-  }, [eventRegsModal?.id, claimWho, evtClaimBusy, userData?.id, showToast]);
+  }, [eventRegsModal?.id, claimWho, evtClaimBusy, userData?.id, showToast, patchMealTap]);
+
+  // ---- Working through the Meals Counter's line ----
+  // One card at a time, in the order they were tapped. Held while somebody
+  // at the counter is waiting for a meal to be ticked by hand (status
+  // 'matched'): the card behind them waits its turn rather than replacing
+  // them, and moving past them is Skip, which says their name.
+  //
+  // Through refs, because it runs across several renders: each card's answer
+  // is drawn before the next card is read.
+  const lookupClaimCardRef = useRef(lookupClaimCard);
+  lookupClaimCardRef.current = lookupClaimCard;
+  const claimDeskRef = useRef(claimDesk);
+  claimDeskRef.current = claimDesk;
+  const pumpMealLine = useCallback(async () => {
+    if (mealLineBusyRef.current) return;
+    mealLineBusyRef.current = true;
+    try {
+      for (;;) {
+        const line = mealLineRef.current;
+        if (claimDeskRef.current !== 'meals' || line.some((e) => e.status === 'matched')) break;
+        const next = line.find((e) => e.status === 'waiting');
+        if (!next) break;
+        await lookupClaimCardRef.current(next.uid, next.seq);
+        // Never left waiting: a card turned away before it was even asked about.
+        if (mealLineRef.current.find((e) => e.seq === next.seq)?.status === 'waiting') {
+          patchMealTap(next.seq, { status: 'error' });
+        }
+        // A breath for the answer to be drawn before the next card replaces it.
+        await new Promise((r) => { setTimeout(r, 80); });
+      }
+    } finally {
+      mealLineBusyRef.current = false;
+    }
+  }, [patchMealTap]);
+
+  // A card at the Meals Counter: into the line, with its name up at once off
+  // the event's cards, and the line set going.
+  const enqueueMealTap = useCallback((rawUid) => {
+    const uid = normalizeUid(rawUid);
+    if (!isPlausibleUid(uid)) return;
+    const now = Date.now();
+    // The same card again while it is still in the line, or a moment after it
+    // was answered: one tap that bounced, not a second visit. (After a card
+    // that could not be read, tapping again is exactly what was asked for.)
+    const bounced = mealLineRef.current.some((e) => sameCard(e.uid, uid)
+      && (MEAL_LINE_BUSY.includes(e.status) || (e.status !== 'error' && now - e.tapped < MEAL_BOUNCE_MS)));
+    if (bounced) return;
+    const link = Object.values(mealCardsRef.current.links).find((l) => l?.uid && sameCard(l.uid, uid));
+    const known = link && mealCardsRef.current.regs.find((r) => r.id === link.registration_id);
+    // The counter's clock, so a screen that kept an old line never mistakes a
+    // new tap for one it has shown; never the same number twice.
+    const seq = Math.max(now, mealSeqRef.current + 1);
+    mealSeqRef.current = seq;
+    setMealLineTo([...mealLineRef.current, {
+      seq, uid, tapped: now, t: now, status: 'waiting',
+      name: known?.attendee_name || '', first: known?.attendee_firstname || '', last: known?.attendee_lastname || '',
+      church: known?.church_name || '',
+    }]);
+    pumpMealLine();
+  }, [setMealLineTo, pumpMealLine]);
+
+  // A card taken back out of the line before its turn - tapped by mistake.
+  const dropMealTap = useCallback((seq) => {
+    setMealLineTo(mealLineRef.current.filter((e) => !(e.seq === seq && e.status === 'waiting')));
+  }, [setMealLineTo]);
+
+  // Moving past somebody waiting for a tick by hand, because the line behind
+  // them is waiting. Allowed - they may have walked off - but never quietly:
+  // whose record was left empty is said by name, while it is still fixable.
+  const skipMealDesk = useCallback(() => {
+    const held = mealLineRef.current.find((e) => e.status === 'matched');
+    if (!held) return;
+    showToast(`Nothing was recorded for ${held.name ? formatPersonName(held.name) : 'the last card'}`, 'warning');
+    patchMealTap(held.seq, { status: 'skipped' });
+    setClaimWho((prev) => (prev?.seq === held.seq ? null : prev));
+    setClaimTicked([]);
+  }, [patchMealTap, showToast]);
+
+  // Next person at the Meals Counter, for somebody still waiting on a tick
+  // by hand: they leave the line as what their record already says - Next
+  // person only unlocks once the day has a meal on it (claimDeskGate).
+  const releaseMealDesk = () => {
+    const who = claimWho;
+    const e = who?.seq && mealLineRef.current.find((x) => x.seq === who.seq);
+    if (!e || e.status !== 'matched') return;
+    const day = Number(evtCheckinDay) || 1;
+    const meal = ['dinner', 'lunch'].find((m) => who.claims?.[`${m}-${day}`]);
+    patchMealTap(e.seq, meal
+      ? { status: 'already', meal, day, claimedAt: who.claims[`${meal}-${day}`].claimed_at || null }
+      : { status: 'skipped' });
+  };
+
+  // The line moves on by itself once the counter is free again - at once,
+  // or a beat after a meal ticked by hand, so whoever ticked it sees it land.
+  useEffect(() => {
+    if (claimDesk !== 'meals') return undefined;
+    if (!mealLine.some((e) => e.status === 'waiting') || mealLine.some((e) => e.status === 'matched')) return undefined;
+    const t = setTimeout(pumpMealLine, claimWho?.seq ? MEAL_TICK_BEAT_MS : 0);
+    return () => clearTimeout(t);
+  }, [claimDesk, mealLine, claimWho, pumpMealLine]);
+  // Closing the counter clears its line.
+  useEffect(() => {
+    if (claimDesk !== 'meals' && mealLineRef.current.length) setMealLineTo([]);
+  }, [claimDesk, setMealLineTo]);
 
   // A tap at the door, from the Attendance tab's scanner.
   //
@@ -20289,13 +20461,14 @@ ${row('Change', rc.change, 'change')}
     else if (idRfidReg) rfidSinkRef.current = (uid) => { if (!idRfidBusy) checkIdRfidCard(uid); };
     else if (accScanOpen) rfidSinkRef.current = (uid) => lookupAccScanCard(uid);
     else if (roomDesk) rfidSinkRef.current = (uid) => assignRoomCard(uid);
+    else if (claimDesk === 'meals') rfidSinkRef.current = (uid) => enqueueMealTap(uid);
     else if (claimDesk) rfidSinkRef.current = (uid) => lookupClaimCard(uid);
     else if (evtRfidScanOpen) rfidSinkRef.current = (uid, src) => scanEventRfid(uid, src);
     else if (idsTabScan) rfidSinkRef.current = (uid) => lookupIdTap(uid);
     else if (verifyAttendeeScan) rfidSinkRef.current = (uid) => lookupVerifyTap(uid);
     else rfidSinkRef.current = null;
     return () => { rfidSinkRef.current = null; };
-  }, [evtUnlockOpen, tryUnlockTable, cardStockOpen, addStockCard, walkinCardScan, returnDeskOpen, returnsTabScan, lookupReturnCard, idRfidReg, idRfidBusy, checkIdRfidCard, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, evtRfidScanOpen, scanEventRfid, idsTabScan, lookupIdTap, verifyScanOpen, verifyScan, checkVerifierCard, verifyAttendeeScan, lookupVerifyTap, verifierForm?.step, onVerifierCard, superAccessScan, onSuperAccessCard]);
+  }, [evtUnlockOpen, tryUnlockTable, cardStockOpen, addStockCard, walkinCardScan, returnDeskOpen, returnsTabScan, lookupReturnCard, idRfidReg, idRfidBusy, checkIdRfidCard, accScanOpen, lookupAccScanCard, roomDesk, assignRoomCard, claimDesk, lookupClaimCard, enqueueMealTap, evtRfidScanOpen, scanEventRfid, idsTabScan, lookupIdTap, verifyScanOpen, verifyScan, checkVerifierCard, verifyAttendeeScan, lookupVerifyTap, verifierForm?.step, onVerifierCard, superAccessScan, onSuperAccessCard]);
 
   // The claims grid and the attendance grid for the event on screen.
   useEffect(() => {
@@ -25274,8 +25447,8 @@ ${row('Change', rc.change, 'change')}
                         <div className="evt-mealpick-foot">
                           <em>
                             {mealServing === 'lunch' || mealServing === 'dinner'
-                              ? `A card tapped gets Day ${Number(evtCheckinDay) || 1} ${mealServing} ticked straight away.`
-                              : 'Tick the meal below after each card.'}
+                              ? `A card tapped gets Day ${Number(evtCheckinDay) || 1} ${mealServing} ticked straight away. Cards tapped quickly wait in line.`
+                              : 'Tick the meal below after each card. Cards tapped meanwhile wait in line.'}
                           </em>
                           <button type="button" className="evt-chip-btn" onClick={() => window.open('/rfid-meals-display', 'jsci-meals-display')}>
                             <i className="fas fa-display"></i> Name screen
@@ -25292,7 +25465,12 @@ ${row('Change', rc.change, 'change')}
                       {claimLookupBusy ? (
                         <>
                           <i className="fas fa-spinner fa-spin"></i>
-                          <div><b>Reading the card…</b></div>
+                          <div>
+                            <b>Reading the card…</b>
+                            {claimDesk === 'meals' && mealLine.find((e) => e.status === 'reading')?.name && (
+                              <em>{formatPersonName(mealLine.find((e) => e.status === 'reading').name)}</em>
+                            )}
+                          </div>
                         </>
                       ) : !claimWho ? (
                         <>
@@ -25350,7 +25528,7 @@ ${row('Change', rc.change, 'change')}
                             className="btn-small btn-secondary"
                             disabled={!claimDeskGate.ok}
                             title={claimDeskGate.why}
-                            onClick={() => { setClaimWho(null); setClaimTicked([]); }}
+                            onClick={() => { if (claimDesk === 'meals') releaseMealDesk(); setClaimWho(null); setClaimTicked([]); }}
                           >
                             Next person
                           </button>
@@ -25387,9 +25565,90 @@ ${row('Change', rc.change, 'change')}
                       </p>
                     )}
 
+                    {/* ---- The line ----
+                        Cards tapped while the counter was still answering the
+                        last one, in the order they were tapped - each a name
+                        the moment it is read, so nobody is lost under the card
+                        behind them - and the last few answered. */}
+                    {claimDesk === 'meals' && mealLine.length > 0 && (() => {
+                      const waiting = mealLine.filter((e) => e.status === 'waiting' || e.status === 'reading');
+                      const answered = mealLine.filter((e) => !MEAL_LINE_BUSY.includes(e.status)).slice(-5).reverse();
+                      const held = mealLine.find((e) => e.status === 'matched');
+                      const nameOf = (e) => (e.name ? formatPersonName(e.name) : `Card ${formatUid(e.uid)}`);
+                      return (
+                        <div className="evt-meal-line">
+                          {waiting.length > 0 && (
+                            <div className="evt-meal-line-group">
+                              <div className="evt-meal-line-head">
+                                <b>
+                                  <i className="fas fa-people-line"></i> In line
+                                  <span className="evt-meal-line-count">{waiting.length}</span>
+                                </b>
+                                {held && (
+                                  <button type="button" className="evt-chip-btn" onClick={skipMealDesk} title="Move on without recording a meal for them">
+                                    <i className="fas fa-forward"></i> Skip {nameOf(held)}
+                                  </button>
+                                )}
+                              </div>
+                              {held && (
+                                <p className="evt-meal-line-held">
+                                  <i className="fas fa-hand"></i>
+                                  Waiting for a meal to be ticked for {nameOf(held)} &mdash; the line moves on once it is.
+                                </p>
+                              )}
+                              <ol>
+                                {waiting.map((e, i) => (
+                                  <li key={e.seq} className={e.status === 'reading' ? 'is-reading' : ''}>
+                                    <span className="evt-meal-line-num">{i + 1}</span>
+                                    <span className={`evt-meal-line-name ${e.name ? '' : 'is-card'}`}>{nameOf(e)}</span>
+                                    {e.status === 'reading' ? (
+                                      <em><i className="fas fa-spinner fa-spin"></i> Reading</em>
+                                    ) : (
+                                      <>
+                                        <em>Waiting</em>
+                                        <button
+                                          type="button"
+                                          className="evt-meal-line-x"
+                                          onClick={() => dropMealTap(e.seq)}
+                                          title="Take this card out of the line"
+                                          aria-label={`Take ${nameOf(e)} out of the line`}
+                                        >
+                                          <i className="fas fa-xmark"></i>
+                                        </button>
+                                      </>
+                                    )}
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          )}
+                          {answered.length > 0 && (
+                            <div className="evt-meal-line-group">
+                              <div className="evt-meal-line-head">
+                                <b><i className="fas fa-clock-rotate-left"></i> Just now</b>
+                              </div>
+                              <ul>
+                                {answered.map((e) => {
+                                  const say = mealLineSay(e);
+                                  return (
+                                    <li key={e.seq} className={`is-${say.tone}`}>
+                                      <i className={`fas ${say.icon}`}></i>
+                                      <span className={`evt-meal-line-name ${e.name ? '' : 'is-card'}`}>{nameOf(e)}</span>
+                                      <em>{say.text}</em>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Typing a number in, for a card whose reader is not to
-                        hand and for testing before the queue arrives. */}
-                    {!claimWho && (
+                        hand and for testing before the queue arrives. At the
+                        Meals Counter it joins the line like a tap. */}
+                    {(!claimWho || claimDesk === 'meals') && (
                       <div className="rfid-manual">
                         <input
                           className="form-control"
@@ -25398,7 +25657,7 @@ ${row('Change', rc.change, 'change')}
                           placeholder="…or type a card number"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && isPlausibleUid(claimManual)) {
-                              lookupClaimCard(claimManual);
+                              if (claimDesk === 'meals') enqueueMealTap(claimManual); else lookupClaimCard(claimManual);
                               setClaimManual('');
                             }
                           }}
@@ -25406,8 +25665,11 @@ ${row('Change', rc.change, 'change')}
                         <button
                           type="button"
                           className="btn-secondary"
-                          disabled={!isPlausibleUid(claimManual) || claimLookupBusy}
-                          onClick={() => { lookupClaimCard(claimManual); setClaimManual(''); }}
+                          disabled={!isPlausibleUid(claimManual) || (claimDesk !== 'meals' && claimLookupBusy)}
+                          onClick={() => {
+                            if (claimDesk === 'meals') enqueueMealTap(claimManual); else lookupClaimCard(claimManual);
+                            setClaimManual('');
+                          }}
                         >
                           Look up
                         </button>

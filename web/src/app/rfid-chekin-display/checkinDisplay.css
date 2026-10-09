@@ -128,8 +128,12 @@
 .rcd-say.is-info b i, .rcd-say.is-idle b i { color: var(--rcd-gold); }
 .rcd-wifi { transform: rotate(90deg); animation: rcd-pulse 1.8s ease-in-out infinite; }
 
+/* Bottom right: scanning on this screen, and the live link to the desk. */
+.rcd-corner {
+  position: fixed; z-index: 3; right: max(16px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px);
+}
 .rcd-status {
-  position: fixed; right: 16px; bottom: 14px; z-index: 2;
   display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
   background: rgba(0, 0, 0, 0.35); color: #fff; font-size: 0.8rem; font-weight: 600; white-space: nowrap;
 }
@@ -222,8 +226,168 @@
 }
 @keyframes rcd-turn { 0%, 15% { transform: rotate(0deg); } 45%, 70% { transform: rotate(-90deg); } 100% { transform: rotate(0deg); } }
 
+/* ---- The line: who is still to come on the card ----
+   Shared with the Meals Counter's screen. With a line up, the welcome gives
+   up a little height for it. */
+.rcd.has-line .rcd-hello span:first-child { font-size: clamp(2.6rem, 6.2vw, 7rem); }
+.rcd.has-line .rcd-hello span:last-child { font-size: clamp(1.5rem, 3.4vw, 3.8rem); }
+.rcd.has-line .rcd-welcome { gap: clamp(12px, 2.1vh, 26px); }
+
+.rcd-line {
+  align-self: flex-start; width: min(100%, 560px);
+  display: flex; flex-direction: column; gap: clamp(8px, 1.2vh, 12px);
+  padding: clamp(12px, 1.8vh, 18px) clamp(16px, 1.6vw, 22px); border-radius: 18px;
+  background: rgba(0, 0, 0, 0.32); border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  animation: rcd-line-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.rcd-line-head {
+  display: flex; align-items: center; gap: 10px;
+  font-size: clamp(0.8rem, 1.05vw, 1.05rem); font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--rcd-gold);
+}
+.rcd-line-count {
+  min-width: 1.9em; height: 1.9em; padding: 0 0.5em; border-radius: 999px; display: inline-grid; place-items: center;
+  background: var(--rcd-gold); color: #3a2a06; letter-spacing: 0; font-variant-numeric: tabular-nums;
+}
+.rcd-line ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: clamp(6px, 0.9vh, 10px); }
+.rcd-line li {
+  display: flex; align-items: center; gap: 12px; min-width: 0;
+  font-size: clamp(1rem, 1.55vw, 1.6rem); font-weight: 700; color: rgba(255, 255, 255, 0.82);
+  animation: rcd-line-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.rcd-line li.is-next { color: #fff; }
+.rcd-line-num {
+  flex: 0 0 auto; width: 1.75em; height: 1.75em; border-radius: 50%; display: grid; place-items: center;
+  font-size: 0.72em; font-weight: 800; font-variant-numeric: tabular-nums;
+  background: rgba(245, 197, 66, 0.16); color: var(--rcd-gold); border: 1px solid rgba(245, 197, 66, 0.35);
+}
+.rcd-line li.is-next .rcd-line-num { background: var(--rcd-gold); color: #3a2a06; border-color: var(--rcd-gold); }
+.rcd-line-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rcd-line-name.is-card { font-weight: 500; font-style: italic; opacity: 0.7; }
+.rcd-line-more { font-size: clamp(0.85rem, 1.1vw, 1.1rem); font-weight: 600; color: rgba(255, 255, 255, 0.65); padding-left: 2px; }
+@keyframes rcd-line-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+@media (orientation: portrait) {
+  .rcd-line { align-self: center; }
+  .rcd.has-line .rcd-hello span:first-child { font-size: clamp(2.2rem, 11vw, 5rem); }
+  .rcd.has-line .rcd-hello span:last-child { font-size: clamp(1.3rem, 6vw, 2.8rem); }
+}
+@media (orientation: landscape) and (max-height: 800px) {
+  .rcd.has-line .rcd-hello span:first-child { font-size: min(11vh, 6.2vw); }
+  .rcd.has-line .rcd-hello span:last-child { font-size: min(6vh, 3.4vw); }
+  .rcd.has-line .rcd-poster { width: min(12vh, 8vw); }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .rcd-line { padding: 1.6vh 2.4vh; gap: 1.2vh; border-radius: 12px; }
+  .rcd-line-head { font-size: min(3.4vh, 1.8vw); }
+  .rcd-line li { font-size: min(4.2vh, 2.2vw); gap: 8px; }
+  .rcd-line ol { gap: 1vh; }
+  .rcd.has-line .rcd-event h2 { font-size: min(5.4vh, 3vw); }
+  .rcd.has-line .rcd-facts li:nth-child(2) { display: none; }
+}
+
+/* ---- Scanning on this screen ----
+   A quiet chip in the corner - the screen faces a queue - and the sheet it
+   opens. Green when a reader here is answering cards. */
+.rcd-station-chip {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 32px; min-width: 0; padding: 0 12px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(0, 0, 0, 0.4); color: #fff; cursor: pointer;
+  font: inherit; font-size: 0.8rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 0.7; transition: opacity 0.2s ease;
+}
+.rcd-station-chip:hover, .rcd-station-chip:focus-visible { opacity: 1; }
+.rcd-station-chip:focus-visible { outline: 3px solid rgba(245, 197, 66, 0.6); outline-offset: 2px; }
+.rcd-station-chip > i { color: var(--rcd-gold); }
+.rcd-station-chip small { font-size: 0.72rem; font-weight: 600; color: rgba(255, 255, 255, 0.6); }
+.rcd-station-chip .rcd-dot { background: rgba(255, 255, 255, 0.35); }
+.rcd-station-chip.is-on { opacity: 0.9; border-color: rgba(74, 222, 128, 0.35); }
+.rcd-station-chip.is-on .rcd-dot { background: #4ade80; box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.3); }
+.rcd-station-chip.is-warn { opacity: 1; border-color: rgba(251, 191, 36, 0.55); }
+.rcd-station-chip.is-warn .rcd-dot { background: #fbbf24; }
+
+.rcd-station-overlay {
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px;
+  background: rgba(10, 7, 2, 0.6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  animation: rcd-say-in 0.2s ease backwards;
+}
+.rcd-station-sheet {
+  width: min(460px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 14px; padding: 18px 20px;
+  border-radius: 18px; background: #241a07; border: 1px solid rgba(245, 197, 66, 0.25);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55); color: #fff;
+  -webkit-user-select: text; user-select: text;
+}
+.rcd-station-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rcd-station-head b { display: inline-flex; align-items: center; gap: 10px; font-size: 1.05rem; }
+.rcd-station-head b i { color: var(--rcd-gold); }
+.rcd-station-x {
+  width: 34px; height: 34px; border-radius: 50%; border: 0; display: grid; place-items: center; cursor: pointer;
+  background: rgba(255, 255, 255, 0.08); color: #fff; font-size: 1rem;
+}
+.rcd-station-x:hover { background: rgba(255, 255, 255, 0.16); }
+.rcd-station-who { margin: 0; font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); display: flex; align-items: center; gap: 8px; }
+.rcd-station-who i { color: var(--rcd-gold); }
+.rcd-station-note p { margin: 0 0 12px; font-size: 0.9rem; line-height: 1.5; color: rgba(255, 255, 255, 0.85); }
+
+.rcd-station-switch {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.rcd-station-switch input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: #4ade80; flex: 0 0 auto; cursor: pointer; }
+.rcd-station-switch span { display: flex; flex-direction: column; gap: 2px; }
+.rcd-station-switch b { font-size: 0.92rem; }
+.rcd-station-switch small { font-size: 0.78rem; color: rgba(255, 255, 255, 0.65); line-height: 1.4; }
+
+.rcd-station-field { display: flex; flex-direction: column; gap: 7px; }
+.rcd-station-field > span { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--rcd-gold); }
+.rcd-station-field em { font-style: normal; font-size: 0.78rem; color: rgba(255, 255, 255, 0.65); }
+.rcd-station-field em.bad { color: #fca5a5; }
+.rcd-station-field select, .rcd-station-field input {
+  width: 100%; min-height: 42px; padding: 0 12px; border-radius: 10px; font: inherit; font-size: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(0, 0, 0, 0.35); color: #fff;
+}
+.rcd-station-field select option { background: #241a07; color: #fff; }
+.rcd-station-field select:focus, .rcd-station-field input:focus { outline: 2px solid rgba(245, 197, 66, 0.6); outline-offset: 1px; }
+.rcd-station-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.rcd-station-pills button {
+  flex: 1 1 90px; min-height: 40px; padding: 0 12px; border-radius: 10px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font: inherit; font-size: 0.88rem; font-weight: 800;
+  border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.05); color: #fff;
+}
+.rcd-station-pills button.on { border-color: var(--rcd-gold); background: rgba(245, 197, 66, 0.18); color: var(--rcd-gold); }
+.rcd-station-readers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rcd-station-readers li {
+  display: flex; align-items: center; gap: 10px; font-size: 0.86rem; color: rgba(255, 255, 255, 0.65);
+  padding: 8px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.04);
+}
+.rcd-station-readers li i { width: 18px; text-align: center; color: rgba(255, 255, 255, 0.45); }
+.rcd-station-readers li.on { color: #fff; }
+.rcd-station-readers li.on i { color: #4ade80; }
+.rcd-station-readers li button {
+  border: 0; padding: 4px 10px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 800;
+  background: var(--rcd-gold); color: #3a2a06;
+}
+.rcd-station-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.rcd-station-row input { flex: 1 1 160px; width: auto; }
+.rcd-station-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 16px;
+  border-radius: 10px; cursor: pointer; text-decoration: none; font: inherit; font-size: 0.88rem; font-weight: 800;
+  border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.06); color: #fff;
+}
+.rcd-station-btn:disabled { opacity: 0.45; cursor: default; }
+.rcd-station-btn.primary { background: linear-gradient(135deg, var(--rcd-gold), var(--rcd-gold-2)); border-color: transparent; color: #2a1d03; }
+.rcd-station-foot { display: flex; justify-content: flex-end; }
+
+@media (orientation: landscape) and (max-height: 540px) {
+  .rcd-station-chip { min-height: 28px; font-size: 0.7rem; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rcd-card { transition-duration: 0.01s; }
   .rcd-lift, .rcd-lift.is-lifting, .rcd-welcome, .rcd-say, .rcd-wifi, .rcd-rotate-ico { animation: none; }
   .rcd-shine { display: none; }
+  .rcd-line, .rcd-line li, .rcd-station-overlay { animation: none; }
 }

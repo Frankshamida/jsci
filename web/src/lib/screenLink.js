@@ -107,10 +107,15 @@ export function createScreenLink({ channel, storageKey, topic, answersHello = (m
    */
   const subscribe = (onChange, onStatus = () => {}) => {
     const stops = [];
-    let lastAt = 0;
+    // Newest per publisher (msg.from): a desk and a screen scanning for itself
+    // can both be publishing, each on its own device's clock, and one running
+    // a few seconds behind must not have every message thrown away.
+    const lastAt = new Map();
     const take = (msg) => {
-      if (!msg || typeof msg.at !== 'number' || msg.at < lastAt) return;
-      lastAt = msg.at;
+      if (!msg || typeof msg.at !== 'number') return;
+      const from = msg.from || '';
+      if (msg.at < (lastAt.get(from) || 0)) return;
+      lastAt.set(from, msg.at);
       onChange(msg);
     };
 

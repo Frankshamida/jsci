@@ -26355,6 +26355,75 @@ body.dark-mode .evt-mealpick-btn.on { color: var(--accent, #e0b64a); }
 body.dark-mode .evt-claim-who.already b,
 body.dark-mode .evt-claim-already { color: var(--accent, #e0b64a); }
 
+/* ---- The line at the Meals Counter ----
+   Cards tapped while the counter was still answering the last one, in the
+   order they were tapped, and the last few answered. Names first: the point
+   is that nobody who tapped is lost under the card behind them. */
+.evt-meal-line {
+  display: flex; flex-direction: column; gap: 12px;
+  margin: -4px 0 14px; padding: 12px 14px;
+  border: 1px solid var(--border-color, #e5e5e5); border-radius: 13px;
+  background: var(--bg-card, #fff);
+}
+.evt-meal-line-group { display: flex; flex-direction: column; gap: 7px; }
+.evt-meal-line-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.evt-meal-line-head b {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-secondary, #6c757d);
+}
+.evt-meal-line-count {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; display: inline-grid; place-items: center;
+  background: var(--secondary, #c8960f); color: #fff; font-size: 0.72rem; letter-spacing: 0;
+}
+/* Held behind somebody waiting for a tick by hand. */
+.evt-meal-line-held {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin: 0; padding: 8px 10px; border-radius: 9px;
+  font-size: 0.8rem; line-height: 1.45;
+  background: rgba(255, 195, 0, 0.1); color: #8a6508;
+}
+.evt-meal-line-held i { margin-top: 3px; }
+.evt-meal-line ol, .evt-meal-line ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.evt-meal-line li {
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 38px;
+  padding: 6px 8px 6px 10px; border-radius: 9px; background: rgba(0, 0, 0, 0.025);
+  font-size: 0.88rem; animation: evt-meal-line-in 0.25s ease backwards;
+}
+.evt-meal-line-num {
+  flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 0.72rem; font-weight: 800; background: rgba(200, 150, 15, 0.14); color: var(--primary, #926c15);
+}
+.evt-meal-line li.is-reading .evt-meal-line-num { background: var(--secondary, #c8960f); color: #fff; }
+.evt-meal-line-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 700; color: var(--text-primary, #333);
+}
+.evt-meal-line-name.is-card { font-weight: 500; font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; }
+.evt-meal-line li em {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+  font-style: normal; font-size: 0.76rem; font-weight: 700; color: var(--text-secondary, #6c757d);
+}
+.evt-meal-line ul li > i { flex: 0 0 auto; width: 16px; text-align: center; }
+.evt-meal-line li.is-ok > i, .evt-meal-line li.is-ok em { color: #16a34a; }
+.evt-meal-line li.is-warn > i, .evt-meal-line li.is-warn em { color: #b8860b; }
+.evt-meal-line li.is-bad > i, .evt-meal-line li.is-bad em { color: var(--danger, #dc3545); }
+.evt-meal-line-x {
+  flex: 0 0 auto; width: 28px; height: 28px; border: 0; border-radius: 50%; display: grid; place-items: center;
+  background: transparent; color: var(--text-secondary, #6c757d); cursor: pointer;
+}
+.evt-meal-line-x:hover { background: rgba(220, 53, 69, 0.1); color: var(--danger, #dc3545); }
+.evt-meal-line-x:focus-visible { outline: 2px solid var(--secondary, #c8960f); outline-offset: 1px; }
+@keyframes evt-meal-line-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+body.dark-mode .evt-meal-line { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.12); }
+body.dark-mode .evt-meal-line li { background: rgba(255, 255, 255, 0.04); }
+body.dark-mode .evt-meal-line-name { color: #f1f1f1; }
+body.dark-mode .evt-meal-line-num { color: var(--accent, #e0b64a); }
+body.dark-mode .evt-meal-line-held { color: var(--accent, #e0b64a); }
+body.dark-mode .evt-meal-line li.is-ok > i, body.dark-mode .evt-meal-line li.is-ok em { color: #4ade80; }
+body.dark-mode .evt-meal-line li.is-warn > i, body.dark-mode .evt-meal-line li.is-warn em { color: var(--accent, #e0b64a); }
+@media (prefers-reduced-motion: reduce) { .evt-meal-line li { animation: none; } }
+
 .evt-claim-who.bad {
   border-style: solid; border-color: rgba(220, 53, 69, 0.4);
   background: rgba(220, 53, 69, 0.05);
