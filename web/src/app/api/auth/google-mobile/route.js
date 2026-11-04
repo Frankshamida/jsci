@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { formatAccountName } from '@/lib/eventFormat';
 
 // POST — Handle Google auth callback from mobile app
 // Mobile sends: { googleId, email, firstname, lastname, avatarUrl }
@@ -68,6 +69,8 @@ export async function POST(request) {
         ministry: existingUser.ministry,
         sub_role: existingUser.sub_role || null,
         role: existingUser.role || 'Guest',
+        additional_roles: existingUser.additional_roles || [],
+        default_dashboard: existingUser.default_dashboard || null,
         status: existingUser.status,
         isActive: existingUser.is_active !== false,
         isGoogleUser: true,
@@ -84,8 +87,8 @@ export async function POST(request) {
     const { data: newUser, error: insertError } = await supabase
       .from('users')
       .insert({
-        firstname: firstname || '',
-        lastname: lastname || '',
+        // Google names come as typed into Google: saved as "Frank Dweezel Gomez"
+        ...formatAccountName(firstname, lastname),
         google_id: googleId,
         email: email,
         password: 'GOOGLE_AUTH',

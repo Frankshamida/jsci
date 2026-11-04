@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { findEventActor, isEventManager } from '@/lib/eventCommittee';
+import { formatPersonName } from '@/lib/eventFormat';
 
 // POST /api/events/registrations/substitute
 //   { actorId, registrationId, firstname, lastname, verifierName? }
@@ -14,7 +15,6 @@ import { findEventActor, isEventManager } from '@/lib/eventCommittee';
 export const dynamic = 'force-dynamic';
 
 const clean = (v) => String(v || '').trim().replace(/\s+/g, ' ').slice(0, 80);
-const cap = (v) => clean(v).replace(/(^|[\s'-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
 const key = (v) => clean(v).toLowerCase();
 const nameOf = (u) => [u?.firstname, u?.lastname].filter(Boolean).join(' ').trim() || 'Admin';
 const MIGRATION_HINT = 'Run supabase/migrations/registration_substitutes.sql first.';
@@ -50,8 +50,9 @@ export async function POST(request) {
       lastname = words.length > 1 ? words.pop() : '';
       firstname = words.join(' ');
     } else {
-      firstname = cap(body.firstname);
-      lastname = cap(body.lastname);
+      // "FRANK gomez" is saved as "Frank Gomez", like every other name.
+      firstname = formatPersonName(clean(body.firstname));
+      lastname = formatPersonName(clean(body.lastname), { continues: true });
       if (!firstname || !lastname) return NextResponse.json({ success: false, message: 'Enter the substitute’s first name and last name.' }, { status: 400 });
     }
     const full = body.restore ? clean(reg.original_attendee_name) : `${firstname} ${lastname}`;

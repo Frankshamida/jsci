@@ -52,6 +52,14 @@ function cellText(row, column) {
   return String(raw);
 }
 
+// A money cell as a plain number: "₱1,500" (or "PHP 1,500") reads as 1500, so
+// a report can show pesos on paper and still sum in a spreadsheet. '' when the
+// cell is not a number at all - a label, or nothing.
+function numericText(text) {
+  const plain = String(text).replace(/₱|PHP|,|\s/g, '');
+  return plain !== '' && !Number.isNaN(Number(plain)) ? plain : '';
+}
+
 // ============================================================
 // PDF - by way of the browser's own print pipeline
 // ============================================================
@@ -271,11 +279,12 @@ export function buildXlsx(spec) {
       const text = cellText(row, c);
       // A peso column is written as a NUMBER, not as "₱300": a spreadsheet
       // that cannot sum its own money column is a table with extra steps.
-      const numeric = c.numeric && text !== '' && !Number.isNaN(Number(text));
+      const num = c.numeric ? numericText(text) : '';
+      const numeric = num !== '';
       const style = fill
         ? colourStyle(fill, numeric)
         : numeric ? (alt ? S.NUMALT : S.NUM) : (alt ? S.CELLALT : S.CELL);
-      return sheetCell(`${colLetter(ci)}${r}`, text, style, numeric);
+      return sheetCell(`${colLetter(ci)}${r}`, numeric ? num : text, style, numeric);
     }).join('');
     sheetRows.push(`<row r="${r}">${cells}</row>`);
     r += 1;
@@ -500,8 +509,13 @@ export function buildCsv(spec) {
     const text = String(value === null || value === undefined ? '' : value);
     return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
+  // A money column as plain numbers here too, so it sums wherever it is opened.
+  const csvText = (row, c) => {
+    const text = cellText(row, c);
+    return (c.numeric && numericText(text)) || text;
+  };
   const lines = [columns.map((c) => quote(c.label)).join(',')];
-  rows.forEach((row) => lines.push(columns.map((c) => quote(cellText(row, c))).join(',')));
+  rows.forEach((row) => lines.push(columns.map((c) => quote(csvText(row, c))).join(',')));
   // A BOM, so Excel opens a UTF-8 CSV without turning "Ñ" into two characters.
   return new Blob(['﻿', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
 }

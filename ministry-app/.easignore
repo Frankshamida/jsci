@@ -1,0 +1,15 @@
+# Not uploaded to EAS Build: the build server installs its own packages
+# and generates the native projects.
+node_modules/
+.expo/
+dist/
+web-build/
+android/
+ios/
+*.log
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.env*.local

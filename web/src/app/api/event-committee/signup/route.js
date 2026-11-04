@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import bcrypt from 'bcryptjs';
+import { formatAccountName } from '@/lib/eventFormat';
 
 // Signing up here creates an ordinary account in the SAME users table the main
 // registration writes to - the person can sign in on the main site with it
@@ -68,8 +69,8 @@ export async function POST(request) {
     const { data: newUser, error } = await supabase
       .from('users')
       .insert({
-        firstname: firstname.trim(),
-        lastname: lastname.trim(),
+        // "frank DwEEZel gomez" is saved as "Frank Dweezel Gomez"
+        ...formatAccountName(firstname, lastname),
         birthdate: birthdate || null,
         ministry: null,
         email: cleanEmail,

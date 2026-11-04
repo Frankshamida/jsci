@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { DASHBOARD_KEYS } from '@/lib/userRoles';
+import { formatPersonName } from '@/lib/eventFormat';
 
 // GET - Fetch a user's public profile by userId (used when viewing another member)
 export async function GET(request) {
@@ -28,17 +30,25 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { email, firstname, lastname, birthdate, life_verse } = await request.json();
+    const { email, firstname, lastname, birthdate, life_verse, default_dashboard } = await request.json();
 
     if (!email) {
       return NextResponse.json({ success: false, message: 'Email is required' }, { status: 400 });
     }
 
     const updateData = {};
-    if (firstname) updateData.firstname = firstname.trim();
-    if (lastname) updateData.lastname = lastname.trim();
+    // "frank DwEEZel gomez" is saved as "Frank Dweezel Gomez"
+    if (firstname?.trim()) updateData.firstname = formatPersonName(firstname);
+    if (lastname?.trim()) updateData.lastname = formatPersonName(lastname, { continues: true });
     if (birthdate !== undefined) updateData.birthdate = birthdate || null;
     if (life_verse !== undefined) updateData.life_verse = life_verse ? life_verse.trim() : null;
+    // Where the account opens after signing in (Preferences > Start Dashboard).
+    if (default_dashboard !== undefined) {
+      if (default_dashboard !== null && !DASHBOARD_KEYS.includes(default_dashboard)) {
+        return NextResponse.json({ success: false, message: 'Unknown dashboard' }, { status: 400 });
+      }
+      updateData.default_dashboard = default_dashboard;
+    }
 
     const { data, error } = await supabase
       .from('users')
@@ -60,6 +70,7 @@ export async function POST(request) {
         lastname: data.lastname,
         birthdate: data.birthdate,
         life_verse: data.life_verse,
+        default_dashboard: data.default_dashboard ?? null,
       },
     });
   } catch (error) {

@@ -6,13 +6,74 @@
 
 export const ROLES = {
   GUEST: 'Guest',
-  MEMBER: 'Member',
-  SONG_LEADER: 'Song Leader',
-  LEADER: 'Leader',
+  CHURCH_MEMBER: 'Church Member',
+  MINISTRY_MEMBER: 'Ministry Member',
   PASTOR: 'Pastor',
   ADMIN: 'Admin',
   SUPER_ADMIN: 'Super Admin',
 };
+
+// Every role an account can hold, lowest to highest. This is the order of
+// every role picker, and the list users.role is checked against.
+export const ASSIGNABLE_ROLES = [
+  ROLES.GUEST, ROLES.CHURCH_MEMBER, ROLES.MINISTRY_MEMBER,
+  ROLES.PASTOR, ROLES.ADMIN, ROLES.SUPER_ADMIN,
+];
+
+// Roles retired by migrations/user_roles_restructure.sql. Member became
+// Church Member (or Ministry Member when they had a ministry); Song Leader
+// and Leader became Ministry Member, their extra reach now coming from the
+// position they hold (see LEAD_POSITIONS). Kept so an account the migration
+// has not reached, or a session cached before it ran, keeps what it had.
+export const LEGACY_ROLES = {
+  MEMBER: 'Member',
+  SONG_LEADER: 'Song Leader',
+  LEADER: 'Leader',
+};
+
+// sub_role spellings for the positions that lead a ministry team. 'Song
+// Leaders' is plural because that is what the lineup screens have always
+// matched (sub_role ILIKE '%Song Leaders%'); see lib/userRoles.js.
+export const SONG_LEADER_POSITION = 'Song Leaders';
+export const LEAD_POSITIONS = [SONG_LEADER_POSITION, 'Music Director', 'Head Dancer', 'Media Head', 'Head Usher'];
+// The Schedule Plotter switch in Ministry Roles: plots the monthly lineup.
+export const SCHEDULE_PLOTTER_POSITION = 'Schedule Plotter';
+
+/**
+ * Every role an account holds: its main role (users.role) first, then the
+ * ones a Super Admin added on top (users.additional_roles).
+ * @param {{ role?: string, additional_roles?: string[] }} user
+ * @returns {string[]}
+ */
+export function getUserRoles(user) {
+  return [...new Set([user?.role, ...(user?.additional_roles || [])].filter(Boolean))];
+}
+
+// Where a retired role sits among ASSIGNABLE_ROLES, for ranking.
+const LEGACY_RANK = { [LEGACY_ROLES.MEMBER]: 1, [LEGACY_ROLES.SONG_LEADER]: 2, [LEGACY_ROLES.LEADER]: 2 };
+export const roleRank = (role) => (ASSIGNABLE_ROLES.includes(role) ? ASSIGNABLE_ROLES.indexOf(role) : LEGACY_RANK[role] ?? 0);
+
+/**
+ * The highest role an account holds. It picks the dashboard, the sidebar and
+ * the Permissions Control toggles; what the account may do is the union of
+ * all its roles (pass getUserRoles() to hasPermission). User Management keeps
+ * it in users.role (see arrangeRoles in lib/userRoles.js).
+ * @returns {string}
+ */
+export function getEffectiveRole(user) {
+  const roles = getUserRoles(user);
+  if (roles.length === 0) return ROLES.GUEST;
+  return roles.reduce((best, r) => (roleRank(r) > roleRank(best) ? r : best));
+}
+
+/**
+ * sub_role is a comma-separated list ("Song Leaders, Backup Singer").
+ * @param {string} subRole
+ * @returns {string[]}
+ */
+export function splitSubRole(subRole) {
+  return String(subRole || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
 
 // All 50 modules organized by category
 export const MODULES = {
@@ -25,7 +86,7 @@ export const MODULES = {
   SIGN_UP: 'sign_up',
   LOGIN: 'login',
 
-  // === MINISTRY DASHBOARD (Members, Song Leader, Leader) ===
+  // === MINISTRY DASHBOARD (Church Members, Ministry Members) ===
   VIEW_MINISTRY_DASHBOARD: 'view_ministry_dashboard',
   VIEW_NOTIFICATIONS: 'view_notifications',
   VIEW_BIBLE_VERSES: 'view_bible_verses',
@@ -61,11 +122,14 @@ export const MODULES = {
   CREATE_POSTS: 'create_posts',
   LIKE_COMMENT_POSTS: 'like_comment_posts',
 
-  // === SONG LINEUP MANAGEMENT (Song Leader only) ===
+  // === SONG LINEUP MANAGEMENT (Song Leader position only) ===
   CREATE_SONG_LIST: 'create_song_list',
   ADD_REMOVE_SONGS: 'add_remove_songs',
   UPDATE_SONG_LINEUP: 'update_song_lineup',
   ASSIGN_SINGERS: 'assign_singers',
+  // Plot the monthly lineup: who leads and who sings backup on each date
+  // (Admin, and a Ministry Member with the Schedule Plotter switch on).
+  PLAN_LINEUP: 'plan_lineup',
 
   // === REPORTS & LOGOUT ===
   VIEW_PERSONAL_REPORTS: 'view_personal_reports',
@@ -152,6 +216,54 @@ export const MODULES = {
   VIEW_ALL_USER_EVENTS: 'view_all_user_events',
 };
 
+// What every church member gets: Church Members, and Ministry Members before
+// any position they hold is counted.
+const MEMBER_PERMISSIONS = [
+  // Public Access
+  MODULES.VIEW_HOMEPAGE, MODULES.VIEW_BIBLE_VERSE, MODULES.VIEW_PUBLIC_ANNOUNCEMENTS,
+  MODULES.VIEW_PUBLIC_EVENTS, MODULES.VIEW_PUBLIC_COMMUNITY, MODULES.LOGIN,
+  // Ministry Dashboard
+  MODULES.VIEW_MINISTRY_DASHBOARD, MODULES.VIEW_NOTIFICATIONS, MODULES.VIEW_BIBLE_VERSES,
+  // Profile Management
+  MODULES.VIEW_PROFILE, MODULES.UPDATE_PROFILE, MODULES.CHANGE_PASSWORD,
+  // Recordings
+  MODULES.VIEW_RECORDINGS,
+  // Ministry Schedule
+  MODULES.VIEW_SCHEDULE, MODULES.VIEW_ASSIGNED_TASKS, MODULES.MARK_ATTENDANCE_SELF,
+  // Ministry Meetings (View & RSVP only)
+  MODULES.VIEW_MINISTRY_MEETINGS, MODULES.RSVP_MEETING,
+  // Events & Announcements
+  MODULES.VIEW_EVENTS, MODULES.VIEW_ANNOUNCEMENTS, MODULES.RSVP_EVENT,
+  // Communication (View & Send only)
+  MODULES.VIEW_MESSAGES, MODULES.SEND_MESSAGES,
+  // Community Hub
+  MODULES.VIEW_COMMUNITY_POSTS, MODULES.CREATE_POSTS, MODULES.LIKE_COMMENT_POSTS,
+  // Reports & Logout
+  MODULES.VIEW_PERSONAL_REPORTS, MODULES.LOGOUT,
+];
+
+// What the retired Leader role added: a Ministry Member holding any of
+// LEAD_POSITIONS gets it.
+const TEAM_LEAD_PERMISSIONS = [
+  MODULES.CREATE_MINISTRY_MEETING, MODULES.UPDATE_MINISTRY_MEETING,
+  MODULES.SEND_UPDATES_PASTORS, MODULES.VIEW_MINISTRY_REPORTS,
+];
+
+// What the retired Song Leader role added on top: running the song lineup.
+const SONG_LEADER_PERMISSIONS = [
+  MODULES.CREATE_SONG_LIST, MODULES.ADD_REMOVE_SONGS, MODULES.UPDATE_SONG_LINEUP, MODULES.ASSIGN_SINGERS,
+  MODULES.UPLOAD_RECORDINGS,
+];
+
+function positionPermissions(subRole) {
+  const positions = splitSubRole(subRole);
+  const granted = [];
+  if (positions.some((p) => LEAD_POSITIONS.includes(p))) granted.push(...TEAM_LEAD_PERMISSIONS);
+  if (positions.includes(SONG_LEADER_POSITION)) granted.push(...SONG_LEADER_PERMISSIONS);
+  if (positions.includes(SCHEDULE_PLOTTER_POSITION)) granted.push(MODULES.PLAN_LINEUP);
+  return granted;
+}
+
 // Role → Module access mapping (from Appendix R)
 export const ROLE_PERMISSIONS = {
   [ROLES.GUEST]: [
@@ -171,31 +283,15 @@ export const ROLE_PERMISSIONS = {
     MODULES.LOGOUT,
   ],
 
-  [ROLES.MEMBER]: [
-    // Public Access
-    MODULES.VIEW_HOMEPAGE, MODULES.VIEW_BIBLE_VERSE, MODULES.VIEW_PUBLIC_ANNOUNCEMENTS,
-    MODULES.VIEW_PUBLIC_EVENTS, MODULES.VIEW_PUBLIC_COMMUNITY, MODULES.LOGIN,
-    // Ministry Dashboard
-    MODULES.VIEW_MINISTRY_DASHBOARD, MODULES.VIEW_NOTIFICATIONS, MODULES.VIEW_BIBLE_VERSES,
-    // Profile Management
-    MODULES.VIEW_PROFILE, MODULES.UPDATE_PROFILE, MODULES.CHANGE_PASSWORD,
-    // Recordings
-    MODULES.VIEW_RECORDINGS,
-    // Ministry Schedule
-    MODULES.VIEW_SCHEDULE, MODULES.VIEW_ASSIGNED_TASKS, MODULES.MARK_ATTENDANCE_SELF,
-    // Ministry Meetings (View & RSVP only)
-    MODULES.VIEW_MINISTRY_MEETINGS, MODULES.RSVP_MEETING,
-    // Events & Announcements
-    MODULES.VIEW_EVENTS, MODULES.VIEW_ANNOUNCEMENTS, MODULES.RSVP_EVENT,
-    // Communication (View & Send only)
-    MODULES.VIEW_MESSAGES, MODULES.SEND_MESSAGES,
-    // Community Hub
-    MODULES.VIEW_COMMUNITY_POSTS, MODULES.CREATE_POSTS, MODULES.LIKE_COMMENT_POSTS,
-    // Reports & Logout
-    MODULES.VIEW_PERSONAL_REPORTS, MODULES.LOGOUT,
-  ],
+  [ROLES.CHURCH_MEMBER]: MEMBER_PERMISSIONS,
 
-  [ROLES.SONG_LEADER]: [
+  // Position-based extras are added in hasPermission(), from the sub_role.
+  [ROLES.MINISTRY_MEMBER]: MEMBER_PERMISSIONS,
+
+  // --- Retired roles (see LEGACY_ROLES), unchanged ---
+  [LEGACY_ROLES.MEMBER]: MEMBER_PERMISSIONS,
+
+  [LEGACY_ROLES.SONG_LEADER]: [
     // All Member permissions
     MODULES.VIEW_HOMEPAGE, MODULES.VIEW_BIBLE_VERSE, MODULES.VIEW_PUBLIC_ANNOUNCEMENTS,
     MODULES.VIEW_PUBLIC_EVENTS, MODULES.VIEW_PUBLIC_COMMUNITY, MODULES.LOGIN,
@@ -216,7 +312,7 @@ export const ROLE_PERMISSIONS = {
     MODULES.VIEW_RECORDINGS, MODULES.UPLOAD_RECORDINGS,
   ],
 
-  [ROLES.LEADER]: [
+  [LEGACY_ROLES.LEADER]: [
     // All Member permissions
     MODULES.VIEW_HOMEPAGE, MODULES.VIEW_BIBLE_VERSE, MODULES.VIEW_PUBLIC_ANNOUNCEMENTS,
     MODULES.VIEW_PUBLIC_EVENTS, MODULES.VIEW_PUBLIC_COMMUNITY, MODULES.LOGIN,
@@ -282,6 +378,7 @@ export const ROLE_PERMISSIONS = {
     MODULES.VIEW_ATTENDANCE, MODULES.MARK_ATTENDANCE, MODULES.UPDATE_ATTENDANCE, MODULES.DELETE_ATTENDANCE,
     // Song Lineup Management (Admin can create/manage all lineups)
     MODULES.CREATE_SONG_LIST, MODULES.ADD_REMOVE_SONGS, MODULES.UPDATE_SONG_LINEUP, MODULES.ASSIGN_SINGERS,
+    MODULES.PLAN_LINEUP,
     // Recordings
     MODULES.VIEW_RECORDINGS, MODULES.UPLOAD_RECORDINGS, MODULES.EDIT_RECORDINGS, MODULES.DELETE_RECORDINGS,
     // User Event Permissions Management
@@ -302,31 +399,36 @@ export const ROLE_PERMISSIONS = {
 
 /**
  * Check if a user has access to a specific module
- * @param {string} userRole - The user's role
+ * @param {string|string[]} userRole - The user's role, or every role they
+ *   hold (getUserRoles); with several, any one of them is enough.
  * @param {string} module - The module constant to check
+ * @param {string} [subRole] - The user's sub_role. A Ministry Member's reach
+ *   also depends on the position they hold (Song Leader, Head Usher, ...).
  * @returns {boolean}
  */
-export function hasPermission(userRole, module) {
+export function hasPermission(userRole, module, subRole) {
+  if (Array.isArray(userRole)) return userRole.some((r) => hasPermission(r, module, subRole));
   if (!userRole || !module) return false;
   if (userRole === ROLES.SUPER_ADMIN) return true;
 
   const permissions = ROLE_PERMISSIONS[userRole];
   if (!permissions) return false;
   if (permissions.includes('all')) return true;
+  if (permissions.includes(module)) return true;
 
-  return permissions.includes(module);
+  return userRole === ROLES.MINISTRY_MEMBER && positionPermissions(subRole).includes(module);
 }
 
 /**
  * Check if user has any of the given permissions
  * @param {string} userRole
  * @param {string[]} modules
+ * @param {string} [subRole]
  * @returns {boolean}
  */
-export function hasAnyPermission(userRole, modules) {
+export function hasAnyPermission(userRole, modules, subRole) {
   if (!userRole || !modules?.length) return false;
-  if (userRole === ROLES.SUPER_ADMIN) return true;
-  return modules.some(m => hasPermission(userRole, m));
+  return modules.some(m => hasPermission(userRole, m, subRole));
 }
 
 /**
@@ -340,21 +442,19 @@ export function getDashboardType(role) {
     case ROLES.ADMIN: return 'admin';
     case ROLES.PASTOR: return 'pastor';
     case ROLES.GUEST: return 'guest';
-    default: return 'ministry'; // Member, Song Leader, Leader
+    default: return 'ministry'; // Church Member, Ministry Member (and the retired Member, Song Leader, Leader)
   }
 }
 
 /**
- * Get sidebar menu items based on user role
- * @param {string} role
- * @param {object} [userData] - Optional user data for dynamic sidebar items
+ * Get sidebar menu items based on user role. For anyone but a Super Admin
+ * this is every item there is; filter it with canAccessSection().
+ * @param {string} role - the account's highest role (getEffectiveRole)
  * @returns {Array}
  */
-export function getSidebarMenu(role, userData) {
-  const dashboardType = getDashboardType(role);
-
+export function getSidebarMenu(role) {
   // Super Admin: full admin menu with system management items
-  if (dashboardType === 'super-admin') {
+  if (getDashboardType(role) === 'super-admin') {
     return [
       { id: 'home', icon: 'fas fa-tachometer-alt', label: 'Dashboard', section: 'home' },
       { id: 'users', icon: 'fas fa-users-cog', label: 'User Management', section: 'user-management' },
@@ -390,11 +490,12 @@ export function getSidebarMenu(role, userData) {
   }
 
   // ============================================
-  // UNIFIED SIDEBAR FOR ALL NON-SUPERADMIN ROLES
-  // Visibility is controlled by SuperAdmin via Permissions Control.
-  // All roles get the same full menu; isSidebarItemEnabled() filters it.
+  // EVERY OTHER ROLE
+  // The full list a non-Super-Admin could ever have. Who actually sees each
+  // item is strict and by role: SECTION_ACCESS below, applied with
+  // canAccessSection(). Permissions Control can then hide more, never add.
   // ============================================
-  const menu = [
+  return [
     { id: 'home', icon: 'fas fa-home', label: 'Home', section: 'home' },
     { id: 'schedule', icon: 'fas fa-calendar-week', label: 'Weekly Schedule', section: 'weekly-schedule' },
     { id: 'praise-worship', icon: 'fas fa-hands-praying', label: 'Praise & Worship', section: 'praise-worship' },
@@ -414,46 +515,103 @@ export function getSidebarMenu(role, userData) {
     { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },
     { id: 'users', icon: 'fas fa-users-cog', label: 'User Management', section: 'user-management' },
     { id: 'ministries', icon: 'fas fa-church', label: 'Ministry Management', section: 'ministry-management' },
-  ];
-
-  // Dynamic: Show "My Events" if user has event creation permissions
-  const allowedTypes = userData?.allowed_event_types || userData?.allowedEventTypes || [];
-  if (allowedTypes.length > 0) {
-    menu.push({ id: 'my-created-events', icon: 'fas fa-calendar-plus', label: 'My Events', section: 'my-created-events' });
-  }
-
-  // Pastor-specific: User Events Oversight
-  if (dashboardType === 'pastor') {
-    menu.push({ id: 'user-events-oversight', icon: 'fas fa-calendar-plus', label: 'User Events', section: 'user-events-oversight' });
-  }
-
-  // RFID Reader: Admin only (Super Admin gets it in its own menu above).
-  // Deliberately not in the shared list: it registers cards against members
-  // and marks them present, so it belongs to whoever runs the door, not to
-  // everyone with a Permissions Control toggle turned on by accident.
-  if (dashboardType === 'admin') {
-    menu.push({ id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' });
-    // Accommodation sits with the RFID desk for the same reason: it is the
-    // event being run rather than the event being advertised. Who sleeps
-    // where is decided by whoever handles the registrations and the money.
-    menu.push({ id: 'accommodation', icon: 'fas fa-bed', label: 'Accommodation', section: 'accommodation' });
-  }
-
-  // ISOM Inquiries: Admin & Pastor only (Super Admin gets it in its own menu above)
-  if (dashboardType === 'admin' || dashboardType === 'pastor') {
-    menu.push({ id: 'isom-inquiries', icon: 'fas fa-user-graduate', label: 'ISOM Inquiries', section: 'isom-inquiries' });
-  }
-
-  // Mode of Payment: Admin & Pastor only (Super Admin gets it in its own menu above)
-  if (dashboardType === 'admin' || dashboardType === 'pastor') {
-    menu.push({ id: 'payment-methods', icon: 'fas fa-money-check-dollar', label: 'Mode of Payment', section: 'payment-methods' });
-  }
-
-  menu.push(
+    { id: 'my-created-events', icon: 'fas fa-calendar-plus', label: 'My Events', section: 'my-created-events' },
+    { id: 'user-events-oversight', icon: 'fas fa-calendar-plus', label: 'User Events', section: 'user-events-oversight' },
+    { id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' },
+    { id: 'accommodation', icon: 'fas fa-bed', label: 'Accommodation', section: 'accommodation' },
+    { id: 'isom-inquiries', icon: 'fas fa-user-graduate', label: 'ISOM Inquiries', section: 'isom-inquiries' },
+    { id: 'payment-methods', icon: 'fas fa-money-check-dollar', label: 'Mode of Payment', section: 'payment-methods' },
     { id: 'profile', icon: 'fas fa-user', label: 'My Profile', section: 'my-profile' },
-  );
+  ];
+}
 
-  return menu;
+// ============================================
+// SECTION ACCESS - strict, by role
+// Who owns each dashboard section. An account sees a section when ANY role
+// it holds owns it; every other section stays out of its sidebar and cannot
+// be opened, not even from a link. Permissions Control can still turn an
+// owned section off, but never turns one on. Super Admin owns everything.
+//   roles      - these roles own it
+//   ministries - so does a Ministry Member serving in one of these
+//   modules    - so does whoever has any of these permissions (positions
+//                count: a Song Leader has CREATE_SONG_LIST)
+//   eventTypes - so does an account given event-creation permissions
+// A section missing from this table is not a sidebar section and is open.
+// ============================================
+const EVERYONE = [ROLES.GUEST, ROLES.CHURCH_MEMBER, ROLES.MINISTRY_MEMBER, ROLES.PASTOR, ROLES.ADMIN];
+const MEMBERS_AND_UP = [ROLES.CHURCH_MEMBER, ROLES.MINISTRY_MEMBER, ROLES.PASTOR, ROLES.ADMIN];
+const PAW_MINISTRIES = ['Praise And Worship', 'Media'];
+const SUPER_ADMIN_ONLY = { roles: [] };
+
+export const SECTION_ACCESS = {
+  'home': { roles: EVERYONE },
+  'my-profile': { roles: EVERYONE },
+  'events': { roles: EVERYONE },
+  'announcements': { roles: EVERYONE },
+  'community-events': { roles: MEMBERS_AND_UP },
+  'community-hub': { roles: MEMBERS_AND_UP },
+  'messages': { roles: MEMBERS_AND_UP },
+  'recordings': { roles: MEMBERS_AND_UP },
+  'reports': { roles: MEMBERS_AND_UP },
+  'weekly-schedule': { roles: MEMBERS_AND_UP },
+  // Ministry work: Ministry Members (Praise & Worship / Media for the PAW screens)
+  'ministry-meetings': { roles: [ROLES.MINISTRY_MEMBER, ROLES.PASTOR, ROLES.ADMIN] },
+  'praise-worship': { roles: [ROLES.PASTOR, ROLES.ADMIN], ministries: PAW_MINISTRIES },
+  'song-playlist': { roles: [ROLES.PASTOR, ROLES.ADMIN], ministries: PAW_MINISTRIES },
+  // Song Leaders add songs there; Schedule Plotters plot the month there.
+  'create-lineup': { modules: [MODULES.CREATE_SONG_LIST, MODULES.PLAN_LINEUP] },
+  'my-created-events': { eventTypes: true },
+  // Pastoral oversight
+  'user-events-oversight': { roles: [ROLES.PASTOR] },
+  'isom-inquiries': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
+  'payment-methods': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
+  'events-management': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
+  'announcements-management': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
+  // People & Roles - Admin only
+  'attendance-management': { roles: [ROLES.ADMIN] },
+  'user-management': { roles: [ROLES.ADMIN] },
+  'ministry-management': { roles: [ROLES.ADMIN] },
+  // Resources - Admin only
+  'bible-reader': { roles: [ROLES.ADMIN] },
+  'spiritual-assistant': { roles: [ROLES.ADMIN] },
+  // Running an event - Admin only
+  'live-stream-management': { roles: [ROLES.ADMIN] },
+  'rfid-reader': { roles: [ROLES.ADMIN] },
+  'accommodation': { roles: [ROLES.ADMIN] },
+  // System
+  'roles-permissions': SUPER_ADMIN_ONLY,
+  'permissions-control': SUPER_ADMIN_ONLY,
+  'system-config': SUPER_ADMIN_ONLY,
+  'isom-management': SUPER_ADMIN_ONLY,
+  'terms-conditions': SUPER_ADMIN_ONLY,
+  'audit-logs': SUPER_ADMIN_ONLY,
+  'cloudinary-usage': SUPER_ADMIN_ONLY,
+};
+
+// A retired role counts as the role it became.
+const AS_CURRENT_ROLE = {
+  [LEGACY_ROLES.MEMBER]: ROLES.CHURCH_MEMBER,
+  [LEGACY_ROLES.SONG_LEADER]: ROLES.MINISTRY_MEMBER,
+  [LEGACY_ROLES.LEADER]: ROLES.MINISTRY_MEMBER,
+};
+
+/**
+ * May an account open this section? See SECTION_ACCESS.
+ * @param {string} section
+ * @param {{ roles: string[], subRole?: string, ministries?: string[], eventTypes?: string[] }} account
+ *   roles from getUserRoles(); ministries every ministry served in
+ * @returns {boolean}
+ */
+export function canAccessSection(section, { roles = [], subRole, ministries = [], eventTypes = [] } = {}) {
+  if (roles.includes(ROLES.SUPER_ADMIN)) return true;
+  const rule = SECTION_ACCESS[section];
+  if (!rule) return true;
+  const held = roles.map((r) => AS_CURRENT_ROLE[r] || r);
+  if (rule.roles?.some((r) => held.includes(r))) return true;
+  if (rule.ministries && held.includes(ROLES.MINISTRY_MEMBER) && ministries.some((m) => rule.ministries.includes(m))) return true;
+  if (rule.modules?.some((m) => hasPermission(roles, m, subRole))) return true;
+  if (rule.eventTypes && eventTypes.length > 0) return true;
+  return false;
 }
 
 /**

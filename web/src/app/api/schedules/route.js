@@ -1,5 +1,17 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { cleanLineupMusicians, cleanNameList, lineupDoubleBooked } from '@/lib/userRoles';
+
+// One person, one part on a date. Checked on the Monthly Planner's saves
+// (the ones that send musicians / dancers), so a Song Leader adding songs to
+// a lineup saved before this rule is never blocked by it.
+const doubleBooked = ({ songLeader, backupSingers, musicians, dancers }) => {
+  if (musicians === undefined && dancers === undefined) return null;
+  const doubled = lineupDoubleBooked({ songLeader, backupSingers, musicians, dancers });
+  if (!doubled.length) return null;
+  const { name, parts } = doubled[0];
+  return NextResponse.json({ success: false, message: `${name} has more than one part (${parts.join(', ')}). One person, one part on a date.` }, { status: 400 });
+};
 
 // GET all schedules
 export async function GET() {
@@ -18,6 +30,8 @@ export async function GET() {
       scheduleId: s.schedule_id,
       songLeader: s.song_leader,
       backupSingers: s.backup_singers || [],
+      musicians: s.musicians || {},
+      dancers: s.dancers || [],
       scheduleDate: s.schedule_date,
       practiceDate: s.practice_date,
       practiceTime: s.practice_time || null,
@@ -41,11 +55,13 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { songLeader, backupSingers, scheduleDate, practiceDate, practiceTime, slowSongs, fastSongs, submittedBy, songLeaderId } = body;
+    const { songLeader, backupSingers, musicians, dancers, scheduleDate, practiceDate, practiceTime, slowSongs, fastSongs, submittedBy, songLeaderId } = body;
 
     if (!songLeader || !scheduleDate) {
       return NextResponse.json({ success: false, message: 'Song leader and schedule date are required' }, { status: 400 });
     }
+    const clash = doubleBooked({ songLeader, backupSingers, musicians, dancers });
+    if (clash) return clash;
 
     // Check for duplicate schedule date
     const { data: existing } = await supabase
@@ -63,6 +79,10 @@ export async function POST(request) {
       .insert({
         song_leader: songLeader,
         backup_singers: backupSingers || [],
+        // Only when sent (the Monthly Planner), so a lineup made elsewhere
+        // still saves on a database without the columns.
+        ...(musicians !== undefined && { musicians: cleanLineupMusicians(musicians) }),
+        ...(dancers !== undefined && { dancers: cleanNameList(dancers) }),
         schedule_date: scheduleDate,
         practice_date: practiceDate || null,
         practice_time: practiceTime || null,
@@ -113,23 +133,30 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { scheduleId, songLeader, backupSingers, scheduleDate, practiceDate, practiceTime, slowSongs, fastSongs, songLeaderId, notifyLeader } = body;
+    const { scheduleId, songLeader, backupSingers, musicians, dancers, scheduleDate, practiceDate, practiceTime, slowSongs, fastSongs, songLeaderId, notifyLeader } = body;
 
     if (!scheduleId) {
       return NextResponse.json({ success: false, message: 'Schedule ID is required' }, { status: 400 });
     }
+    const clash = doubleBooked({ songLeader, backupSingers, musicians, dancers });
+    if (clash) return clash;
+
+    // Only what was sent changes. The Monthly Planner sends the people and
+    // nothing else, so the songs a Song Leader already added are kept.
+    const patch = {};
+    if (songLeader !== undefined) patch.song_leader = songLeader;
+    if (backupSingers !== undefined) patch.backup_singers = backupSingers || [];
+    if (musicians !== undefined) patch.musicians = cleanLineupMusicians(musicians);
+    if (dancers !== undefined) patch.dancers = cleanNameList(dancers);
+    if (scheduleDate !== undefined) patch.schedule_date = scheduleDate;
+    if (practiceDate !== undefined) patch.practice_date = practiceDate || null;
+    if (practiceTime !== undefined) patch.practice_time = practiceTime || null;
+    if (slowSongs !== undefined) patch.slow_songs = slowSongs || [];
+    if (fastSongs !== undefined) patch.fast_songs = fastSongs || [];
 
     const { error } = await supabase
       .from('schedules')
-      .update({
-        song_leader: songLeader,
-        backup_singers: backupSingers || [],
-        schedule_date: scheduleDate,
-        practice_date: practiceDate || null,
-        practice_time: practiceTime || null,
-        slow_songs: slowSongs || [],
-        fast_songs: fastSongs || [],
-      })
+      .update(patch)
       .eq('schedule_id', scheduleId);
 
     if (error) {

@@ -76,15 +76,35 @@ const NAME_PARTICLES = new Set([
   'van', 'von', 'y', 'la', 'las', 'los', 'san', 'santa',
 ]);
 
-export function formatPersonName(name) {
+// A generation suffix at the end stays in capitals: "Juan Cruz III".
+const NAME_NUMERALS = new Set(['ii', 'iii', 'iv', 'vi', 'vii', 'viii', 'ix']);
+
+/**
+ * A name the way it should read: "frank DwEEZel gomez" -> "Frank Dweezel Gomez".
+ * Every name a person types is saved through this, and shown through it.
+ * @param {string} name
+ * @param {{ continues?: boolean }} [opts] - continues: this is the last name,
+ *   so it carries on from a first name and a particle at its start is in the
+ *   middle of the whole name ("dela Cruz", as in "Juan dela Cruz").
+ */
+export function formatPersonName(name, { continues = false } = {}) {
   const raw = String(name || '').trim().replace(/\s+/g, ' ');
   if (!raw) return '';
   const capWord = (w) => w.charAt(0).toUpperCase() + w.slice(1);
   return raw.split(' ').map((word, i, all) => {
     const lower = word.toLowerCase();
-    if (i > 0 && i < all.length - 1 && NAME_PARTICLES.has(lower)) return lower;
-    return lower.split('-').map((part) => part.split("'").map(capWord).join("'")).join('-');
+    const inMiddle = (i > 0 || continues) && i < all.length - 1;
+    const atEnd = (i > 0 || continues) && i === all.length - 1;
+    if (inMiddle && NAME_PARTICLES.has(lower)) return lower;
+    if (atEnd && NAME_NUMERALS.has(lower)) return lower.toUpperCase();
+    // O'Brien, Anne-Marie, J.R.
+    return lower.split('-').map((part) => part.split("'").map((p) => p.split('.').map(capWord).join('.')).join("'")).join('-');
   }).join(' ');
+}
+
+/** An account's first and last name, as saved: see formatPersonName. */
+export function formatAccountName(firstname, lastname) {
+  return { firstname: formatPersonName(firstname), lastname: formatPersonName(lastname, { continues: true }) };
 }
 
 /* ---- Registration status ---- */

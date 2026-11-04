@@ -1,4 +1,4 @@
--- ============================================================
+ -- ============================================================
 -- Your own Google Sheet, kept up to date with the rooms
 -- Run this in the Supabase SQL editor, AFTER event_rooms.sql and
 -- event_room_guests.sql. Safe to re-run.

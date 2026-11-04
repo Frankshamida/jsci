@@ -55,6 +55,8 @@ export async function POST(request) {
       ministry: user.ministry,
       sub_role: user.sub_role || null,
       role: user.role || 'Guest',
+      additional_roles: user.additional_roles || [],
+      default_dashboard: user.default_dashboard || null,
       status: user.status,
       isActive: user.is_active !== false,
       isGoogleUser: !!user.google_id,

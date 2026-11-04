@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { rateLimit } from '@/lib/serverCache';
+import { formatPersonName } from '@/lib/eventFormat';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +78,7 @@ export async function POST(request) {
     }
 
     const { data, error } = await supabase.from('isom_inquiries').insert({
-      full_name: fullName.trim(),
+      full_name: formatPersonName(fullName),
       email: email?.trim() || null,
       mobile: mobile?.trim() || null,
       church_name: churchName?.trim() || null,

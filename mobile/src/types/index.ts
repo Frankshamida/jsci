@@ -22,7 +22,11 @@ export interface User {
   allowed_event_types?: string[];
 }
 
-export type UserRole = 'Guest' | 'Member' | 'Song Leader' | 'Leader' | 'Pastor' | 'Admin' | 'Super Admin';
+// 'Member', 'Song Leader' and 'Leader' were retired by the web app's
+// user_roles_restructure.sql; kept for accounts that have not been migrated.
+export type UserRole =
+  | 'Guest' | 'Church Member' | 'Ministry Member' | 'Pastor' | 'Admin' | 'Super Admin'
+  | 'Member' | 'Song Leader' | 'Leader';
 
 export interface Event {
   id: string;

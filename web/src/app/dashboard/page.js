@@ -4,7 +4,8 @@ import { Fragment, useEffect, useLayoutEffect, useState, useRef, useCallback, us
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ROLES, MODULES, hasPermission, hasAnyPermission, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
+import { ROLES, ASSIGNABLE_ROLES, MODULES, hasPermission, hasAnyPermission, getUserRoles, getEffectiveRole, splitSubRole, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
+import { ROLE_DESCRIPTIONS, MINISTRY_ROLES, PASTOR_TITLES, getMinistryRole, parseMinistryCards, buildMinistryCards, ministryCardsError, ministriesOf, hasMinistryRole, parsePastorTitles, describeRoleDetails, getRoleChangeEffects, getRoleRemovalEffects, getAddableRoles, arrangeRoles, rolesNeedingSetup, canHoldEventPermissions, isLegacyRole, canOpenSection, getUserDashboards, MAIN_DASHBOARD, COMMITTEE_DASHBOARD } from '@/lib/userRoles';
 import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bedsToText, compareRoomNumbers, occupancyLabel, parseRoomNumbers, reservedLabel, roomEntitlement, roomHold, roomTypeName, accommodationAddons } from '@/lib/rooms';
 import { supabase } from '@/lib/supabase';
 import { normalizeUid, isPlausibleUid, formatUid, sameCard, wedgeCapture, WEDGE_IDLE_RESET_MS } from '@/lib/rfid';
@@ -47,6 +48,7 @@ import EventPaymentsTab from '@/components/eventDesk/EventPaymentsTab';
 import RoomListImport from '@/components/accommodation/RoomListImport';
 import RoomSheetPanel from '@/components/accommodation/RoomSheetPanel';
 import RoomBoard from '@/components/accommodation/RoomBoard';
+import MonthlyPlanner from '@/components/lineup/MonthlyPlanner';
 import { reviewPayments, recordSource } from '@/lib/paymentReview';
 import { publicEventSlugFor } from '@/lib/eventPublic';
 import { eventDayForToday, eventTodayKey, guessDoorCheckIn, localDateKey } from '@/lib/eventFormat';
@@ -439,21 +441,15 @@ const readExportHighlight = () => {
   } catch { return base; }
 };
 
-const ALL_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor', 'Admin', 'Super Admin'];
 const ALL_MINISTRIES = ['Praise And Worship', 'Media', 'Dancers', 'Ashers', 'Pastors', 'Teachers'];
 
 // Event types that admin can enable for users
 const USER_EVENT_TYPES = ['Event', 'Meeting', 'Bible Study', 'Prayer Meeting', 'Fellowship', 'Outreach', 'Workshop', 'Other'];
 
-// Ministry → Sub-Role mapping (Admin picks ministry, then sub-role dropdown shows these)
-const MINISTRY_SUB_ROLES = {
-  'Praise And Worship': ['Song Leaders', 'Backup Singer', 'Instrumentalists', 'Dancers'],
-  'Media': ['Lyrics', 'Multimedia'],
-  'Dancers': ['Choreographer', 'Dancer'],
-  'Ashers': ['Head Usher', 'Usher'],
-  'Pastors': ['Senior Pastor', 'Associate Pastor', 'Youth Pastor'],
-  'Teachers': ['Sunday School', 'Bible Study', 'ISOM'],
-};
+// User Management form. ministryCards ({ key, positions, head } per ministry
+// role) and pastorTitles are the form's own terms; lib/userRoles.js turns
+// them into the ministry / sub_role columns.
+const EMPTY_USER_FORM = { firstname: '', lastname: '', email: '', password: '', role: ROLES.GUEST, ministryCards: [], plotter: false, pastorTitles: [] };
 
 // Bible version options
 const BIBLE_VERSIONS = [
@@ -2603,7 +2599,7 @@ export default function DashboardPage() {
   // Admin: Users Management
   const [adminUsers, setAdminUsers] = useState([]);
   const [showUserForm, setShowUserForm] = useState(false);
-  const [userForm, setUserForm] = useState({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' });
+  const [userForm, setUserForm] = useState(EMPTY_USER_FORM);
   const [editingUser, setEditingUser] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
@@ -2612,11 +2608,20 @@ export default function DashboardPage() {
   const [userFilterMinistry, setUserFilterMinistry] = useState('');
   const [userFilterStatus, setUserFilterStatus] = useState('');
   const [userActionMenu, setUserActionMenu] = useState(null);
+  // The users table's floating menus: where to draw them (see floatingMenuStyle).
+  const [userActionMenuStyle, setUserActionMenuStyle] = useState(null);
+  const [roleMenu, setRoleMenu] = useState(null); // { userId, style } - first-role picker
+  const [ministryPopover, setMinistryPopover] = useState(null); // { group, style } - positions on hover
+  const [roleDialog, setRoleDialog] = useState(null); // { mode: 'add' | 'change', user, selected }
+  // Giving Ministry Member / Pastor: { action, user, newRole, rolesBefore, rolesAfter, removed, needs }
+  const [roleSetup, setRoleSetup] = useState(null);
+  const [discardRoleSetup, setDiscardRoleSetup] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [showResetPwModal, setShowResetPwModal] = useState(null);
   const [resetPwForm, setResetPwForm] = useState({ newPassword: '', confirmPassword: '' });
   const [showResetPw, setShowResetPw] = useState({ new: false, confirm: false });
-  const [newSubRoleInput, setNewSubRoleInput] = useState('');
+  const [userFormSaving, setUserFormSaving] = useState(false);
+  const [ministryPickerOpen, setMinistryPickerOpen] = useState(false);
 
   // Admin: Ministry Management
   const [ministriesList, setMinistriesList] = useState([]);
@@ -2826,6 +2831,16 @@ export default function DashboardPage() {
   // dashboard. Fetched once on load, so the quick switch is either there and
   // works, or is not there at all - never a button that leads to a refusal.
   const [committeeSession, setCommitteeSession] = useState(null);
+  const [committeeChecked, setCommitteeChecked] = useState(false);
+  // Dashboard switcher: the account's own dashboard or the committee's.
+  // See getUserDashboards.
+  const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
+  const [dashboardMenuStyle, setDashboardMenuStyle] = useState(null);
+  const [accountChecked, setAccountChecked] = useState(false);
+  const [startDashboardPending, setStartDashboardPending] = useState(false);
+  const [showStartDashboardPrompt, setShowStartDashboardPrompt] = useState(false);
+  const [rememberStartDashboard, setRememberStartDashboard] = useState(true);
+  const [savingDefaultDashboard, setSavingDefaultDashboard] = useState(false);
 
   // Generic confirm modal (used for deletes and other destructive actions)
   const [confirmModal, setConfirmModal] = useState({ open: false, title: '', subtitle: '', message: '', confirmLabel: 'Delete', icon: 'fa-trash', confirmIcon: 'fa-trash', onConfirm: null, onCancel: null, requireText: null });
@@ -3031,7 +3046,7 @@ export default function DashboardPage() {
       return;
     }
     setUserData(stored);
-    setUserRole(stored.role || 'Guest');
+    setUserRole(getEffectiveRole(stored));
     setIsVerified(stored.status === 'Verified');
     setProfileForm({ firstname: stored.firstname, lastname: stored.lastname, birthdate: stored.birthdate || '', life_verse: stored.life_verse || '' });
     setHasLocalPassword(stored.hasPassword !== false);
@@ -3114,23 +3129,41 @@ export default function DashboardPage() {
       setTimeout(() => fetchLifeVerse(stored.life_verse, lv), 500);
     }
 
-    // Refresh allowed_event_types from server (in case admin changed permissions)
+    // A new visit (sign-in, or a new tab) opens on the account's chosen start
+    // dashboard. Not on a reload, not on a link to a particular section, and
+    // not on the way back from the committee dashboard - that would bounce
+    // someone whose start dashboard IS the committee straight back to it.
+    try {
+      const startKey = `dashboardStarted:${stored.id}`;
+      if (!sessionStorage.getItem(startKey) && resolveSectionFromPath() === 'home' && !localStorage.getItem('pendingEventRegistration')) {
+        setStartDashboardPending(true);
+      }
+      sessionStorage.setItem(startKey, '1');
+    } catch { /* storage blocked - open on Home */ }
+
+    // Refresh allowed_event_types, roles and ministry from the server (an
+    // admin may have changed them since this session signed in)
     if (stored.id) {
       fetch(`/api/admin/users?action=get-event-permissions&userId=${stored.id}`)
         .then(r => r.json())
         .then(result => {
           if (result.success) {
-            const updatedTypes = result.allowed_event_types || [];
-            const current = stored.allowed_event_types || [];
-            if (JSON.stringify(updatedTypes) !== JSON.stringify(current)) {
-              const updated = { ...stored, allowed_event_types: updatedTypes };
+            const fresh = { ...(result.account || {}), allowed_event_types: result.allowed_event_types || [] };
+            const changed = Object.keys(fresh).some((k) => JSON.stringify(fresh[k] ?? null) !== JSON.stringify(stored[k] ?? null));
+            if (changed) {
+              const updated = { ...stored, ...fresh };
               setUserData(updated);
+              setUserRole(getEffectiveRole(updated));
+              if (fresh.status !== undefined) setIsVerified(fresh.status === 'Verified');
               sessionStorage.setItem('userData', JSON.stringify(updated));
               localStorage.setItem('userData', JSON.stringify(updated));
             }
           }
         })
-        .catch(() => { /* silent - use cached data */ });
+        .catch(() => { /* silent - use cached data */ })
+        .finally(() => setAccountChecked(true));
+    } else {
+      setAccountChecked(true);
     }
 
     // May this account cross over to the Event Committee dashboard? Asked of
@@ -3141,13 +3174,16 @@ export default function DashboardPage() {
       fetch(`/api/event-committee/session?userId=${stored.id}`)
         .then((r) => r.json())
         .then((result) => setCommitteeSession(result.success ? result.data : null))
-        .catch(() => { /* no switch offered - the portal is still reachable by URL */ });
+        .catch(() => { /* no switch offered - the portal is still reachable by URL */ })
+        .finally(() => setCommitteeChecked(true));
+    } else {
+      setCommitteeChecked(true);
     }
 
     // Load permission overrides & subscribe to real-time changes
     loadPermissionOverrides();
     // Check admin access password status for admin/super admin
-    if (['Admin', 'Super Admin'].includes(stored.role)) {
+    if (['Admin', 'Super Admin'].includes(getEffectiveRole(stored))) {
       checkAdminAccessPassword();
     }
     let permChannel;
@@ -3290,10 +3326,11 @@ export default function DashboardPage() {
         });
 
         // Sync derived state that the dashboard relies on
-        if (updated.role !== undefined) {
-          setUserRole(updated.role || 'Guest');
+        if (updated.role !== undefined || updated.additional_roles !== undefined) {
+          const effective = getEffectiveRole(updated);
+          setUserRole(effective);
           // Re-check admin access password if promoted to admin
-          if (['Admin', 'Super Admin'].includes(updated.role)) {
+          if (['Admin', 'Super Admin'].includes(effective)) {
             checkAdminAccessPassword();
           }
         }
@@ -3460,6 +3497,12 @@ export default function DashboardPage() {
       showToast('🔒 Please wait for account verification to access this feature', 'warning');
       return;
     }
+    // Only sections the account's roles own (SECTION_ACCESS). userData is
+    // null in the first render's closure; the guard effect covers that case.
+    if (userData && !canOpenSection(userData, sectionId)) {
+      showToast('🚫 This page is not part of your role', 'warning');
+      return;
+    }
     // Block navigation if the sidebar section is disabled by SuperAdmin
     // Checks both sidebar-level toggles AND action-level feature toggles
     if (sectionId !== 'home' && userRole !== ROLES.SUPER_ADMIN) {
@@ -3514,9 +3557,14 @@ export default function DashboardPage() {
     if (sectionId === 'accommodation') loadEvents();
     if (['events', 'events-management', 'my-created-events', 'community-events'].includes(sectionId)) loadActivePaymentMethods();
     if (sectionId === 'permissions-control') { loadPermissionOverrides(); } else { setPermCtrlUnlocked(false); setPermCtrlPasswordInput(''); setPermCtrlPasswordError(''); }
-    if (sectionId === 'create-lineup') { loadScheduleData(); loadLineupExcuses(); loadSubRequests(); loadPawMembers(); if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); } }
+    if (sectionId === 'create-lineup') {
+      loadScheduleData(); loadLineupExcuses(); loadSubRequests(); loadPawMembers();
+      if (userRole === 'Admin' || userRole === 'Super Admin') { loadBackupSingers(); loadSongLeaders(); }
+      // Plotters (and Admins) start on the Monthly Planner.
+      if (hasPermission(getUserRoles(userData), MODULES.PLAN_LINEUP, userData?.sub_role)) setLineupTab('planner');
+    }
     if (sectionId === 'my-lineups') loadScheduleData();
-    if (sectionId === 'praise-worship') { loadPawSchedules(); loadPawMySchedules(); loadPawNotifications(); loadSubRequests(); loadLineupExcuses(); loadPracticeRecordings(); const subRole = userData?.sub_role || ''; const ministry = userData?.ministry || ''; let roleLabel = subRole || ministry || 'Worship Team Member'; fetchPawBibleVerse(roleLabel); if ((ministry === 'Media') || (subRole || '').includes('Multimedia') || (subRole || '').includes('Lyrics')) { loadLyricsLibrary(); loadMultimediaLineupNotifs(); } }
+    if (sectionId === 'praise-worship') { loadPawSchedules(); loadPawMySchedules(); loadPawNotifications(); loadSubRequests(); loadLineupExcuses(); loadPracticeRecordings(); const subRole = userData?.sub_role || ''; const ministry = userData?.ministry || ''; let roleLabel = subRole || ministry || 'Worship Team Member'; fetchPawBibleVerse(roleLabel); if ((ministry === 'Media') || hasMinistryRole(userData, 'media') || (subRole || '').includes('Multimedia') || (subRole || '').includes('Lyrics')) { loadLyricsLibrary(); loadMultimediaLineupNotifs(); } }
     if (sectionId === 'my-created-events') { loadUserEvents(); loadBrowseUserEvents(); }
     if (sectionId === 'community-events') loadBrowseUserEvents();
     if (sectionId === 'user-events-oversight') loadAllUserEventsForPastor();
@@ -5639,7 +5687,9 @@ export default function DashboardPage() {
   // ============================================
   // MULTIMEDIA LYRICS LIBRARY
   // ============================================
-  const isMultimediaUser = (userData?.ministry === 'Media') || (userData?.sub_role || '').includes('Multimedia') || (userData?.sub_role || '').includes('Lyrics');
+  // hasMinistryRole: a Media card held alongside Praise & Worship, whose
+  // ministry column then says 'Praise And Worship'.
+  const isMultimediaUser = (userData?.ministry === 'Media') || hasMinistryRole(userData, 'media') || (userData?.sub_role || '').includes('Multimedia') || (userData?.sub_role || '').includes('Lyrics');
 
   const loadLyricsLibrary = async () => {
     try {
@@ -5970,7 +6020,7 @@ export default function DashboardPage() {
   };
 
   const EVENT_STEPS = ['Basic Info & Visibility', 'Schedule & Location', 'Registration', 'Pricing & Payment', 'Merchandise'];
-  const EVENT_AUDIENCE_ROLES = ['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor'];
+  const EVENT_AUDIENCE_ROLES = [ROLES.GUEST, ROLES.CHURCH_MEMBER, ROLES.MINISTRY_MEMBER, ROLES.PASTOR];
 
   // "1 day 3 hours", "45 mins", etc. — shown next to the schedule fields once both ends are set.
   const formatEventDuration = (startStr, endStr) => {
@@ -11373,29 +11423,454 @@ export default function DashboardPage() {
   };
 
   // -- Admin: User Management --
+  const closeUserForms = () => {
+    setShowUserForm(false);
+    setShowEditModal(false);
+    setEditingUser(null);
+    setUserForm(EMPTY_USER_FORM);
+    setMinistryPickerOpen(false);
+  };
+
+  // Did the ministry cards change from what `existingUser` has saved?
+  const ministryCardsChanged = (existingUser) => {
+    const saved = parseMinistryCards(existingUser?.ministry, existingUser?.sub_role);
+    const before = buildMinistryCards(saved.cards, { plotter: saved.plotter });
+    const after = buildMinistryCards(userForm.ministryCards, { plotter: userForm.plotter });
+    return before.ministry !== after.ministry || before.sub_role !== after.sub_role;
+  };
+
+  // The ministry / sub_role to send for an account holding `roles`, or
+  // { error }. A Ministry Member's ministry cards and a Pastor's titles share
+  // sub_role, so both are sent together. Unchanged cards are sent back exactly
+  // as saved, so opening and saving an account never wipes older ministry
+  // data the form has no place for. `required` are roles being given right
+  // now (rolesNeedingSetup): their details must be filled in. Cards or titles
+  // that were changed must not be left empty either - a Ministry Member
+  // always has a ministry role, a Pastor always a title.
+  const userFormRoleDetails = (roles, existingUser, required = []) => {
+    const ministryMember = roles.includes(ROLES.MINISTRY_MEMBER);
+    const pastor = roles.includes(ROLES.PASTOR);
+    if (!ministryMember && !pastor) return {};
+    const titlesChanged = pastor && PASTOR_TITLES.some((t) => userForm.pastorTitles.includes(t) !== parsePastorTitles(existingUser?.sub_role).includes(t));
+    if (pastor && (required.includes(ROLES.PASTOR) || titlesChanged) && userForm.pastorTitles.length === 0) {
+      return { error: 'Pick at least one pastor title.' };
+    }
+    let ministry = null;
+    let ministryTokens = [];
+    if (ministryMember) {
+      if (required.includes(ROLES.MINISTRY_MEMBER) || ministryCardsChanged(existingUser)) {
+        if (userForm.ministryCards.length === 0) return { error: 'Add at least one ministry role.' };
+        const error = ministryCardsError(userForm.ministryCards);
+        if (error) return { error };
+        const built = buildMinistryCards(userForm.ministryCards, { plotter: userForm.plotter });
+        ministry = built.ministry;
+        ministryTokens = splitSubRole(built.sub_role);
+      } else {
+        ministry = existingUser?.ministry || null;
+        ministryTokens = splitSubRole(existingUser?.sub_role).filter((t) => !PASTOR_TITLES.includes(t));
+      }
+    }
+    const titles = pastor ? PASTOR_TITLES.filter((t) => userForm.pastorTitles.includes(t)) : [];
+    return { ministry, sub_role: [...ministryTokens, ...titles].join(', ') || null };
+  };
+
   const handleCreateUser = async () => {
+    const { firstname, lastname, email, password, role } = userForm;
+    if (!firstname.trim() || !lastname.trim() || !email.trim() || !password) { showToast('Fill in every field marked *', 'warning'); return; }
+    const { error, ...details } = userFormRoleDetails([role], null, rolesNeedingSetup(null, [role]));
+    if (error) { showToast(error, 'warning'); return; }
+    setUserFormSaving(true);
     try {
-      const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userForm) });
+      const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firstname, lastname, email, password, role, ...details }) });
       const data = await res.json();
-      if (data.success) { showToast(data.message, 'success'); setShowUserForm(false); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); loadAdminUsers(); }
+      if (data.success) { showToast(data.message, 'success'); closeUserForms(); loadAdminUsers(); }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setUserFormSaving(false); }
   };
 
   const handleEditUser = (user) => {
     setEditingUser(user);
-    setUserForm({ firstname: user.firstname, lastname: user.lastname, email: user.email, password: '', ministry: user.ministry || '', sub_role: user.sub_role || '', role: user.role || 'Guest' });
+    setUserForm({
+      ...EMPTY_USER_FORM,
+      firstname: user.firstname || '', lastname: user.lastname || '', email: user.email || '', role: user.role || ROLES.GUEST,
+      ministryCards: parseMinistryCards(user.ministry, user.sub_role).cards,
+      plotter: parseMinistryCards(user.ministry, user.sub_role).plotter,
+      pastorTitles: parsePastorTitles(user.sub_role),
+    });
+    // Someone just made a Ministry Member with nothing yet: open the picker for them.
+    setMinistryPickerOpen(getUserRoles(user).includes(ROLES.MINISTRY_MEMBER) && parseMinistryCards(user.ministry, user.sub_role).cards.length === 0);
     setShowEditModal(true);
   };
 
   const handleUpdateUser = async () => {
+    const { firstname, lastname, email } = userForm;
+    if (!firstname.trim() || !lastname.trim() || !email.trim()) { showToast('First name, last name and email are required', 'warning'); return; }
+    const { error, ...details } = userFormRoleDetails(getUserRoles(editingUser), editingUser);
+    if (error) { showToast(error, 'warning'); return; }
+    setUserFormSaving(true);
     try {
-      const updates = { id: editingUser.id, firstname: userForm.firstname, lastname: userForm.lastname, ministry: userForm.ministry, sub_role: userForm.sub_role, role: userForm.role };
+      const updates = { id: editingUser.id, firstname, lastname, email, ...details };
       const res = await fetch('/api/admin/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
       const data = await res.json();
-      if (data.success) { showToast('User updated successfully!', 'success'); setShowEditModal(false); setEditingUser(null); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); loadAdminUsers(); }
+      if (data.success) { showToast('User updated successfully!', 'success'); closeUserForms(); loadAdminUsers(); }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setUserFormSaving(false); }
+  };
+
+  // Role changes → confirmation → save. Changing the main role or taking an
+  // added role away deletes what no remaining role owns (ministry, pastor
+  // titles, event permissions), and the confirmation lists exactly that
+  // before anything is touched. Adding a role deletes nothing.
+  // Giving Ministry Member or Pastor goes through the role setup instead:
+  // the role is only saved together with its ministry roles / titles.
+  const requestRoleChange = (user, newRole) => {
+    if (!newRole || newRole === user.role) return;
+    const effects = getRoleChangeEffects(user, newRole);
+    const change = {
+      action: 'assign-role', user, newRole, userName: `${user.firstname} ${user.lastname}`,
+      rolesBefore: getUserRoles(user), rolesAfter: effects.roles, removed: effects.removed,
+    };
+    const needs = rolesNeedingSetup(user, effects.roles);
+    if (needs.length) { openRoleSetup({ ...change, needs }); return; }
+    setConfirmAction({ ...change, type: 'assign-role', userId: user.id });
+  };
+
+  const requestRoleAdd = (user, role) => {
+    setRoleDialog(null);
+    const next = arrangeRoles([...getUserRoles(user), role]);
+    const rolesAfter = [next.role, ...next.additional_roles];
+    const needs = rolesNeedingSetup(user, rolesAfter);
+    if (!needs.length) { saveRoleAction(user, 'add-role', role); return; }
+    openRoleSetup({
+      action: 'add-role', user, newRole: role, userName: `${user.firstname} ${user.lastname}`,
+      rolesBefore: getUserRoles(user), rolesAfter, removed: [], needs,
+    });
+  };
+
+  // ---- Role setup: the role and its details, saved together or not at all ----
+  const openRoleSetup = (setup) => {
+    const { user } = setup;
+    setUserForm({
+      ...EMPTY_USER_FORM,
+      firstname: user.firstname || '', lastname: user.lastname || '', email: user.email || '', role: user.role,
+      ministryCards: parseMinistryCards(user.ministry, user.sub_role).cards,
+      plotter: parseMinistryCards(user.ministry, user.sub_role).plotter,
+      pastorTitles: parsePastorTitles(user.sub_role),
+    });
+    setMinistryPickerOpen(setup.needs.includes(ROLES.MINISTRY_MEMBER) && parseMinistryCards(user.ministry, user.sub_role).cards.length === 0);
+    setDiscardRoleSetup(false);
+    setRoleSetup(setup);
+  };
+
+  const closeRoleSetup = () => {
+    setRoleSetup(null);
+    setDiscardRoleSetup(false);
+    setUserForm(EMPTY_USER_FORM);
+    setMinistryPickerOpen(false);
+  };
+
+  const saveRoleSetup = async () => {
+    const { action, user, newRole, rolesAfter, needs } = roleSetup;
+    const { error, ...details } = userFormRoleDetails(rolesAfter, user, needs);
+    if (error) { showToast(error, 'warning'); return; }
+    setUserFormSaving(true);
+    try {
+      const res = await fetch('/api/admin/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: user.id, action, role: newRole, ...details }) });
+      const data = await res.json();
+      showToast(data.message, data.success ? 'success' : 'danger');
+      if (data.success) { closeRoleSetup(); loadAdminUsers(); }
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setUserFormSaving(false); }
+  };
+
+  const requestRoleRemoval = (user, role) => {
+    const effects = getRoleRemovalEffects(user, role);
+    setConfirmAction({
+      type: 'remove-role', userId: user.id, userName: `${user.firstname} ${user.lastname}`,
+      user, newRole: role, rolesBefore: getUserRoles(user), rolesAfter: effects.roles, removed: effects.removed,
+    });
+  };
+
+  // add-role / assign-role / remove-role for roles with nothing to set up
+  // (the others go through saveRoleSetup).
+  const saveRoleAction = async (user, action, role) => {
+    try {
+      const res = await fetch('/api/admin/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: user.id, action, role }) });
+      const data = await res.json();
+      showToast(data.message, data.success ? 'success' : 'danger');
+      if (data.success) loadAdminUsers();
+    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+    finally { setConfirmAction(null); setRoleDialog(null); }
+  };
+
+  // Menus in the users table are drawn fixed to the window, through a portal,
+  // so the table's sideways scroll box cannot clip them. They open upward
+  // when there is no room below the button.
+  const floatingMenuStyle = (rect, height) => {
+    const roomBelow = window.innerHeight - rect.bottom;
+    const up = roomBelow < height + 12 && rect.top > roomBelow;
+    return {
+      right: Math.max(8, window.innerWidth - rect.right),
+      ...(up ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
+    };
+  };
+
+  // The positions behind a ministry pill, shown above it on hover / focus.
+  const showMinistryPopover = (e, group) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const height = 52 + group.chips.length * 30;
+    const above = r.top > height + 12;
+    setMinistryPopover({
+      group,
+      style: { left: Math.min(r.left, window.innerWidth - 248), ...(above ? { bottom: window.innerHeight - r.top + 8 } : { top: r.bottom + 8 }) },
+    });
+  };
+
+  const toggleIn = (list, value) => (list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
+
+  const renderCheckChip = (key, label, on, onToggle) => (
+    <label key={key} className={`um-check-chip ${on ? 'on' : ''}`}>
+      <input type="checkbox" checked={on} onChange={onToggle} />
+      <i className={`fas ${on ? 'fa-check-square' : 'fa-square'}`}></i>
+      <span>{label}</span>
+    </label>
+  );
+
+  // The part of the Create / Edit User form that changes with the roles held:
+  // a Ministry Member's ministry roles and positions, a Pastor's titles - both
+  // for someone who is both. `existingUser` is the account being edited
+  // (null when creating).
+  const renderRoleDetailsFields = (existingUser) => {
+    const roles = existingUser ? getUserRoles(existingUser) : [userForm.role];
+    const retired = roles.find(isLegacyRole);
+    if (retired) {
+      return (
+        <div className="um-role-note warn">
+          <i className="fas fa-exclamation-triangle"></i>
+          <span>This account still has the retired role <strong>{retired}</strong>. Run the <code>user_roles_restructure.sql</code> migration, or change its main role from Manage.</span>
+        </div>
+      );
+    }
+    return (
+      <>
+        {roles.includes(ROLES.MINISTRY_MEMBER) && renderMinistryCardsField(existingUser)}
+        {roles.includes(ROLES.PASTOR) && renderPastorTitlesField()}
+      </>
+    );
+  };
+
+  const renderPastorTitlesField = () => (
+    <div className="form-group">
+      <label>Pastor Title <span className="um-label-hint">at least one</span></label>
+      <div className="um-check-grid">
+        {PASTOR_TITLES.map((t) => renderCheckChip(t, t, userForm.pastorTitles.includes(t),
+          () => setUserForm((f) => ({ ...f, pastorTitles: toggleIn(f.pastorTitles, t) }))))}
+      </div>
+    </div>
+  );
+
+  // A Ministry Member's ministry roles: one card each, added from a picker.
+  const renderMinistryCardsField = (existingUser) => {
+    const cards = userForm.ministryCards;
+    const saved = parseMinistryCards(existingUser?.ministry, existingUser?.sub_role);
+    const changed = ministryCardsChanged(existingUser);
+    const available = MINISTRY_ROLES.filter((mr) => !cards.some((c) => c.key === mr.key));
+
+    // Before saving, say what the save will throw away.
+    const notes = [];
+    const unknown = saved.leftover.length ? saved.leftover.join(', ') : (saved.cards.length === 0 && existingUser?.ministry) || '';
+    if (unknown) {
+      notes.push(changed
+        ? { kind: 'warn', text: `"${unknown}" is not in the new list and will be removed when you save.` }
+        : { kind: 'info', text: `"${unknown}" is not in the new list. It stays as it is unless you change the ministry roles.` });
+    }
+    const dropped = saved.cards.filter((s) => !cards.some((c) => c.key === s.key)).map((s) => getMinistryRole(s.key).label);
+    if (dropped.length) notes.push({ kind: 'warn', text: `${dropped.join(' and ')} will be removed from this account when you save.` });
+
+    const updateCard = (key, change) => setUserForm((f) => ({
+      ...f,
+      ministryCards: f.ministryCards.map((c) => (c.key === key ? { ...c, ...change(c) } : c)),
+    }));
+    const addCard = (key) => {
+      // Adding back a ministry role they already had brings its saved positions back.
+      const before = saved.cards.find((c) => c.key === key);
+      setUserForm((f) => ({ ...f, ministryCards: [...f.ministryCards, before || { key, positions: [], head: false }] }));
+      setMinistryPickerOpen(false);
+    };
+    const removeCard = (key) => setUserForm((f) => ({ ...f, ministryCards: f.ministryCards.filter((c) => c.key !== key) }));
+
+    return (
+      <div className="form-group um-ministry-section">
+        <label>Ministry Roles {cards.length > 0 && <span className="um-label-hint">{cards.length} added</span>}</label>
+
+        {cards.length === 0 && !ministryPickerOpen && (
+          <div className="um-ministry-empty"><i className="fas fa-church"></i> No ministry role yet. Add where they serve.</div>
+        )}
+
+        <div className="um-ministry-cards">
+          {cards.map((card) => {
+            const mr = getMinistryRole(card.key);
+            const unfinished = mr.kind === 'multi' && card.positions.length === 0;
+            const status = mr.kind === 'toggle' ? (card.head ? mr.headToken : mr.memberLabel)
+              : unfinished ? 'Pick at least one position'
+              : `${card.positions.length} position${card.positions.length === 1 ? '' : 's'}`;
+            return (
+              <div key={card.key} className={`um-ministry-card ${unfinished ? 'unfinished' : ''}`}>
+                <div className="um-ministry-card-head">
+                  <span className="um-ministry-card-icon"><i className={`fas ${mr.icon}`}></i></span>
+                  <span className="um-ministry-card-title">
+                    <strong>{mr.label}</strong>
+                    <small>{status}</small>
+                  </span>
+                  <button type="button" className="um-ministry-card-remove" onClick={() => removeCard(card.key)} title={`Remove ${mr.label}`} aria-label={`Remove ${mr.label}`}>
+                    <i className="fas fa-trash-alt"></i>
+                  </button>
+                </div>
+                <div className="um-ministry-card-body">
+                  {mr.kind === 'multi' ? mr.positions.map((p) => renderCheckChip(p.token, p.label, card.positions.includes(p.token),
+                    () => updateCard(card.key, (c) => ({ positions: toggleIn(c.positions, p.token) })))) : (
+                    <button type="button" role="switch" aria-checked={card.head} className={`um-switch-row ${card.head ? 'on' : ''}`}
+                      onClick={() => updateCard(card.key, (c) => ({ head: !c.head }))}>
+                      <span className="um-switch-text">
+                        <strong>{mr.headToken}</strong>
+                        <small>{card.head ? mr.headHint : `Off: ${mr.memberLabel.toLowerCase()}`}</small>
+                      </span>
+                      <span className="um-switch"><span className="um-switch-knob"></span></span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {available.length > 0 && (ministryPickerOpen ? (
+          <div className="um-ministry-picker">
+            <div className="um-ministry-picker-head">
+              <span>Choose a ministry role to add</span>
+              <button type="button" className="um-ministry-picker-close" onClick={() => setMinistryPickerOpen(false)} aria-label="Close"><i className="fas fa-times"></i></button>
+            </div>
+            <div className="um-ministry-picker-options">
+              {available.map((mr) => (
+                <button type="button" key={mr.key} className="um-ministry-option" onClick={() => addCard(mr.key)}>
+                  <i className={`fas ${mr.icon}`}></i> {mr.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="um-ministry-add-btn" onClick={() => setMinistryPickerOpen(true)}>
+            <i className="fas fa-plus"></i> Add Ministry Role
+          </button>
+        ))}
+
+        {/* A duty on top of where they serve: plots who leads and who sings
+            backup each Sunday (Assign Lineup > Monthly Planner). */}
+        <button type="button" role="switch" aria-checked={userForm.plotter}
+          className={`um-plotter-toggle ${userForm.plotter ? 'on' : ''}`}
+          onClick={() => setUserForm((f) => ({ ...f, plotter: !f.plotter }))}>
+          <span className="um-plotter-icon"><i className="fas fa-calendar-check"></i></span>
+          <span className="um-switch-text">
+            <strong>Schedule Plotter</strong>
+            <small>{userForm.plotter
+              ? 'Plans the monthly lineup: who leads and who sings backup each Sunday'
+              : 'Off: cannot plan the lineup'}</small>
+          </span>
+          <span className="um-switch"><span className="um-switch-knob"></span></span>
+        </button>
+
+        {notes.map((n) => (
+          <div key={n.text} className={`um-role-note ${n.kind}`}>
+            <i className={`fas ${n.kind === 'warn' ? 'fa-exclamation-triangle' : 'fa-info-circle'}`}></i>
+            <span>{n.text}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // The Manage menu on a user row. What it offers depends on the account's
+  // role (only Ministry Members and Pastors take event permissions) and on
+  // what the signed-in user is allowed to do.
+  const renderManageMenu = (u) => {
+    const name = `${u.firstname} ${u.lastname}`;
+    const isSelf = u.id === userData?.id;
+    const roles = getUserRoles(u);
+    const ask = (type, label) => { setConfirmAction({ type, userId: u.id, userName: name, label }); setUserActionMenu(null); };
+    const open = (fn) => () => { fn(); setUserActionMenu(null); };
+    const canEdit = featureOn('users.edit');
+    const canEventPerms = canHoldEventPermissions(roles);
+    // Roles are a Super Admin's to give, once the account is verified and has
+    // its first role (a Guest gets that from the Role column).
+    const canRole = canManage(MODULES.ASSIGN_USER_ROLES) && !isSelf && u.status === 'Verified' && u.role !== ROLES.GUEST;
+    const canAddRole = canRole && getAddableRoles(u).length > 0;
+    // Only a Super Admin manages a Super Admin's account.
+    const locked = roles.includes(ROLES.SUPER_ADMIN) && userRole !== ROLES.SUPER_ADMIN;
+
+    return (
+      <div className="um-dropdown um-manage-menu um-floating" style={userActionMenuStyle || undefined} role="menu" onClick={(e) => e.stopPropagation()}>
+        <div className="um-manage-head">
+          <span className="um-manage-name">{name}</span>
+          <span className="um-manage-meta">{roles.join(' · ')} · {u.status}</span>
+        </div>
+        {locked ? (
+          <div className="um-manage-empty"><i className="fas fa-lock"></i> Only a Super Admin can manage this account.</div>
+        ) : (
+          <>
+            {canEdit && (
+              <button className="um-dropdown-item" role="menuitem" onClick={open(() => handleEditUser(u))}>
+                <i className="fas fa-user-edit"></i> Edit User
+              </button>
+            )}
+            {canEventPerms && (
+              <button className="um-dropdown-item" role="menuitem" onClick={open(() => { setEventPermissionsUser(u); setEventPermissionsForm(u.allowed_event_types || []); })}>
+                <i className="fas fa-calendar-check"></i> Event Permissions
+              </button>
+            )}
+            {canAddRole && (
+              <button className="um-dropdown-item um-item-accent" role="menuitem" onClick={open(() => setRoleDialog({ mode: 'add', user: u, selected: null }))}>
+                <i className="fas fa-user-plus"></i> Add Role
+              </button>
+            )}
+            {canRole && (
+              <button className="um-dropdown-item" role="menuitem" onClick={open(() => setRoleDialog({ mode: 'change', user: u, selected: null }))}>
+                <i className="fas fa-user-tag"></i> Change Main Role
+              </button>
+            )}
+            {(canEdit || canEventPerms || canRole) && <div className="um-dropdown-divider"></div>}
+            {u.status === 'Unverified' && (
+              <button className="um-dropdown-item um-item-success" role="menuitem" onClick={() => ask('verify', 'verify this user')}>
+                <i className="fas fa-check-circle"></i> Verify User
+              </button>
+            )}
+            {featureOn('users.deactivate') && !isSelf && (u.is_active === false ? (
+              <button className="um-dropdown-item um-item-success" role="menuitem" onClick={() => ask('activate', 'activate this user')}>
+                <i className="fas fa-check-circle"></i> Activate
+              </button>
+            ) : (
+              <button className="um-dropdown-item um-item-warning" role="menuitem" onClick={() => ask('deactivate', 'deactivate this user')}>
+                <i className="fas fa-ban"></i> Deactivate
+              </button>
+            ))}
+            {featureOn('users.reset_password') && (
+              <button className="um-dropdown-item" role="menuitem" onClick={open(() => { setShowResetPwModal(u); setResetPwForm({ newPassword: '', confirmPassword: '' }); })}>
+                <i className="fas fa-key"></i> Reset Password
+              </button>
+            )}
+            {canManage(MODULES.DELETE_USERS) && !isSelf && (
+              <>
+                <div className="um-dropdown-divider"></div>
+                <button className="um-dropdown-item um-item-danger" role="menuitem" onClick={() => ask('delete', 'permanently delete this user')}>
+                  <i className="fas fa-trash-alt"></i> Delete User
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    );
   };
 
   const handleUserAction = async (userId, action, extra = {}) => {
@@ -11433,11 +11908,13 @@ export default function DashboardPage() {
       `${u.firstname} ${u.lastname}`.toLowerCase().includes(searchLower) ||
       u.email?.toLowerCase().includes(searchLower) ||
       u.member_id?.toLowerCase().includes(searchLower);
-    const matchesRole = !userFilterRole || u.role === userFilterRole;
-    const matchesMinistry = !userFilterMinistry || u.ministry === userFilterMinistry;
+    const matchesRole = !userFilterRole || getUserRoles(u).includes(userFilterRole);
+    const matchesMinistry = !userFilterMinistry || ministriesOf(u.ministry, u.sub_role).includes(userFilterMinistry);
     const matchesStatus = !userFilterStatus || u.status === userFilterStatus;
     return matchesSearch && matchesRole && matchesMinistry && matchesStatus;
   });
+  // Any retired role still on an account stays filterable until the migration clears it.
+  const userRoleFilterOptions = [...new Set([...ASSIGNABLE_ROLES, ...adminUsers.flatMap((u) => getUserRoles(u))])];
 
   // -- User table pagination (15 per page) --
   const USERS_PER_PAGE = 15;
@@ -12718,17 +13195,28 @@ Examples:
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAvatarMenu]);
 
-  // Close user action dropdown when clicking outside
+  // Close the users table's menus when clicking outside them
   useEffect(() => {
-    if (!userActionMenu) return;
+    if (!userActionMenu && !roleMenu) return;
     const handleClickOutsideMenu = (e) => {
-      if (!e.target.closest('.um-dots-btn') && !e.target.closest('.um-dropdown')) {
+      if (!e.target.closest('.um-manage-btn, .um-role-trigger, .um-dropdown')) {
         setUserActionMenu(null);
+        setRoleMenu(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutsideMenu);
     return () => document.removeEventListener('mousedown', handleClickOutsideMenu);
-  }, [userActionMenu]);
+  }, [userActionMenu, roleMenu]);
+
+  // ...and when anything scrolls or the window resizes: they are drawn fixed
+  // to the window, so they would otherwise float away from their row.
+  useEffect(() => {
+    if (!userActionMenu && !roleMenu && !ministryPopover) return;
+    const close = () => { setUserActionMenu(null); setRoleMenu(null); setMinistryPopover(null); };
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
+  }, [userActionMenu, roleMenu, ministryPopover]);
 
   // Handle profile picture file selection
   const handleProfilePicSelect = (e) => {
@@ -12811,7 +13299,16 @@ Examples:
     try {
       const res = await fetch('/api/profile/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userData.email, firstname: profileForm.firstname, lastname: profileForm.lastname, birthdate: profileForm.birthdate, life_verse: profileForm.life_verse }) });
       const data = await res.json();
-      if (data.success) { const updated = { ...userData, firstname: profileForm.firstname, lastname: profileForm.lastname, birthdate: profileForm.birthdate, life_verse: profileForm.life_verse }; setUserData(updated); sessionStorage.setItem('userData', JSON.stringify(updated)); localStorage.setItem('userData', JSON.stringify(updated)); showToast('Profile updated!', 'success'); fetchLifeVerse(profileForm.life_verse, lifeVerseVersion); }
+      if (data.success) {
+        // The name as saved ("frank gomez" comes back "Frank Gomez"), not as typed.
+        const firstname = data.data?.firstname || profileForm.firstname;
+        const lastname = data.data?.lastname || profileForm.lastname;
+        const updated = { ...userData, firstname, lastname, birthdate: profileForm.birthdate, life_verse: profileForm.life_verse };
+        setUserData(updated);
+        setProfileForm((prev) => ({ ...prev, firstname, lastname }));
+        sessionStorage.setItem('userData', JSON.stringify(updated)); localStorage.setItem('userData', JSON.stringify(updated));
+        showToast('Profile updated!', 'success'); fetchLifeVerse(profileForm.life_verse, lifeVerseVersion);
+      }
       else showToast(data.message, 'danger');
     } catch (e) { showToast('Error: ' + e.message, 'danger'); } finally { setProfileLoading(false); }
   };
@@ -12892,7 +13389,11 @@ Examples:
   // ============================================
   // LOGOUT
   // ============================================
-  const confirmLogout = () => { sessionStorage.removeItem('userData'); localStorage.removeItem('userData'); router.replace('/login'); };
+  const confirmLogout = () => {
+    // Signing back in on this tab is a new visit: open the start dashboard again.
+    sessionStorage.removeItem(`dashboardStarted:${userData?.id}`);
+    sessionStorage.removeItem('userData'); localStorage.removeItem('userData'); router.replace('/login');
+  };
 
   // Cross to the committee dashboard without signing in again. The session is
   // written where that dashboard looks for it (both stores, like the login
@@ -12906,6 +13407,82 @@ Examples:
     } catch { /* storage blocked - the committee login page still works */ }
     router.push('/event-committee/dashboard');
   };
+
+  // ---- Dashboard switcher ----
+  // Two dashboards at most: the account's own (this page, named after its
+  // roles) and the Event Committee's, for accounts on the committee.
+  const userDashboards = userData ? getUserDashboards(userData, !!committeeSession) : [];
+  const currentDashboard = userDashboards[0] || null;
+
+  const switchDashboard = (dashboard) => {
+    setDashboardMenuOpen(false);
+    if (dashboard?.key === COMMITTEE_DASHBOARD) openCommitteeDashboard();
+    else showSection('home');
+  };
+
+  // Strict, by role: however a section was reached (sidebar, a button, the
+  // URL, back / forward), an account only stays on sections its roles own.
+  useEffect(() => {
+    if (!userData || !permissionsLoaded) return;
+    if (!canOpenSection(userData, activeSection)) setActiveSection('home');
+  }, [userData, activeSection, permissionsLoaded]);
+
+  // Preferences > Start Dashboard, and the "always start here" box.
+  const saveDefaultDashboard = async (key) => {
+    setSavingDefaultDashboard(true);
+    try {
+      const res = await fetch('/api/profile/update', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: userData.email, default_dashboard: key }),
+      });
+      const data = await res.json();
+      if (!data.success) { showToast(data.message || 'Could not save your start dashboard', 'danger'); return false; }
+      const updated = { ...userData, default_dashboard: key };
+      setUserData(updated);
+      try {
+        sessionStorage.setItem('userData', JSON.stringify(updated));
+        localStorage.setItem('userData', JSON.stringify(updated));
+      } catch { /* the server has it; the next sign-in picks it up */ }
+      return true;
+    } catch (e) {
+      showToast('Error: ' + e.message, 'danger');
+      return false;
+    } finally {
+      setSavingDefaultDashboard(false);
+    }
+  };
+
+  const chooseStartDashboard = async (dashboard) => {
+    setShowStartDashboardPrompt(false);
+    // Saved before switching: the committee dashboard is another page.
+    if (rememberStartDashboard) await saveDefaultDashboard(dashboard.key);
+    switchDashboard(dashboard);
+  };
+
+  // The first screen of a new visit: the start dashboard they chose, or -
+  // when they have more than one and never chose - ask once. Through a ref
+  // so the effect waits on the data, not on a function remade every render.
+  const switchDashboardRef = useRef(switchDashboard);
+  switchDashboardRef.current = switchDashboard;
+  useEffect(() => {
+    if (!startDashboardPending || !accountChecked || !committeeChecked || !userData) return;
+    setStartDashboardPending(false);
+    if (!isVerified) return;
+    const dashboards = getUserDashboards(userData, !!committeeSession);
+    const chosen = dashboards.find((d) => d.key === userData.default_dashboard);
+    if (chosen) {
+      if (chosen.key !== MAIN_DASHBOARD) switchDashboardRef.current(chosen);
+    } else if (dashboards.length > 1) {
+      setShowStartDashboardPrompt(true);
+    }
+  }, [startDashboardPending, accountChecked, committeeChecked, userData, committeeSession, isVerified]);
+
+  useEffect(() => {
+    if (!dashboardMenuOpen) return;
+    const close = (e) => { if (!e.target.closest?.('.sidebar-dashboard-menu, .sidebar-dashboard-trigger')) setDashboardMenuOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [dashboardMenuOpen]);
 
   // ============================================
   // HELPERS
@@ -17741,6 +18318,16 @@ ${row('Change', rc.change, 'change')}
             />
             {verifySearch && <button type="button" onClick={() => setVerifySearch('')} aria-label="Clear search"><i className="fas fa-times"></i></button>}
           </div>
+          {/* Who is Registered and paid - cash or online, Early, Late or
+              Walk-In - as a PDF, Excel, Word or CSV file. */}
+          <button
+            type="button"
+            className="evt-verify-genreport"
+            onClick={() => openVerifyReport('paid')}
+            title="Registered and paid attendees - cash or online, Early, Late or Walk-In"
+          >
+            <i className="fas fa-file-export"></i> Generate Report
+          </button>
           {/* Somebody registering at the door: their RFID card is tapped
               first, then their names. On the event day itself. */}
           {(userRole === 'Admin' || userRole === 'Super Admin') && (() => {
@@ -18390,17 +18977,20 @@ ${row('Change', rc.change, 'change')}
     const how = kind === 'online' ? `Online - ${d.method || 'transfer'}` : 'Cash';
     return Number(d.discount) > 0 ? `${how} (less ${peso(d.discount)} discount: ${d.discountNote || 'no note'})` : how;
   };
-  const openVerifyReport = async () => {
+  // kind: 'paid' (Paid Registrations), 'registered' (Registered Attendees &
+  // Cash Count) or 'collections' (Verifier Collections).
+  const openVerifyReport = async (kind = 'registered') => {
     const eventId = eventRegsModal?.id;
     if (!eventId) return;
-    // A multi-day event opens on the day the desk is on; one day is the whole event.
-    const day = evtEventDays.length > 1 ? evtCheckinDay : 'all';
+    // A multi-day event opens on the day the desk is on - the cash count is a
+    // day's - and Paid Registrations on the whole event. One day is the whole event.
+    const day = evtEventDays.length > 1 && kind !== 'paid' ? evtCheckinDay : 'all';
     // An installment is paid in pieces, each with its own method - read them
     // only when somebody here is on a plan.
     const needPlans = verifyAll.some((r) => r.payment_plan === 'flexible');
     setVerifyReport({
-      kind: 'registered', day, ...readCashCount(eventId, day), plans: needPlans ? null : [],
-      who: 'me', period: 'today', format: 'pdf', logs: null, error: '', busy: false,
+      kind, day, ...readCashCount(eventId, day), plans: needPlans ? null : [],
+      who: 'me', period: 'today', bucket: 'all', pay: 'all', format: 'pdf', logs: null, error: '', busy: false,
     });
     if (needPlans) {
       fetch(`/api/events/installments?eventId=${encodeURIComponent(eventId)}&actorId=${encodeURIComponent(userData?.id || '')}`)
@@ -18701,17 +19291,192 @@ ${row('Change', rc.change, 'change')}
     };
   };
 
+  // ---- Export: Paid Registrations ----
+  // Only the attendees who are Registered at the desk AND paid, each with how
+  // they paid - cash, or online with the bank and transaction ID - and the list
+  // they came in on: Early, Late or Walk-In. Cash and online are totalled
+  // apart. Paid is what Status reads as Paid (moneyBucketOf's cash and online):
+  // free, not paid yet and pending turnover are left out, and counted, so the
+  // reader knows who is missing and why.
+  const PAID_BUCKETS = [['early', 'Early', 'fa-clipboard-check'], ['late', 'Late', 'fa-clock'], ['walkin', 'Walk-In', 'fa-person-walking']];
+  const PAID_BUCKET_LABEL = Object.fromEntries(PAID_BUCKETS.map(([k, l]) => [k, l]));
+  const summarizePaidReport = (x) => {
+    const plans = new Map((x.plans || []).map((p) => [p.id, p.payments || []]));
+    const inBucket = (bucket) => x.bucket === 'all' || bucket === x.bucket;
+    const left = { free: 0, turnover: 0, unpaid: 0 };
+    const paid = [];
+    verifyAll
+      .filter((r) => (x.day === 'all' ? regReportFirstDay(r) > 0 : regReportFirstDay(r) === Number(x.day)))
+      .forEach((r) => {
+        const bucket = verifyBucketOf(r);
+        const owed = Number(r.amount) || 0;
+        const piece = (amount, method, ref) => ({
+          id: r.id, bucket, amount, method: String(method || '').trim(), ref: String(ref || '').trim(),
+          kind: isCashMethod(method) ? 'cash' : 'online',
+        });
+        let pieces = [];
+        if (r.payment_plan === 'flexible') {
+          // A plan is paid once the last installment is in - each one under
+          // the method it came in by.
+          if (owed > 0 && (Number(r.amount_paid) || 0) >= owed) {
+            const pays = plans.get(r.id);
+            pieces = pays?.length
+              ? pays.map((p) => piece(Number(p.amount) || 0, p.method, p.reference))
+              : [piece(Number(r.amount_paid) || 0, r.payment_method, r.payment_reference)];
+          }
+        } else if (owed > 0 && (r.status === 'payment_verified' || r.status === 'registered')) {
+          // A bed paid for in advance from the waiting list is money in too,
+          // not yet in `amount` (see eventMoney).
+          pieces = [piece(owed + (Number(r.bed_wait_paid) || 0), r.payment_method, r.payment_reference)];
+        }
+        pieces = pieces.filter((p) => p.amount > 0);
+        if (!pieces.length) {
+          if (inBucket(bucket)) {
+            if (!(owed > 0)) left.free += 1;
+            else if (r.status === 'paid_pending_turnover') left.turnover += 1;
+            else left.unpaid += 1;
+          }
+          return;
+        }
+        paid.push({ id: r.id, name: verifyNameKey(r), bucket, plan: r.payment_plan === 'flexible', discount: Number(r.discount_amount) || 0, pieces });
+      });
+
+    // The counts on the filter chips: each filter's count under the other.
+    const hasKind = (a, kind) => kind === 'all' || a.pieces.some((p) => p.kind === kind);
+    const bucketCount = { all: 0, early: 0, late: 0, walkin: 0 };
+    paid.filter((a) => hasKind(a, x.pay)).forEach((a) => { bucketCount.all += 1; bucketCount[a.bucket] += 1; });
+    const payCount = { all: 0, cash: 0, online: 0 };
+    paid.filter((a) => inBucket(a.bucket)).forEach((a) => {
+      payCount.all += 1;
+      if (hasKind(a, 'cash')) payCount.cash += 1;
+      if (hasKind(a, 'online')) payCount.online += 1;
+    });
+
+    // Cash only / Online only keep just that money - a plan paid both ways
+    // shows the part paid that way.
+    const list = paid
+      .filter((a) => inBucket(a.bucket))
+      .map((a) => ({ ...a, pieces: a.pieces.filter((p) => x.pay === 'all' || p.kind === x.pay) }))
+      .filter((a) => a.pieces.length)
+      .map((a) => ({ ...a, amount: a.pieces.reduce((t, p) => t + p.amount, 0) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const pieces = list.flatMap((a) => a.pieces);
+    const sumOf = (ps) => ps.reduce((t, p) => t + p.amount, 0);
+    const tally = (ps) => ({ count: new Set(ps.map((p) => p.id)).size, total: sumOf(ps) });
+    const cashPieces = pieces.filter((p) => p.kind === 'cash');
+    const onlinePieces = pieces.filter((p) => p.kind === 'online');
+    // Online, one line per bank or wallet the money was sent to.
+    const banks = [...onlinePieces.reduce((m, p) => {
+      const name = p.method || 'Not recorded';
+      const k = name.toLowerCase();
+      if (!m.has(k)) m.set(k, { name, list: [] });
+      m.get(k).list.push(p);
+      return m;
+    }, new Map()).values()].map((b) => ({ name: b.name, ...tally(b.list) })).sort((a, b) => a.name.localeCompare(b.name));
+    const byBucket = PAID_BUCKETS.map(([key, label, icon]) => {
+      const ps = pieces.filter((p) => p.bucket === key);
+      return {
+        key, label, icon,
+        count: new Set(ps.map((p) => p.id)).size,
+        cash: sumOf(ps.filter((p) => p.kind === 'cash')),
+        online: sumOf(ps.filter((p) => p.kind === 'online')),
+      };
+    });
+    const cash = tally(cashPieces);
+    const online = tally(onlinePieces);
+    return { list, cash, online, total: cash.total + online.total, banks, byBucket, bucketCount, payCount, left };
+  };
+  const paidReportHow = (a) => {
+    const cash = a.pieces.filter((p) => p.kind === 'cash').reduce((t, p) => t + p.amount, 0);
+    const online = a.pieces.filter((p) => p.kind === 'online').reduce((t, p) => t + p.amount, 0);
+    const how = cash > 0 && online > 0 ? `Cash ${peso(cash)} + Online ${peso(online)}` : cash > 0 ? 'Cash' : 'Online';
+    const less = a.discount > 0 ? ` (less ${peso(a.discount)} discount)` : '';
+    return `${a.plan ? `Installment - ${how}` : how}${less}`;
+  };
+  const paidReportFilterLabel = (x) => [
+    x.bucket === 'all' ? 'Early, Late & Walk-In' : `${PAID_BUCKET_LABEL[x.bucket]} only`,
+    x.pay === 'all' ? 'Cash & Online' : x.pay === 'cash' ? 'Cash only' : 'Online only',
+  ].join(' · ');
+  const buildPaidReportSpec = (x) => {
+    const ps = summarizePaidReport(x);
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const attendees = (n) => plural(n, 'attendee', 'attendees');
+    const online = (a) => a.pieces.filter((p) => p.kind === 'online');
+    const rows = ps.list.map((a, i) => ({
+      n: String(i + 1),
+      name: a.name,
+      reg: PAID_BUCKET_LABEL[a.bucket],
+      paid: paidReportHow(a),
+      bank: [...new Set(online(a).map((p) => p.method || 'Not recorded'))].join(', ') || '-',
+      ref: online(a).map((p) => p.ref).filter(Boolean).join(', ') || '-',
+      amount: peso(a.amount),
+    }));
+    const line = (name, paid, amount, fill = '') => ({ n: '', name, reg: '', paid, bank: '', ref: '', amount, _fill: fill });
+    const HEAD = 'E6D5A8';
+    const SUB = 'F4EDDC';
+
+    rows.push(line('PAYMENT SUMMARY', '', '', HEAD));
+    if (x.pay !== 'online') rows.push(line('Cash collected', attendees(ps.cash.count), peso(ps.cash.total), SUB));
+    if (x.pay !== 'cash') {
+      ps.banks.forEach((b) => rows.push(line(`Online - ${b.name}`, attendees(b.count), peso(b.total))));
+      rows.push(line('Online collected', attendees(ps.online.count), peso(ps.online.total), SUB));
+    }
+    rows.push(line('TOTAL COLLECTED', x.pay === 'all' ? 'Cash + Online' : x.pay === 'cash' ? 'Cash' : 'Online', peso(ps.total), HEAD));
+    if (x.bucket === 'all') {
+      rows.push(line('BY REGISTRATION', '', '', HEAD));
+      ps.byBucket.forEach((b) => rows.push(line(
+        `${b.label} Registration - ${attendees(b.count)}`,
+        [x.pay !== 'online' && `Cash ${peso(b.cash)}`, x.pay !== 'cash' && `Online ${peso(b.online)}`].filter(Boolean).join(' · '),
+        peso(b.cash + b.online),
+      )));
+    }
+
+    const staff = regVerifier?.staff;
+    return {
+      title: verifyEventName || eventRegsModal?.title || 'Event',
+      subtitle: 'Paid Registrations',
+      orientation: 'portrait',
+      // The attendees; the summary under them is not records.
+      count: ps.list.length,
+      columns: [
+        { key: 'n', label: '#', width: 4, align: 'center' },
+        { key: 'name', label: 'Attendee (Last, First)', width: 23 },
+        { key: 'reg', label: 'Registration', width: 11 },
+        { key: 'paid', label: 'Paid By', width: 15 },
+        { key: 'bank', label: 'Bank / Channel', width: 13 },
+        { key: 'ref', label: 'Transaction ID', width: 15 },
+        { key: 'amount', label: 'Amount', width: 11, align: 'right', numeric: true },
+      ],
+      rows,
+      meta: [
+        ['Showing', paidReportFilterLabel(x)],
+        ['Day', regReportDayLabel(x.day)],
+        ['Paid attendees', attendees(ps.list.length)],
+        ['Total collected', peso(ps.total)],
+        ...(x.pay !== 'online' ? [['Cash collected', `${peso(ps.cash.total)} (${attendees(ps.cash.count)})`]] : []),
+        ...(x.pay !== 'cash' ? [['Online collected', `${peso(ps.online.total)} (${attendees(ps.online.count)})`]] : []),
+        ['Prepared by', [staff?.name, staff?.duty].filter(Boolean).join(' - ')],
+      ],
+      footNote: `Prepared by: ${staff?.name || '____________________'}    Signature: ____________________    Received by: ____________________    `
+        + `Generated ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`,
+    };
+  };
+
   const previewVerifyReport = async () => {
     const x = verifyReport;
-    const registered = x?.kind === 'registered';
-    if (!x || x.busy || (registered ? !x.plans : !x.logs)) return;
-    const spec = registered ? buildRegisteredReportSpec(x) : buildVerifyReportSpec(x);
+    // The verifier collections read the logs; the other two the plans.
+    if (!x || x.busy || (x.kind === 'collections' ? !x.logs : !x.plans)) return;
+    const spec = x.kind === 'paid' ? buildPaidReportSpec(x)
+      : x.kind === 'registered' ? buildRegisteredReportSpec(x)
+        : buildVerifyReportSpec(x);
     setVerifyReport({ ...x, busy: true });
     try {
-      const who = registered
-        ? (x.day === 'all' ? '' : `Day ${x.day}`)
-        : x.who === 'all' ? 'All Verifiers' : (regVerifier?.staff?.name || 'Verifier');
-      const name = safeFilename(provinceLabel(eventRegsModal), eventRegsModal?.title, registered ? 'Registered Attendees' : 'Verifier Report', who, new Date().toISOString().slice(0, 10));
+      const day = x.day === 'all' ? '' : `Day ${x.day}`;
+      const [label, who] = x.kind === 'paid'
+        ? ['Paid Registrations', [day, x.bucket !== 'all' && PAID_BUCKET_LABEL[x.bucket], x.pay !== 'all' && (x.pay === 'cash' ? 'Cash' : 'Online')].filter(Boolean).join(' ')]
+        : x.kind === 'registered' ? ['Registered Attendees', day]
+          : ['Verifier Report', x.who === 'all' ? 'All Verifiers' : (regVerifier?.staff?.name || 'Verifier')];
+      const name = safeFilename(provinceLabel(eventRegsModal), eventRegsModal?.title, label, who, new Date().toISOString().slice(0, 10));
       let blob;
       let filename;
       if (x.format === 'pdf') {
@@ -18722,7 +19487,8 @@ ${row('Change', rc.change, 'change')}
       else if (x.format === 'docx') { blob = buildDocx(spec); filename = `${name}.docx`; }
       else { blob = buildCsv(spec); filename = `${name}.csv`; }
       setExportPreview({
-        blob, filename, format: x.format, rows: spec.rows.length, orientation: spec.orientation,
+        // The records, not the summary lines under them.
+        blob, filename, format: x.format, rows: Number.isFinite(spec.count) ? spec.count : spec.rows.length, orientation: spec.orientation,
         url: x.format === 'pdf' ? URL.createObjectURL(blob) : '',
         html: x.format === 'pdf' ? '' : buildPrintHtml(spec),
         spec,
@@ -18738,9 +19504,12 @@ ${row('Change', rc.change, 'change')}
     const x = verifyReport;
     const set = (patch) => setVerifyReport((cur) => (cur ? { ...cur, ...patch } : cur));
     const close = () => { if (!x.busy) setVerifyReport(null); };
+    const paid = x.kind === 'paid';
     const registered = x.kind === 'registered';
-    const sm = !registered && x.logs ? summarizeVerifyReport(x) : null;
+    const collections = x.kind === 'collections';
+    const sm = collections && x.logs ? summarizeVerifyReport(x) : null;
     const rs = registered && x.plans ? summarizeRegisteredReport(x) : null;
+    const ps = paid && x.plans ? summarizePaidReport(x) : null;
     const cc = rs ? cashCountOf(x, rs) : null;
     // The count is kept on this browser as it is typed - see readCashCount.
     const setCount = (patch) => {
@@ -18749,46 +19518,124 @@ ${row('Change', rc.change, 'change')}
       set(patch);
     };
     const pickDay = (day) => set({ day, ...readCashCount(eventRegsModal?.id, day) });
+    // Excel and Word open as they are in Google Sheets and Google Docs.
     const FORMATS = [
       { key: 'pdf', icon: 'fa-file-pdf', label: 'PDF', hint: 'Print and sign' },
-      { key: 'xlsx', icon: 'fa-file-excel', label: 'Excel', hint: 'Spreadsheet' },
-      { key: 'docx', icon: 'fa-file-word', label: 'Word', hint: 'Editable' },
+      { key: 'xlsx', icon: 'fa-file-excel', label: 'Excel', hint: 'or Google Sheets' },
+      { key: 'docx', icon: 'fa-file-word', label: 'Word', hint: 'or Google Docs' },
       { key: 'csv', icon: 'fa-file-csv', label: 'CSV', hint: 'Plain data' },
     ];
     const name = regVerifier?.staff?.name || 'Verifier';
     const many = (n, one, more) => `${n} ${n === 1 ? one : more}`;
+    const dayPicker = evtEventDays.length > 1 && (
+      <>
+        <div className="rexp-label">Day</div>
+        <div className="rexp-chips">
+          {[...evtEventDays.map((d) => [d.number, d.label]), ['all', 'Whole event']].map(([k, l]) => (
+            <button key={k} type="button" className={`rexp-chip ${String(x.day) === String(k) ? 'on' : ''}`} onClick={() => pickDay(k)}>{l}</button>
+          ))}
+        </div>
+        <p className="vrep-note"><i className="fas fa-circle-info"></i> Each attendee is listed on the day they first registered, so a day&apos;s cash is the money that came in that day.</p>
+      </>
+    );
     return createPortal(
       <div className="evt-modal-overlay" onClick={close}>
         <div className="evt-modal rexp vrep" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
           <div className="evt-modal-head">
-            <div><h3><i className="fas fa-file-invoice-dollar"></i> {registered ? 'Registered Attendees Report' : 'Verifier Report'}</h3><p>{verifyEventName}</p></div>
+            <div><h3><i className="fas fa-file-invoice-dollar"></i> {paid ? 'Paid Registrations Report' : registered ? 'Registered Attendees Report' : 'Verifier Report'}</h3><p>{verifyEventName}</p></div>
             <button type="button" className="evt-modal-close" onClick={close} disabled={x.busy} aria-label="Close"><i className="fas fa-times"></i></button>
           </div>
           <div className="evt-modal-body">
             <div className="rexp-label">Report</div>
             <div className="rexp-chips">
+              <button type="button" className={`rexp-chip ${paid ? 'on' : ''}`} onClick={() => set({ kind: 'paid' })}>
+                <i className="fas fa-receipt"></i> Paid Registrations
+              </button>
               <button type="button" className={`rexp-chip ${registered ? 'on' : ''}`} onClick={() => set({ kind: 'registered' })}>
                 <i className="fas fa-user-check"></i> Registered Attendees &amp; Cash Count
               </button>
-              <button type="button" className={`rexp-chip ${!registered ? 'on' : ''}`} onClick={() => set({ kind: 'collections' })}>
+              <button type="button" className={`rexp-chip ${collections ? 'on' : ''}`} onClick={() => set({ kind: 'collections' })}>
                 <i className="fas fa-user-shield"></i> Verifier Collections
               </button>
             </div>
 
-            {registered ? (
+            {paid ? (
               <>
-                <p className="rexp-lede vrep-lede">Only attendees who are <b>Registered</b>, with how each one paid - cash, or online with the bank and transaction ID - and a count of the cash on hand to balance against it.</p>
-                {evtEventDays.length > 1 && (
+                <p className="rexp-lede vrep-lede">Only attendees who are <b>Registered</b> and <b>paid</b> - whether each paid in <b>cash</b> or <b>online</b> (with the bank and transaction ID), and whether they were an <b>Early</b>, <b>Late</b> or <b>Walk-In</b> registration. Cash and online are totalled separately.</p>
+                {dayPicker}
+
+                {!ps ? (
+                  <p className="vrep-loading"><i className="fas fa-spinner fa-spin"></i> Reading the installment payments…</p>
+                ) : (
                   <>
-                    <div className="rexp-label">Day</div>
+                    <div className="rexp-label">Registration</div>
                     <div className="rexp-chips">
-                      {[...evtEventDays.map((d) => [d.number, d.label]), ['all', 'Whole event']].map(([k, l]) => (
-                        <button key={k} type="button" className={`rexp-chip ${String(x.day) === String(k) ? 'on' : ''}`} onClick={() => pickDay(k)}>{l}</button>
+                      {[['all', 'All', 'fa-layer-group'], ...PAID_BUCKETS].map(([k, l, icon]) => (
+                        <button key={k} type="button" className={`rexp-chip ${x.bucket === k ? 'on' : ''}`} onClick={() => set({ bucket: k })}>
+                          <i className={`fas ${icon}`}></i> {l} <span>{ps.bucketCount[k]}</span>
+                        </button>
                       ))}
                     </div>
-                    <p className="vrep-note"><i className="fas fa-circle-info"></i> Each attendee is listed on the day they first registered, so a day&apos;s cash is the money that came in that day.</p>
+                    <div className="rexp-label">Payment</div>
+                    <div className="rexp-chips">
+                      {[['all', 'Cash & Online', 'fa-layer-group'], ['cash', 'Cash only', 'fa-money-bill-wave'], ['online', 'Online only', 'fa-mobile-screen-button']].map(([k, l, icon]) => (
+                        <button key={k} type="button" className={`rexp-chip ${x.pay === k ? 'on' : ''}`} onClick={() => set({ pay: k })}>
+                          <i className={`fas ${icon}`}></i> {l} <span>{ps.payCount[k]}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="vrep-sum">
+                      <div><span><i className="fas fa-money-bill-wave"></i> Cash</span><b>{peso(ps.cash.total)}</b><em>{many(ps.cash.count, 'attendee', 'attendees')}</em></div>
+                      <div><span><i className="fas fa-mobile-screen-button"></i> Online</span><b>{peso(ps.online.total)}</b><em>{many(ps.online.count, 'attendee', 'attendees')}</em></div>
+                      <div className="is-total"><span><i className="fas fa-sack-dollar"></i> Total</span><b>{peso(ps.total)}</b><em>{many(ps.list.length, 'paid attendee', 'paid attendees')}</em></div>
+                    </div>
+                    {x.bucket === 'all' && ps.list.length > 0 && (
+                      <div className="vrep-who">
+                        {ps.byBucket.map((b) => (
+                          <div key={b.key}>
+                            <b><i className={`fas ${b.icon}`}></i> {b.label}</b>
+                            <span>
+                              {many(b.count, 'attendee', 'attendees')}
+                              {x.pay !== 'online' && ` · Cash ${peso(b.cash)}`}
+                              {x.pay !== 'cash' && ` · Online ${peso(b.online)}`}
+                            </span>
+                            <em>{peso(b.cash + b.online)}</em>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {ps.banks.length > 0 && (
+                      <div className="vrep-who">
+                        {ps.banks.map((b) => (
+                          <div key={b.name}>
+                            <b><i className="fas fa-building-columns"></i> {b.name}</b>
+                            <span>{many(b.count, 'attendee', 'attendees')}</span>
+                            <em>{peso(b.total)}</em>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(ps.left.free > 0 || ps.left.turnover > 0 || ps.left.unpaid > 0) && (
+                      <p className="vrep-note">
+                        <i className="fas fa-circle-info"></i> Registered but not in this report:
+                        {[
+                          ps.left.free > 0 && ` ${ps.left.free} free`,
+                          ps.left.turnover > 0 && ` ${ps.left.turnover} pending turnover`,
+                          ps.left.unpaid > 0 && ` ${ps.left.unpaid} not fully paid yet`,
+                        ].filter(Boolean).join(',')}.
+                      </p>
+                    )}
+                    {ps.list.length === 0 && (
+                      <p className="vrep-note"><i className="fas fa-circle-info"></i> Nobody registered and paid matches this choice yet - the report shows zero.</p>
+                    )}
                   </>
                 )}
+              </>
+            ) : registered ? (
+              <>
+                <p className="rexp-lede vrep-lede">Only attendees who are <b>Registered</b>, with how each one paid - cash, or online with the bank and transaction ID - and a count of the cash on hand to balance against it.</p>
+                {dayPicker}
 
                 {!rs ? (
                   <p className="vrep-loading"><i className="fas fa-spinner fa-spin"></i> Reading the installment payments…</p>
@@ -18949,7 +19796,7 @@ ${row('Change', rc.change, 'change')}
           </div>
           <div className="evt-modal-foot">
             <button type="button" className="btn-secondary" onClick={close} disabled={x.busy}>Cancel</button>
-            <button type="button" className="btn-primary" onClick={previewVerifyReport} disabled={x.busy || (registered ? !rs : !sm || !!x.error)}>
+            <button type="button" className="btn-primary" onClick={previewVerifyReport} disabled={x.busy || (paid ? !ps : registered ? !rs : !sm || !!x.error)}>
               <i className={`fas ${x.busy ? 'fa-spinner fa-spin' : 'fa-eye'}`}></i> Preview
             </button>
           </div>
@@ -21859,12 +22706,13 @@ ${row('Change', rc.change, 'change')}
 
   const initials = `${userData.firstname?.[0] || ''}${userData.lastname?.[0] || ''}`.toUpperCase();
   const dashboardType = getDashboardType(userRole);
-  const rawSidebarMenu = getSidebarMenu(userRole, userData);
-  // Filter sidebar items based on SuperAdmin permission overrides
-  // Checks BOTH sidebar-level toggles (sidebar.*) AND action-level toggles (events.view, bible.spiritual_assistant, etc.)
-  const sidebarMenu = rawSidebarMenu.filter((item) => {
-    return isSidebarItemEnabled(userRole, item.section, permissionOverrides);
-  });
+  const rawSidebarMenu = getSidebarMenu(userRole);
+  // Strict, by role first: only sections a role the account holds owns
+  // (SECTION_ACCESS - an account with several roles gets all of theirs).
+  // Then the SuperAdmin's Permissions Control toggles, which can only hide:
+  // sidebar-level (sidebar.*) and action-level (events.view, ...) alike.
+  const sidebarMenu = rawSidebarMenu.filter((item) => canOpenSection(userData, item.section)
+    && isSidebarItemEnabled(userRole, item.section, permissionOverrides));
 
   // ---- Group sidebar items into collapsible categories ----
   // 'home' stays pinned at top, 'profile' pinned at bottom; everything else groups.
@@ -21898,7 +22746,13 @@ ${row('Change', rc.change, 'change')}
   const isGroupOpen = (key) => effectiveOpenGroup === key;
   const toggleSidebarGroup = (key) => setOpenSidebarGroup(effectiveOpenGroup === key ? '' : key);
 
-  const canManage = (module) => hasPermission(userRole, module);
+  // Any role the account holds will do (a Pastor who is also a Song Leader
+  // still runs the lineup).
+  const canManage = (module) => hasPermission(getUserRoles(userData), module, userData?.sub_role);
+  // Assign Lineup: adding songs (Song Leaders, Admins) and plotting the month
+  // (Schedule Plotters, Admins) are separate permissions.
+  const canWriteSongs = canManage(MODULES.CREATE_SONG_LIST);
+  const canPlanLineup = canManage(MODULES.PLAN_LINEUP);
   const selectedChatUser = chatUsers.find((u) => u.id === selectedChatUserId) || null;
 
   // ---- Giving a card to a member ----
@@ -22543,14 +23397,24 @@ ${row('Change', rc.change, 'change')}
               </div>
             )}
 
-            {/* Quick switch to the door: the same account, the other dashboard.
-                Only shown to accounts the server says may open it. */}
-            {committeeSession && (
+            {/* Dashboard switcher: the account's own dashboard (named after
+                its roles) and the Event Committee's when the server says it
+                may open it. Only shown when there is a choice. */}
+            {isVerified && userDashboards.length > 1 && currentDashboard && (
               <button
-                className="sidebar-role-switch"
-                onClick={openCommitteeDashboard}
-                title="Open the Event Committee dashboard"
-                aria-label="Switch to the Event Committee dashboard"
+                className={`sidebar-role-switch sidebar-dashboard-trigger ${dashboardMenuOpen ? 'open' : ''}`}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const collapsed = r.width < 120;
+                  // Fixed to the window: the sidebar clips anything that leaves it.
+                  setDashboardMenuStyle(collapsed
+                    ? { left: r.right + 10, bottom: Math.max(8, window.innerHeight - r.bottom) }
+                    : { left: r.left, width: r.width, bottom: window.innerHeight - r.top + 8 });
+                  setDashboardMenuOpen((o) => !o);
+                }}
+                aria-haspopup="menu"
+                aria-expanded={dashboardMenuOpen}
+                title="Switch dashboard"
               >
                 <span className="sidebar-role-switch-icon">
                   {/* Two arrows chasing each other round a circle. fa-right-left
@@ -22559,10 +23423,32 @@ ${row('Change', rc.change, 'change')}
                   <i className="fas fa-arrows-rotate"></i>
                 </span>
                 <span className="sidebar-role-switch-text">
-                  <span className="sidebar-role-switch-title">Event Committee</span>
-                  <span className="sidebar-role-switch-sub">Switch Role</span>
+                  <span className="sidebar-role-switch-title">{currentDashboard.title}</span>
+                  <span className="sidebar-role-switch-sub">Switch Dashboard</span>
                 </span>
+                <i className="fas fa-chevron-up sidebar-dashboard-caret"></i>
               </button>
+            )}
+            {dashboardMenuOpen && currentDashboard && createPortal(
+              <div className="sidebar-dashboard-menu" role="menu" style={dashboardMenuStyle || undefined}>
+                <div className="sidebar-dashboard-menu-title">Switch dashboard</div>
+                {userDashboards.map((d) => {
+                  const on = d.key === currentDashboard.key;
+                  return (
+                    <button key={d.key} type="button" role="menuitemradio" aria-checked={on}
+                      className={`sidebar-dashboard-option ${on ? 'active' : ''}`} onClick={() => switchDashboard(d)}>
+                      <span className="sidebar-dashboard-option-icon"><i className={`fas ${d.icon}`}></i></span>
+                      <span className="sidebar-dashboard-option-text">
+                        <strong>{d.title}</strong>
+                        <small>{d.group}</small>
+                      </span>
+                      {on ? <i className="fas fa-check sidebar-dashboard-option-mark"></i>
+                        : d.external ? <i className="fas fa-arrow-up-right-from-square sidebar-dashboard-option-mark"></i> : null}
+                    </button>
+                  );
+                })}
+              </div>,
+              document.body,
             )}
 
             <div className={`sidebar-user-card ${(!isVerified && userRole !== 'Guest') ? 'locked' : ''}`}
@@ -22597,7 +23483,12 @@ ${row('Change', rc.change, 'change')}
               </div>
               <div className="sidebar-user-info">
                 <div className="sidebar-user-name">{userData.firstname} {userData.lastname}</div>
-                <div className="sidebar-role-pill">{userRole}</div>
+                {/* Every role the account holds, one pill each. */}
+                <div className="sidebar-role-pills">
+                  {(getUserRoles(userData).length ? getUserRoles(userData) : [userRole]).map((r) => (
+                    <span key={r} className="sidebar-role-pill">{r}</span>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -22607,6 +23498,33 @@ ${row('Change', rc.change, 'change')}
             </button>
           </div>
         </aside>
+
+        {/* Asked once per visit until answered: an account with more than one
+            dashboard picks where to start. Preferences > Start Dashboard
+            changes it later. */}
+        {showStartDashboardPrompt && (
+          <div className="um-modal-overlay" onClick={() => setShowStartDashboardPrompt(false)}>
+            <div className="um-confirm-modal start-dash-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="um-confirm-icon start-dash-icon"><i className="fas fa-compass"></i></div>
+              <h3 className="um-confirm-title">Where would you like to start?</h3>
+              <p className="um-confirm-text">You have more than one dashboard. Pick the one to open now.</p>
+              <div className="dash-pref-options">
+                {userDashboards.map((d) => (
+                  <button key={d.key} type="button" className="dash-pref-option" onClick={() => chooseStartDashboard(d)} disabled={savingDefaultDashboard}>
+                    <span className="dash-pref-icon"><i className={`fas ${d.icon}`}></i></span>
+                    <span className="dash-pref-text"><strong>{d.title}</strong><small>{d.group}</small></span>
+                    <i className="fas fa-chevron-right dash-pref-go"></i>
+                  </button>
+                ))}
+              </div>
+              <label className="start-dash-remember">
+                <input type="checkbox" checked={rememberStartDashboard} onChange={(e) => setRememberStartDashboard(e.target.checked)} />
+                <span>Always start here. You can change it in <strong>My Profile → Preferences</strong>.</span>
+              </label>
+              <button type="button" className="um-btn-cancel start-dash-later" onClick={() => setShowStartDashboardPrompt(false)}>Not now</button>
+            </div>
+          </div>
+        )}
 
         {/* ============ MAIN CONTENT ============ */}
         <main className="main-content">
@@ -22662,7 +23580,10 @@ ${row('Change', rc.change, 'change')}
                 {/* Dashboard Stats */}
                 {(dashboardType === 'admin' || dashboardType === 'super-admin' || dashboardType === 'pastor') && (
                   <div className="stats-container">
-                    <div className="stat-card" onClick={() => showSection('user-management')}><div className="stat-icon"><i className="fas fa-users"></i></div><div className="stat-value">{adminUsers.length || '—'}</div><div className="stat-label">Total Users</div></div>
+                    {/* Strict, by role: no card for a page the role cannot open. */}
+                    {canOpenSection(userData, 'user-management') && (
+                      <div className="stat-card" onClick={() => showSection('user-management')}><div className="stat-icon"><i className="fas fa-users"></i></div><div className="stat-value">{adminUsers.length || '—'}</div><div className="stat-label">Total Users</div></div>
+                    )}
                     <div className="stat-card" onClick={() => showSection('events-management')}><div className="stat-icon"><i className="fas fa-calendar-alt"></i></div><div className="stat-value">{events.length || '—'}</div><div className="stat-label">Events</div></div>
                     <div className="stat-card" onClick={() => showSection('announcements-management')}><div className="stat-icon"><i className="fas fa-bullhorn"></i></div><div className="stat-value">{announcements.length || '—'}</div><div className="stat-label">Announcements</div></div>
                     <div className="stat-card"><div className="stat-icon"><i className="fas fa-church"></i></div><div className="stat-value">{ministriesList.length || '4'}</div><div className="stat-label">Ministries</div></div>
@@ -36181,7 +37102,7 @@ ${row('Change', rc.change, 'change')}
                 <h2 className="um-hero-title">User Management</h2>
                 <p className="um-hero-sub">Review roles, ministries, verification status, and access control from one place.</p>
                 {featureOn('users.create') && (
-                  <button className="um-hero-btn" onClick={() => { setShowUserForm(true); setEditingUser(null); setUserForm({ firstname: '', lastname: '', email: '', password: '', ministry: '', sub_role: '', role: 'Guest' }); }}>
+                  <button className="um-hero-btn" onClick={() => { closeUserForms(); setShowUserForm(true); }}>
                     <i className="fas fa-plus"></i> Create User
                   </button>
                 )}
@@ -36189,57 +37110,35 @@ ${row('Change', rc.change, 'change')}
             </div>
 
             {showUserForm && (
-              <div className="edit-user-modal-overlay" onClick={() => setShowUserForm(false)}>
-                <div className="edit-user-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="edit-user-modal-overlay" onClick={closeUserForms}>
+                <div className="edit-user-modal um-user-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="edit-user-modal-header">
                     <h3><i className="fas fa-user-plus"></i> Create New User</h3>
-                    <button className="btn-close-modal" onClick={() => setShowUserForm(false)}><i className="fas fa-times"></i></button>
+                    <button className="btn-close-modal" onClick={closeUserForms}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="edit-user-modal-body">
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                    <div className="um-form-row">
                       <div className="form-group"><label>First Name *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.firstname} onChange={(e) => setUserForm({ ...userForm, firstname: e.target.value })} /></div>
                       <div className="form-group"><label>Last Name *</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.lastname} onChange={(e) => setUserForm({ ...userForm, lastname: e.target.value })} /></div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                    <div className="um-form-row">
                       <div className="form-group"><label>Email Address *</label><input className="form-control" type="email" style={{ padding: '10px 15px' }} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} /></div>
                       <div className="form-group"><label>Password *</label><input className="form-control" type="password" autoComplete="new-password" style={{ padding: '10px 15px' }} value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} /></div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                      <div className="form-group"><label>Ministry</label>
-                        <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value, sub_role: '' })}>
-                          <option value="">— No Ministry —</option>
-                          {ministriesList.map((m) => {
-                            const mname = typeof m === 'string' ? m : m.name;
-                            return <option key={mname} value={mname}>{mname}</option>;
-                          })}
-                        </select>
-                      </div>
-                      <div className="form-group"><label>Ministry Roles</label>
-                        <div className="um-role-tags-wrapper">
-                          <div className="um-role-tags">
-                            {(userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []).map((role, i) => (
-                              <span key={i} className="um-role-tag">{role}<button type="button" onClick={() => { const roles = userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean); roles.splice(i, 1); setUserForm({ ...userForm, sub_role: roles.join(', ') }); }}>&times;</button></span>
-                            ))}
-                          </div>
-                          <div className="um-role-add-row">
-                            <input className="form-control um-role-add-input" list="create-sub-roles" placeholder="Type or select a role..." value={newSubRoleInput} onChange={(e) => setNewSubRoleInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const val = newSubRoleInput.trim(); if (val) { const current = userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []; if (!current.includes(val)) { setUserForm({ ...userForm, sub_role: [...current, val].join(', ') }); } setNewSubRoleInput(''); } } }} />
-                            <datalist id="create-sub-roles">
-                              {(MINISTRY_SUB_ROLES[userForm.ministry] || []).filter(sr => !(userForm.sub_role || '').split(',').map(s => s.trim()).includes(sr)).map((sr) => <option key={sr} value={sr} />)}
-                            </datalist>
-                            <button type="button" className="um-role-add-btn" onClick={() => { const val = newSubRoleInput.trim(); if (val) { const current = userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []; if (!current.includes(val)) { setUserForm({ ...userForm, sub_role: [...current, val].join(', ') }); } setNewSubRoleInput(''); } }}><i className="fas fa-plus"></i> Add</button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="form-group"><label>System Role</label>
+                    <div className="form-group"><label>Role</label>
                       <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
-                        {((userRole === ROLES.SUPER_ADMIN || userRole === ROLES.ADMIN) ? ALL_ROLES : ALL_ROLES.filter((r) => r !== 'Super Admin')).map((r) => <option key={r} value={r}>{r}</option>)}
+                        {/* Only a Super Admin can make another Super Admin. */}
+                        {ASSIGNABLE_ROLES.filter((r) => r !== ROLES.SUPER_ADMIN || userRole === ROLES.SUPER_ADMIN).map((r) => <option key={r} value={r}>{r}</option>)}
                       </select>
+                      <p className="um-field-hint">{ROLE_DESCRIPTIONS[userForm.role]}</p>
                     </div>
+                    {renderRoleDetailsFields(null)}
                   </div>
                   <div className="edit-user-modal-footer">
-                    <button className="btn-primary" onClick={handleCreateUser}><i className="fas fa-save"></i> Create</button>
-                    <button className="btn-secondary" onClick={() => setShowUserForm(false)}>Cancel</button>
+                    <button className="btn-secondary" onClick={closeUserForms}>Cancel</button>
+                    <button className="btn-primary" onClick={handleCreateUser} disabled={userFormSaving}>
+                      <i className={`fas ${userFormSaving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> Create
+                    </button>
                   </div>
                 </div>
               </div>
@@ -36247,54 +37146,34 @@ ${row('Change', rc.change, 'change')}
 
             {/* Edit User Modal */}
             {showEditModal && editingUser && (
-              <div className="edit-user-modal-overlay" onClick={() => setShowEditModal(false)}>
-                <div className="edit-user-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="edit-user-modal-overlay" onClick={closeUserForms}>
+                <div className="edit-user-modal um-user-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="edit-user-modal-header">
                     <h3><i className="fas fa-user-edit"></i> Edit User</h3>
-                    <button className="btn-close-modal" onClick={() => setShowEditModal(false)}><i className="fas fa-times"></i></button>
+                    <button className="btn-close-modal" onClick={closeUserForms}><i className="fas fa-times"></i></button>
                   </div>
                   <div className="edit-user-modal-body">
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                    <div className="um-form-role-banner">
+                      <span className="um-role-pills">
+                        {getUserRoles(editingUser).map((r, i) => <span key={r} className={`um-role-pill ${i === 0 ? 'main' : 'added'}`}>{r}</span>)}
+                      </span>
+                      <span>
+                        {ROLE_DESCRIPTIONS[editingUser.role] || ''}
+                        {canManage(MODULES.ASSIGN_USER_ROLES) && <> Roles are changed from <strong>Manage</strong>.</>}
+                      </span>
+                    </div>
+                    <div className="um-form-row">
                       <div className="form-group"><label>First Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.firstname} onChange={(e) => setUserForm({ ...userForm, firstname: e.target.value })} /></div>
                       <div className="form-group"><label>Last Name</label><input className="form-control" style={{ padding: '10px 15px' }} value={userForm.lastname} onChange={(e) => setUserForm({ ...userForm, lastname: e.target.value })} /></div>
                     </div>
-                    <div className="form-group"><label>Email</label><input className="form-control" style={{ padding: '10px 15px', background: '#f0f0f0' }} value={userForm.email} disabled /></div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                      <div className="form-group"><label>Ministry</label>
-                        <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.ministry} onChange={(e) => setUserForm({ ...userForm, ministry: e.target.value, sub_role: '' })}>
-                          <option value="">— No Ministry —</option>
-                          {ministriesList.map((m) => {
-                        const mname = typeof m === 'string' ? m : m.name;
-                        return <option key={mname} value={mname}>{mname}</option>;
-                      })}
-                        </select>
-                      </div>
-                      <div className="form-group"><label>Ministry Roles</label>
-                        <div className="um-role-tags-wrapper">
-                          <div className="um-role-tags">
-                            {(userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []).map((role, i) => (
-                              <span key={i} className="um-role-tag">{role}<button type="button" onClick={() => { const roles = userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean); roles.splice(i, 1); setUserForm({ ...userForm, sub_role: roles.join(', ') }); }}>&times;</button></span>
-                            ))}
-                          </div>
-                          <div className="um-role-add-row">
-                            <input className="form-control um-role-add-input" list="edit-sub-roles" placeholder="Type or select a role..." value={newSubRoleInput} onChange={(e) => setNewSubRoleInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const val = newSubRoleInput.trim(); if (val) { const current = userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []; if (!current.includes(val)) { setUserForm({ ...userForm, sub_role: [...current, val].join(', ') }); } setNewSubRoleInput(''); } } }} />
-                            <datalist id="edit-sub-roles">
-                              {(MINISTRY_SUB_ROLES[userForm.ministry] || []).filter(sr => !(userForm.sub_role || '').split(',').map(s => s.trim()).includes(sr)).map((sr) => <option key={sr} value={sr} />)}
-                            </datalist>
-                            <button type="button" className="um-role-add-btn" onClick={() => { const val = newSubRoleInput.trim(); if (val) { const current = userForm.sub_role ? userForm.sub_role.split(',').map(s => s.trim()).filter(Boolean) : []; if (!current.includes(val)) { setUserForm({ ...userForm, sub_role: [...current, val].join(', ') }); } setNewSubRoleInput(''); } }}><i className="fas fa-plus"></i> Add</button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="form-group"><label>System Role</label>
-                      <select className="form-select" style={{ padding: '10px 15px' }} value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
-                        {((userRole === ROLES.SUPER_ADMIN || userRole === ROLES.ADMIN) ? ALL_ROLES : ALL_ROLES.filter((r) => r !== 'Super Admin')).map((r) => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
+                    <div className="form-group"><label>Email</label><input className="form-control" type="email" style={{ padding: '10px 15px' }} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} /></div>
+                    {renderRoleDetailsFields(editingUser)}
                   </div>
                   <div className="edit-user-modal-footer">
-                    <button className="btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
-                    <button className="btn-primary" onClick={handleUpdateUser}><i className="fas fa-save"></i> Save Changes</button>
+                    <button className="btn-secondary" onClick={closeUserForms}>Cancel</button>
+                    <button className="btn-primary" onClick={handleUpdateUser} disabled={userFormSaving}>
+                      <i className={`fas ${userFormSaving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> Save Changes
+                    </button>
                   </div>
                 </div>
               </div>
@@ -36363,7 +37242,7 @@ ${row('Change', rc.change, 'change')}
               <div className="um-filters">
                 <select className="um-filter-select" value={userFilterRole} onChange={(e) => setUserFilterRole(e.target.value)}>
                   <option value="">All Roles</option>
-                  {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  {userRoleFilterOptions.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
                 <select className="um-filter-select" value={userFilterMinistry} onChange={(e) => setUserFilterMinistry(e.target.value)}>
                   <option value="">All Ministries</option>
@@ -36390,21 +37269,19 @@ ${row('Change', rc.change, 'change')}
               Showing <strong>{filteredAdminUsers.length}</strong> of <strong>{adminUsers.length}</strong> users
             </div>
 
-            {/* User Table */}
-            {/* menu-open lifts the wrapper's clipping while a row menu is out.
-                The wrapper scrolls sideways, and a scroll container clips on
-                BOTH axes - so the dropdown on the last few rows was cut off at
-                the bottom edge of the table with no way to reach the rest. */}
-            <div className={`um-table-wrapper ${userActionMenu ? 'menu-open' : ''}`}>
+            {/* User Table. Its menus and popovers are drawn fixed to the
+                window through portals (floatingMenuStyle), because the wrapper
+                scrolls sideways and a scroll container clips on BOTH axes. */}
+            <div className="um-table-wrapper">
               <table className="um-table">
                 <thead>
                   <tr>
                     <th>User</th>
                     <th>Member ID</th>
-                    <th>Ministry</th>
                     <th>Role</th>
+                    <th>Ministry</th>
                     <th>Status</th>
-                    <th style={{ width: 60, textAlign: 'center' }}>Actions</th>
+                    <th style={{ width: 120, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -36427,66 +37304,86 @@ ${row('Change', rc.change, 'change')}
                       </td>
                       <td><span className="um-member-id">{u.member_id}</span></td>
                       <td>
-                        {u.ministry ? (
-                          <div className="um-ministry-cell">
-                            <span className="ministry-badge">{u.ministry}</span>
-                            {u.sub_role && u.sub_role.split(',').map(s => s.trim()).filter(Boolean).map((sr, i) => (
-                              <span key={i} className="sub-role-badge">{sr}</span>
-                            ))}
-                          </div>
-                        ) : <span className="um-empty">—</span>}
+                        {(() => {
+                          const canAssign = canManage(MODULES.ASSIGN_USER_ROLES);
+                          const isSelf = u.id === userData?.id;
+                          const verified = u.status === 'Verified';
+                          // A new sign-up stays a Guest until someone verifies
+                          // them; only then is there a first role to choose.
+                          // After that the roles are pills, changed from Manage.
+                          if (canAssign && !isSelf && verified && u.role === ROLES.GUEST) {
+                            return (
+                              <button type="button" className={`um-role-trigger ${roleMenu?.userId === u.id ? 'open' : ''}`} aria-haspopup="menu" aria-expanded={roleMenu?.userId === u.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setUserActionMenu(null);
+                                  setRoleMenu(roleMenu?.userId === u.id ? null : { userId: u.id, style: floatingMenuStyle(e.currentTarget.getBoundingClientRect(), 380) });
+                                }}>
+                                <span className="um-role-trigger-text"><strong>Guest</strong><small>Set role</small></span>
+                                <i className="fas fa-chevron-down"></i>
+                              </button>
+                            );
+                          }
+                          const lockReason = !canAssign ? null
+                            : u.status === 'Unverified' ? 'Verify first'
+                            : !verified ? 'Activate first'
+                            : null;
+                          const roles = getUserRoles(u);
+                          return (
+                            <div className="um-role-locked">
+                              <span className="um-role-pills">
+                                {roles.map((r, i) => (
+                                  <span key={r} className={`um-role-pill ${i === 0 ? 'main' : 'added'}`} title={i === 0 ? 'Main role (their highest)' : 'Added role'}>
+                                    {r}{isLegacyRole(r) ? ' (retired)' : ''}
+                                    {roles.length > 1 && canAssign && !isSelf && verified && (
+                                      <button type="button" className="um-role-pill-remove" onClick={() => requestRoleRemoval(u, r)} aria-label={`Remove ${r}`} title={`Remove ${r}`}>
+                                        <i className="fas fa-times"></i>
+                                      </button>
+                                    )}
+                                  </span>
+                                ))}
+                              </span>
+                              {lockReason && <small className="um-role-lock-hint"><i className="fas fa-lock"></i> {lockReason}</small>}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td>
-                        {canManage(MODULES.ASSIGN_USER_ROLES) ? (
-                          <select className="um-role-select" value={u.role} onChange={(e) => setConfirmAction({ type: 'assign-role', userId: u.id, userName: `${u.firstname} ${u.lastname}`, action: 'assign-role', extra: { role: e.target.value }, label: `Change role to "${e.target.value}"` })}>
-                            {ALL_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                          </select>
-                        ) : <span className="um-role-pill">{u.role}</span>}
+                        {(() => {
+                          const groups = describeRoleDetails(u);
+                          if (groups.length === 0) return <span className="um-empty">{getUserRoles(u).includes(ROLES.MINISTRY_MEMBER) ? 'No ministry role yet' : '—'}</span>;
+                          // Just the ministry; its positions show on hover.
+                          return (
+                            <div className="um-ministry-pills">
+                              {groups.map((g, gi) => (
+                                <span key={`${g.label}-${gi}`} className={`um-ministry-pill ${g.key ? `mr-${g.key}` : 'mr-other'}`} tabIndex={0}
+                                  aria-label={`${g.label}: ${g.chips.join(', ') || 'no positions'}`}
+                                  onMouseEnter={(e) => showMinistryPopover(e, g)} onMouseLeave={() => setMinistryPopover(null)}
+                                  onFocus={(e) => showMinistryPopover(e, g)} onBlur={() => setMinistryPopover(null)}>
+                                  {g.icon && <i className={`fas ${g.icon}`}></i>}
+                                  <span>{g.label}</span>
+                                  {g.chips.length > 0 && <span className="um-ministry-pill-count">{g.chips.length}</span>}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td>
                         <span className={`um-status-badge um-status-${u.status?.toLowerCase()}`}>{u.status}</span>
                       </td>
-                      <td style={{ position: 'relative', textAlign: 'center' }}>
-                        <button className="um-dots-btn" onClick={(e) => { e.stopPropagation(); setUserActionMenu(userActionMenu === u.id ? null : u.id); }}>
-                          <i className="fas fa-ellipsis-v"></i>
+                      <td className="um-manage-cell">
+                        <button className={`um-manage-btn ${userActionMenu === u.id ? 'open' : ''}`} aria-haspopup="menu" aria-expanded={userActionMenu === u.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRoleMenu(null);
+                            if (userActionMenu === u.id) { setUserActionMenu(null); return; }
+                            setUserActionMenuStyle(floatingMenuStyle(e.currentTarget.getBoundingClientRect(), 420));
+                            setUserActionMenu(u.id);
+                          }}>
+                          Manage <i className="fas fa-chevron-down"></i>
                         </button>
-                        {userActionMenu === u.id && (
-                          <div className="um-dropdown" onClick={(e) => e.stopPropagation()}>
-                            <button className="um-dropdown-item" onClick={() => { handleEditUser(u); setUserActionMenu(null); }}>
-                              <i className="fas fa-user-edit"></i> Edit User
-                            </button>
-                            <button className="um-dropdown-item" onClick={() => { setEventPermissionsUser(u); setEventPermissionsForm(u.allowed_event_types || []); setUserActionMenu(null); }}>
-                              <i className="fas fa-calendar-check"></i> Event Permissions
-                            </button>
-                            <div className="um-dropdown-divider"></div>
-                            {u.status === 'Unverified' && (
-                              <button className="um-dropdown-item um-item-success" onClick={() => { setConfirmAction({ type: 'verify', userId: u.id, userName: `${u.firstname} ${u.lastname}`, label: 'verify this user' }); setUserActionMenu(null); }}>
-                                <i className="fas fa-check-circle"></i> Verify User
-                              </button>
-                            )}
-                            {u.is_active !== false && (
-                              <button className="um-dropdown-item um-item-warning" onClick={() => { setConfirmAction({ type: 'deactivate', userId: u.id, userName: `${u.firstname} ${u.lastname}`, label: 'deactivate this user' }); setUserActionMenu(null); }}>
-                                <i className="fas fa-ban"></i> Deactivate
-                              </button>
-                            )}
-                            {u.is_active === false && (
-                              <button className="um-dropdown-item um-item-success" onClick={() => { setConfirmAction({ type: 'activate', userId: u.id, userName: `${u.firstname} ${u.lastname}`, label: 'activate this user' }); setUserActionMenu(null); }}>
-                                <i className="fas fa-check-circle"></i> Activate
-                              </button>
-                            )}
-                            <button className="um-dropdown-item" onClick={() => { setShowResetPwModal(u); setResetPwForm({ newPassword: '', confirmPassword: '' }); setUserActionMenu(null); }}>
-                              <i className="fas fa-key"></i> Reset Password
-                            </button>
-                            {canManage(MODULES.DELETE_USERS) && (
-                              <>
-                                <div className="um-dropdown-divider"></div>
-                                <button className="um-dropdown-item um-item-danger" onClick={() => { setConfirmAction({ type: 'delete', userId: u.id, userName: `${u.firstname} ${u.lastname}`, label: 'permanently delete this user' }); setUserActionMenu(null); }}>
-                                  <i className="fas fa-trash-alt"></i> Delete User
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
+                        {userActionMenu === u.id && createPortal(renderManageMenu(u), document.body)}
                       </td>
                     </tr>
                   ))}
@@ -36494,6 +37391,155 @@ ${row('Change', rc.change, 'change')}
               </table>
             </div>
             {filteredAdminUsers.length === 0 && <div className="um-empty-state"><i className="fas fa-users-slash"></i><p>No users found matching your criteria.</p></div>}
+
+            {/* First role for a verified Guest */}
+            {roleMenu && (() => {
+              const u = adminUsers.find((x) => x.id === roleMenu.userId);
+              if (!u) return null;
+              return createPortal(
+                <div className="um-dropdown um-floating um-role-menu" style={roleMenu.style} role="menu" onClick={(e) => e.stopPropagation()}>
+                  <div className="um-manage-head">
+                    <span className="um-manage-name">Set a role</span>
+                    <span className="um-manage-meta">{u.firstname} {u.lastname}</span>
+                  </div>
+                  {ASSIGNABLE_ROLES.filter((r) => r !== ROLES.GUEST && (r !== ROLES.SUPER_ADMIN || userRole === ROLES.SUPER_ADMIN)).map((r) => (
+                    <button key={r} type="button" className="um-role-option" role="menuitem" onClick={() => { setRoleMenu(null); requestRoleChange(u, r); }}>
+                      <strong>{r}</strong>
+                      <small>{ROLE_DESCRIPTIONS[r]}</small>
+                    </button>
+                  ))}
+                </div>,
+                document.body,
+              );
+            })()}
+
+            {/* A ministry pill's positions, on hover */}
+            {ministryPopover && createPortal(
+              <div className="um-ministry-popover" style={ministryPopover.style} role="tooltip">
+                <div className="um-ministry-popover-head">
+                  {ministryPopover.group.icon && <i className={`fas ${ministryPopover.group.icon}`}></i>}
+                  <strong>{ministryPopover.group.label}</strong>
+                </div>
+                {ministryPopover.group.chips.length > 0 ? (
+                  <ul>{ministryPopover.group.chips.map((c, i) => <li key={`${c}-${i}`}>{c}</li>)}</ul>
+                ) : (
+                  <p className="um-ministry-popover-empty">No positions yet</p>
+                )}
+              </div>,
+              document.body,
+            )}
+
+            {/* Manage > Add Role / Change Main Role */}
+            {roleDialog && (() => {
+              const u = roleDialog.user;
+              const adding = roleDialog.mode === 'add';
+              const options = adding
+                ? getAddableRoles(u)
+                : ASSIGNABLE_ROLES.filter((r) => r !== u.role && (r !== ROLES.SUPER_ADMIN || userRole === ROLES.SUPER_ADMIN));
+              return (
+                <div className="um-modal-overlay" onClick={() => setRoleDialog(null)}>
+                  <div className="um-confirm-modal um-role-dialog" onClick={(e) => e.stopPropagation()}>
+                    <div className="um-confirm-icon"><i className={`fas ${adding ? 'fa-user-plus' : 'fa-user-tag'}`}></i></div>
+                    <h3 className="um-confirm-title">{adding ? 'Add a role' : 'Change main role'}</h3>
+                    <p className="um-confirm-text">
+                      {adding
+                        ? <>Give <strong>{u.firstname} {u.lastname}</strong> another role. They stay {getUserRoles(u).join(' and ')}.</>
+                        : <>Pick a new main role for <strong>{u.firstname} {u.lastname}</strong> (now {u.role}). You will see what changes before it is saved.</>}
+                    </p>
+                    <div className="um-role-choices">
+                      {options.map((r) => (
+                        <button key={r} type="button" className={`um-role-choice ${roleDialog.selected === r ? 'on' : ''}`}
+                          onClick={() => setRoleDialog((d) => ({ ...d, selected: r }))}>
+                          <span className="um-role-choice-radio"></span>
+                          <span className="um-role-choice-text"><strong>{r}</strong><small>{ROLE_DESCRIPTIONS[r]}</small></span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="um-confirm-actions">
+                      <button className="um-btn-cancel" onClick={() => setRoleDialog(null)}>Cancel</button>
+                      <button className="um-btn-confirm um-btn-confirm-success" disabled={!roleDialog.selected}
+                        onClick={() => {
+                          if (adding) { requestRoleAdd(u, roleDialog.selected); return; }
+                          setRoleDialog(null);
+                          requestRoleChange(u, roleDialog.selected);
+                        }}>
+                        {/* Ministry Member / Pastor have a setup step next. */}
+                        {adding && !rolesNeedingSetup(u, [roleDialog.selected]).length ? 'Add Role' : 'Continue'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Giving Ministry Member / Pastor: the role and its ministry roles
+                or titles are saved together, or not at all. Closing asks
+                first, and a discarded setup leaves the account as it was. */}
+            {roleSetup && (() => {
+              const { user: u, newRole, rolesBefore, rolesAfter, removed, needs, action } = roleSetup;
+              const problem = userFormRoleDetails(rolesAfter, u, needs).error;
+              const askToClose = () => setDiscardRoleSetup(true);
+              return (
+                <div className="edit-user-modal-overlay" onClick={askToClose}>
+                  <div className="edit-user-modal um-user-modal um-setup-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="edit-user-modal-header">
+                      <h3><i className={`fas ${action === 'add-role' ? 'fa-user-plus' : 'fa-user-tag'}`}></i> {action === 'add-role' ? 'Add' : 'Set Up'} {newRole}</h3>
+                      <button className="btn-close-modal" onClick={askToClose} aria-label="Close"><i className="fas fa-times"></i></button>
+                    </div>
+                    <div className="edit-user-modal-body">
+                      <div className="um-setup-summary">
+                        <div className="um-role-change-flow">
+                          <span className="um-role-pills">{rolesBefore.map((r) => <span key={r} className="um-role-pill">{r}</span>)}</span>
+                          <i className="fas fa-arrow-right"></i>
+                          <span className="um-role-pills">{rolesAfter.map((r) => <span key={r} className="um-role-pill um-role-pill-new">{r}</span>)}</span>
+                        </div>
+                        <p>
+                          <strong>{u.firstname} {u.lastname}</strong> becomes a {newRole} only when you save.
+                          {needs.includes(ROLES.MINISTRY_MEMBER) && <> First add where they serve, with at least one position in each.</>}
+                          {needs.includes(ROLES.PASTOR) && <> Pick at least one pastor title.</>}
+                        </p>
+                      </div>
+                      {removed.length > 0 && (
+                        <div className="um-role-change-box danger">
+                          <div className="um-role-change-box-title"><i className="fas fa-trash-alt"></i> This will be deleted from their account</div>
+                          <ul>
+                            {removed.map((r) => (
+                              <li key={r.label}><strong>{r.label}:</strong> {r.value}{r.note && <small>{r.note}</small>}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {needs.includes(ROLES.MINISTRY_MEMBER) && renderMinistryCardsField(u)}
+                      {needs.includes(ROLES.PASTOR) && renderPastorTitlesField()}
+                    </div>
+                    <div className="edit-user-modal-footer um-setup-footer">
+                      <span className={`um-setup-status ${problem ? 'todo' : 'ready'}`}>
+                        <i className={`fas ${problem ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i> {problem || 'Ready to save'}
+                      </span>
+                      <button className="btn-secondary" onClick={askToClose}>Cancel</button>
+                      <button className="btn-primary" onClick={saveRoleSetup} disabled={!!problem || userFormSaving}>
+                        <i className={`fas ${userFormSaving ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> {action === 'add-role' ? 'Add Role' : 'Change Role'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            {roleSetup && discardRoleSetup && (
+              <div className="um-modal-overlay um-discard-overlay" onClick={() => setDiscardRoleSetup(false)}>
+                <div className="um-confirm-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="um-confirm-icon"><i className="fas fa-exclamation-triangle"></i></div>
+                  <h3 className="um-confirm-title">Discard changes?</h3>
+                  <p className="um-confirm-text">
+                    Nothing has been saved. <strong>{roleSetup.userName}</strong> stays {roleSetup.rolesBefore.join(' and ')}.
+                  </p>
+                  <div className="um-confirm-actions">
+                    <button className="um-btn-cancel" onClick={() => setDiscardRoleSetup(false)}>Keep Editing</button>
+                    <button className="um-btn-confirm um-btn-confirm-danger" onClick={closeRoleSetup}>Discard</button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {filteredAdminUsers.length > 0 && (
               <div className="um-results-bar">
@@ -36522,7 +37568,47 @@ ${row('Change', rc.change, 'change')}
             )}
 
             {/* Confirmation Modal */}
-            {confirmAction && (
+            {(confirmAction?.type === 'assign-role' || confirmAction?.type === 'remove-role') && (
+              <div className="um-modal-overlay" onClick={() => setConfirmAction(null)}>
+                <div className="um-confirm-modal um-role-change-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="um-confirm-icon"><i className={`fas ${confirmAction.type === 'remove-role' ? 'fa-user-minus' : 'fa-user-tag'}`}></i></div>
+                  <h3 className="um-confirm-title">{confirmAction.type === 'remove-role' ? 'Remove role?' : 'Change role?'}</h3>
+                  <div className="um-role-change-flow">
+                    <span className="um-role-pills">{confirmAction.rolesBefore.map((r) => <span key={r} className="um-role-pill">{r}</span>)}</span>
+                    <i className="fas fa-arrow-right"></i>
+                    <span className="um-role-pills">{confirmAction.rolesAfter.map((r) => <span key={r} className="um-role-pill um-role-pill-new">{r}</span>)}</span>
+                  </div>
+                  <p className="um-confirm-text">
+                    {confirmAction.type === 'remove-role'
+                      ? <><strong>{confirmAction.userName}</strong> will no longer be a {confirmAction.newRole}.</>
+                      : <><strong>{confirmAction.userName}</strong> will become a {confirmAction.newRole}. {ROLE_DESCRIPTIONS[confirmAction.newRole]}</>}
+                  </p>
+                  {confirmAction.removed.length > 0 ? (
+                    <div className="um-role-change-box danger">
+                      <div className="um-role-change-box-title"><i className="fas fa-trash-alt"></i> This will be deleted from their account</div>
+                      <ul>
+                        {confirmAction.removed.map((r) => (
+                          <li key={r.label}>
+                            <strong>{r.label}:</strong> {r.value}
+                            {r.note && <small>{r.note}</small>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="um-role-change-box ok"><i className="fas fa-check-circle"></i> Nothing saved on their account will be deleted.</div>
+                  )}
+                  <div className="um-confirm-actions">
+                    <button className="um-btn-cancel" onClick={() => setConfirmAction(null)}>Cancel</button>
+                    <button className={`um-btn-confirm ${confirmAction.removed.length ? 'um-btn-confirm-danger' : 'um-btn-confirm-success'}`}
+                      onClick={() => saveRoleAction(confirmAction.user, confirmAction.type, confirmAction.newRole)}>
+                      {confirmAction.type === 'remove-role' ? 'Yes, Remove Role' : 'Yes, Change Role'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {confirmAction && confirmAction.type !== 'assign-role' && confirmAction.type !== 'remove-role' && (
               <div className="um-modal-overlay" onClick={() => setConfirmAction(null)}>
                 <div className="um-confirm-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="um-confirm-icon">
@@ -36538,7 +37624,6 @@ ${row('Change', rc.change, 'change')}
                     <button className={`um-btn-confirm ${confirmAction.type === 'delete' ? 'um-btn-confirm-danger' : confirmAction.type === 'deactivate' ? 'um-btn-confirm-warning' : 'um-btn-confirm-success'}`}
                       onClick={() => {
                         if (confirmAction.type === 'delete') handleDeleteUser(confirmAction.userId);
-                        else if (confirmAction.type === 'assign-role') handleUserAction(confirmAction.userId, 'assign-role', confirmAction.extra);
                         else handleUserAction(confirmAction.userId, confirmAction.type);
                       }}>
                       Yes, {confirmAction.type === 'delete' ? 'Delete' : confirmAction.type === 'deactivate' ? 'Deactivate' : confirmAction.type === 'activate' ? 'Activate' : confirmAction.type === 'verify' ? 'Verify' : 'Confirm'}
@@ -36723,7 +37808,7 @@ ${row('Change', rc.change, 'change')}
                     value={permCtrlRole}
                     onChange={(e) => setPermCtrlRole(e.target.value)}
                   >
-                    {['Guest', 'Member', 'Song Leader', 'Leader', 'Pastor', 'Admin'].map((r) => (
+                    {ASSIGNABLE_ROLES.filter((r) => r !== ROLES.SUPER_ADMIN).map((r) => (
                       <option key={r} value={r}>{r}</option>
                     ))}
                   </select>
@@ -38864,11 +39949,48 @@ ${row('Change', rc.change, 'change')}
                   </span>
                 </div>
                 <div className="profile-meta-row-v3">
-                  <span className="profile-role-chip-v3"><i className="fas fa-shield-alt"></i> {userRole}</span>
-                  {userData.ministry && <span className="profile-ministry-chip-v3"><i className="fas fa-church"></i> {userData.ministry}</span>}
+                  {getUserRoles(userData).map((r) => (
+                    <span key={r} className="profile-role-chip-v3"><i className="fas fa-shield-alt"></i> {r}</span>
+                  ))}
+                  {(() => {
+                    const ministries = describeRoleDetails(userData).filter((g) => g.key !== 'pastor');
+                    if (ministries.length === 0) return userData.ministry ? <span className="profile-ministry-chip-v3"><i className="fas fa-church"></i> {userData.ministry}</span> : null;
+                    return ministries.map((g, i) => (
+                      <span key={`${g.label}-${i}`} className="profile-ministry-chip-v3"><i className={`fas ${g.icon || 'fa-church'}`}></i> {g.label}</span>
+                    ));
+                  })()}
                 </div>
               </div>
             </div>
+
+            {/* What they do in each ministry: every position, not just the ministry name. */}
+            {(() => {
+              const groups = describeRoleDetails(userData);
+              if (groups.length === 0) return null;
+              return (
+                <div className="profile-ministry-panel">
+                  <div className="profile-ministry-panel-title"><i className="fas fa-church"></i> My Ministry Roles</div>
+                  <div className="profile-ministry-panel-grid">
+                    {groups.map((g, i) => (
+                      <div key={`${g.label}-${i}`} className="profile-ministry-tile">
+                        <div className="profile-ministry-tile-head">
+                          <span className="profile-ministry-tile-icon"><i className={`fas ${g.icon || 'fa-church'}`}></i></span>
+                          <span className="profile-ministry-tile-name">
+                            <strong>{g.label}</strong>
+                            <small>{g.key === 'pastor' ? 'Pastoral titles' : g.key === 'plotter' ? 'Praise and Worship lineup' : getMinistryRole(g.key)?.group || 'Ministry'}</small>
+                          </span>
+                        </div>
+                        <div className="profile-ministry-tile-chips">
+                          {g.chips.length > 0
+                            ? g.chips.map((c, ci) => <span key={`${c}-${ci}`} className="profile-ministry-tile-chip">{c}</span>)
+                            : <span className="profile-ministry-tile-empty">No positions yet</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="profile-tabs">
               <button className={`profile-tab ${profileTab === 'personal' ? 'active' : ''}`} onClick={() => setProfileTab('personal')}><i className="fas fa-user"></i> Personal Info</button>
@@ -39149,6 +40271,31 @@ ${row('Change', rc.change, 'change')}
                     </button>
                   </div>
                 </div>
+
+                {userDashboards.length > 1 && (
+                  <div className="theme-pref-card dash-pref-card">
+                    <div className="theme-pref-head">
+                      <div className="theme-pref-icon"><i className="fas fa-compass"></i></div>
+                      <div>
+                        <strong>Start Dashboard</strong>
+                        <p>Where SanctuaryHub opens when you sign in</p>
+                      </div>
+                    </div>
+                    <div className="dash-pref-options">
+                      {userDashboards.map((d) => {
+                        const on = (userData.default_dashboard || MAIN_DASHBOARD) === d.key;
+                        return (
+                          <button key={d.key} type="button" className={`dash-pref-option ${on ? 'active' : ''}`} disabled={savingDefaultDashboard}
+                            onClick={async () => { if (!on && await saveDefaultDashboard(d.key)) showToast(`You will start on ${d.title}`, 'success'); }}>
+                            <span className="dash-pref-icon"><i className={`fas ${d.icon}`}></i></span>
+                            <span className="dash-pref-text"><strong>{d.title}</strong><small>{d.group}</small></span>
+                            {on && <i className="fas fa-check-circle theme-pref-check"></i>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -39579,7 +40726,9 @@ ${row('Change', rc.change, 'change')}
                     (userData?.ministry || '') === 'Pastors' || userRole === 'Pastor' ? 'fa-cross' :
                     'fa-music'
                   }`}></i>
-                  {userData?.sub_role || userData?.ministry || userRole}
+                  {/* Every ministry role they hold, rather than the raw comma list. */}
+                  {describeRoleDetails(userData).filter((g) => g.key && g.key !== 'pastor').map((g) => g.label).join(' · ')
+                    || userData?.sub_role || userData?.ministry || userRole}
                 </span>
               </div>
 
@@ -39744,6 +40893,42 @@ ${row('Change', rc.change, 'change')}
                         </div>
                       )}
 
+                      {schedule.musicianProfiles?.length > 0 && (
+                        <div className="paw-card-v2-backups">
+                          <span className="paw-card-v2-label"><i className="fas fa-guitar"></i> Musicians</span>
+                          <div className="paw-card-v2-backup-list">
+                            {schedule.musicianProfiles.map((mp, i) => (
+                              <div key={i} className="paw-card-v2-backup-chip" title={mp.label}>
+                                {mp.profilePicture ? (
+                                  <img src={mp.profilePicture} alt="" className="paw-card-v2-backup-avatar" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <span className="paw-card-v2-backup-avatar paw-card-v2-avatar-initials">{getInitials(mp.name)}</span>
+                                )}
+                                <span><i className={`fas ${mp.icon} paw-musician-icon`}></i> {mp.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {schedule.dancerProfiles?.length > 0 && (
+                        <div className="paw-card-v2-backups">
+                          <span className="paw-card-v2-label"><i className="fas fa-person-running"></i> Dancers</span>
+                          <div className="paw-card-v2-backup-list">
+                            {schedule.dancerProfiles.map((dp, i) => (
+                              <div key={i} className="paw-card-v2-backup-chip">
+                                {dp.profilePicture ? (
+                                  <img src={dp.profilePicture} alt="" className="paw-card-v2-backup-avatar" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <span className="paw-card-v2-backup-avatar paw-card-v2-avatar-initials">{getInitials(dp.name)}</span>
+                                )}
+                                <span>{dp.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Practice & Songs footer */}
                       <div className="paw-card-v2-meta">
                         {schedule.practiceDate && (
@@ -39812,9 +40997,10 @@ ${row('Change', rc.change, 'change')}
                     {pawMySchedules.map((schedule, idx) => (
                       <div key={idx} className="paw-card-v2 paw-card-v2-my" onClick={() => setPawSelectedSchedule(schedule)}>
                         {/* Role Badge */}
-                        <div className="paw-card-v2-role-badge" style={{ background: schedule.role === 'Song Leader' ? '#926c15' : schedule.role === 'Substitute Song Leader' ? '#28a745' : schedule.role?.includes('Substituted') ? '#6c757d' : '#17a2b8' }}>
-                          <i className={`fas ${schedule.role === 'Song Leader' ? 'fa-microphone' : schedule.role === 'Substitute Song Leader' ? 'fa-people-arrows' : schedule.role?.includes('Substituted') ? 'fa-user-slash' : 'fa-users'}`}></i>
-                          {schedule.role}
+                        <div className="paw-card-v2-role-badge" style={{ background: schedule.role === 'Song Leader' ? '#926c15' : schedule.role === 'Substitute Song Leader' ? '#28a745' : schedule.role?.includes('Substituted') ? '#6c757d' : schedule.role === 'Instrumentalist' ? '#6f42c1' : schedule.role === 'Dancer' ? '#d63384' : '#17a2b8' }}>
+                          <i className={`fas ${schedule.role === 'Song Leader' ? 'fa-microphone' : schedule.role === 'Substitute Song Leader' ? 'fa-people-arrows' : schedule.role?.includes('Substituted') ? 'fa-user-slash' : schedule.role === 'Instrumentalist' ? 'fa-guitar' : schedule.role === 'Dancer' ? 'fa-person-running' : 'fa-users'}`}></i>
+                          {/* A musician sees what they play: "Keyboard", not "Instrumentalist". */}
+                          {schedule.role === 'Instrumentalist' && schedule.instruments?.length ? schedule.instruments.join(' · ') : schedule.role}
                         </div>
                         <div className="paw-card-v2-header">
                           <div className="paw-card-v2-date">
@@ -39872,6 +41058,42 @@ ${row('Change', rc.change, 'change')}
                                       <span className="paw-card-v2-backup-avatar paw-card-v2-avatar-initials">{getInitials(bp.name)}</span>
                                     )}
                                     <span>{bp.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {schedule.musicianProfiles?.length > 0 && (
+                            <div className="paw-card-v2-backups">
+                              <span className="paw-card-v2-label"><i className="fas fa-guitar"></i> Musicians</span>
+                              <div className="paw-card-v2-backup-list">
+                                {schedule.musicianProfiles.map((mp, i) => (
+                                  <div key={i} className="paw-card-v2-backup-chip" title={mp.label}>
+                                    {mp.profilePicture ? (
+                                      <img src={mp.profilePicture} alt="" className="paw-card-v2-backup-avatar" referrerPolicy="no-referrer" />
+                                    ) : (
+                                      <span className="paw-card-v2-backup-avatar paw-card-v2-avatar-initials">{getInitials(mp.name)}</span>
+                                    )}
+                                    <span><i className={`fas ${mp.icon} paw-musician-icon`}></i> {mp.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {schedule.dancerProfiles?.length > 0 && (
+                            <div className="paw-card-v2-backups">
+                              <span className="paw-card-v2-label"><i className="fas fa-person-running"></i> Dancers</span>
+                              <div className="paw-card-v2-backup-list">
+                                {schedule.dancerProfiles.map((dp, i) => (
+                                  <div key={i} className="paw-card-v2-backup-chip">
+                                    {dp.profilePicture ? (
+                                      <img src={dp.profilePicture} alt="" className="paw-card-v2-backup-avatar" referrerPolicy="no-referrer" />
+                                    ) : (
+                                      <span className="paw-card-v2-backup-avatar paw-card-v2-avatar-initials">{getInitials(dp.name)}</span>
+                                    )}
+                                    <span>{dp.name}</span>
                                   </div>
                                 ))}
                               </div>
@@ -40828,6 +42050,42 @@ ${row('Change', rc.change, 'change')}
                       </div>
                     )}
 
+                    {pawSelectedSchedule.musicianProfiles?.length > 0 && (
+                      <div className="paw-detail-backups-row">
+                        <span className="paw-detail-backups-label"><i className="fas fa-guitar"></i> Musicians</span>
+                        <div className="paw-detail-backups-list">
+                          {pawSelectedSchedule.musicianProfiles.map((mp, i) => (
+                            <div key={i} className="paw-detail-backup-chip" title={mp.label}>
+                              {mp.profilePicture ? (
+                                <img src={mp.profilePicture} alt="" className="paw-detail-backup-avatar" referrerPolicy="no-referrer" />
+                              ) : (
+                                <span className="paw-detail-backup-avatar paw-card-v2-avatar-initials">{getInitials(mp.name)}</span>
+                              )}
+                              <span><i className={`fas ${mp.icon} paw-musician-icon`}></i> {mp.label}: {mp.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {pawSelectedSchedule.dancerProfiles?.length > 0 && (
+                      <div className="paw-detail-backups-row">
+                        <span className="paw-detail-backups-label"><i className="fas fa-person-running"></i> Dancers</span>
+                        <div className="paw-detail-backups-list">
+                          {pawSelectedSchedule.dancerProfiles.map((dp, i) => (
+                            <div key={i} className="paw-detail-backup-chip">
+                              {dp.profilePicture ? (
+                                <img src={dp.profilePicture} alt="" className="paw-detail-backup-avatar" referrerPolicy="no-referrer" />
+                              ) : (
+                                <span className="paw-detail-backup-avatar paw-card-v2-avatar-initials">{getInitials(dp.name)}</span>
+                              )}
+                              <span>{dp.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Practice Date */}
                     {pawSelectedSchedule.practiceDate && (
                       <div className="paw-detail-practice-row">
@@ -41121,27 +42379,48 @@ ${row('Change', rc.change, 'change')}
             </div>
           )}
 
-          {/* ========== LINEUP SECTION (Merged: Assign + All Assignments) ========== */}
-          {canManage(MODULES.CREATE_SONG_LIST) && (
+          {/* ========== LINEUP SECTION (Merged: Assign + All Assignments) ==========
+              Song Leaders (and Admins) add songs here; Schedule Plotters (and
+              Admins) plot the month in the Monthly Planner. A plotter who is
+              not a Song Leader sees the planner only. */}
+          {(canWriteSongs || canPlanLineup) && (
             <section className={`content-section ${activeSection === 'create-lineup' ? 'active' : ''}`}>
               {/* Tab Switcher */}
               <div className="lu-tab-bar">
-                <button className={`lu-tab ${lineupTab === 'assign' ? 'active' : ''}`} onClick={() => { setLineupTab('assign'); if (lineupTab !== 'assign') { resetLineupForm(); } }}>
-                  <i className="fas fa-music"></i> {isAdmin ? 'Assign Lineup' : 'Create Lineup'}
-                  {isAdmin && (getPendingAdminSubs().length > 0) && <span className="lu-tab-badge">{getPendingAdminSubs().length}</span>}
-                  {!isAdmin && getOpenSubsForMe().length > 0 && <span className="lu-tab-badge sub">{getOpenSubsForMe().length}</span>}
-                </button>
-                <button className={`lu-tab ${lineupTab === 'all' ? 'active' : ''}`} onClick={() => { setLineupTab('all'); loadScheduleData(); }}>
-                  <i className="fas fa-list-ol"></i> {isAdmin ? 'All Assignments' : 'My Lineups'}
-                </button>
-                <button className={`lu-tab ${lineupTab === 'paw-logs' ? 'active' : ''}`} onClick={() => { setLineupTab('paw-logs'); loadLineupExcuses(); loadSubRequests(); if (isAdmin) loadPawMembers(); }}>
-                  <i className={`fas ${isAdmin ? 'fa-clipboard-list' : 'fa-history'}`}></i> {isAdmin ? 'PAW Logs' : 'Excuse History'}
-                  {isAdmin && (getPendingExcuses().length + getPendingAdminSubs().length) > 0 && <span className="lu-tab-badge">{getPendingExcuses().length + getPendingAdminSubs().length}</span>}
-                </button>
+                {canPlanLineup && (
+                  <button className={`lu-tab ${lineupTab === 'planner' || !canWriteSongs ? 'active' : ''}`} onClick={() => setLineupTab('planner')}>
+                    <i className="fas fa-calendar-check"></i> Monthly Planner
+                  </button>
+                )}
+                {canWriteSongs && (
+                  <>
+                    <button className={`lu-tab ${lineupTab === 'assign' ? 'active' : ''}`} onClick={() => { setLineupTab('assign'); if (lineupTab !== 'assign') { resetLineupForm(); } }}>
+                      <i className="fas fa-music"></i> {isAdmin ? 'Assign Lineup' : 'Create Lineup'}
+                      {isAdmin && (getPendingAdminSubs().length > 0) && <span className="lu-tab-badge">{getPendingAdminSubs().length}</span>}
+                      {!isAdmin && getOpenSubsForMe().length > 0 && <span className="lu-tab-badge sub">{getOpenSubsForMe().length}</span>}
+                    </button>
+                    <button className={`lu-tab ${lineupTab === 'all' ? 'active' : ''}`} onClick={() => { setLineupTab('all'); loadScheduleData(); }}>
+                      <i className="fas fa-list-ol"></i> {isAdmin ? 'All Assignments' : 'My Lineups'}
+                    </button>
+                    <button className={`lu-tab ${lineupTab === 'paw-logs' ? 'active' : ''}`} onClick={() => { setLineupTab('paw-logs'); loadLineupExcuses(); loadSubRequests(); if (isAdmin) loadPawMembers(); }}>
+                      <i className={`fas ${isAdmin ? 'fa-clipboard-list' : 'fa-history'}`}></i> {isAdmin ? 'PAW Logs' : 'Excuse History'}
+                      {isAdmin && (getPendingExcuses().length + getPendingAdminSubs().length) > 0 && <span className="lu-tab-badge">{getPendingExcuses().length + getPendingAdminSubs().length}</span>}
+                    </button>
+                  </>
+                )}
               </div>
 
+              {/* ===== MONTHLY PLANNER TAB ===== */}
+              {canPlanLineup && (lineupTab === 'planner' || !canWriteSongs) && activeSection === 'create-lineup' && (
+                <MonthlyPlanner
+                  me={{ id: userData?.id, email: userData?.email }}
+                  showToast={showToast}
+                  onSaved={loadScheduleData}
+                />
+              )}
+
               {/* ===== ASSIGN TAB ===== */}
-              {lineupTab === 'assign' && (
+              {canWriteSongs && lineupTab === 'assign' && (
                 <>
                   {/* SUCCESS VIEW */}
                   {lineupView === 'success' && (
@@ -41790,7 +43069,7 @@ ${row('Change', rc.change, 'change')}
               )}
 
               {/* ===== ALL ASSIGNMENTS TAB ===== */}
-              {lineupTab === 'all' && (
+              {canWriteSongs && lineupTab === 'all' && (
                 <div className="lu-all-container">
                   {/* View Detail Modal */}
                   {lineupViewingAssignment && (
@@ -41883,7 +43162,7 @@ ${row('Change', rc.change, 'change')}
               )}
 
               {/* ===== PAW LOGS TAB (Admin) / EXCUSE HISTORY (Song Leader) ===== */}
-              {lineupTab === 'paw-logs' && (
+              {canWriteSongs && lineupTab === 'paw-logs' && (
                 <div className="paw-logs-container">
 
                   {/* ---- ADMIN: Full PAW Logs ---- */}

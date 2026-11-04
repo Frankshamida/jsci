@@ -252,6 +252,21 @@ export async function PUT(request) {
         } catch (schedErr) {
           console.error('Failed to update schedule backup_singers:', schedErr);
         }
+      } else if (roleLabel === 'Instrumentalist' || roleLabel === 'Dancer') {
+        // The substitute takes the requester's place on the lineup: in every
+        // instrument they were down for, or on the dancers line.
+        try {
+          const { data: sched } = await supabase.from('schedules').select('musicians, dancers').eq('schedule_date', sub.schedule_date).single();
+          if (sched) {
+            const swap = (names) => (names || []).map((n) => (n.toLowerCase() === sub.requester_name.toLowerCase() ? substituteName : n));
+            const patch = roleLabel === 'Dancer'
+              ? { dancers: swap(sched.dancers) }
+              : { musicians: Object.fromEntries(Object.entries(sched.musicians || {}).map(([inst, names]) => [inst, swap(names)])) };
+            await supabase.from('schedules').update(patch).eq('schedule_date', sub.schedule_date);
+          }
+        } catch (schedErr) {
+          console.error('Failed to update schedule musicians / dancers:', schedErr);
+        }
       }
 
       // Notify the requester

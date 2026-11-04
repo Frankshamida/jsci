@@ -73,12 +73,12 @@ export default function HomeScreen() {
   const userMinistry = user?.ministry || '';
   const userSubRole = user?.sub_role || '';
   const isPraiseAndWorship = userMinistry === 'Praise And Worship';
-  const isSongLeader = userRole === 'Song Leader' || userSubRole === 'Song Leaders';
+  const isSongLeader = userRole === 'Song Leader' || userSubRole.includes('Song Leaders');
   const isBackupSinger = userSubRole === 'Backup Singer';
   const isInstrumentalist = userSubRole === 'Instrumentalists';
   const isDancer = userSubRole === 'Dancers';
   const isMultimedia = userSubRole === 'Multimedia' || userSubRole === 'Lyrics';
-  const isLeaderOrAbove = ['Leader', 'Pastor', 'Admin', 'Super Admin'].includes(userRole);
+  const isLeaderOrAbove = ['Ministry Member', 'Leader', 'Pastor', 'Admin', 'Super Admin'].includes(userRole);
   const isAdminOrAbove = ['Admin', 'Super Admin'].includes(userRole);
   const isPastor = userRole === 'Pastor' || isAdminOrAbove;
 

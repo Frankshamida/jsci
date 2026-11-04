@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { Suspense } from 'react';
+import { formatAccountName } from '@/lib/eventFormat';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -120,6 +121,8 @@ function AuthCallbackContent() {
             ministry: existingUser.ministry,
             sub_role: existingUser.sub_role || null,
             role: existingUser.role || 'Guest',
+            additional_roles: existingUser.additional_roles || [],
+            default_dashboard: existingUser.default_dashboard || null,
             status: existingUser.status,
             isActive: existingUser.is_active !== false,
             isGoogleUser: true,
@@ -150,8 +153,8 @@ function AuthCallbackContent() {
         const { data: newUser, error: insertError } = await supabase
           .from('users')
           .insert({
-            firstname: firstname,
-            lastname: lastname,
+            // Google names come as typed into Google: saved as "Frank Dweezel Gomez"
+            ...formatAccountName(firstname, lastname),
             google_id: googleUser.id,
             email: email,
             password: 'GOOGLE_AUTH',

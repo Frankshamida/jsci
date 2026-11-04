@@ -13,6 +13,7 @@ import { findEventActor, canWorkEvent, actorRoleLabel, staffDeniedMessage } from
 import { resolveCashPayment } from '@/lib/cashPayment';
 import { sameAddon } from '@/lib/addons';
 import { accommodationAddons } from '@/lib/rooms';
+import { getUserRoles } from '@/lib/permissions';
 import { queueRoomSheetSync } from '@/lib/roomList/liveSheet';
 import { normalizeUid, isPlausibleUid, uidCandidates } from '@/lib/rfid';
 import { splitReturnedLinks, releaseLinks } from '@/lib/rfidEventCard';
@@ -21,6 +22,7 @@ import {
   registerableTiers, representativeTiers,
 } from '@/lib/eventPricing';
 import { extraNetFee, waiveAdded } from '@/lib/exemption';
+import { formatPersonName } from '@/lib/eventFormat';
 
 // An exempted registration's exemption (lib/exemption.js), read on its own so
 // a database that has not run registration_exemption.sql still adds extras.
@@ -66,22 +68,10 @@ function titleCaseChurch(name) {
 }
 
 // People type their own names in a hurry: "frank gomez", "FRANK GOMEZ". Stored
-// the way it should read on a badge - each word capitalised, with the small
-// Filipino/Spanish particles (dela, de, van) left lower-case in the middle of a
-// name, and O'Brien / Mc / hyphenated names handled.
-const NAME_PARTICLES = new Set(['de', 'del', 'dela', 'delos', 'delas', 'da', 'di', 'van', 'von', 'y', 'la', 'las', 'los', 'san', 'santa']);
-function titleCaseName(name) {
-  const raw = String(name || '').trim().replace(/\s+/g, ' ');
-  if (!raw) return '';
-  const capWord = (w) => w.charAt(0).toUpperCase() + w.slice(1);
-  return raw.split(' ').map((word, i, all) => {
-    const lower = word.toLowerCase();
-    // a particle keeps its case only between two other names, never at the ends
-    if (i > 0 && i < all.length - 1 && NAME_PARTICLES.has(lower)) return lower;
-    return lower
-      .split('-').map((part) => part.split("'").map(capWord).join("'")).join('-');
-  }).join(' ');
-}
+// the way it should read on a badge, by the same rule as every other name on
+// the site (formatPersonName: Filipino particles, O'Brien, hyphens, III).
+const titleCaseName = formatPersonName;
+const titleCaseLastName = (name) => formatPersonName(name, { continues: true });
 
 // Names are typed by hand on both sides of a duplicate check, so compare them
 // with the spacing and casing flattened out.
@@ -764,7 +754,7 @@ export async function POST(request) {
     // attendee_firstname/attendee_lastname are the source of truth; attendee_name is
     // kept alongside (combined) so existing displays/queries don't need to change.
     const firstName = titleCaseName(attendeeFirstName);
-    const lastName = titleCaseName(attendeeLastName);
+    const lastName = titleCaseLastName(attendeeLastName);
     const attendeeName = titleCaseName(fields.attendeeName || `${firstName} ${lastName}`);
 
     // Bulk registration: one organiser fills in a roster and pays for everyone at
@@ -777,7 +767,7 @@ export async function POST(request) {
     const people = isBulk
       ? roster.map((a) => ({
           firstName: titleCaseName(a?.firstName),
-          lastName: titleCaseName(a?.lastName),
+          lastName: titleCaseLastName(a?.lastName),
           addonIds: Array.isArray(a?.addonIds) ? a.addonIds.filter(Boolean) : [],
           // Which age group they were booked under. The price itself is read
           // from the database below - never from what the form sent.
@@ -826,14 +816,14 @@ export async function POST(request) {
     let memberUser = null;
     if (userId) {
       const { data: u } = await supabase
-        .from('users').select('id, firstname, lastname, role, status').eq('id', userId).single();
+        .from('users').select('id, firstname, lastname, role, additional_roles, status').eq('id', userId).single();
       memberUser = u || null;
     }
 
-    // Role restriction: if allowed_roles is set, the user's role must be in it
+    // Role restriction: if allowed_roles is set, one of the user's roles must be in it
     if (Array.isArray(event.allowed_roles) && event.allowed_roles.length > 0) {
-      const role = memberUser?.role || null;
-      if (!role || !event.allowed_roles.includes(role)) {
+      const roles = getUserRoles(memberUser);
+      if (!roles.some((r) => event.allowed_roles.includes(r))) {
         return NextResponse.json({ success: false, message: 'This event is only open to specific roles.' }, { status: 403 });
       }
     }
@@ -1994,7 +1984,7 @@ async function putRegistration(request) {
       // Stored the way every other entry point stores it, so an edited row and
       // a freshly registered one are spelled the same.
       const first = titleCaseName(d.attendeeFirstName);
-      const last = titleCaseName(d.attendeeLastName);
+      const last = titleCaseLastName(d.attendeeLastName);
       const name = `${first} ${last}`.trim();
       const church = titleCaseChurch(d.churchName);
       const pastorBare = titleCaseName(String(d.churchPastor || '').replace(/^ptr\.?\s*/i, ''));
