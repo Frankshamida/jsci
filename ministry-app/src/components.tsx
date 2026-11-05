@@ -10,7 +10,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Icon, type IconName } from './icons';
 import { KeyboardScroll, useRevealOnFocus } from './keyboard';
 import { font, fonts, makeStyles, radius, space, tint, useTheme, type Palette } from './theme';
-import { initials } from './utils';
+import { initials, monthLabel, parseYmd, shiftMonth } from './utils';
+import { useMiniPlayerInset } from './player';
 
 export { Icon };
 export type { IconName };
@@ -27,6 +28,7 @@ export function Screen({ children, onRefresh, scroll = true, padded = true, stac
 }) {
   const { colors: c } = useTheme();
   const s = useStyles();
+  const playerInset = useMiniPlayerInset(); // the song player sits at the bottom
   const [pulling, setPulling] = useState(false);
   const pull = async () => {
     setPulling(true);
@@ -37,14 +39,14 @@ export function Screen({ children, onRefresh, scroll = true, padded = true, stac
     <SafeAreaView style={s.screen} edges={stacked ? ['left', 'right', 'bottom'] : ['top', 'left', 'right']}>
       {scroll ? (
         <KeyboardScroll
-          contentContainerStyle={[...inner, s.scrollEnd]}
+          contentContainerStyle={[...inner, s.scrollEnd, playerInset ? { paddingBottom: space.xxl * 2 + playerInset } : null]}
           refreshControl={onRefresh
             ? <RefreshControl refreshing={pulling} onRefresh={pull} tintColor={c.secondary} colors={[c.secondary]} progressBackgroundColor={c.card} />
             : undefined}
         >
           {children}
         </KeyboardScroll>
-      ) : <View style={[s.flex, ...inner]}>{children}</View>}
+      ) : <View style={[s.flex, ...inner, playerInset ? { paddingBottom: playerInset } : null]}>{children}</View>}
     </SafeAreaView>
   );
 }
@@ -185,8 +187,9 @@ export function EmptyState({ icon, title, text }: { icon: IconName; title: strin
 // ---- Forms ----
 
 // A labelled text box. `right`: something inside the box on the right (show password).
-export function Field({ label, hint, right, inputRef, onFocus, ...input }: TextInputProps & {
-  label: string; hint?: string; right?: React.ReactNode; inputRef?: React.Ref<TextInput>;
+// `error`: what is wrong with this field, in red under it (and a red border).
+export function Field({ label, hint, error, right, inputRef, onFocus, ...input }: TextInputProps & {
+  label: string; hint?: string; error?: string | null; right?: React.ReactNode; inputRef?: React.Ref<TextInput>;
 }) {
   const { colors: c, scheme } = useTheme();
   const s = useStyles();
@@ -194,7 +197,7 @@ export function Field({ label, hint, right, inputRef, onFocus, ...input }: TextI
   return (
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
-      <View style={[s.inputBox, input.multiline && s.inputBoxMultiline]}>
+      <View style={[s.inputBox, input.multiline && s.inputBoxMultiline, !!error && s.inputBoxError]}>
         <TextInput
           ref={inputRef}
           placeholderTextColor={c.textMuted}
@@ -207,9 +210,105 @@ export function Field({ label, hint, right, inputRef, onFocus, ...input }: TextI
         />
         {right}
       </View>
-      {hint ? <Text style={s.fieldHint}>{hint}</Text> : null}
+      {error ? (
+        <View style={s.fieldErrorRow} accessibilityLiveRegion="polite">
+          <Icon name="circle-exclamation" size={12} color={c.danger} />
+          <Text style={s.fieldError}>{error}</Text>
+        </View>
+      ) : hint ? <Text style={s.fieldHint}>{hint}</Text> : null}
     </View>
   );
+}
+
+// A tick box with its label ("Keep me signed in").
+export function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  return (
+    <Pressable onPress={() => onChange(!checked)} hitSlop={6} style={s.check} accessibilityRole="checkbox" accessibilityState={{ checked }} accessibilityLabel={label}>
+      {checked ? (
+        <LinearGradient colors={c.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[s.checkBox, s.checkBoxOn]}>
+          <Icon name="check" size={12} color="#ffffff" />
+        </LinearGradient>
+      ) : <View style={s.checkBox} />}
+      <Text style={s.checkLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+// Tabs inside a page ("Song Lead / Backup / Musicians / Dancers"): one pill
+// marks the open one. `counts` adds a small number to a label.
+export function Segmented<T extends string>({ options, value, onChange, labels, counts, icons }: {
+  options: T[]; value: T; onChange: (v: T) => void; labels?: Partial<Record<T, string>>;
+  counts?: Partial<Record<T, number>>; icons?: Partial<Record<T, IconName>>;
+}) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  return (
+    <View style={s.segment} accessibilityRole="tablist">
+      {options.map((o) => {
+        const on = o === value;
+        const count = counts?.[o];
+        const icon = icons?.[o];
+        return (
+          <Pressable key={o} onPress={() => onChange(o)} style={[s.segmentItem, on && s.segmentItemOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
+            {icon ? <Icon name={icon} size={12} color={on ? c.goldText : c.textSecondary} /> : null}
+            <Text style={[s.segmentText, on && s.segmentTextOn]} numberOfLines={1}>{labels?.[o] || o}</Text>
+            {count ? <View style={[s.segmentCount, on && s.segmentCountOn]}><Text style={[s.segmentCountText, on && s.segmentCountTextOn]}>{count}</Text></View> : null}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// "<  NOVEMBER 2026  >", with a way back to this month.
+export function MonthSwitcher({ month, onChange, current, loading }: { month: string; onChange: (m: string) => void; current: string; loading?: boolean }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const isCurrent = month === current;
+  const past = month < current;
+  return (
+    <View style={s.monthBar}>
+      <Pressable onPress={() => onChange(shiftMonth(month, -1))} hitSlop={10} style={({ pressed }) => [s.monthArrow, pressed && s.pressed]} accessibilityRole="button" accessibilityLabel="Previous month">
+        <Icon name="chevron-left" size={14} color={c.goldText} />
+      </Pressable>
+      <View style={s.monthCenter}>
+        <Text style={s.monthName}>{monthLabel(month).toUpperCase()}</Text>
+        {isCurrent ? (
+          <View style={s.monthPill}><Text style={s.monthPillText}>This month</Text></View>
+        ) : (
+          <Pressable onPress={() => onChange(current)} hitSlop={8} accessibilityRole="button">
+            <Text style={s.monthBack}>{loading ? 'Loading…' : past ? 'Past month · back to today' : 'Back to this month'}</Text>
+          </Pressable>
+        )}
+      </View>
+      <Pressable onPress={() => onChange(shiftMonth(month, 1))} hitSlop={10} style={({ pressed }) => [s.monthArrow, pressed && s.pressed]} accessibilityRole="button" accessibilityLabel="Next month">
+        <Icon name="chevron-right" size={14} color={c.goldText} />
+      </Pressable>
+    </View>
+  );
+}
+
+// A date as "NOV / 15 / SUN": gold when it is today, grey when it has passed.
+export function DateBox({ date, today, size = 'md' }: { date: string; today: string; size?: 'md' | 'sm' }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const d = parseYmd(date);
+  const mon = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+  const dow = d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+  const box = [s.dateBox, size === 'sm' && s.dateBoxSm];
+  const body = (on: boolean) => (
+    <>
+      <Text style={[s.dateMon, on && s.onGold]}>{mon}</Text>
+      <Text style={[s.dateDay, size === 'sm' && s.dateDaySm, on && s.onGold]}>{d.getDate()}</Text>
+      <Text style={[s.dateDow, on && s.onGoldSoft]}>{dow}</Text>
+    </>
+  );
+  if (date === today) {
+    return <LinearGradient colors={c.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={box}>{body(true)}</LinearGradient>;
+  }
+  return <View style={[...box, date < today ? s.dateBoxPast : s.dateBoxPlain]}>{body(false)}</View>;
 }
 
 const BANNER_ICON: Record<'info' | 'warn' | 'danger' | 'success', IconName> = {
@@ -342,6 +441,43 @@ export const useStyles = makeStyles((c) => ({
   field: { marginBottom: space.md },
   fieldLabel: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.semibold, marginBottom: 6 },
   fieldHint: { color: c.warning, fontSize: font.xs, fontFamily: fonts.medium, marginTop: 4 },
+  fieldErrorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  fieldError: { flex: 1, color: c.danger, fontSize: font.sm, fontFamily: fonts.semibold },
+  inputBoxError: { borderColor: c.danger, backgroundColor: tint(c.danger, 0.05) },
+
+  check: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, alignSelf: 'flex-start' },
+  checkBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.borderStrong, backgroundColor: c.input, alignItems: 'center', justifyContent: 'center' },
+  checkBoxOn: { borderWidth: 0 },
+  checkLabel: { color: c.text, fontSize: font.md, fontFamily: fonts.medium },
+
+  segment: { flexDirection: 'row', backgroundColor: c.scheme === 'light' ? '#eef0f3' : c.cardRaised, borderRadius: radius.pill, padding: 4, marginBottom: space.md, gap: 4 },
+  segmentItem: { flex: 1, minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: radius.pill, paddingHorizontal: 6 },
+  segmentItemOn: { backgroundColor: c.card, boxShadow: c.scheme === 'light' ? '0px 1px 6px rgba(0, 0, 0, 0.10)' : '0px 1px 6px rgba(0, 0, 0, 0.35)' },
+  segmentText: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.medium, flexShrink: 1 },
+  segmentTextOn: { color: c.goldText, fontFamily: fonts.bold },
+  segmentCount: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: tint(c.textSecondary, 0.18) },
+  segmentCountOn: { backgroundColor: c.danger },
+  segmentCountText: { color: c.textSecondary, fontSize: 10, fontFamily: fonts.bold },
+  segmentCountTextOn: { color: '#ffffff' },
+
+  monthBar: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: space.md },
+  monthArrow: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.goldMuted },
+  monthCenter: { flex: 1, alignItems: 'center' },
+  monthName: { color: c.text, fontSize: font.lg, fontFamily: fonts.heavy, letterSpacing: 1.6 },
+  monthPill: { marginTop: 3, paddingHorizontal: 10, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: c.goldMuted },
+  monthPillText: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.bold },
+  monthBack: { marginTop: 3, color: c.info, fontSize: font.xs, fontFamily: fonts.semibold },
+
+  dateBox: { width: 54, height: 62, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  dateBoxSm: { width: 46, height: 54 },
+  dateBoxPlain: { backgroundColor: c.goldMuted },
+  dateBoxPast: { backgroundColor: tint(c.textSecondary, 0.12) },
+  dateMon: { color: c.goldText, fontSize: 10.5, fontFamily: fonts.heavy, letterSpacing: 0.8 },
+  dateDay: { color: c.text, fontSize: 21, lineHeight: 24, fontFamily: fonts.bold },
+  dateDaySm: { fontSize: 18, lineHeight: 21 },
+  dateDow: { color: c.textSecondary, fontSize: 9.5, fontFamily: fonts.semibold, letterSpacing: 0.6 },
+  onGold: { color: '#ffffff' },
+  onGoldSoft: { color: 'rgba(255, 255, 255, 0.85)' },
   inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.input, borderWidth: 1, borderColor: c.border, borderRadius: radius.md, paddingRight: 4 },
   inputBoxMultiline: { alignItems: 'flex-start' },
   input: { flex: 1, paddingHorizontal: space.md, paddingVertical: 12, color: c.text, fontSize: font.md, fontFamily: fonts.regular },

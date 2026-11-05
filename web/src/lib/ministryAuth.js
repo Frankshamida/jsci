@@ -66,7 +66,9 @@ export function ministryAccessError(user) {
 
 export const USER_FIELDS = 'id, member_id, firstname, lastname, email, role, additional_roles, ministry, sub_role, status, is_active, profile_picture, birthdate';
 
-const fail = (status, message) => NextResponse.json({ success: false, message }, { status });
+// code 'session_ended': the app signs out (other refusals, like "only the
+// Media team can do that", keep you signed in).
+const fail = (status, message) => NextResponse.json({ success: false, code: 'session_ended', message }, { status });
 
 /**
  * The signed-in Ministry Member behind a request, re-checked against the

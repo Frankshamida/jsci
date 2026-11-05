@@ -21,8 +21,11 @@ export async function POST(request) {
       return tooManyRequests(attempt.retryAfterSec, 'Too many sign-in attempts. Please wait a few minutes and try again.');
     }
 
+    // Short, field-specific answers (the app shows them under the field):
+    //   field 'email'     not registered / not in a ministry
+    //   field 'password'  wrong password
     const { data: user } = await supabase.from('users').select(`${USER_FIELDS}, password`).eq('email', cleanEmail).maybeSingle();
-    if (!user) return NextResponse.json({ success: false, message: 'Invalid email or password.' }, { status: 401 });
+    if (!user) return NextResponse.json({ success: false, field: 'email', message: 'Email not registered.' }, { status: 401 });
     if (user.password === 'GOOGLE_AUTH') {
       return NextResponse.json({
         success: false,
@@ -30,11 +33,15 @@ export async function POST(request) {
       }, { status: 401 });
     }
     if (!(await bcrypt.compare(password, user.password))) {
-      return NextResponse.json({ success: false, message: 'Invalid email or password.' }, { status: 401 });
+      return NextResponse.json({ success: false, field: 'password', message: 'Wrong password.' }, { status: 401 });
     }
 
     const denied = ministryAccessError(user);
-    if (denied) return NextResponse.json({ success: false, message: denied }, { status: 403 });
+    if (denied) {
+      // Signed up, but not a Ministry Member: "not registered to a ministry".
+      const notMinistry = denied.startsWith('JSCI Ministry is for');
+      return NextResponse.json({ success: false, field: notMinistry ? 'email' : null, message: notMinistry ? 'Not registered to a ministry.' : denied }, { status: 403 });
+    }
 
     await supabase.from('users').update({ last_login: new Date().toISOString() }).eq('id', user.id);
 

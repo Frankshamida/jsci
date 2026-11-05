@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="robots" content="noindex">
+<title>JSCI Ministry player</title>
+<!--
+  The JSCI Ministry app's song player. The app shows this page in a small
+  web view and drives it with window.cmd({...}); the page reports back with
+  ReactNativeWebView.postMessage. It is served from the JSCI website so
+  YouTube sees a real web page playing the video.
+    app -> page   cmd({ type: 'load', videoId, autoplay }) | play | pause | seek { seconds } | stop
+    page -> app   { type: 'ready' } | { type: 'state', state } | { type: 'time', current, duration }
+                  | { type: 'error', code }
+-->
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  #player, iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<script>
+  var params = new URLSearchParams(location.search);
+  var player = null;
+  var ready = false;
+  var pending = null;
+  var timer = null;
+
+  function send(msg) {
+    try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(msg)); } catch (e) {}
+  }
+
+  var STATES = { '-1': 'unstarted', '0': 'ended', '1': 'playing', '2': 'paused', '3': 'buffering', '5': 'cued' };
+
+  function tick() {
+    if (!player || !player.getCurrentTime) return;
+    send({ type: 'time', current: player.getCurrentTime() || 0, duration: player.getDuration() || 0 });
+  }
+
+  window.cmd = function (c) {
+    if (!ready) { if (c && c.type === 'load') pending = c; return; }
+    switch (c && c.type) {
+      case 'load':
+        if (c.autoplay === false) player.cueVideoById({ videoId: c.videoId, startSeconds: c.start || 0 });
+        else player.loadVideoById({ videoId: c.videoId, startSeconds: c.start || 0 });
+        break;
+      case 'play': player.playVideo(); break;
+      case 'pause': player.pauseVideo(); break;
+      case 'seek': player.seekTo(Math.max(0, c.seconds || 0), true); tick(); break;
+      case 'stop': player.stopVideo(); break;
+    }
+  };
+
+  window.onYouTubeIframeAPIReady = function () {
+    var first = params.get('v');
+    player = new YT.Player('player', {
+      width: '100%',
+      height: '100%',
+      videoId: first || undefined,
+      host: 'https://www.youtube.com',
+      playerVars: {
+        autoplay: params.get('autoplay') === '1' ? 1 : 0,
+        playsinline: 1,
+        controls: 0,
+        rel: 0,
+        fs: 0,
+        modestbranding: 1,
+        iv_load_policy: 3,
+        disablekb: 1,
+        origin: location.origin,
+      },
+      events: {
+        onReady: function () {
+          ready = true;
+          send({ type: 'ready' });
+          if (params.get('autoplay') === '1' && first) player.playVideo();
+          if (pending) { var p = pending; pending = null; window.cmd(p); }
+        },
+        onStateChange: function (e) {
+          var state = STATES[String(e.data)] || 'unknown';
+          send({ type: 'state', state: state });
+          clearInterval(timer);
+          if (state === 'playing') timer = setInterval(tick, 500);
+          tick();
+        },
+        onError: function (e) { send({ type: 'error', code: e.data }); },
+      },
+    });
+  };
+
+  var tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  tag.onerror = function () { send({ type: 'error', code: 'offline' }); };
+  document.head.appendChild(tag);
+</script>
+</body>
+</html>

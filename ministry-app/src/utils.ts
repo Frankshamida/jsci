@@ -56,3 +56,18 @@ export const formatBytes = (n: number | null | undefined) => {
   if (!n) return '';
   return n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
 };
+
+// ---- Months ('YYYY-MM') ----
+export const monthOf = (date: string) => date.slice(0, 7);
+// "November 2026"
+export const monthLabel = (month: string) => parseYmd(`${month}-01`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+// "2026-11" moved by n months
+export function shiftMonth(month: string, n: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+}
+// "NOV 15"
+export const monthDay = (s: string) => parseYmd(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+// "Sun, Nov 15"
+export const mediumDate = (s: string) => parseYmd(s).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });

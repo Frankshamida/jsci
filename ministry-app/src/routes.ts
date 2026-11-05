@@ -7,16 +7,28 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 export type TabParams = {
   Home: undefined;
   Requests: undefined;
+  Chat: undefined;
   Attendance: undefined;
   Profile: undefined;
 };
 
 export type RootStackParams = {
   Tabs: NavigatorScreenParams<TabParams> | undefined;
-  Lineup: { scheduleId: string };
+  Lineup: { scheduleId: string; date?: string }; // date: to load its month when it is not cached
   SongEditor: { scheduleId: string };
   Recorder: { scheduleId: string };
-  RequestForm: { mode: 'excuse' | 'sub'; scheduleId?: string; date?: string };
+  // excuse: any date from today on; sub / swap: one of your upcoming lineups
+  RequestForm: { mode: 'excuse' | 'sub' | 'swap'; scheduleId?: string; date?: string };
+  // A song's lyrics, written by the Media team (lyrics_library)
+  LyricsEditor: { title: string; link?: string; lyricsId?: string; scheduleId?: string };
+  // A teammate: their ministry roles and their lineup history
+  Member: { userId: string; name: string };
+  // A group chat
+  ChatRoom: { room: string; title: string };
+  // Schedule Plotter tools: the month's lineups, and approvals
+  Planner: { tab?: 'lineups' | 'approvals'; month?: string } | undefined;
+  // Make or change one lineup (Schedule Plotter)
+  LineupEditor: { scheduleId?: string; date?: string };
 };
 
 export type StackProps<R extends keyof RootStackParams> = NativeStackScreenProps<RootStackParams, R>;

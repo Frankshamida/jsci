@@ -21,14 +21,18 @@ export const metadata = {
 };
 
 const FEATURES = [
-  { icon: 'fa-calendar-check', title: 'Your Sundays', text: 'See every date you serve - Song Leader, Backup Singer, Musician or Dancer - and who is on the team with you.' },
-  { icon: 'fa-music', title: 'Lineup songs', text: 'Song Leaders add the slow and fast songs with YouTube links and notes. The whole team sees them at once.' },
+  { icon: 'fa-calendar-days', title: 'Your month at a glance', text: 'A calendar of every Sunday: where you serve, your REST days, excuses and subs - and past months too.' },
+  { icon: 'fa-music', title: 'Songs that play in the app', text: 'Tap play by a lineup song. It keeps playing in a mini player while you read the lyrics or look around.' },
+  { icon: 'fa-align-left', title: 'Lyrics', text: 'The Media team writes the lyrics of every lineup song, so the whole team can practise the words.' },
+  { icon: 'fa-users', title: 'The whole team', text: 'Song Lead, Backup Singers, Musicians and Dancers of each date. Search any teammate to see their schedule.' },
+  { icon: 'fa-people-arrows', title: 'Excuse, sub & swap', text: 'File an excuse for any date ahead, ask for a substitute, or trade dates with a teammate - with a full history.' },
+  { icon: 'fa-location-dot', title: 'Check in at church', text: 'Mark your attendance with GPS when you are at church, and see who is already there.' },
+  { icon: 'fa-comments', title: 'Group chats', text: 'Chats for Singers, Musicians, Dancers, Media, Ushers, the PAW Team and all JSCI Ministry Members.' },
+  { icon: 'fa-calendar-check', title: 'For Schedule Plotters', text: 'Plot, change or remove lineups, and approve excuses, subs and swaps from your phone.' },
   { icon: 'fa-microphone-lines', title: 'Practice recordings', text: 'Record your part on the phone or upload a file, and play back the team\'s practice audio anytime.' },
-  { icon: 'fa-people-arrows', title: 'Excuse & substitute', text: 'File an excuse, ask for a substitute, or cover a teammate with one tap - and send a thank-you.' },
-  { icon: 'fa-clipboard-check', title: 'Attendance', text: 'Your attendance rate and history, month by month.' },
-  { icon: 'fa-fingerprint', title: 'Fingerprint lock', text: 'Keep the app locked with your fingerprint or Face ID.' },
+  { icon: 'fa-fingerprint', title: 'Fingerprint lock', text: 'Keep the app locked with your fingerprint or Face ID, and stay signed in if you like.' },
   { icon: 'fa-circle-half-stroke', title: 'Light & dark', text: 'Follows your phone, or pick Light or Dark in Settings.' },
-  { icon: 'fa-feather', title: 'Light on your phone', text: 'Small download, and it opens instantly from saved data - one quick refresh, no constant syncing.' },
+  { icon: 'fa-cloud-arrow-down', title: 'Always up to date', text: 'A small download that opens instantly, and the app tells you when a new version is out.' },
 ];
 
 const STEPS = [

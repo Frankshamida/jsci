@@ -32,6 +32,11 @@ eas build -p ios --profile production     # needs an Apple Developer account
 - Deploy the web project, which contains `web/src/app/api/ministry/*`.
 - In Vercel, set `MINISTRY_APP_SECRET` to a long random string. It signs the app's
   30-day sign-in tokens. Changing it signs everyone out.
+- `SUPABASE_SERVICE_ROLE_KEY` must be set: the chat and swap tables are server-only.
+- Run `web/supabase/migrations/ministry_app_v1_3.sql` once in Supabase (1.3: swaps,
+  group chats, GPS check-in columns). Safe to run again.
+- `web/public/ministry-player.html` is the in-app song player page; the app loads it
+  from the website, so YouTube sees a real web page.
 
 ## How it stays light
 
@@ -64,9 +69,19 @@ for a moment.
 | Path | What |
 | --- | --- |
 | `src/theme.tsx` | Palettes (light/dark), fonts, `useTheme`, `makeStyles` |
-| `src/icons.tsx` | The Font Awesome icons the app uses |
+| `src/icons.tsx` | Font Awesome 6 icons (any FA6 name) |
 | `src/keyboard.tsx` | Keeps the field being typed in above the keyboard |
 | `src/session.tsx` | Sign-in, the cached dashboard, the fingerprint lock |
-| `src/api.ts` | All server calls |
+| `src/api.ts` | Server calls (feature modules add their own through `request`) |
+| `src/months.ts` | The schedule by month, cached (Home's calendar) |
+| `src/player.tsx` | The YouTube song player and its mini player |
+| `src/lyrics.ts` | A lineup's lyrics, cached |
+| `src/chat.ts` | Group chats: API, room list, unread badge |
+| `src/attendance.ts` | GPS check-in: API, church location, distance |
+| `src/planner.ts` | Schedule Plotter: lineups and approvals |
 | `src/recordings.ts` | Practice recordings, cached per lineup |
-| `src/screens/` | Login, Lock, Home, Lineup, Song Editor, Recorder, Requests, Request form, Attendance, Profile |
+| `src/screens/` | Login, Lock, Home, Lineup, Song Editor, Recorder, Requests, Request form, Lyrics editor, Teammate, Chat list, Chat room, Attendance, Plotter, Lineup editor, Profile |
+
+Server side (`web/src/lib/`): `ministryAuth.js` (tokens), `ministryApp.js` (profile,
+lineup shape, church date), `ministrySchedule.js` (months, REST days, teammate history),
+`ministrySwaps.js`, `ministryLyrics.js`, `ministryChat.js`.

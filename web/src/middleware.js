@@ -56,6 +56,17 @@ const RULES = [
   // Each call spends Cloudinary / Drive bandwidth and function time.
   { name: 'upload', match: (p, m) => m !== 'GET' && p.includes('upload'), max: 30, windowMs: MINUTE },
 
+  // The JSCI Ministry app checks open group chats every few seconds and the
+  // attendance roster every half minute. At church, everyone is on one Wi-Fi
+  // address, so these reads get their own, larger allowance (the chat route
+  // limits each person's sending itself).
+  {
+    name: 'ministry-poll',
+    match: (p, m) => m === 'GET' && (p.startsWith('/api/ministry/chat') || p === '/api/ministry/attendance'),
+    max: 6000,
+    windowMs: MINUTE,
+  },
+
   { name: 'write', match: (p, m) => m !== 'GET' && m !== 'HEAD', max: 300, windowMs: MINUTE },
   { name: 'read', match: () => true, max: 1200, windowMs: MINUTE },
 ];

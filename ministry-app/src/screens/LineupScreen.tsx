@@ -1,29 +1,45 @@
-import React, { useEffect, useState } from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useSession } from '../session';
 import { useLineup } from '../lineups';
+import { useMonth } from '../months';
 import { useRecordings, invalidateRecordings } from '../recordings';
+import { useLineupLyrics } from '../lyrics';
+import { usePlayer, type Track } from '../player';
 import { api } from '../api';
-import type { StackProps } from '../routes';
+import { useAppNav, type StackProps } from '../routes';
 import { useDialog } from '../dialog';
-import { Avatar, Banner, Button, Card, Chip, EmptyState, Icon, Screen, SectionTitle, StatusBadge, type IconName } from '../components';
+import {
+  Avatar, Banner, Button, Card, Chip, EmptyState, Icon, LoadingView, Screen, SectionTitle, Segmented, StatusBadge, type IconName,
+} from '../components';
 import { font, fonts, makeStyles, partColor, radius, space, useTheme } from '../theme';
-import { formatClock, longDate, relativeDay, shortDate, youtubeId, youtubeThumb } from '../utils';
-import type { Person, Recording, Song } from '../types';
+import { formatClock, longDate, monthDay, relativeDay, shortDate, youtubeId } from '../utils';
+import type { CoveredPerson, Lineup, Person, Recording, Song } from '../types';
+
+type Tab = 'lead' | 'backup' | 'band' | 'dance';
+type SongView = 'songs' | 'lyrics';
+
+// Which tab a substitute's original person belongs on.
+const TAB_OF_ROLE: Record<string, Tab> = { 'Song Leader': 'lead', 'Backup Singer': 'backup', Instrumentalist: 'band', Dancer: 'dance' };
 
 export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>) {
-  const { scheduleId } = route.params;
-  const lineup = useLineup(scheduleId);
+  const { scheduleId, date } = route.params;
   const { home, profile, refresh } = useSession();
+  // From a teammate's history the lineup may be in a month not seen yet.
+  const cached = useLineup(scheduleId);
+  const month = useMonth(cached || !date ? (home?.today || '').slice(0, 7) : date.slice(0, 7));
+  const lineup = cached || month.data?.lineups.find((l) => l.scheduleId === scheduleId) || null;
   const { colors: c } = useTheme();
   const s = useStyles();
   const recordings = useRecordings(scheduleId);
+  const [tab, setTab] = useState<Tab>('lead');
 
   useEffect(() => { if (lineup) navigation.setOptions({ title: shortDate(lineup.date) }); }, [lineup, navigation]);
 
   if (!lineup || !home || !profile) {
-    return <Screen stacked><EmptyState icon="circle-exclamation" title="Lineup not found" text="Pull down on Home to refresh, then try again." /></Screen>;
+    if (month.loading) return <LoadingView message="Loading the lineup…" />;
+    return <Screen stacked><EmptyState icon="circle-exclamation" title="Lineup not found" text="It may have been removed. Pull down on Home to refresh." /></Screen>;
   }
 
   const past = lineup.date < home.today;
@@ -31,53 +47,59 @@ export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>
   const isMe = (p: Person) => p.name.toLowerCase() === me;
   const myExcuse = home.excuses.find((e) => e.excuse_date === lineup.date && e.status !== 'Rejected');
   const mySub = home.substitutes.find((x) => x.date === lineup.date && x.requesterId === profile.id && x.status !== 'Rejected');
+  const mySwap = (home.swaps || []).find((w) => ['Waiting Partner', 'Pending Approval'].includes(w.status)
+    && ((w.requesterId === profile.id && w.requesterDate === lineup.date) || (w.partnerId === profile.id && w.partnerDate === lineup.date)));
   const canAct = lineup.mine && !past && !lineup.subbedOut;
-  const hasSongs = lineup.slowSongs.length + lineup.fastSongs.length > 0;
+  const covered = (t: Tab) => (lineup.covered || []).filter((x) => TAB_OF_ROLE[x.roleType] === t);
+  const counts = {
+    backup: lineup.backupSingers.length,
+    band: lineup.musicians.length,
+    dance: lineup.dancers.length,
+  };
 
   return (
     <Screen stacked onRefresh={() => Promise.all([refresh(true), recordings.reload()])}>
-      <Text style={s.when}>{relativeDay(lineup.date, home.today)}</Text>
-      <Text style={s.date}>{longDate(lineup.date)}</Text>
-      {lineup.myParts.length > 0 && (
-        <View style={s.chips}>{lineup.myParts.map((p) => <Chip key={p} label={`You: ${p}`} color={partColor(c, p)} solid />)}</View>
-      )}
+      <View style={s.head}>
+        <View style={s.flex}>
+          <Text style={[s.when, past && { color: c.textMuted }]}>{past ? 'Past lineup' : relativeDay(lineup.date, home.today)}</Text>
+          <Text style={s.date}>{longDate(lineup.date)}</Text>
+        </View>
+        {profile.canPlot && (
+          <Pressable onPress={() => navigation.navigate('LineupEditor', { scheduleId })} style={s.editBtn} accessibilityRole="button" accessibilityLabel="Edit this lineup">
+            <Icon name="pen-to-square" size={14} color={c.goldText} />
+            <Text style={s.editText}>Edit</Text>
+          </Pressable>
+        )}
+      </View>
+      <View style={s.chips}>
+        {lineup.myParts.map((p) => <Chip key={p} label={`You: ${p}`} color={partColor(c, p)} solid />)}
+        {!lineup.mine && <Chip label="You: REST" icon="mug-hot" color={c.textSecondary} />}
+      </View>
       {lineup.subbedOut && <Banner tone="info" icon="people-arrows" text="A substitute is covering for you as Song Leader on this date." />}
       {lineup.practiceDate && (
         <Banner tone="info" icon="calendar-check" text={`Practice: ${longDate(lineup.practiceDate)}${lineup.practiceTime ? ` at ${lineup.practiceTime}` : ''}`} />
       )}
 
-      {/* Who is on */}
-      <SectionTitle title="Team" icon="users" />
-      <Card>
-        {lineup.songLeader && <PersonRow person={lineup.songLeader} part="Song Leader" icon="microphone" me={isMe(lineup.songLeader)} />}
-        {lineup.originalSongLeader && <Text style={s.subNote}>Substituting for {lineup.originalSongLeader}</Text>}
-        {lineup.backupSingers.map((p) => <PersonRow key={`b-${p.name}`} person={p} part="Backup Singer" icon="users" me={isMe(p)} />)}
-        {lineup.musicians.map((p) => <PersonRow key={`m-${p.instrument}-${p.name}`} person={p} part={p.instrument} icon="guitar" me={isMe(p)} />)}
-        {lineup.dancers.map((p) => <PersonRow key={`d-${p.name}`} person={p} part="Dancer" icon="person-running" me={isMe(p)} />)}
-        {!lineup.songLeader && !lineup.backupSingers.length && !lineup.musicians.length && <Text style={s.muted}>Nobody plotted yet.</Text>}
-      </Card>
-
-      {/* Songs */}
-      <SectionTitle
-        title="Songs"
-        icon="music"
-        action={lineup.isSongLeader && !past ? (hasSongs ? 'Edit' : 'Add') : undefined}
-        onAction={() => navigation.navigate('SongEditor', { scheduleId })}
+      <Segmented<Tab>
+        options={['lead', 'backup', 'band', 'dance']}
+        value={tab}
+        onChange={setTab}
+        labels={{ lead: 'Song Lead', backup: 'Backup', band: 'Musicians', dance: 'Dancers' }}
+        counts={counts}
       />
-      {!hasSongs ? (
-        <Card>
-          <EmptyState
-            icon="music"
-            title={lineup.isSongLeader ? 'Add the songs for your team' : 'No songs yet'}
-            text={lineup.isSongLeader ? 'Your team sees them here as soon as you save.' : 'The Song Leader has not added the songs yet.'}
-          />
-          {lineup.isSongLeader && !past && <Button title="Add Songs" icon="plus" onPress={() => navigation.navigate('SongEditor', { scheduleId })} />}
-        </Card>
-      ) : (
-        <>
-          <SongGroup title="Slow Songs" icon="leaf" songs={lineup.slowSongs} />
-          <SongGroup title="Fast Songs" icon="bolt" songs={lineup.fastSongs} />
-        </>
+
+      {tab === 'lead' && <SongLeadTab lineup={lineup} isMe={isMe} past={past} covered={covered('lead')} canEditLyrics={profile.canEditLyrics} />}
+      {tab === 'backup' && (
+        <PeopleCard people={lineup.backupSingers.map((p) => ({ p, part: 'Backup Singer', icon: 'users' as IconName }))} covered={covered('backup')} isMe={isMe}
+          empty="No backup singers on this lineup." />
+      )}
+      {tab === 'band' && (
+        <PeopleCard people={lineup.musicians.map((p) => ({ p, part: p.instrument, icon: instrumentIcon(p.instrument) }))} covered={covered('band')} isMe={isMe}
+          empty="No musicians on this lineup." />
+      )}
+      {tab === 'dance' && (
+        <PeopleCard people={lineup.dancers.map((p) => ({ p, part: 'Dancer', icon: 'person-running' as IconName }))} covered={covered('dance')} isMe={isMe}
+          empty="No dancers on this lineup." />
       )}
 
       {/* Practice recordings */}
@@ -97,14 +119,20 @@ export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>
       {canAct && (
         <>
           <SectionTitle title="Can't make it?" icon="calendar-minus" />
-          {myExcuse && <Card style={s.statusCard}><Text style={s.statusText}>Excuse filed</Text><StatusBadge status={myExcuse.status} /></Card>}
-          {mySub && <Card style={s.statusCard}><Text style={s.statusText}>Substitute request</Text><StatusBadge status={mySub.status} label={mySub.status === 'Accepted' && mySub.substituteName ? `Covered by ${mySub.substituteName}` : mySub.status} /></Card>}
-          {!myExcuse && !mySub && (
-            <View style={s.actions}>
-              <Button title="File an Excuse" icon="calendar-minus" variant="secondary" style={s.flex}
-                onPress={() => navigation.navigate('RequestForm', { mode: 'excuse', date: lineup.date, scheduleId })} />
-              <Button title="Ask for a Sub" icon="people-arrows" variant="secondary" style={s.flex}
-                onPress={() => navigation.navigate('RequestForm', { mode: 'sub', scheduleId })} />
+          {myExcuse && <StatusCard label="Excuse" status={myExcuse.status} text={myExcuse.status === 'Pending' ? 'Waiting for the Schedule Plotter' : myExcuse.status} />}
+          {mySub && (
+            <StatusCard label="Substitute" status={mySub.status}
+              text={mySub.status === 'Accepted' && mySub.substituteName ? `Covered by ${mySub.substituteName}` : mySub.status === 'Pending Admin' ? 'Waiting for approval' : mySub.status === 'Open for Sub' ? 'Open to teammates' : mySub.status} />
+          )}
+          {mySwap && (
+            <StatusCard label="Swap" status={mySwap.status === 'Waiting Partner' ? 'Pending' : 'Pending Admin'}
+              text={`With ${mySwap.requesterId === profile.id ? mySwap.partnerName : mySwap.requesterName}: ${mySwap.status === 'Waiting Partner' ? 'waiting for their answer' : 'waiting for approval'}`} />
+          )}
+          {!myExcuse && !mySub && !mySwap && (
+            <View style={s.actionGrid}>
+              <ActionTile icon="calendar-minus" title="File an Excuse" onPress={() => navigation.navigate('RequestForm', { mode: 'excuse', date: lineup.date, scheduleId })} />
+              <ActionTile icon="people-arrows" title="Ask for a Sub" onPress={() => navigation.navigate('RequestForm', { mode: 'sub', scheduleId })} />
+              <ActionTile icon="right-left" title="Swap Schedule" onPress={() => navigation.navigate('RequestForm', { mode: 'swap', scheduleId })} />
             </View>
           )}
         </>
@@ -113,53 +141,291 @@ export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>
   );
 }
 
-function PersonRow({ person, part, icon, me }: { person: Person; part: string; icon: IconName; me: boolean }) {
+const instrumentIcon = (instrument: string): IconName => (instrument === 'Keyboard' ? 'keyboard' : instrument === 'Drums' ? 'drum' : 'guitar');
+
+function ActionTile({ icon, title, onPress }: { icon: IconName; title: string; onPress: () => void }) {
   const { colors: c } = useTheme();
   const s = useStyles();
   return (
-    <View style={s.person}>
-      <Avatar name={person.name} picture={person.picture} size={36} ring={me ? c.secondary : undefined} />
+    <Pressable onPress={onPress} style={({ pressed }) => [s.tile, pressed && s.pressed]} accessibilityRole="button" accessibilityLabel={title}>
+      <View style={s.tileIcon}><Icon name={icon} size={16} color={c.goldText} /></View>
+      <Text style={s.tileText}>{title}</Text>
+    </Pressable>
+  );
+}
+
+function StatusCard({ label, status, text }: { label: string; status: string; text: string }) {
+  const s = useStyles();
+  return (
+    <Card style={s.statusCard}>
       <View style={s.flex}>
-        <Text style={[s.personName, me && s.personMe]} numberOfLines={1}>{person.name}{me ? ' (You)' : ''}</Text>
+        <Text style={s.statusLabel}>{label}</Text>
+        <Text style={s.statusText}>{text}</Text>
+      </View>
+      <StatusBadge status={status} label={status === 'Pending Admin' ? 'Pending' : undefined} />
+    </Card>
+  );
+}
+
+// ---- People ----
+
+// One person on the lineup, with what is happening to them that day.
+function PersonRow({ person, part, icon, me, lead }: { person: Person; part: string; icon: IconName; me: boolean; lead?: boolean }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const excused = person.excuse === 'Approved';
+  const notes: { text: string; color: string; icon: IconName }[] = [];
+  if (person.excuse === 'Approved') notes.push({ text: 'Excused', color: c.danger, icon: 'calendar-xmark' });
+  if (person.excuse === 'Pending') notes.push({ text: 'Excuse pending', color: c.warning, icon: 'hourglass-half' });
+  if (person.subRequest === 'Pending Admin') notes.push({ text: 'Asked for a sub (waiting for approval)', color: c.warning, icon: 'hourglass-half' });
+  if (person.subRequest === 'Open for Sub') notes.push({ text: 'Needs a sub', color: c.info, icon: 'people-arrows' });
+  if (person.covering) notes.push({ text: `Covering for ${person.covering}`, color: c.info, icon: 'user-check' });
+  if (person.swap) notes.push({ text: 'Swap pending', color: c.band, icon: 'right-left' });
+  return (
+    <View style={[s.person, excused && s.dimmed]}>
+      <Avatar name={person.name} picture={person.picture} size={lead ? 48 : 38} ring={me ? c.secondary : undefined} />
+      <View style={s.flex}>
+        <Text style={[s.personName, lead && s.leadName, me && !lead && s.personMe, excused && s.struckName]} numberOfLines={1}>
+          {person.name}{me ? ' (You)' : ''}
+        </Text>
+        {notes.map((n) => (
+          <View key={n.text} style={s.noteRow}><Icon name={n.icon} size={10} color={n.color} /><Text style={[s.noteText, { color: n.color }]}>{n.text}</Text></View>
+        ))}
       </View>
       <Chip label={part} icon={icon} color={partColor(c, part)} />
     </View>
   );
 }
 
-function SongGroup({ title, icon, songs }: { title: string; icon: IconName; songs: Song[] }) {
+// Somebody a substitute took over from: greyed out, with who covers them.
+function CoveredRow({ person }: { person: CoveredPerson }) {
   const { colors: c } = useTheme();
   const s = useStyles();
-  if (!songs.length) return null;
+  return (
+    <View style={[s.person, s.dimmed]}>
+      <Avatar name={person.name} picture={person.picture} size={34} />
+      <View style={s.flex}>
+        <Text style={[s.personName, s.struckName]} numberOfLines={1}>{person.name}</Text>
+        <View style={s.noteRow}><Icon name="people-arrows" size={10} color={c.info} /><Text style={[s.noteText, { color: c.info }]}>Covered by {person.by}</Text></View>
+      </View>
+    </View>
+  );
+}
+
+function PeopleCard({ people, covered, isMe, empty }: {
+  people: { p: Person; part: string; icon: IconName }[]; covered: CoveredPerson[]; isMe: (p: Person) => boolean; empty: string;
+}) {
+  const s = useStyles();
+  if (!people.length && !covered.length) return <Card><EmptyState icon="users" title={empty} /></Card>;
   return (
     <Card>
-      <View style={s.groupHead}><Icon name={icon} size={13} color={c.goldText} /><Text style={s.groupTitle}>{title}</Text></View>
-      {songs.map((song, i) => {
-        const vid = youtubeId(song.link);
-        return (
-          <View key={`${song.title}-${i}`} style={[s.song, i > 0 && s.divider]}>
-            <Text style={s.songNumber}>{i + 1}</Text>
-            <View style={s.flex}>
-              <Text style={s.songTitle}>{song.title}</Text>
-              {song.instructions ? <Text style={s.muted}>{song.instructions}</Text> : null}
-              {vid ? (
-                <Pressable onPress={() => Linking.openURL(song.link)} style={s.thumbWrap} accessibilityRole="link" accessibilityLabel={`Play ${song.title} on YouTube`}>
-                  <Image source={{ uri: youtubeThumb(vid) }} style={s.thumb} />
-                  <View style={s.thumbPlay}><Icon name="youtube" size={30} color="#ff0033" /></View>
-                </Pressable>
-              ) : song.link ? (
-                <Pressable onPress={() => Linking.openURL(song.link)} style={s.linkRow}>
-                  <Icon name="arrow-up-right-from-square" size={11} color={c.info} />
-                  <Text style={s.link}>Open link</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
+      {people.map(({ p, part, icon }, i) => <View key={`${part}-${p.name}`} style={i > 0 && s.divider}><PersonRow person={p} part={part} icon={icon} me={isMe(p)} /></View>)}
+      {covered.map((x) => <View key={`cov-${x.name}`} style={s.divider}><CoveredRow person={x} /></View>)}
     </Card>
   );
 }
+
+// ---- Song Lead: the leader, their songs, and the lyrics ----
+
+function SongLeadTab({ lineup, isMe, past, covered, canEditLyrics }: {
+  lineup: Lineup; isMe: (p: Person) => boolean; past: boolean; covered: CoveredPerson[]; canEditLyrics: boolean;
+}) {
+  const s = useStyles();
+  const nav = useAppNav();
+  const [view, setView] = useState<SongView>('songs');
+  const hasSongs = lineup.slowSongs.length + lineup.fastSongs.length > 0;
+
+  return (
+    <>
+      <Card>
+        {lineup.songLeader
+          ? <PersonRow person={lineup.songLeader} part="Song Leader" icon="microphone" me={isMe(lineup.songLeader)} lead />
+          : <Text style={s.muted}>No Song Leader plotted yet.</Text>}
+        {covered.map((x) => <View key={`cov-${x.name}`} style={s.divider}><CoveredRow person={x} /></View>)}
+      </Card>
+
+      {!hasSongs ? (
+        <Card>
+          <EmptyState
+            icon="music"
+            title={lineup.isSongLeader ? 'Add the songs for your team' : 'No songs yet'}
+            text={lineup.isSongLeader ? 'Your team sees them here as soon as you save.' : 'The Song Leader has not added the songs yet.'}
+          />
+          {lineup.isSongLeader && !past && <Button title="Add Songs" icon="plus" onPress={() => nav.navigate('SongEditor', { scheduleId: lineup.scheduleId })} />}
+        </Card>
+      ) : (
+        <>
+          <View style={s.songBar}>
+            <View style={s.flex}>
+              <Segmented<SongView> options={['songs', 'lyrics']} value={view} onChange={setView} labels={{ songs: 'Songs', lyrics: 'Lyrics' }} icons={{ songs: 'music', lyrics: 'align-left' }} />
+            </View>
+            {lineup.isSongLeader && !past && (
+              <Pressable onPress={() => nav.navigate('SongEditor', { scheduleId: lineup.scheduleId })} style={s.songEdit} hitSlop={6} accessibilityRole="button" accessibilityLabel="Edit songs">
+                <Icon name="pen" size={13} color="#ffffff" />
+              </Pressable>
+            )}
+          </View>
+          {view === 'songs' ? <SongList lineup={lineup} /> : <LyricsView lineup={lineup} canEdit={canEditLyrics} />}
+        </>
+      )}
+    </>
+  );
+}
+
+// The lineup's songs as the player plays them: fast songs, then slow songs.
+function lineupTracks(lineup: Lineup): { song: Song; type: 'Fast Song' | 'Slow Song'; number: number; track: Track | null }[] {
+  const rows = [
+    ...lineup.fastSongs.map((song, i) => ({ song, type: 'Fast Song' as const, number: i + 1 })),
+    ...lineup.slowSongs.map((song, i) => ({ song, type: 'Slow Song' as const, number: i + 1 })),
+  ];
+  return rows.map((r) => {
+    const videoId = youtubeId(r.song.link);
+    return {
+      ...r,
+      track: videoId ? { key: `${lineup.scheduleId}:${r.type}:${r.number}`, videoId, title: r.song.title, subtitle: `${r.type} ${r.number} · ${monthDay(lineup.date)}`, link: r.song.link } : null,
+    };
+  });
+}
+
+function SongList({ lineup }: { lineup: Lineup }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const rows = useMemo(() => lineupTracks(lineup), [lineup]);
+  const queue = useMemo(() => rows.map((r) => r.track).filter((t): t is Track => !!t), [rows]);
+  const groups: { title: string; icon: IconName; type: 'Fast Song' | 'Slow Song' }[] = [
+    { title: 'Fast Songs', icon: 'bolt', type: 'Fast Song' },
+    { title: 'Slow Songs', icon: 'leaf', type: 'Slow Song' },
+  ];
+  return (
+    <>
+      {groups.map((g) => {
+        const list = rows.filter((r) => r.type === g.type);
+        if (!list.length) return null;
+        return (
+          <Card key={g.type}>
+            <View style={s.groupHead}><Icon name={g.icon} size={12} color={c.goldText} /><Text style={s.groupTitle}>{g.title}</Text></View>
+            {list.map((r, i) => <SongRow key={`${g.type}-${i}`} number={r.number} song={r.song} track={r.track} queue={queue} first={i === 0} />)}
+          </Card>
+        );
+      })}
+    </>
+  );
+}
+
+function SongRow({ number, song, track, queue, first }: { number: number; song: Song; track: Track | null; queue: Track[]; first: boolean }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const player = usePlayer();
+  const isCurrent = !!track && player.current?.key === track.key;
+  const playing = isCurrent && (player.state === 'playing' || player.state === 'loading');
+  const onPlay = () => {
+    if (track) player.play(queue, queue.findIndex((t) => t.key === track.key));
+    else if (song.link) Linking.openURL(song.link);
+  };
+  return (
+    <View style={[s.song, !first && s.divider]}>
+      <Text style={s.songNumber}>{number}.</Text>
+      <Pressable onPress={onPlay} disabled={!song.link} hitSlop={6}
+        style={({ pressed }) => [s.playBtn, isCurrent && s.playBtnOn, !song.link && s.playBtnOff, pressed && s.pressed]}
+        accessibilityRole="button" accessibilityLabel={!song.link ? `${song.title}, no link` : playing ? `Pause ${song.title}` : `Play ${song.title}`}>
+        <Icon name={!song.link ? 'music' : !track ? 'arrow-up-right-from-square' : playing ? 'pause' : 'play'} size={track ? 14 : 12}
+          color={isCurrent ? '#ffffff' : song.link ? c.goldText : c.textMuted} style={track && !playing ? s.playNudge : undefined} />
+      </Pressable>
+      <View style={s.flex}>
+        <Text style={[s.songTitle, isCurrent && { color: c.goldText }]}>{song.title}</Text>
+        {isCurrent && <Text style={s.nowPlaying}>{player.state === 'loading' ? 'Loading…' : player.state === 'error' ? 'Cannot play here' : playing ? 'Now playing' : 'Paused'}</Text>}
+        {song.instructions ? <Text style={s.instructions}>{song.instructions}</Text> : null}
+      </View>
+      {song.link ? (
+        <Pressable onPress={() => Linking.openURL(song.link)} hitSlop={10} accessibilityRole="link" accessibilityLabel={`Open ${song.title} in YouTube`}>
+          <Icon name={track ? 'youtube' : 'link'} size={16} color={track ? '#ff0033' : c.info} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// The words, one song at a time. While a song of this lineup plays, its
+// lyrics come up by themselves (and the song keeps playing below).
+function LyricsView({ lineup, canEdit }: { lineup: Lineup; canEdit: boolean }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const nav = useAppNav();
+  const player = usePlayer();
+  const { data, loading, error, reload } = useLineupLyrics(lineup.scheduleId, true);
+  const rows = useMemo(() => lineupTracks(lineup), [lineup]);
+  const queue = useMemo(() => rows.map((r) => r.track).filter((t): t is Track => !!t), [rows]);
+  const [picked, setPicked] = useState(0);
+  const playingIndex = rows.findIndex((r) => r.track && r.track.key === player.current?.key);
+
+  useEffect(() => { if (playingIndex >= 0) setPicked(playingIndex); }, [playingIndex]);
+
+  if (!data) {
+    if (error) return <Card><Banner tone="danger" text={error} /><Button title="Try again" icon="rotate-right" variant="secondary" onPress={reload} /></Card>;
+    return <Card><Text style={s.muted}>{loading ? 'Loading the lyrics…' : ''}</Text></Card>;
+  }
+
+  const index = Math.min(picked, rows.length - 1);
+  const row = rows[index];
+  // The server lists songs in the same order: fast, then slow.
+  const lyrics = data.songs[index]?.lyrics || null;
+  const isCurrent = !!row.track && player.current?.key === row.track.key;
+  const playing = isCurrent && (player.state === 'playing' || player.state === 'loading');
+
+  return (
+    <>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.songPicker} style={s.songPickerWrap}>
+        {rows.map((r, i) => {
+          const on = i === index;
+          const hasWords = !!data.songs[i]?.lyrics;
+          return (
+            <Pressable key={`${r.type}-${r.number}`} onPress={() => setPicked(i)} style={[s.pick, on && s.pickOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
+              {r.track && player.current?.key === r.track.key && <Icon name="volume-high" size={10} color={on ? c.goldText : c.textSecondary} />}
+              <Text style={[s.pickText, on && s.pickTextOn, !hasWords && s.pickTextNone]} numberOfLines={1}>{r.type === 'Fast Song' ? 'F' : 'S'}{r.number} · {r.song.title}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <Card>
+        <View style={s.lyricsHead}>
+          <View style={s.flex}>
+            <Text style={s.lyricsKicker}>{row.type} {row.number}</Text>
+            <Text style={s.lyricsTitle}>{row.song.title}</Text>
+            {lyrics?.artist ? <Text style={s.muted}>{lyrics.artist}</Text> : null}
+          </View>
+          {row.track && (
+            <Pressable onPress={() => player.play(queue, queue.findIndex((t) => t.key === row.track!.key))} style={[s.playBtn, isCurrent && s.playBtnOn]}
+              accessibilityRole="button" accessibilityLabel={playing ? 'Pause' : 'Play this song'}>
+              <Icon name={playing ? 'pause' : 'play'} size={14} color={isCurrent ? '#ffffff' : c.goldText} style={!playing ? s.playNudge : undefined} />
+            </Pressable>
+          )}
+        </View>
+
+        {lyrics ? (
+          <View style={s.lyricsBody}>
+            {lyrics.sections.map((sec, i) => (
+              <View key={`${sec.label}-${i}`} style={s.section}>
+                {sec.label ? <Text style={s.sectionLabel}>{sec.label}</Text> : null}
+                <Text style={s.lyricsText} selectable>{sec.content}</Text>
+              </View>
+            ))}
+            {lyrics.preparedBy && <Text style={s.preparedBy}>Lyrics by {lyrics.preparedBy} · Media Team</Text>}
+          </View>
+        ) : (
+          <EmptyState icon="align-left" title="No lyrics yet" text={canEdit ? 'Add them so the team can sing along.' : 'The Media team adds the lyrics for each lineup.'} />
+        )}
+
+        {canEdit && (
+          <Button compact variant="ghost" icon={lyrics ? 'pen-to-square' : 'plus'} title={lyrics ? 'Edit lyrics' : 'Add lyrics'} style={s.lyricsEdit}
+            onPress={() => nav.navigate('LyricsEditor', { title: row.song.title, link: row.song.link || undefined, lyricsId: lyrics?.id, scheduleId: lineup.scheduleId })} />
+        )}
+      </Card>
+    </>
+  );
+}
+
+// ---- Practice recordings ----
 
 // One player for the whole list: tapping another recording switches to it.
 function RecordingList({ list, error, loading, myId, onDeleted }: {
@@ -168,6 +434,7 @@ function RecordingList({ list, error, loading, myId, onDeleted }: {
   const { colors: c } = useTheme();
   const s = useStyles();
   const dialog = useDialog();
+  const songs = usePlayer();
   const player = useAudioPlayer(null);
   const status = useAudioPlayerStatus(player);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -176,6 +443,7 @@ function RecordingList({ list, error, loading, myId, onDeleted }: {
   useEffect(() => { setAudioModeAsync({ playsInSilentMode: true }).catch(() => {}); }, []);
 
   const toggle = (rec: Recording) => {
+    songs.pause(); // one sound at a time: the song player waits
     if (activeId === rec.id) {
       if (status.playing) player.pause();
       else {
@@ -213,7 +481,7 @@ function RecordingList({ list, error, loading, myId, onDeleted }: {
         return (
           <View key={rec.id} style={[s.rec, i > 0 && s.divider]}>
             <Pressable onPress={() => toggle(rec)} style={[s.playBtn, active && s.playBtnOn]} accessibilityRole="button" accessibilityLabel={playing ? `Pause ${rec.title}` : `Play ${rec.title}`}>
-              <Icon name={playing ? 'pause' : 'play'} size={15} color={active ? c.onGold : c.goldText} />
+              <Icon name={playing ? 'pause' : 'play'} size={14} color={active ? '#ffffff' : c.goldText} style={!playing ? s.playNudge : undefined} />
             </Pressable>
             <View style={s.flex}>
               <Text style={s.songTitle} numberOfLines={1}>{rec.title}</Text>
@@ -239,32 +507,66 @@ function RecordingList({ list, error, loading, myId, onDeleted }: {
 
 const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
+  pressed: { opacity: 0.8 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   when: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.bold, textTransform: 'uppercase', letterSpacing: 1.2 },
-  date: { color: c.text, fontSize: font.xxl, fontFamily: fonts.bold, marginBottom: space.sm },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: space.md },
+  date: { color: c.text, fontSize: font.xxl, fontFamily: fonts.bold },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: c.goldMuted },
+  editText: { color: c.goldText, fontSize: font.sm, fontFamily: fonts.bold },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: space.sm, marginBottom: space.md },
   muted: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular, lineHeight: 19 },
-  subNote: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, marginLeft: 48, marginTop: -6, marginBottom: 6 },
-  person: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 7 },
-  personName: { color: c.text, fontSize: font.md, fontFamily: fonts.medium },
-  personMe: { color: c.goldText, fontFamily: fonts.bold },
-  groupHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: space.sm },
-  groupTitle: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.bold, textTransform: 'uppercase', letterSpacing: 1 },
-  song: { flexDirection: 'row', gap: space.md, paddingVertical: space.sm },
   divider: { borderTopWidth: 1, borderTopColor: c.border },
-  songNumber: { color: c.textMuted, fontSize: font.lg, fontFamily: fonts.bold, width: 18 },
+  dimmed: { opacity: 0.5 },
+
+  person: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 9 },
+  personName: { color: c.text, fontSize: font.md, fontFamily: fonts.semibold },
+  leadName: { color: c.goldText, fontSize: font.lg, fontFamily: fonts.heavy },
+  personMe: { color: c.goldText, fontFamily: fonts.bold },
+  struckName: { textDecorationLine: 'line-through' },
+  noteRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  noteText: { fontSize: font.xs, fontFamily: fonts.semibold },
+
+  songBar: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  songEdit: { width: 46, height: 46, borderRadius: 23, backgroundColor: c.secondary, alignItems: 'center', justifyContent: 'center' },
+  groupHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  groupTitle: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.heavy, textTransform: 'uppercase', letterSpacing: 1.2 },
+  song: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 10 },
+  songNumber: { color: c.textMuted, fontSize: font.md, fontFamily: fonts.bold, width: 20 },
   songTitle: { color: c.text, fontSize: font.md, fontFamily: fonts.semibold },
-  thumbWrap: { marginTop: space.sm, borderRadius: radius.md, overflow: 'hidden', width: 200, height: 112 },
-  thumb: { width: '100%', height: '100%' },
-  thumbPlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' },
-  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
-  link: { color: c.info, fontSize: font.sm, fontFamily: fonts.semibold },
-  rec: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm },
-  playBtn: { width: 42, height: 42, borderRadius: 21, borderWidth: 1.5, borderColor: c.secondary, alignItems: 'center', justifyContent: 'center' },
+  nowPlaying: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.semibold, marginTop: 1 },
+  instructions: { color: c.textSecondary, fontSize: font.xs, fontFamily: fonts.regular, marginTop: 2 },
+  playBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: c.secondary, alignItems: 'center', justifyContent: 'center', backgroundColor: c.goldMuted },
   playBtnOn: { backgroundColor: c.secondary },
+  playBtnOff: { borderColor: c.border, backgroundColor: 'transparent' },
+  playNudge: { marginLeft: 2 },
+
+  songPickerWrap: { marginBottom: space.sm, marginHorizontal: -space.lg },
+  songPicker: { paddingHorizontal: space.lg, gap: space.sm },
+  pick: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, maxWidth: 220 },
+  pickOn: { borderColor: c.secondary, backgroundColor: c.goldMuted },
+  pickText: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.medium },
+  pickTextOn: { color: c.goldText, fontFamily: fonts.bold },
+  pickTextNone: { fontStyle: 'italic' },
+  lyricsHead: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingBottom: space.md, borderBottomWidth: 1, borderBottomColor: c.border },
+  lyricsKicker: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.heavy, textTransform: 'uppercase', letterSpacing: 1.2 },
+  lyricsTitle: { color: c.text, fontSize: font.xl, fontFamily: fonts.bold },
+  lyricsBody: { paddingTop: space.md },
+  section: { marginBottom: space.lg },
+  sectionLabel: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.heavy, textTransform: 'uppercase', letterSpacing: 1.4, marginBottom: 4 },
+  lyricsText: { color: c.text, fontSize: 17, lineHeight: 27, fontFamily: fonts.regular },
+  preparedBy: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, textAlign: 'center' },
+  lyricsEdit: { marginTop: space.sm },
+
+  rec: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm },
   recMeta: { color: c.textSecondary, fontSize: font.xs, fontFamily: fonts.regular, marginTop: 2 },
   progress: { height: 4, borderRadius: 2, backgroundColor: c.border, marginTop: 6, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: c.secondary },
-  actions: { flexDirection: 'row', gap: space.sm },
-  statusCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  statusText: { color: c.text, fontSize: font.md, fontFamily: fonts.semibold },
+
+  actionGrid: { flexDirection: 'row', gap: space.sm },
+  tile: { flex: 1, alignItems: 'center', gap: 8, paddingVertical: space.md, paddingHorizontal: 4, borderRadius: radius.lg, backgroundColor: c.card, borderWidth: 1, borderColor: c.scheme === 'light' ? '#eceef1' : c.border },
+  tileIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.goldMuted, alignItems: 'center', justifyContent: 'center' },
+  tileText: { color: c.text, fontSize: font.sm, fontFamily: fonts.semibold, textAlign: 'center' },
+  statusCard: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  statusLabel: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.bold, textTransform: 'uppercase', letterSpacing: 1 },
+  statusText: { color: c.text, fontSize: font.md, fontFamily: fonts.semibold, marginTop: 2 },
 }));

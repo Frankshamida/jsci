@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Linking, Switch, Text, View } from 'react-native';
 import { useSession } from '../session';
+import { useAppNav } from '../routes';
 import { API_BASE_URL, APP_VERSION } from '../config';
 import { useDialog } from '../dialog';
 import { Avatar, Banner, Button, Card, Chip, ChoiceRow, Icon, Screen, SectionTitle, type IconName } from '../components';
@@ -14,6 +15,7 @@ export default function ProfileScreen() {
   const { colors: c, pref, setPref } = useTheme();
   const s = useStyles();
   const dialog = useDialog();
+  const nav = useAppNav();
   const [lockBusy, setLockBusy] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
 
@@ -72,6 +74,26 @@ export default function ProfileScreen() {
         </View>
       </Card>
 
+      {profile.canPlot && (
+        <Card style={s.row} onPress={() => nav.navigate('Planner', home?.pendingApprovals ? { tab: 'approvals' } : undefined)}>
+          <RowIcon icon="calendar-check" />
+          <View style={s.flex}>
+            <Text style={s.rowText}>Schedule Plotter</Text>
+            <Text style={s.muted}>Plot lineups · approve excuses, subs and swaps</Text>
+          </View>
+          {home?.pendingApprovals ? <View style={s.badge}><Text style={s.badgeText}>{home.pendingApprovals}</Text></View> : null}
+          <Icon name="chevron-right" size={13} color={c.textMuted} />
+        </Card>
+      )}
+      <Card style={s.row} onPress={() => nav.navigate('Member', { userId: profile.id, name: profile.fullName })}>
+        <RowIcon icon="clock-rotate-left" />
+        <View style={s.flex}>
+          <Text style={s.rowText}>My lineup history</Text>
+          <Text style={s.muted}>Every date you served, six months back</Text>
+        </View>
+        <Icon name="chevron-right" size={13} color={c.textMuted} />
+      </Card>
+
       {profile.birthdate ? (
         <Card style={s.row}>
           <RowIcon icon="gift" />
@@ -113,7 +135,7 @@ export default function ProfileScreen() {
 
       <Button title="Sign Out" icon="right-from-bracket" variant="danger" onPress={confirmSignOut} style={s.signOut} />
       <Text style={s.foot}>
-        JSCI Ministry {APP_VERSION} · Praise & Worship{lastUpdated ? `\nSynced ${new Date(lastUpdated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+        JSCI Ministry {APP_VERSION} · Joyful Sound Church International{lastUpdated ? `\nSynced ${new Date(lastUpdated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
       </Text>
     </Screen>
   );
@@ -139,6 +161,8 @@ function RowIcon({ icon }: { icon: IconName }) {
 
 const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
+  badge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' },
+  badgeText: { color: '#ffffff', fontSize: font.xs, fontFamily: fonts.bold },
   head: { alignItems: 'center', gap: 4, marginTop: space.lg },
   name: { color: c.text, fontSize: font.xxl, fontFamily: fonts.bold, marginTop: space.sm, textAlign: 'center' },
   memberId: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4, paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: c.goldMuted },

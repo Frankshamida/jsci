@@ -7,6 +7,9 @@
 //             only when stale, on pull-to-refresh, or after a change
 //   lock      optional fingerprint / Face ID lock, asked on open and when
 //             coming back after RELOCK_AFTER_MS in the background
+//   remember  "Keep me signed in": on, the token and the dashboard are kept on
+//             the phone; off, they live in memory only and closing the app
+//             signs out. The email is remembered for next time when on.
 // ============================================================
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
@@ -20,6 +23,10 @@ import type { HomeData, Profile } from './types';
 const TOKEN_KEY = 'jsci_ministry_token';
 const LOCK_KEY = 'jsci_ministry_lock';
 const CACHE_KEY = 'jsci_ministry_home';
+const REMEMBER_KEY = 'jsci_ministry_remember';
+const EMAIL_KEY = 'jsci_ministry_email';
+
+export interface SignInError { message: string; field: 'email' | 'password' | null }
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
@@ -38,7 +45,9 @@ interface Session {
   notice: Notice | null;
   welcome: boolean; // just signed in: Home greets them once
   dismissWelcome: () => void;
-  signIn: (email: string, password: string) => Promise<string | null>;
+  signIn: (email: string, password: string, remember: boolean) => Promise<SignInError | null>;
+  rememberedEmail: string;  // last email signed in with "Keep me signed in"
+  rememberChoice: boolean;  // the last "Keep me signed in" choice
   signOut: (notice?: string, tone?: NoticeTone) => Promise<void>;
   refresh: (force?: boolean) => Promise<void>;
   lockEnabled: boolean;
@@ -78,6 +87,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [lockEnabled, setLockEnabledState] = useState(false);
   const [locked, setLocked] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState('Fingerprint');
+  const [rememberedEmail, setRememberedEmail] = useState('');
+  const [rememberChoice, setRememberChoice] = useState(true);
+  const remembered = useRef(true); // keep this session on the phone
 
   const lastUpdatedRef = useRef<number | null>(null);
   const inFlight = useRef<Promise<void> | null>(null);
@@ -95,7 +107,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setHome(res.data);
         setLastUpdated(at);
         setLoadError(null);
-        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ at, data: res.data })).catch(() => {});
+        if (remembered.current) await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ at, data: res.data })).catch(() => {});
       } else {
         setLoadError(res.message);
       }
@@ -127,11 +139,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setSessionEndedHandler((message) => { signOut(message); });
     (async () => {
       setBiometricLabel(await biometricName());
-      const [savedToken, lock, cached] = await Promise.all([
+      const [savedToken, lock, cached, rememberPref, email] = await Promise.all([
         SecureStore.getItemAsync(TOKEN_KEY).catch(() => null),
         SecureStore.getItemAsync(LOCK_KEY).catch(() => null),
         AsyncStorage.getItem(CACHE_KEY).catch(() => null),
+        AsyncStorage.getItem(REMEMBER_KEY).catch(() => null),
+        AsyncStorage.getItem(EMAIL_KEY).catch(() => null),
       ]);
+      setRememberChoice(rememberPref !== '0');
+      setRememberedEmail(email || '');
       if (!savedToken) { setStatus('signedOut'); return; }
       setApiToken(savedToken);
       if (cached) {
@@ -166,11 +182,31 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [lockEnabled, status, refresh]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, remember: boolean) => {
     const res = await api.login(email.trim(), password);
-    if (!res.ok) return res.message;
+    if (!res.ok) {
+      const field: SignInError['field'] = res.field === 'email' || res.field === 'password' ? res.field : null;
+      return { message: res.message, field };
+    }
+    remembered.current = remember;
+    setRememberChoice(remember);
     setApiToken(res.data.token);
-    await SecureStore.setItemAsync(TOKEN_KEY, res.data.token);
+    const cleanEmail = email.trim().toLowerCase();
+    if (remember) {
+      setRememberedEmail(cleanEmail);
+      await Promise.all([
+        SecureStore.setItemAsync(TOKEN_KEY, res.data.token),
+        AsyncStorage.multiSet([[REMEMBER_KEY, '1'], [EMAIL_KEY, cleanEmail]]),
+      ]).catch(() => {});
+    } else {
+      // This session only: nothing of it stays on the phone.
+      setRememberedEmail('');
+      await Promise.all([
+        SecureStore.deleteItemAsync(TOKEN_KEY),
+        AsyncStorage.multiRemove([CACHE_KEY, EMAIL_KEY]),
+        AsyncStorage.setItem(REMEMBER_KEY, '0'),
+      ]).catch(() => {});
+    }
     setLoginProfile(res.data.profile);
     setNotice(null);
     setWelcome(true);
@@ -214,6 +250,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     welcome,
     dismissWelcome,
     signIn,
+    rememberedEmail,
+    rememberChoice,
     signOut,
     refresh,
     lockEnabled,
@@ -221,7 +259,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     biometricLabel,
     setLockEnabled,
     unlock,
-  }), [status, home, loginProfile, refreshing, loadError, lastUpdated, notice, welcome, dismissWelcome, signIn, signOut, refresh, lockEnabled, locked, biometricLabel, setLockEnabled, unlock]);
+  }), [status, home, loginProfile, refreshing, loadError, lastUpdated, notice, welcome, dismissWelcome, signIn, rememberedEmail, rememberChoice, signOut, refresh, lockEnabled, locked, biometricLabel, setLockEnabled, unlock]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

@@ -3,8 +3,8 @@
 // One request (/api/ministry/home) carries everything the dashboard needs,
 // so the phone makes one call when it opens instead of six, and caches it.
 // ============================================================
-import { getUserRoles, splitSubRole } from '@/lib/permissions';
-import { describeRoleDetails, lineupParts, LINEUP_INSTRUMENTS } from '@/lib/userRoles';
+import { getUserRoles, splitSubRole, hasPermission, MODULES, ROLES } from '@/lib/permissions';
+import { describeRoleDetails, lineupParts, parseMinistryCards, LINEUP_INSTRUMENTS } from '@/lib/userRoles';
 import { fullNameOf } from '@/lib/ministryAuth';
 
 // A part on a lineup -> the role_type its excuses and sub requests use.
@@ -22,6 +22,24 @@ export function coverableRoleTypes(subRole) {
   return out;
 }
 
+// The church's calendar date (Philippines, UTC+8) as YYYY-MM-DD. The server
+// runs on UTC, where Sunday 7 AM in Cebu is still Saturday.
+export const CHURCH_TZ = 'Asia/Manila';
+export const churchDate = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: CHURCH_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+export const addDays = (ymd, days) => { const t = new Date(`${ymd}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + days); return t.toISOString().slice(0, 10); };
+
+// The ministry roles somebody holds, by key: 'singer', 'musician', 'dancer',
+// 'media', 'usher' (lib/userRoles.js MINISTRY_ROLES). Group chats follow them.
+export const ministryKeys = (user) => parseMinistryCards(user?.ministry, user?.sub_role).cards.map((c) => c.key);
+
+// Plots the monthly lineup and approves excuses, subs and swaps: the Schedule
+// Plotter switch (or an Admin), the same rule as the website's Monthly Planner.
+export const canPlot = (user) => hasPermission(getUserRoles(user), MODULES.PLAN_LINEUP, user?.sub_role);
+
+// Writes song lyrics: the Media team, and admins.
+export const canEditLyrics = (user) => ministryKeys(user).includes('media')
+  || getUserRoles(user).some((r) => r === ROLES.ADMIN || r === ROLES.SUPER_ADMIN);
+
 export function ministryProfile(user) {
   return {
     id: user.id,
@@ -36,6 +54,9 @@ export function ministryProfile(user) {
     // "Singer (PAW)" with "Song Leader", ... - as on the website's profile
     ministries: describeRoleDetails(user).map(({ key, label, icon, chips }) => ({ key: key || null, label, icon, positions: chips })),
     coverableRoleTypes: coverableRoleTypes(user.sub_role),
+    ministryKeys: ministryKeys(user),
+    canPlot: canPlot(user),
+    canEditLyrics: canEditLyrics(user),
   };
 }
 

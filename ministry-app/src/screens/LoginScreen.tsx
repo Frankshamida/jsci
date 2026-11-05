@@ -1,28 +1,43 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSession } from '../session';
-import { Banner, Button, Card, Field, Icon, Logo, Screen } from '../components';
+import { Banner, Button, Card, Checkbox, Field, Icon, Logo, Screen } from '../components';
 import { font, fonts, makeStyles, radius, space, useTheme } from '../theme';
 
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function LoginScreen() {
-  const { signIn, notice } = useSession();
+  const { signIn, notice, rememberedEmail, rememberChoice } = useSession();
   // The Light / Dark choice from Settings stays after signing out.
   const { colors: c } = useTheme();
   const s = useStyles();
   const passwordRef = useRef<TextInput>(null);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(rememberedEmail);
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(rememberChoice);
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  // A problem with one field shows under it; anything else above the form.
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The saved email arrives a moment after the screen opens.
+  useEffect(() => { if (rememberedEmail && !email) setEmail(rememberedEmail); }, [rememberedEmail]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const submit = async () => {
-    if (!email.trim() || !password) { setError('Enter your email and password.'); return; }
-    setBusy(true);
+    const e = email.trim();
     setError(null);
-    const message = await signIn(email, password);
+    setEmailError(!e ? 'Enter your email.' : !EMAIL_SHAPE.test(e) ? 'That is not an email address.' : null);
+    setPasswordError(!password ? 'Enter your password.' : null);
+    if (!e || !EMAIL_SHAPE.test(e) || !password) return;
+    setBusy(true);
+    const problem = await signIn(e, password, remember);
     setBusy(false);
-    if (message) setError(message);
+    if (!problem) return;
+    if (problem.field === 'email') setEmailError(problem.message);
+    else if (problem.field === 'password') { setPasswordError(problem.message); setPassword(''); passwordRef.current?.focus(); }
+    else setError(problem.message);
   };
 
   return (
@@ -30,7 +45,7 @@ export default function LoginScreen() {
       <View style={s.brand}>
         <Logo size={112} />
         <Text style={s.title}>JSCI Ministry</Text>
-        <Text style={s.subtitle}>Praise & Worship Team</Text>
+        <Text style={s.subtitle}>Joyful Sound Church International</Text>
       </View>
 
       {notice?.tone === 'farewell' && (
@@ -50,7 +65,8 @@ export default function LoginScreen() {
         <Field
           label="Email"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(v) => { setEmail(v); if (emailError) setEmailError(null); }}
+          error={emailError}
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"
@@ -64,7 +80,8 @@ export default function LoginScreen() {
           label="Password"
           inputRef={passwordRef}
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(v) => { setPassword(v); if (passwordError) setPasswordError(null); }}
+          error={passwordError}
           secureTextEntry={!showPassword}
           autoComplete="password"
           textContentType="password"
@@ -77,6 +94,11 @@ export default function LoginScreen() {
             </Pressable>
           )}
         />
+
+        <View style={s.rememberRow}>
+          <Checkbox checked={remember} onChange={setRemember} label="Keep me signed in" />
+        </View>
+        {!remember && <Text style={s.rememberHint}>You will be signed out when you close the app.</Text>}
 
         <Button title="Sign In" icon="right-to-bracket" onPress={submit} loading={busy} style={s.submit} />
       </Card>
@@ -95,8 +117,10 @@ const useStyles = makeStyles((c) => ({
   farewellText: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular, marginTop: 2 },
   brand: { alignItems: 'center', marginBottom: space.xl },
   title: { color: c.goldText, fontSize: font.hero, fontFamily: fonts.heavy, letterSpacing: 0.3, marginTop: space.md },
-  subtitle: { color: c.textSecondary, fontSize: font.md, fontFamily: fonts.medium, marginTop: 2 },
+  subtitle: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.medium, marginTop: 2 },
   eye: { padding: 10 },
-  submit: { marginTop: space.sm },
+  rememberRow: { marginTop: -2, marginBottom: 2 },
+  rememberHint: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, marginLeft: 32, marginTop: -2 },
+  submit: { marginTop: space.md },
   foot: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, textAlign: 'center', marginTop: space.lg, lineHeight: 17, paddingHorizontal: space.lg },
 }));

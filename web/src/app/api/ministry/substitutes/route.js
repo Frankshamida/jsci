@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { requireMinistryUser, fullNameOf, internalJson } from '@/lib/ministryAuth';
-import { coverableRoleTypes, shapeLineup } from '@/lib/ministryApp';
+import { coverableRoleTypes, shapeLineup, churchDate } from '@/lib/ministryApp';
 import { POST as createSub, PUT as updateSub, DELETE as deleteSub } from '@/app/api/lineup/substitutes/route';
 
 const bad = (message, status = 400) => NextResponse.json({ success: false, message }, { status });
@@ -19,7 +19,7 @@ export async function POST(request) {
   if (!schedule) return bad('Lineup not found.', 404);
   const lineup = shapeLineup(schedule, user, {});
   if (!lineup.myRoleTypes.includes(roleType)) return bad('You are not on this lineup in that part.');
-  if (lineup.date < new Date().toISOString().slice(0, 10)) return bad('That date has passed.');
+  if (lineup.date < churchDate()) return bad('That date has passed.');
 
   return createSub(internalJson('/api/lineup/substitutes', 'POST', {
     requesterId: user.id,

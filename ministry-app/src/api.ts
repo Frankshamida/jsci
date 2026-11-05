@@ -1,10 +1,11 @@
 // The app's only door to the server: /api/ministry/* on the JSCI website.
-// Every call carries the session token. A 401/403 means the session ended
-// (signed out elsewhere, role taken away) and signs the app out.
+// Every call carries the session token. A 401, or a refusal marked
+// 'session_ended' (role taken away), signs the app out.
 import { API_BASE_URL } from './config';
-import type { HomeData, Profile, Recording, RoleType, Song } from './types';
+import type { HomeData, LineupLyrics, Lyrics, MemberHistory, MonthData, Profile, Recording, RoleType, Song, Swap, SwapCandidate } from './types';
 
-export type Result<T> = { ok: true; data: T; message?: string } | { ok: false; message: string };
+// `field`: which form field a refusal is about ('email', 'password'), when the server says.
+export type Result<T> = { ok: true; data: T; message?: string } | { ok: false; message: string; field?: string | null };
 
 const TIMEOUT_MS = 25000;
 let token: string | null = null;
@@ -13,7 +14,7 @@ let onSessionEnded: ((message: string) => void) | null = null;
 export const setApiToken = (value: string | null) => { token = value; };
 export const setSessionEndedHandler = (fn: ((message: string) => void) | null) => { onSessionEnded = fn; };
 
-async function request<T>(path: string, init: { method?: string; json?: unknown; form?: FormData } = {}): Promise<Result<T>> {
+export async function request<T>(path: string, init: { method?: string; json?: unknown; form?: FormData } = {}): Promise<Result<T>> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), init.form ? TIMEOUT_MS * 3 : TIMEOUT_MS);
   try {
@@ -27,10 +28,12 @@ async function request<T>(path: string, init: { method?: string; json?: unknown;
       signal: controller.signal,
     });
     const body = await res.json().catch(() => ({}));
-    if ((res.status === 401 || res.status === 403) && token && !path.startsWith('/api/ministry/login')) {
+    // The session ended (signed out, role taken away): the server says so.
+    // Other refusals ("only the Media team can...") keep you signed in.
+    if ((res.status === 401 || body.code === 'session_ended') && token && !path.startsWith('/api/ministry/login')) {
       onSessionEnded?.(body.message || 'Please sign in again.');
     }
-    if (!res.ok || body.success === false) return { ok: false, message: body.message || `Something went wrong (${res.status}).` };
+    if (!res.ok || body.success === false) return { ok: false, message: body.message || `Something went wrong (${res.status}).`, field: body.field || null };
     return { ok: true, data: body.data as T, message: body.message };
   } catch (e: any) {
     const aborted = e?.name === 'AbortError';
@@ -45,6 +48,20 @@ export const api = {
     request<{ token: string; profile: Profile }>('/api/ministry/login', { method: 'POST', json: { email, password } }),
 
   home: () => request<HomeData>('/api/ministry/home'),
+  month: (month: string) => request<MonthData>(`/api/ministry/schedule?month=${encodeURIComponent(month)}`),
+  member: (id: string) => request<MemberHistory>(`/api/ministry/member?id=${encodeURIComponent(id)}`),
+
+  lyrics: (scheduleId: string) => request<LineupLyrics>(`/api/ministry/lyrics?scheduleId=${encodeURIComponent(scheduleId)}`),
+  saveLyrics: (input: { id?: string; title: string; link?: string; text: string; scheduleDate?: string }) =>
+    request<Lyrics>('/api/ministry/lyrics', { method: 'PUT', json: input }),
+
+  swapCandidates: (scheduleId: string) =>
+    request<{ date: string; parts: string[]; candidates: SwapCandidate[] }>(`/api/ministry/swaps?scheduleId=${encodeURIComponent(scheduleId)}`),
+  requestSwap: (input: { scheduleId: string; part: string; partnerId: string; partnerDate: string; reason: string }) =>
+    request<Swap>('/api/ministry/swaps', { method: 'POST', json: input }),
+  answerSwap: (id: string, action: 'accept' | 'decline', note?: string) =>
+    request('/api/ministry/swaps', { method: 'PUT', json: { id, action, note } }),
+  cancelSwap: (id: string) => request(`/api/ministry/swaps?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   fileExcuse: (date: string, roleType: RoleType, reason: string) =>
     request('/api/ministry/excuses', { method: 'POST', json: { date, roleType, reason } }),
