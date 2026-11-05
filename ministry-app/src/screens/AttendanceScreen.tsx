@@ -6,7 +6,8 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { ActivityIndicator, AppState, Linking, Platform, Pressable, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { EmbedFrame } from '../embed';
+import { IS_WEB, isIosWeb } from '../platform';
 import { useSession } from '../session';
 import { useDialog } from '../dialog';
 import {
@@ -185,7 +186,19 @@ function useChurchDistance() {
       if (!perm.granted) {
         if (!perm.canAskAgain) { Linking.openSettings().catch(() => {}); return; }
         perm = await Location.requestForegroundPermissionsAsync();
-        if (!perm.granted) { setState(perm.canAskAgain ? 'needs-permission' : 'blocked'); return; }
+        if (!perm.granted) {
+          setState(perm.canAskAgain ? 'needs-permission' : 'blocked');
+          // A browser remembers a "Don't Allow": say where to change it.
+          if (IS_WEB) {
+            dialog.alert({
+              icon: 'location-crosshairs', title: 'Allow location',
+              message: isIosWeb()
+                ? 'On iPhone: Settings > Privacy & Security > Location Services > Safari Websites > While Using the App. Then open JSCI Ministry again.'
+                : 'Tap the lock or settings icon by the address, allow Location for this site, then reload.',
+            });
+          }
+          return;
+        }
       }
       if (!(await Location.hasServicesEnabledAsync())) {
         if (Platform.OS === 'android') {
@@ -351,38 +364,10 @@ const ChurchPreview = memo(function ChurchPreview() {
   const [loaded, setLoaded] = useState(false);
   useEffect(() => { const t = setTimeout(() => setLoaded(true), 8000); return () => clearTimeout(t); }, []);
 
-  const html = useMemo(() => `<!doctype html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<style>html,body{margin:0;padding:0;height:100%;overflow:hidden;background:${c.cardRaised}}iframe{display:block;border:0;width:100%;height:100%}</style>
-</head><body>
-<iframe src="${CHURCH_STREET_VIEW}" allowfullscreen loading="eager" referrerpolicy="strict-origin-when-cross-origin"
-  onload="window.ReactNativeWebView && window.ReactNativeWebView.postMessage('loaded')"></iframe>
-</body></html>`, [c.cardRaised]);
-
-  const onMessage = useCallback((e: WebViewMessageEvent) => { if (e.nativeEvent.data === 'loaded') setLoaded(true); }, []);
-
   return (
     <Card style={s.previewCard}>
       <View style={s.preview}>
-        <WebView
-          source={{ html, baseUrl: 'https://sanctuaryhub.vercel.app' }}
-          originWhitelist={['*']}
-          javaScriptEnabled
-          domStorageEnabled
-          nestedScrollEnabled
-          scrollEnabled={false}
-          setSupportMultipleWindows={false}
-          onMessage={onMessage}
-          // Links out of the embed ("View on Google Maps") open the Maps app, not this little box.
-          onShouldStartLoadWithRequest={(req) => {
-            const url = req.url || '';
-            if (url.startsWith('about:') || url.startsWith('data:') || url.startsWith('https://sanctuaryhub.vercel.app') || url.startsWith('https://www.google.com/maps/embed')) return true;
-            if (req.isTopFrame === false) return true;
-            Linking.openURL(url).catch(() => {});
-            return false;
-          }}
-          style={s.webview}
-        />
+        <EmbedFrame src={CHURCH_STREET_VIEW} background={c.cardRaised} onLoaded={() => setLoaded(true)} style={s.webview} />
         {!loaded && (
           <View style={s.previewLoading} pointerEvents="none">
             <ActivityIndicator color={c.secondary} />

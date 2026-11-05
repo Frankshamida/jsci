@@ -11,12 +11,17 @@ import {
 import { useDialog } from '../dialog';
 import { useRevealOnFocus } from '../keyboard';
 import { APP_VERSION, DOWNLOAD_PAGE_URL, isNewerVersion } from '../config';
+import { IS_WEB } from '../platform';
 import { font, fonts, makeStyles, partColor, radius, space, tint, useTheme, type Palette } from '../theme';
 import { firstName, greeting, longDate, monthDay, monthLabel, parseYmd, relativeDay } from '../utils';
 import { verseOfTheDay } from '../verses';
 import type { Lineup, Member, MyDay, Person } from '../types';
 
 type View2 = 'mine' | 'team';
+
+// "This Sunday" -> "this Sunday"; "November 8"
+const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+const monthDayLong = (d: string) => parseYmd(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
 
 export default function HomeScreen() {
   const { home, profile, refresh, loadError, lastUpdated, welcome, dismissWelcome } = useSession();
@@ -43,7 +48,7 @@ export default function HomeScreen() {
       icon: 'hands-praying',
       title: `Welcome, ${profile.firstname}!`,
       message: first
-        ? `You are ${first.myParts.join(' & ')} ${relativeDay(first.date, home.today).toLowerCase()} (${longDate(first.date)}). God bless your ministry!`
+        ? `You are ${first.myParts.join(' & ')} ${lowerFirst(relativeDay(first.date, home.today))}, ${monthDayLong(first.date)}. God bless your ministry!`
         : 'You are not on a lineup yet. When the plotter adds you, it shows up here. God bless your ministry!',
       confirmText: "Let's go",
     });
@@ -53,7 +58,8 @@ export default function HomeScreen() {
   if (!home || !profile) return null;
 
   const latest = home.latestApp;
-  const update = latest && isNewerVersion(latest.version, APP_VERSION) ? latest : null;
+  // The web app is always the newest; only the Android app needs updating.
+  const update = !IS_WEB && latest && isNewerVersion(latest.version, APP_VERSION) ? latest : null;
   const next = upcomingMine(home)[0];
   const swapsForMe = home.swapsForMe || [];
   const data = shown.data;

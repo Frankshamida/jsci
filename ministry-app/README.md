@@ -27,6 +27,22 @@ eas build -p android --profile preview    # APK you can install directly
 eas build -p ios --profile production     # needs an Apple Developer account
 ```
 
+## Web app (iPhone): sanctuaryhub.vercel.app/ministrysystem
+
+The same app, built for the browser. On iPhone, open it in Safari, tap Share, then
+**Add to Home Screen**: it opens full screen from its icon, starting at the sign-in,
+with the same screens as the Android app.
+
+    npm run build:web     # builds into ../web/public/ministrysystem
+
+Then commit `web/public/ministrysystem` and push; Vercel publishes it. Build it again
+after every app change so the web app matches. Browser-only differences:
+- the sign-in token is kept in the browser's storage for the site (no Keychain)
+- no fingerprint lock, no update notice (the web app is always the newest)
+- the song player and the church Street View are frames (`*.web.tsx` files)
+- pull to refresh is the app's own (`keyboard.tsx`), browsers have none in an app page
+- `public/index.html` and `public/manifest.json` make it full screen from the Home Screen
+
 ## Website side
 
 - Deploy the web project, which contains `web/src/app/api/ministry/*`.

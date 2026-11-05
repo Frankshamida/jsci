@@ -14,7 +14,8 @@ const seen = new Map<string, MemberHistory>();
 // A teammate: their ministry roles, and every date they were (or will be) on a
 // lineup, six months back to three months ahead.
 export default function MemberScreen({ route, navigation }: StackProps<'Member'>) {
-  const { userId, name } = route.params;
+  const { userId } = route.params;
+  const name = route.params.name || 'Teammate';
   const { home } = useSession();
   const { colors: c } = useTheme();
   const s = useStyles();

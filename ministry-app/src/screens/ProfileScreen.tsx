@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Linking, Switch, Text, View } from 'react-native';
 import { useSession } from '../session';
 import { useAppNav } from '../routes';
+import { IS_WEB } from '../platform';
 import { API_BASE_URL, APP_VERSION } from '../config';
 import { useDialog } from '../dialog';
 import { Avatar, Banner, Button, Card, Chip, ChoiceRow, Icon, Screen, SectionTitle, type IconName } from '../components';
@@ -105,8 +106,9 @@ export default function ProfileScreen() {
       <SectionTitle title="Appearance" icon="circle-half-stroke" />
       <ChoiceRow options={THEMES} value={pref} onChange={setPref} labels={{ system: 'Same as phone', light: 'Light', dark: 'Dark' }} />
 
-      <SectionTitle title="Security" icon="lock" />
-      <Card style={s.row}>
+      {/* Browsers have no fingerprint lock */}
+      {!IS_WEB && <SectionTitle title="Security" icon="lock" />}
+      {!IS_WEB && <Card style={s.row}>
         <RowIcon icon="fingerprint" />
         <View style={s.flex}>
           <Text style={s.rowText}>Lock with {biometricLabel}</Text>
@@ -120,7 +122,7 @@ export default function ProfileScreen() {
           thumbColor={lockEnabled ? c.accent : c.card}
           accessibilityLabel={`Lock with ${biometricLabel}`}
         />
-      </Card>
+      </Card>}
       {lockError && <Banner tone="warn" text={lockError} />}
 
       <SectionTitle title="Account" icon="user" />

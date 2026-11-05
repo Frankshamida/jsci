@@ -9,9 +9,11 @@
 // ============================================================
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
-  Keyboard, Platform, ScrollView, TextInput, View,
-  type RefreshControlProps, type StyleProp, type ViewStyle,
+  ActivityIndicator, Keyboard, Platform, ScrollView, TextInput, View,
+  type GestureResponderEvent, type RefreshControlProps, type StyleProp, type ViewStyle,
 } from 'react-native';
+import { Icon } from './icons';
+import { useTheme } from './theme';
 
 const GAP = 24; // space kept between the field and the keyboard
 
@@ -19,10 +21,16 @@ const RevealContext = createContext<() => void>(() => {});
 // Fields call this when focused, so the next field also comes into view.
 export const useRevealOnFocus = () => useContext(RevealContext);
 
-export function KeyboardScroll({ children, contentContainerStyle, refreshControl }: {
+// Pull this far (after the resistance) to refresh, in the web app.
+const PULL_TO_REFRESH = 64;
+
+// `onPullRefresh`: the web app's pull-to-refresh (browsers have none of their
+// own inside an app page); the phone app uses `refreshControl`.
+export function KeyboardScroll({ children, contentContainerStyle, refreshControl, onPullRefresh }: {
   children: React.ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
   refreshControl?: React.ReactElement<RefreshControlProps>;
+  onPullRefresh?: () => Promise<unknown>;
 }) {
   const scrollRef = useRef<ScrollView>(null);
   const boxRef = useRef<View>(null);
@@ -58,9 +66,50 @@ export function KeyboardScroll({ children, contentContainerStyle, refreshControl
     return () => { show.remove(); hide.remove(); };
   }, [reveal]);
 
+  // ---- Web: pull down at the top to refresh ----
+  const { colors: c } = useTheme();
+  const startY = useRef<number | null>(null);
+  const [pull, setPull] = useState(0);
+  const [pulling, setPulling] = useState(false);
+  const pullRef = useRef(0);
+  const web = Platform.OS === 'web' && !!onPullRefresh;
+  const touchY = (e: GestureResponderEvent) => e.nativeEvent.touches?.[0]?.pageY ?? e.nativeEvent.pageY;
+  const touch = web ? {
+    onTouchStart: (e: GestureResponderEvent) => { startY.current = scrollY.current <= 0 && !pulling ? touchY(e) : null; },
+    onTouchMove: (e: GestureResponderEvent) => {
+      if (startY.current == null) return;
+      if (scrollY.current > 0) { startY.current = null; pullRef.current = 0; setPull(0); return; }
+      const next = Math.max(0, Math.min(110, (touchY(e) - startY.current) * 0.5));
+      pullRef.current = next;
+      setPull(next);
+    },
+    onTouchEnd: () => {
+      const go = pullRef.current >= PULL_TO_REFRESH;
+      startY.current = null;
+      pullRef.current = 0;
+      setPull(0);
+      if (go && onPullRefresh) {
+        setPulling(true);
+        Promise.resolve(onPullRefresh()).finally(() => setPulling(false));
+      }
+    },
+  } : {};
+  const shown = pulling ? PULL_TO_REFRESH : pull;
+
   return (
     <RevealContext.Provider value={Platform.OS === 'android' ? reveal : noop}>
-      <View ref={boxRef} style={{ flex: 1 }} collapsable={false}>
+      <View ref={boxRef} style={{ flex: 1 }} collapsable={false} {...touch}>
+        {web && shown > 0 && (
+          <View pointerEvents="none" style={{
+            position: 'absolute', top: Math.min(shown, PULL_TO_REFRESH) - 30, alignSelf: 'center', zIndex: 10,
+            width: 38, height: 38, borderRadius: 19, backgroundColor: c.card, alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0px 2px 10px rgba(0, 0, 0, 0.18)', opacity: Math.min(1, shown / PULL_TO_REFRESH),
+          }}>
+            {pulling
+              ? <ActivityIndicator size="small" color={c.secondary} />
+              : <Icon name="rotate-right" size={15} color={pull >= PULL_TO_REFRESH ? c.secondary : c.textMuted} style={{ transform: [{ rotate: `${pull * 3}deg` }] }} />}
+          </View>
+        )}
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={contentContainerStyle}

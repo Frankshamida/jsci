@@ -104,6 +104,19 @@
       }
     },
     "owner": "frank030901",
-    "backgroundColor": "#f8f9fa"
+    "backgroundColor": "#f8f9fa",
+    "web": {
+      "output": "single",
+      "bundler": "metro",
+      "name": "JSCI Ministry",
+      "shortName": "JSCI Ministry",
+      "lang": "en",
+      "themeColor": "#1a1a2e",
+      "backgroundColor": "#1a1a2e",
+      "favicon": "./public/icons/favicon.png"
+    },
+    "experiments": {
+      "baseUrl": "/ministrysystem"
+    }
   }
 }

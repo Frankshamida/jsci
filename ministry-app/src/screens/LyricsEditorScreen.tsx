@@ -24,7 +24,7 @@ export default function LyricsEditorScreen({ route, navigation }: StackProps<'Ly
   const s = useStyles();
   const dialog = useDialog();
   const existing = scheduleId ? cachedLyrics(scheduleId)?.songs.find((x) => x.lyrics && x.lyrics.id === lyricsId)?.lyrics || null : null;
-  const [title, setTitle] = useState(existing?.title || route.params.title);
+  const [title, setTitle] = useState(existing?.title || route.params.title || '');
   const [text, setText] = useState(existing ? toText(existing.sections) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

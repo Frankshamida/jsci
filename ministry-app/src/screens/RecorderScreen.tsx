@@ -16,6 +16,13 @@ import { Banner, Button, Card, ChoiceRow, EmptyState, Field, Icon, Screen } from
 import { font, fonts, makeStyles, radius, space, tint, useTheme } from '../theme';
 import { MAX_RECORDING_SECONDS, MAX_UPLOAD_BYTES } from '../config';
 import { formatBytes, formatClock, shortDate } from '../utils';
+import { IS_WEB } from '../platform';
+
+// In a browser: MP4 (AAC) where it can record it (iPhone Safari, recent
+// Chrome), else WebM. The file is named after what it really is.
+const BrowserRecorder = (globalThis as unknown as { MediaRecorder?: { isTypeSupported?: (t: string) => boolean } }).MediaRecorder;
+const WEB_TYPE = IS_WEB && !BrowserRecorder?.isTypeSupported?.('audio/mp4') ? 'audio/webm' : 'audio/mp4';
+const TAKE_EXT = WEB_TYPE === 'audio/webm' ? '.webm' : '.m4a';
 
 // Voice practice needs little: mono AAC at 48 kbps is about 360 KB a minute,
 // so the 10-minute limit stays under the 4.4 MB upload limit.
@@ -26,7 +33,7 @@ const VOICE: RecordingOptions = {
   bitRate: 48000,
   android: { outputFormat: 'mpeg4', audioEncoder: 'aac' },
   ios: { outputFormat: IOSOutputFormat.MPEG4AAC, audioQuality: AudioQuality.MEDIUM },
-  web: { mimeType: 'audio/webm', bitsPerSecond: 48000 },
+  web: { mimeType: WEB_TYPE, bitsPerSecond: 48000 },
 };
 
 type Mode = 'record' | 'file';
@@ -112,7 +119,7 @@ export default function RecorderScreen({ route, navigation }: StackProps<'Record
     await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
     const uri = recorder.uri;
     if (!uri) return setError('The recording could not be saved. Please try again.');
-    setTake({ uri, name: `practice-${lineup!.date}-${Date.now()}.m4a`, mimeType: 'audio/mp4' });
+    setTake({ uri, name: `practice-${lineup!.date}-${Date.now()}${TAKE_EXT}`, mimeType: WEB_TYPE });
     player.replace({ uri });
   }
 

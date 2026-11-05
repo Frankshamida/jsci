@@ -2,6 +2,7 @@
 // Every call carries the session token. A 401, or a refusal marked
 // 'session_ended' (role taken away), signs the app out.
 import { API_BASE_URL } from './config';
+import { IS_WEB } from './platform';
 import type { HomeData, LineupLyrics, Lyrics, MemberHistory, MonthData, Profile, Recording, RoleType, Song, Swap, SwapCandidate } from './types';
 
 // `field`: which form field a refusal is about ('email', 'password'), when the server says.
@@ -77,10 +78,16 @@ export const api = {
     request('/api/ministry/lineup', { method: 'PUT', json: { scheduleId, slowSongs, fastSongs } }),
 
   recordings: (scheduleId: string) => request<Recording[]>(`/api/ministry/recordings?scheduleId=${encodeURIComponent(scheduleId)}`),
-  uploadRecording: (input: { uri: string; name: string; mimeType: string; scheduleId: string; songType: string; title: string }) => {
+  uploadRecording: async (input: { uri: string; name: string; mimeType: string; scheduleId: string; songType: string; title: string }) => {
     const form = new FormData();
-    // React Native's FormData takes a { uri, name, type } file.
-    form.append('file', { uri: input.uri, name: input.name, type: input.mimeType } as unknown as Blob);
+    if (IS_WEB) {
+      // In a browser the recording is a blob: address; send the file itself.
+      const blob = await (await fetch(input.uri)).blob();
+      (form as unknown as { append: (k: string, v: unknown, name: string) => void }).append('file', blob, input.name);
+    } else {
+      // React Native's FormData takes a { uri, name, type } file.
+      form.append('file', { uri: input.uri, name: input.name, type: input.mimeType } as unknown as Blob);
+    }
     form.append('scheduleId', input.scheduleId);
     form.append('songType', input.songType);
     form.append('title', input.title);

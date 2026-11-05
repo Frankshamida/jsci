@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSession } from '../session';
 import { Banner, Button, Card, Checkbox, Field, Icon, Logo, Screen } from '../components';
-import { font, fonts, makeStyles, radius, space, useTheme } from '../theme';
+import { font, fonts, makeStyles, radius, space, tint, useTheme } from '../theme';
+import { isAndroidWeb, isIosWeb, isStandalone } from '../platform';
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -106,7 +107,48 @@ export default function LoginScreen() {
       <Text style={s.foot}>
         For Ministry Members of Joyful Sound Church. Use the same email and password as the JSCI website.
       </Text>
+      <InstallTip />
     </Screen>
+  );
+}
+
+// Opened in the phone's browser (not from the Home Screen): how to add it as
+// an app, so it opens full screen like the Android app.
+function InstallTip() {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const [hidden, setHidden] = useState(false);
+  const ios = isIosWeb();
+  if (hidden || isStandalone() || !(ios || isAndroidWeb())) return null;
+  const steps: { icon: React.ComponentProps<typeof Icon>['name']; text: React.ReactNode }[] = ios
+    ? [
+      { icon: 'arrow-up-from-bracket', text: <>Tap <Text style={s.tipStrong}>Share</Text> at the bottom of Safari</> },
+      { icon: 'square-plus', text: <>Choose <Text style={s.tipStrong}>Add to Home Screen</Text>, then Add</> },
+      { icon: 'mobile-screen', text: <>Open <Text style={s.tipStrong}>JSCI Ministry</Text> from your Home Screen</> },
+    ]
+    : [
+      { icon: 'ellipsis-vertical', text: <>Tap the <Text style={s.tipStrong}>menu</Text> at the top of Chrome</> },
+      { icon: 'square-plus', text: <>Choose <Text style={s.tipStrong}>Add to Home screen</Text> (or Install app)</> },
+      { icon: 'mobile-screen', text: <>Open <Text style={s.tipStrong}>JSCI Ministry</Text> from your Home screen</> },
+    ];
+  return (
+    <View style={s.tip}>
+      <View style={s.tipHead}>
+        <Icon name="mobile-screen-button" size={16} color={c.goldText} />
+        <Text style={s.tipTitle}>Add JSCI Ministry to your Home Screen</Text>
+        <Pressable onPress={() => setHidden(true)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Hide">
+          <Icon name="xmark" size={14} color={c.textMuted} />
+        </Pressable>
+      </View>
+      <Text style={s.tipText}>It opens full screen like an app, and you stay signed in.</Text>
+      {steps.map((step, i) => (
+        <View key={i} style={s.tipStep}>
+          <View style={s.tipNum}><Text style={s.tipNumText}>{i + 1}</Text></View>
+          <Icon name={step.icon} size={14} color={c.goldText} />
+          <Text style={s.tipStepText}>{step.text}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -122,5 +164,14 @@ const useStyles = makeStyles((c) => ({
   rememberRow: { marginTop: -2, marginBottom: 2 },
   rememberHint: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, marginLeft: 32, marginTop: -2 },
   submit: { marginTop: space.md },
+  tip: { marginTop: space.lg, padding: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: tint(c.secondary, 0.45), backgroundColor: c.cardRaised },
+  tipHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  tipTitle: { flex: 1, color: c.text, fontSize: font.md, fontFamily: fonts.bold },
+  tipText: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular, marginTop: 4, marginBottom: space.sm },
+  tipStep: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 5 },
+  tipNum: { width: 20, height: 20, borderRadius: 10, backgroundColor: c.goldMuted, alignItems: 'center', justifyContent: 'center' },
+  tipNumText: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.bold },
+  tipStepText: { flex: 1, color: c.text, fontSize: font.sm, fontFamily: fonts.regular },
+  tipStrong: { fontFamily: fonts.bold },
   foot: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, textAlign: 'center', marginTop: space.lg, lineHeight: 17, paddingHorizontal: space.lg },
 }));

@@ -61,6 +61,12 @@ const nextConfig = {
           source: `/${section}`,
           destination: '/dashboard',
         })),
+        // JSCI Ministry, the web app (built by ministry-app/scripts/build-web.mjs
+        // into public/ministrysystem). Its files are served as they are; every
+        // other /ministrysystem address (/ministrysystem/lineup/..., a reload,
+        // the Home Screen icon) opens the app, which shows the right screen.
+        { source: '/ministrysystem', destination: '/ministrysystem/index.html' },
+        { source: '/ministrysystem/:path*', destination: '/ministrysystem/index.html' },
         // Event "magic links" (/miracle-working-god-cebu-event) used to be
         // rewritten to "/" here as well. They are a real route now -
         // src/app/[eventSlug]/page.js - because a rewrite cannot give a link

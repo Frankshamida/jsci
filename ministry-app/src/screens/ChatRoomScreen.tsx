@@ -23,6 +23,7 @@ import { useMiniPlayerInset } from '../player';
 import { Avatar, Button, EmptyState, Icon, LoadingView, type IconName } from '../components';
 import { font, fonts, makeStyles, radius, space, tint, useTheme } from '../theme';
 import { firstName } from '../utils';
+import { NATIVE_DRIVER } from '../platform';
 import {
   chatApi, clockTime, dayKey, dayLabel, getRoomCache, markRoomRead, newClientId, refreshChatRooms, setRoomCache,
   useChatRooms, type ChatMessage, type ChatReceipt,
@@ -48,8 +49,15 @@ const sortMessages = (list: Local[]) =>
 const keyOf = (m: Local) => (m.clientId ? `${m.senderId}:${m.clientId}` : m.id);
 const newestSent = (list: Local[]) => { for (let i = list.length - 1; i >= 0; i--) if (!list[i].local) return list[i]; return null; };
 
+
+// The rooms' names (as the server names them, web/src/lib/ministryChat.js).
+const ROOM_TITLES: Record<string, string> = {
+  all: 'JSCI Ministry Members', paw: 'PAW Team', singer: 'Singers', musician: 'Musicians', dancer: 'Dancers', media: 'Media Team', usher: 'Ushers',
+};
 export default function ChatRoomScreen({ route, navigation }: StackProps<'ChatRoom'>) {
-  const { room, title } = route.params;
+  const { room } = route.params;
+  // Opened from its web address the title may be missing: the room knows its own name.
+  const title = route.params.title || ROOM_TITLES[room] || 'Chat';
   const { profile } = useSession();
   const me = profile?.id || '';
   const { colors: c, scheme } = useTheme();
@@ -571,7 +579,7 @@ function ActionSheet({ options, onClose, bottom }: {
   const fade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(fade, { toValue: 1, duration: 160, useNativeDriver: true }).start();
+    Animated.timing(fade, { toValue: 1, duration: 160, useNativeDriver: NATIVE_DRIVER }).start();
     const back = BackHandler.addEventListener('hardwareBackPress', () => { onClose(); return true; });
     return () => back.remove();
   }, [fade, onClose]);

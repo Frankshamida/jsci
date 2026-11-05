@@ -51,11 +51,6 @@ export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>
     && ((w.requesterId === profile.id && w.requesterDate === lineup.date) || (w.partnerId === profile.id && w.partnerDate === lineup.date)));
   const canAct = lineup.mine && !past && !lineup.subbedOut;
   const covered = (t: Tab) => (lineup.covered || []).filter((x) => TAB_OF_ROLE[x.roleType] === t);
-  const counts = {
-    backup: lineup.backupSingers.length,
-    band: lineup.musicians.length,
-    dance: lineup.dancers.length,
-  };
 
   return (
     <Screen stacked onRefresh={() => Promise.all([refresh(true), recordings.reload()])}>
@@ -85,7 +80,6 @@ export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>
         value={tab}
         onChange={setTab}
         labels={{ lead: 'Song Lead', backup: 'Backup', band: 'Musicians', dance: 'Dancers' }}
-        counts={counts}
       />
 
       {tab === 'lead' && <SongLeadTab lineup={lineup} isMe={isMe} past={past} covered={covered('lead')} canEditLyrics={profile.canEditLyrics} />}
@@ -331,11 +325,11 @@ function SongRow({ number, song, track, queue, first }: { number: number; song: 
         <Icon name={!song.link ? 'music' : !track ? 'arrow-up-right-from-square' : playing ? 'pause' : 'play'} size={track ? 14 : 12}
           color={isCurrent ? '#ffffff' : song.link ? c.goldText : c.textMuted} style={track && !playing ? s.playNudge : undefined} />
       </Pressable>
-      <View style={s.flex}>
+      <Pressable onPress={onPlay} disabled={!song.link} style={s.flex} accessibilityRole="button" accessibilityLabel={`Play ${song.title}`}>
         <Text style={[s.songTitle, isCurrent && { color: c.goldText }]}>{song.title}</Text>
         {isCurrent && <Text style={s.nowPlaying}>{player.state === 'loading' ? 'Loading…' : player.state === 'error' ? 'Cannot play here' : playing ? 'Now playing' : 'Paused'}</Text>}
         {song.instructions ? <Text style={s.instructions}>{song.instructions}</Text> : null}
-      </View>
+      </Pressable>
       {song.link ? (
         <Pressable onPress={() => Linking.openURL(song.link)} hitSlop={10} accessibilityRole="link" accessibilityLabel={`Open ${song.title} in YouTube`}>
           <Icon name={track ? 'youtube' : 'link'} size={16} color={track ? '#ff0033' : c.info} />

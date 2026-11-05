@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { DarkTheme, DefaultTheme, NavigationContainer, type NavigationState, type Theme as NavTheme } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, NavigationContainer, type LinkingOptions, type NavigationState, type Theme as NavTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { RootStackParams, TabParams } from './routes';
@@ -11,6 +11,7 @@ import { Icon, type IconName } from './icons';
 import { Button, EmptyState, LoadingView, Screen } from './components';
 import { MiniPlayer, PlayerProvider } from './player';
 import { useChatUnreadCount } from './chat';
+import { IS_WEB } from './platform';
 import LoginScreen from './screens/LoginScreen';
 import LockScreen from './screens/LockScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -41,7 +42,8 @@ const TAB_ICONS: Record<keyof TabParams, IconName> = {
 };
 
 // The tab bar's height above the phone's bottom edge (the mini player sits on it).
-export const TAB_BAR_HEIGHT = 72;
+// (Taller in a browser, which spaces the icon and its label a little wider.)
+export const TAB_BAR_HEIGHT = IS_WEB ? 82 : 72;
 
 // A tall, clear tab bar: big icons, the open tab in a gold pill with a bold label.
 function Tabs() {
@@ -86,6 +88,28 @@ function Tabs() {
   );
 }
 
+// The web app (sanctuaryhub.vercel.app/ministrysystem): every screen has its
+// own address, so the browser's Back button and a reload keep your place.
+const BASE = 'ministrysystem';
+const webLinking: LinkingOptions<RootStackParams> | undefined = IS_WEB ? {
+  prefixes: [],
+  config: {
+    initialRouteName: 'Tabs',
+    screens: {
+      Tabs: { path: BASE, screens: { Home: '', Requests: 'requests', Chat: 'chat', Attendance: 'attendance', Profile: 'profile' } },
+      Lineup: `${BASE}/lineup/:scheduleId`,
+      SongEditor: `${BASE}/lineup/:scheduleId/songs`,
+      Recorder: `${BASE}/lineup/:scheduleId/record`,
+      RequestForm: `${BASE}/request/:mode`,
+      LyricsEditor: `${BASE}/lyrics`,
+      Member: `${BASE}/member/:userId`,
+      ChatRoom: `${BASE}/chat/:room`,
+      Planner: `${BASE}/plotter`,
+      LineupEditor: `${BASE}/plotter/lineup`,
+    },
+  },
+} : undefined;
+
 // Is the screen on top one of the tabs (so the mini player sits on the tab bar)?
 const onTabsNow = (state: NavigationState | undefined) => !state || state.routes[state.index]?.name === 'Tabs';
 
@@ -125,7 +149,8 @@ export default function RootNavigator() {
 
   return (
     <PlayerProvider>
-      <NavigationContainer theme={navTheme} onStateChange={onStateChange}>
+      <NavigationContainer theme={navTheme} onStateChange={onStateChange} linking={webLinking}
+        documentTitle={{ formatter: (options, route) => `${options?.title || route?.name || 'Home'} · JSCI Ministry` }}>
         <Stack.Navigator
           screenOptions={{
             headerStyle: { backgroundColor: c.surface },

@@ -46,7 +46,7 @@ const FAQ = [
   { q: 'Who can sign in?', a: 'Verified Ministry Members of Joyful Sound Church. If you cannot sign in, ask an admin to give your account the Ministry Member role with your Praise & Worship position.' },
   { q: 'I sign in to the website with Google. What is my password?', a: 'The app uses an email and password. Set a password for your account on the JSCI website first, then use it in the app.' },
   { q: 'How do I update the app?', a: 'The app tells you when a new version is out. Download it from this page and install it over the old one - you stay signed in.' },
-  { q: 'Is there an iPhone version?', a: 'It is coming through Apple TestFlight. This page will show the iPhone link as soon as it is ready.' },
+  { q: 'Is there an iPhone version?', a: 'Yes. On your iPhone, open sanctuaryhub.vercel.app/ministrysystem in Safari, tap Share, then Add to Home Screen. It opens full screen like an app, with the same sign-in and the same screens as the Android app.' },
   { q: 'Is it safe to install?', a: 'Yes. The app is made by JSCI and published here; it only talks to the JSCI website. Android asks for permission because it is not from the Play Store.' },
 ];
 
@@ -167,16 +167,20 @@ export default async function MinistryMobileAppPage() {
                     <i className="fab fa-android" />
                     <span><small>Download for</small>Android</span>
                   </a>
-                  <span className={styles.btnSoon} title="Coming soon through TestFlight">
+                  <a href="/ministrysystem" className={styles.btnIos}>
                     <i className="fab fa-apple" />
-                    <span><small>Coming soon for</small>iPhone</span>
-                  </span>
+                    <span><small>Open on</small>iPhone</span>
+                  </a>
                 </div>
                 <p className={styles.fileName}><i className="fas fa-file-arrow-down" /> {latest.apk.name}</p>
+                <p className={styles.iosNote}>
+                  <i className="fab fa-apple" /> iPhone: open <strong>/ministrysystem</strong> in Safari, tap <i className="fas fa-arrow-up-from-bracket" /> Share, then <strong>Add to Home Screen</strong>.
+                </p>
               </>
             ) : (
               <div className={styles.actions}>
-                <span className={styles.btnSoon}><i className="fas fa-hourglass-half" /><span><small>Almost here</small>Coming soon</span></span>
+                <span className={styles.btnSoon}><i className="fas fa-hourglass-half" /><span><small>Android</small>Coming soon</span></span>
+                <a href="/ministrysystem" className={styles.btnIos}><i className="fab fa-apple" /><span><small>Open on</small>iPhone</span></a>
               </div>
             )}
           </div>

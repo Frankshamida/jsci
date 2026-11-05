@@ -1,9 +1,12 @@
 import Constants from 'expo-constants';
+import { IS_WEB } from './platform';
 
 // The JSCI website the app talks to. The app reaches the data only through
 // its /api/ministry routes: no database key, no AI or YouTube key lives in the
-// app, so nothing in it can run up an API bill.
-export const API_BASE_URL = 'https://sanctuaryhub.vercel.app';
+// app, so nothing in it can run up an API bill. The web app is served by that
+// same website (/ministrysystem), so it simply asks its own site.
+export const SITE_URL = 'https://sanctuaryhub.vercel.app';
+export const API_BASE_URL = IS_WEB ? '' : SITE_URL;
 
 // The dashboard is cached on the phone. It is fetched again only when older
 // than this, on pull-to-refresh, or after you change something.
@@ -20,7 +23,7 @@ export const MAX_UPLOAD_BYTES = 4.4 * 1024 * 1024;
 // This app's version (app.json "version"), and where the newest one is.
 // The dashboard says which version is the latest, so no extra call is made.
 export const APP_VERSION: string = Constants.expoConfig?.version || '0.0.0';
-export const DOWNLOAD_PAGE_URL = `${API_BASE_URL}/ministrymobileapp`;
+export const DOWNLOAD_PAGE_URL = `${SITE_URL}/ministrymobileapp`;
 
 // "1.10.0" is newer than "1.9.2".
 export function isNewerVersion(candidate: string, current: string): boolean {

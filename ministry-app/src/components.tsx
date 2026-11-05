@@ -12,6 +12,7 @@ import { KeyboardScroll, useRevealOnFocus } from './keyboard';
 import { font, fonts, makeStyles, radius, space, tint, useTheme, type Palette } from './theme';
 import { initials, monthLabel, parseYmd, shiftMonth } from './utils';
 import { useMiniPlayerInset } from './player';
+import { IS_WEB, NATIVE_DRIVER } from './platform';
 
 export { Icon };
 export type { IconName };
@@ -40,9 +41,10 @@ export function Screen({ children, onRefresh, scroll = true, padded = true, stac
       {scroll ? (
         <KeyboardScroll
           contentContainerStyle={[...inner, s.scrollEnd, playerInset ? { paddingBottom: space.xxl * 2 + playerInset } : null]}
-          refreshControl={onRefresh
+          refreshControl={onRefresh && !IS_WEB
             ? <RefreshControl refreshing={pulling} onRefresh={pull} tintColor={c.secondary} colors={[c.secondary]} progressBackgroundColor={c.card} />
             : undefined}
+          onPullRefresh={onRefresh && IS_WEB ? async () => { await onRefresh(); } : undefined}
         >
           {children}
         </KeyboardScroll>
@@ -359,12 +361,12 @@ export function LoadingView({ message }: { message?: string }) {
   useEffect(() => {
     const ease = Easing.inOut(Easing.quad);
     const glow = Animated.loop(Animated.sequence([
-      Animated.timing(breathe, { toValue: 1, duration: 1100, easing: ease, useNativeDriver: true }),
-      Animated.timing(breathe, { toValue: 0, duration: 1100, easing: ease, useNativeDriver: true }),
+      Animated.timing(breathe, { toValue: 1, duration: 1100, easing: ease, useNativeDriver: NATIVE_DRIVER }),
+      Animated.timing(breathe, { toValue: 0, duration: 1100, easing: ease, useNativeDriver: NATIVE_DRIVER }),
     ]));
     const dance = Animated.loop(Animated.stagger(180, dots.map((d) => Animated.sequence([
-      Animated.timing(d, { toValue: 1, duration: 320, easing: ease, useNativeDriver: true }),
-      Animated.timing(d, { toValue: 0.25, duration: 320, easing: ease, useNativeDriver: true }),
+      Animated.timing(d, { toValue: 1, duration: 320, easing: ease, useNativeDriver: NATIVE_DRIVER }),
+      Animated.timing(d, { toValue: 0.25, duration: 320, easing: ease, useNativeDriver: NATIVE_DRIVER }),
     ]))));
     glow.start();
     dance.start();

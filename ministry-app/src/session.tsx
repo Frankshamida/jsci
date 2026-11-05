@@ -14,7 +14,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
+import { secure } from './secure';
+import { IS_WEB } from './platform';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { api, setApiToken, setSessionEndedHandler } from './api';
 import { DASHBOARD_STALE_MS, RELOCK_AFTER_MS } from './config';
@@ -66,6 +67,7 @@ export function useSession(): Session {
 }
 
 async function biometricName(): Promise<string> {
+  if (IS_WEB) return 'Fingerprint'; // browsers have no fingerprint lock (Settings hides it)
   try {
     const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
     if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) return 'Fingerprint';
@@ -119,8 +121,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async (why?: string, tone: NoticeTone = 'warn') => {
     setApiToken(null);
     await Promise.all([
-      SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {}),
-      SecureStore.deleteItemAsync(LOCK_KEY).catch(() => {}),
+      secure.remove(TOKEN_KEY).catch(() => {}),
+      secure.remove(LOCK_KEY).catch(() => {}),
       AsyncStorage.removeItem(CACHE_KEY).catch(() => {}),
     ]);
     lastUpdatedRef.current = null;
@@ -140,8 +142,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       setBiometricLabel(await biometricName());
       const [savedToken, lock, cached, rememberPref, email] = await Promise.all([
-        SecureStore.getItemAsync(TOKEN_KEY).catch(() => null),
-        SecureStore.getItemAsync(LOCK_KEY).catch(() => null),
+        secure.get(TOKEN_KEY).catch(() => null),
+        secure.get(LOCK_KEY).catch(() => null),
         AsyncStorage.getItem(CACHE_KEY).catch(() => null),
         AsyncStorage.getItem(REMEMBER_KEY).catch(() => null),
         AsyncStorage.getItem(EMAIL_KEY).catch(() => null),
@@ -195,14 +197,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     if (remember) {
       setRememberedEmail(cleanEmail);
       await Promise.all([
-        SecureStore.setItemAsync(TOKEN_KEY, res.data.token),
+        secure.set(TOKEN_KEY, res.data.token),
         AsyncStorage.multiSet([[REMEMBER_KEY, '1'], [EMAIL_KEY, cleanEmail]]),
       ]).catch(() => {});
     } else {
       // This session only: nothing of it stays on the phone.
       setRememberedEmail('');
       await Promise.all([
-        SecureStore.deleteItemAsync(TOKEN_KEY),
+        secure.remove(TOKEN_KEY),
         AsyncStorage.multiRemove([CACHE_KEY, EMAIL_KEY]),
         AsyncStorage.setItem(REMEMBER_KEY, '0'),
       ]).catch(() => {});
@@ -232,7 +234,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const check = await LocalAuthentication.authenticateAsync({ promptMessage: `Confirm with ${biometricLabel}`, cancelLabel: 'Cancel' });
       if (!check.success) return null; // cancelled: stays off, nothing to report
     }
-    await SecureStore.setItemAsync(LOCK_KEY, on ? '1' : '0');
+    await secure.set(LOCK_KEY, on ? '1' : '0');
     setLockEnabledState(on);
     return null;
   }, [biometricLabel]);

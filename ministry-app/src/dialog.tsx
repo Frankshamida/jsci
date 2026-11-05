@@ -12,6 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Button } from './components';
 import { Icon, type IconName } from './icons';
 import { font, fonts, makeStyles, radius, space, tint, useTheme } from './theme';
+import { NATIVE_DRIVER } from './platform';
 
 export type DialogTone = 'gold' | 'danger' | 'success' | 'info';
 
@@ -86,8 +87,8 @@ function DialogView({ dialog, onClose }: { dialog: Open; onClose: (ok: boolean) 
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 180, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(pop, { toValue: 1, friction: 7, tension: 90, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: 180, easing: Easing.out(Easing.quad), useNativeDriver: NATIVE_DRIVER }),
+      Animated.spring(pop, { toValue: 1, friction: 7, tension: 90, useNativeDriver: NATIVE_DRIVER }),
     ]).start();
   }, [fade, pop]);
 
@@ -95,8 +96,8 @@ function DialogView({ dialog, onClose }: { dialog: Open; onClose: (ok: boolean) 
     if (closing.current) return;
     closing.current = true;
     Animated.parallel([
-      Animated.timing(fade, { toValue: 0, duration: 140, useNativeDriver: true }),
-      Animated.timing(pop, { toValue: 0, duration: 140, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 0, duration: 140, useNativeDriver: NATIVE_DRIVER }),
+      Animated.timing(pop, { toValue: 0, duration: 140, useNativeDriver: NATIVE_DRIVER }),
     ]).start(() => onClose(ok));
   }, [fade, pop, onClose]);
 

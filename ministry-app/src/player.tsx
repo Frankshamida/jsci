@@ -5,8 +5,9 @@
 // screen - so a song keeps playing while you read its lyrics or look around.
 // Tap it to open it bigger; it moves on to the lineup's next song by itself.
 //
-// The video plays in a small web view showing the website's player page
-// (web/public/ministry-player.html), driven with window.cmd({...}).
+// The video plays in a small web view (a frame in the web app) showing the
+// website's player page (web/public/ministry-player.html), driven with
+// window.cmd({...}) - see playerEngine.tsx / playerEngine.web.tsx.
 //   usePlayer()            play a list, pause, next, close; what is playing
 //   usePlayerTime()        position and length (changes twice a second)
 //   useMiniPlayerInset()   room a screen keeps free at its bottom for it
@@ -15,7 +16,7 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import { ActivityIndicator, Linking, Pressable, Text, View, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { ENGINE_NEEDS_TAP, PlayerEngine, type EngineHandle } from './playerEngine';
 import { API_BASE_URL } from './config';
 import { Icon } from './icons';
 import { font, fonts, makeStyles, radius, space, tint, useTheme } from './theme';
@@ -55,9 +56,9 @@ const PlayerContext = createContext<PlayerApi | null>(null);
 const TimeContext = createContext({ position: 0, duration: 0 });
 // The web view, held by the provider and drawn by <MiniPlayer>.
 const EngineContext = createContext<{
-  webRef: React.RefObject<WebView | null>;
+  engineRef: React.MutableRefObject<EngineHandle | null>;
   firstVideo: string | null;
-  onMessage: (e: WebViewMessageEvent) => void;
+  onMessage: (data: string) => void;
 } | null>(null);
 
 export function usePlayer(): PlayerApi {
@@ -82,7 +83,7 @@ function errorText(code: unknown): string {
 }
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
-  const webRef = useRef<WebView | null>(null);
+  const engineRef = useRef<EngineHandle | null>(null);
   const ready = useRef(false);
   const pending = useRef<Track | null>(null);
   const [firstVideo, setFirstVideo] = useState<string | null>(null);
@@ -94,14 +95,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [time, setTime] = useState({ position: 0, duration: 0 });
   const queueRef = useRef<Track[]>([]);
   const indexRef = useRef(0);
+  // Opened big only so a browser can be tapped to start: small again once playing.
+  const autoExpanded = useRef(false);
 
-  const send = useCallback((cmd: object) => {
-    webRef.current?.injectJavaScript(`window.cmd && window.cmd(${JSON.stringify(cmd)}); true;`);
-  }, []);
+  const send = useCallback((cmd: object) => { engineRef.current?.send(cmd); }, []);
 
   const start = useCallback((list: Track[], i: number) => {
     const track = list[i];
     if (!track) return;
+    // In a browser the first song may need a tap on the video: show it big.
+    if (ENGINE_NEEDS_TAP && !queueRef.current.length) { autoExpanded.current = true; setExpanded(true); }
     queueRef.current = list;
     indexRef.current = i;
     setQueue(list);
@@ -151,21 +154,27 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setQueue([]);
     setIndex(0);
     setFirstVideo(null); // the web view goes away; the next song starts it again
+    autoExpanded.current = false;
     setExpanded(false);
     setTime({ position: 0, duration: 0 });
   }, [send]);
 
-  const onMessage = useCallback((e: WebViewMessageEvent) => {
+  const onMessage = useCallback((data: string) => {
     let msg: { type?: string; state?: string; current?: number; duration?: number; code?: unknown };
-    try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
+    try { msg = JSON.parse(data); } catch { return; }
     if (msg.type === 'ready') {
       ready.current = true;
       const waiting = pending.current;
       pending.current = null;
       if (waiting) send({ type: 'load', videoId: waiting.videoId, autoplay: true });
     } else if (msg.type === 'state') {
-      if (msg.state === 'playing') { setState('playing'); setError(null); }
+      if (msg.state === 'playing') {
+        setState('playing');
+        setError(null);
+        if (autoExpanded.current) { autoExpanded.current = false; setExpanded(false); } // back to the bar; the song keeps playing
+      }
       else if (msg.state === 'paused') setState('paused');
+      else if (ENGINE_NEEDS_TAP && (msg.state === 'unstarted' || msg.state === 'cued')) setState('paused'); // waits for a tap on the video
       else if (msg.state === 'buffering' || msg.state === 'unstarted') setState((s) => (s === 'paused' ? s : 'loading'));
       else if (msg.state === 'ended') {
         // On to the next song of the lineup, if there is one.
@@ -184,11 +193,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [send, start]);
 
-  const api = useMemo<PlayerApi>(() => ({
-    queue, index, current, state, error, expanded, play, toggle, pause, next, prev, seek, close, setExpanded,
-  }), [queue, index, current, state, error, expanded, play, toggle, pause, next, prev, seek, close]);
+  // Opening or closing it by hand ends the automatic size change.
+  const setOpen = useCallback((open: boolean) => { autoExpanded.current = false; setExpanded(open); }, []);
 
-  const engine = useMemo(() => ({ webRef, firstVideo, onMessage }), [firstVideo, onMessage]);
+  const api = useMemo<PlayerApi>(() => ({
+    queue, index, current, state, error, expanded, play, toggle, pause, next, prev, seek, close, setExpanded: setOpen,
+  }), [queue, index, current, state, error, expanded, play, toggle, pause, next, prev, seek, close, setOpen]);
+
+  const engine = useMemo(() => ({ engineRef, firstVideo, onMessage }), [firstVideo, onMessage]);
 
   return (
     <PlayerContext.Provider value={api}>
@@ -235,21 +247,12 @@ export function MiniPlayer({ onTabs, tabBarHeight }: { onTabs: boolean; tabBarHe
   return (
     <View style={[s.card, expanded ? s.cardBig : s.cardMini, { bottom }]} pointerEvents="box-none">
       {/* The video. Same place in the tree open or closed, so it never restarts. */}
-      <View style={expanded ? s.videoBig : s.videoMini} pointerEvents="none">
-        <WebView
-          ref={engine.webRef}
-          source={{ uri: `${PLAYER_PAGE}?v=${encodeURIComponent(engine.firstVideo)}&autoplay=1` }}
+      <View style={expanded ? s.videoBig : s.videoMini} pointerEvents={ENGINE_NEEDS_TAP ? 'auto' : 'none'}>
+        <PlayerEngine
+          uri={`${PLAYER_PAGE}?v=${encodeURIComponent(engine.firstVideo)}&autoplay=1`}
           onMessage={engine.onMessage}
-          javaScriptEnabled
-          domStorageEnabled
-          allowsInlineMediaPlayback
-          mediaPlaybackRequiresUserAction={false}
-          allowsFullscreenVideo={false}
-          setSupportMultipleWindows={false}
-          scrollEnabled={false}
-          bounces={false}
+          handleRef={engine.engineRef}
           style={s.web}
-          containerStyle={s.web}
         />
         {state === 'error' && <View style={s.videoError}><Icon name="video-slash" size={expanded ? 26 : 16} color="#ffffff" /></View>}
       </View>
@@ -296,7 +299,9 @@ export function MiniPlayer({ onTabs, tabBarHeight }: { onTabs: boolean; tabBarHe
         <>
           <Pressable onPress={() => player.setExpanded(true)} style={s.miniText} accessibilityRole="button" accessibilityLabel={`${current.title}. Open the player`}>
             <Text style={s.miniTitle} numberOfLines={1}>{current.title}</Text>
-            <Text style={[s.sub, error && { color: c.danger }]} numberOfLines={1}>{error ? 'Cannot play here · tap for YouTube' : current.subtitle || 'Now playing'}</Text>
+            <Text style={[s.sub, error && { color: c.danger }]} numberOfLines={1}>
+              {error ? 'Cannot play here · tap for YouTube' : ENGINE_NEEDS_TAP && state === 'paused' && position === 0 ? 'Tap the video to play' : current.subtitle || 'Now playing'}
+            </Text>
           </Pressable>
           {playButton(false)}
           <Pressable onPress={player.next} disabled={!hasNext} hitSlop={8} style={[s.miniBtn, !hasNext && s.dim]} accessibilityRole="button" accessibilityLabel="Next song">

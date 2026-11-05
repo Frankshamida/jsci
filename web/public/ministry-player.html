@@ -6,10 +6,12 @@
 <meta name="robots" content="noindex">
 <title>JSCI Ministry player</title>
 <!--
-  The JSCI Ministry app's song player. The app shows this page in a small
-  web view and drives it with window.cmd({...}); the page reports back with
-  ReactNativeWebView.postMessage. It is served from the JSCI website so
-  YouTube sees a real web page playing the video.
+  The JSCI Ministry app's song player. The phone app shows this page in a
+  small web view, the web app (/ministrysystem) in a frame; both drive it with
+  window.cmd({...}) (or a { jsciCmd } message) and hear back through
+  ReactNativeWebView.postMessage / a message to the parent page. It is served
+  from the JSCI website so YouTube sees a real web page playing the video.
+  ?controls=1 shows YouTube's own controls (browsers need a tap to start).
     app -> page   cmd({ type: 'load', videoId, autoplay }) | play | pause | seek { seconds } | stop
     page -> app   { type: 'ready' } | { type: 'state', state } | { type: 'time', current, duration }
                   | { type: 'error', code }
@@ -29,8 +31,17 @@
   var timer = null;
 
   function send(msg) {
-    try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(msg)); } catch (e) {}
+    try {
+      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+      else if (window.parent && window.parent !== window) window.parent.postMessage(JSON.stringify(msg), location.origin);
+    } catch (e) {}
   }
+
+  // Commands from the web app when it cannot call window.cmd directly.
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || typeof e.data !== 'string') return;
+    try { var m = JSON.parse(e.data); if (m && m.jsciCmd) window.cmd(m.jsciCmd); } catch (err) {}
+  });
 
   var STATES = { '-1': 'unstarted', '0': 'ended', '1': 'playing', '2': 'paused', '3': 'buffering', '5': 'cued' };
 
@@ -63,7 +74,7 @@
       playerVars: {
         autoplay: params.get('autoplay') === '1' ? 1 : 0,
         playsinline: 1,
-        controls: 0,
+        controls: params.get('controls') === '1' ? 1 : 0,
         rel: 0,
         fs: 0,
         modestbranding: 1,

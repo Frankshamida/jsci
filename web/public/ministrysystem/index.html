@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      JSCI Ministry, the web app (sanctuaryhub.vercel.app/ministrysystem).
+      The same app as the Android one, built for the browser. From the iPhone
+      Home Screen (Share > Add to Home Screen) it opens full screen.
+      Built by ministry-app/scripts/build-web.mjs into web/public/ministrysystem.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>JSCI Ministry</title>
+    <meta name="description" content="JSCI Ministry - lineups, songs, lyrics, requests, attendance and group chats for the ministry team of Joyful Sound Church International." />
+    <meta name="robots" content="noindex" />
+
+    <!-- Full screen from the Home Screen -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="JSCI Ministry" />
+    <meta name="application-name" content="JSCI Ministry" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="theme-color" content="#f8f9fa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1a2e" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="/ministrysystem/manifest.json" />
+    <link rel="apple-touch-icon" href="/ministrysystem/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="/ministrysystem/icons/favicon.png" />
+
+    <style id="expo-reset">
+      html, body { height: 100%; }
+      body {
+        overflow: hidden;
+        margin: 0;
+        background: #f8f9fa;
+        /* An app, not a page: no bounce of the whole page, no grey tap flash,
+           no text selection by a long press, no double-tap zoom. */
+        overscroll-behavior: none;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-text-size-adjust: 100%;
+        touch-action: manipulation;
+      }
+      input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
+      #root { display: flex; height: 100%; flex: 1; }
+      @media (prefers-color-scheme: dark) { body { background: #1a1a2e; } }
+
+      /* A computer: the app as a phone-wide column in the middle. */
+      @media (min-width: 640px) {
+        body { background: #e9ecf1; }
+        #root { max-width: 480px; margin: 0 auto; box-shadow: 0 0 40px rgba(0, 0, 0, 0.12); position: relative; }
+      }
+      @media (min-width: 640px) and (prefers-color-scheme: dark) { body { background: #10101e; } }
+
+      /* Shown until the app has started */
+      #boot {
+        position: fixed; inset: 0; z-index: 100000;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+        background: #f8f9fa; transition: opacity 0.3s ease;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      #boot.gone { opacity: 0; pointer-events: none; }
+      #boot img { width: 96px; height: 96px; animation: boot-breathe 2.2s ease-in-out infinite; }
+      #boot .name { color: #926C15; font-size: 22px; font-weight: 800; letter-spacing: 0.3px; }
+      #boot .dots { display: flex; gap: 8px; }
+      #boot .dots span { width: 8px; height: 8px; border-radius: 4px; background: #C9980B; opacity: 0.25; animation: boot-dot 1.2s ease-in-out infinite; }
+      #boot .dots span:nth-child(2) { animation-delay: 0.18s; }
+      #boot .dots span:nth-child(3) { animation-delay: 0.36s; }
+      @media (prefers-color-scheme: dark) { #boot { background: #1a1a2e; } #boot .name { color: #FFC300; } }
+      @keyframes boot-breathe { 0%, 100% { transform: scale(0.96); } 50% { transform: scale(1.04); } }
+      @keyframes boot-dot { 0%, 100% { opacity: 0.25; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1); } }
+    </style>
+  <meta name="theme-color" content="#1a1a2e">
+<link rel="icon" href="/ministrysystem/favicon.ico" /></head>
+
+  <body>
+    <noscript>Turn on JavaScript to use JSCI Ministry.</noscript>
+    <div id="boot" aria-label="Loading JSCI Ministry">
+      <img src="/ministrysystem/icons/logo.png" alt="" />
+      <div class="name">JSCI Ministry</div>
+      <div class="dots"><span></span><span></span><span></span></div>
+    </div>
+    <div id="root"></div>
+  <script src="/ministrysystem/_expo/static/js/web/index-05145bed2dfeca8252407cb9f53419de.js" defer></script>
+</body>
+</html>
