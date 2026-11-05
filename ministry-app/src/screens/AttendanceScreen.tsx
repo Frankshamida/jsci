@@ -1,6 +1,6 @@
 // Attendance: check yourself in at church by GPS, see who of today's lineup
 // (and the Media team) is already here, and your own attendance history.
-// Check-in opens on a service or practice day, within 1.5 km of the church;
+// Check-in opens on a service or practice day, within 30 m of the church;
 // the server measures the distance again before it saves anything.
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Linking, Platform, Pressable, Text, View } from 'react-native';
@@ -11,7 +11,7 @@ import { IS_WEB, isIosWeb } from '../platform';
 import { useSession } from '../session';
 import { useDialog } from '../dialog';
 import {
-  CHURCH, CHURCH_MAPS_URL, CHURCH_STREET_VIEW, attendanceApi, distanceMeters, kmText, useAttendance,
+  CHURCH, CHURCH_MAPS_URL, CHURCH_STREET_VIEW, WORST_ACCURACY_M, attendanceApi, closeEnough, distanceMeters, distanceText, useAttendance,
   type AttendanceData, type AttendanceItem, type ChurchEvent, type RosterGroup,
 } from '../attendance';
 import { Avatar, Button, Card, Chip, EmptyState, Icon, LoadingView, Screen, SectionTitle, StatusBadge, statusColor, type IconName } from '../components';
@@ -52,8 +52,8 @@ export default function AttendanceScreen() {
 
   const radiusM = data.church?.radiusM || CHURCH.radiusM;
   const distance = gps.fix ? distanceMeters(gps.fix.latitude, gps.fix.longitude, CHURCH.latitude, CHURCH.longitude) : null;
-  const weakSignal = !!gps.fix?.accuracy && gps.fix.accuracy > radiusM;
-  const within = distance != null && distance <= radiusM && !weakSignal;
+  const weakSignal = !!gps.fix?.accuracy && gps.fix.accuracy > WORST_ACCURACY_M;
+  const within = distance != null && closeEnough(distance, gps.fix?.accuracy ?? null, radiusM) && !weakSignal;
   const canCheckIn = within && !!data.event && !data.me && gps.state === 'ready';
 
   const checkIn = async () => {
@@ -162,7 +162,7 @@ function useChurchDistance() {
         const last = await Location.getLastKnownPositionAsync({ maxAge: 2 * 60 * 1000 }).catch(() => null);
         if (last) take(last);
         const watch = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.High, distanceInterval: 20, timeInterval: 5000 },
+          { accuracy: Location.Accuracy.High, distanceInterval: 3, timeInterval: 3000 }, // 30 m needs a close watch
           take,
         );
         if (cancelled) watch.remove(); else sub = watch;
@@ -265,12 +265,12 @@ function DistanceStatus({ state, distance, within, weak, accuracy, onTurnOn, onR
         </View>
         <View style={s.flex}>
           <Text style={[s.locTitle, { color: within ? c.success : c.text }]}>
-            {distance < 100 ? "You're at church" : `You are ${kmText(distance)} from church`}
+            {within ? "You're at church" : `You are ${distanceText(distance)} from church`}
           </Text>
           <Text style={[s.muted, { color: tone }]}>
             {weak
-              ? `Weak GPS signal (±${kmText(accuracy || 0)}). Step outside for a better fix.`
-              : within ? 'You are close enough to check in.' : `Check-in opens within ${kmText(radiusM)}.`}
+              ? `Weak GPS signal (±${distanceText(accuracy || 0)}). Step near a door or window for a better fix.`
+              : within ? 'You are close enough to check in.' : `Check-in opens within ${radiusM} m of the church.`}
           </Text>
         </View>
       </View>
@@ -279,23 +279,23 @@ function DistanceStatus({ state, distance, within, weak, accuracy, onTurnOn, onR
   );
 }
 
-// A track from 5 km away to the church; the check-in zone is green.
+// A track from 300 m away to the church; the check-in zone is green.
 function ProximityMeter({ distance, radiusM }: { distance: number; radiusM: number }) {
   const { colors: c } = useTheme();
   const s = useStyles();
-  const MAX = 5000;
+  const MAX = 300;
   const at = 1 - Math.min(distance, MAX) / MAX;
   const zone = 1 - radiusM / MAX;
   const inside = distance <= radiusM;
   return (
-    <View style={s.meterWrap} accessibilityLabel={`${kmText(distance)} from church`}>
+    <View style={s.meterWrap} accessibilityLabel={`${distanceText(distance)} from church`}>
       <View style={s.meter}>
         <View style={[s.meterZone, { left: `${zone * 100}%` }]} />
         <View style={[s.meterDot, { left: `${at * 100}%`, backgroundColor: inside ? c.success : c.secondary }]} />
       </View>
       <View style={s.meterLabels}>
-        <Text style={s.meterLabel}>5 km+</Text>
-        <Text style={[s.meterLabel, { position: 'absolute', left: `${zone * 100}%`, marginLeft: -16 }]}>{kmText(radiusM)}</Text>
+        <Text style={s.meterLabel}>{MAX} m+</Text>
+        <Text style={[s.meterLabel, { position: 'absolute', left: `${zone * 100}%`, marginLeft: -26 }]}>{radiusM} m</Text>
         <Icon name="church" size={11} color={c.textMuted} />
       </View>
     </View>
@@ -315,7 +315,7 @@ function CheckedIn({ me }: { me: NonNullable<AttendanceData['me']> }) {
       <View style={s.flex}>
         <Text style={[s.locTitle, { color: tone }]}>{here ? `Checked in${me.checkedInAt ? ` at ${timeText(me.checkedInAt)}` : ''}` : `Marked ${me.status} today`}</Text>
         <Text style={s.muted}>
-          {[me.sessionType, me.distanceM != null ? `${me.distanceM < 1000 ? `${me.distanceM} m` : kmText(me.distanceM)} from church` : null].filter(Boolean).join(' · ') || 'See you inside!'}
+          {[me.sessionType, me.distanceM != null ? `${distanceText(me.distanceM)} from church` : null].filter(Boolean).join(' · ') || 'See you inside!'}
         </Text>
       </View>
     </View>
@@ -379,7 +379,7 @@ const ChurchPreview = memo(function ChurchPreview() {
         <Icon name="location-dot" size={15} color={c.goldText} />
         <View style={s.flex}>
           <Text style={s.previewName} numberOfLines={1}>{CHURCH.name}</Text>
-          <Text style={s.previewHint}>Check in within {kmText(CHURCH.radiusM)} of the church</Text>
+          <Text style={s.previewHint}>Check in within {CHURCH.radiusM} m of the church</Text>
         </View>
         <Pressable onPress={() => Linking.openURL(CHURCH_MAPS_URL).catch(() => {})} hitSlop={8} style={s.mapsLink} accessibilityRole="link">
           <Icon name="map-location-dot" size={13} color={c.info} />

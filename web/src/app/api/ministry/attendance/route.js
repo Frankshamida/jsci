@@ -8,7 +8,8 @@ import { limit, tooManyRequests } from '@/lib/rateLimiter';
 // JSCI Ministry app - attendance by GPS
 // On a service or practice day, a Ministry Member at church marks themself
 // present from the app. The phone sends where it is; the server works out
-// the distance to the church itself and allows it only within 1.5 km.
+// the distance to the church itself and allows it only within 30 m (plus up
+// to 20 m for the phone's GPS error, which indoors is often 10-20 m).
 //
 // GET   today's event, who of its lineup (and the Media team) is already
 //       here, your own check-in, and your attendance history
@@ -18,9 +19,13 @@ import { limit, tooManyRequests } from '@/lib/rateLimiter';
 const CHURCH = {
   latitude: 10.319767311613345,
   longitude: 123.8992883502071,
-  radiusM: 1500,
+  radiusM: 30,
   name: 'Joyful Sound Church International',
 };
+// GPS is never exact: the error the phone reports is allowed for, up to this.
+const GPS_MARGIN_M = 20;
+// A fix worse than this cannot tell 30 m from across the street.
+const WORST_ACCURACY_M = 100;
 
 const HERE = ['Present', 'Late'];
 const bad = (message, status = 400) => NextResponse.json({ success: false, message }, { status });
@@ -45,7 +50,8 @@ function clock(t) {
   return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
-const kmText = (m) => `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km`;
+// "25 m", "350 m", "1.2 km"
+const distanceText = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km`);
 
 /**
  * Today's service or practice, and the next one after today.
@@ -216,8 +222,8 @@ export async function POST(request) {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
     return bad('Your location could not be read. Turn on location and try again.');
   }
-  if (accuracy != null && Number.isFinite(accuracy) && accuracy > CHURCH.radiusM) {
-    return bad('Your GPS signal is too weak. Step outside and try again.');
+  if (accuracy != null && Number.isFinite(accuracy) && accuracy > WORST_ACCURACY_M) {
+    return bad('Your GPS signal is too weak. Step near a door or window and try again.');
   }
 
   try {
@@ -226,8 +232,9 @@ export async function POST(request) {
     if (!event) return bad('There is no service or practice today. Check-in opens on the day.');
 
     const distance = Math.round(distanceM(latitude, longitude, CHURCH.latitude, CHURCH.longitude));
-    if (distance > CHURCH.radiusM) {
-      return bad(`You are ${kmText(distance)} from church. Check-in opens within 1.5 km.`);
+    const margin = Math.min(Number.isFinite(accuracy) ? Math.max(accuracy, 0) : 0, GPS_MARGIN_M);
+    if (distance - margin > CHURCH.radiusM) {
+      return bad(`You are ${distanceText(distance)} from church. Check in when you are at church (within ${CHURCH.radiusM} m).`);
     }
 
     const { data: existing } = await supabaseAdmin.from('attendance').select('id').eq('user_id', user.id).eq('event_date', today).maybeSingle();

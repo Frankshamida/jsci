@@ -52,9 +52,17 @@ export interface AttendanceData {
 export const CHURCH = {
   latitude: 10.319767311613345,
   longitude: 123.8992883502071,
-  radiusM: 1500,
+  radiusM: 30,
   name: 'Joyful Sound Church International',
 };
+
+// The server's rule (web/src/app/api/ministry/attendance/route.js): within
+// 30 m of the church, allowing up to 20 m for the GPS error the phone reports;
+// a fix worse than 100 m is too weak to tell.
+export const GPS_MARGIN_M = 20;
+export const WORST_ACCURACY_M = 100;
+export const closeEnough = (distance: number, accuracy: number | null, radiusM = CHURCH.radiusM) =>
+  distance - Math.min(Math.max(accuracy || 0, 0), GPS_MARGIN_M) <= radiusM;
 
 export const CHURCH_MAPS_URL = `https://www.google.com/maps/search/?api=1&query=${CHURCH.latitude},${CHURCH.longitude}`;
 export const CHURCH_STREET_VIEW = 'https://www.google.com/maps/embed?pb=!3m2!1sen!2sph!4v1793867952075!5m2!1sen!2sph!6m8!1m7!1sdo9Akv3QAW6kJETCDEd_HQ!2m2!1d10.31957203889858!2d123.8994707404156!3f239.81294!4f-1.8889599999999973!5f0.7820865974627469';
@@ -68,11 +76,11 @@ export function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: n
   return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// "0.4 km", "12 km"; near the 1.5 km edge two decimals, so 1.54 km never reads as 1.5.
-export function kmText(m: number): string {
-  if (m >= 10000) return `${Math.round(m / 1000)} km`;
-  if (m > 1400 && m < 1650) return `${(m / 1000).toFixed(2)} km`;
-  return `${(m / 1000).toFixed(1)} km`;
+// "25 m", "350 m", "1.2 km", "12 km"
+export function distanceText(m: number): string {
+  if (m < 1000) return `${Math.round(m)} m`;
+  if (m < 10000) return `${(m / 1000).toFixed(1)} km`;
+  return `${Math.round(m / 1000)} km`;
 }
 
 export const attendanceApi = {

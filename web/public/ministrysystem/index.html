@@ -43,13 +43,16 @@
         touch-action: manipulation;
       }
       input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
-      #root { display: flex; height: 100%; flex: 1; }
+      /* The app fills exactly the screen it is on: --app-height is measured by
+         the script below (an iPhone Home Screen app is the whole screen, which
+         a plain 100% falls short of there by about the status bar). */
+      #root { display: flex; flex: 1; position: fixed; top: 0; left: 0; right: 0; height: var(--app-height, 100%); }
       @media (prefers-color-scheme: dark) { body { background: #1a1a2e; } }
 
       /* A computer: the app as a phone-wide column in the middle. */
       @media (min-width: 640px) {
         body { background: #e9ecf1; }
-        #root { max-width: 480px; margin: 0 auto; box-shadow: 0 0 40px rgba(0, 0, 0, 0.12); position: relative; }
+        #root { max-width: 480px; margin: 0 auto; box-shadow: 0 0 40px rgba(0, 0, 0, 0.12); }
       }
       @media (min-width: 640px) and (prefers-color-scheme: dark) { body { background: #10101e; } }
 
@@ -75,6 +78,27 @@
 <link rel="icon" href="/ministrysystem/favicon.ico" /></head>
 
   <body>
+    <script>
+      // The app's height: the browser's own, except from the iPhone Home
+      // Screen, where the app is the whole screen whatever the iPhone's size.
+      (function () {
+        var nav = navigator;
+        var ios = /iphone|ipad|ipod/i.test(nav.userAgent) || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
+        var standalone = nav.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+        function fit() {
+          var h = window.innerHeight;
+          if (ios && standalone) {
+            var portrait = window.innerWidth <= window.innerHeight;
+            var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+            if (full > h) h = full;
+          }
+          document.documentElement.style.setProperty('--app-height', h + 'px');
+        }
+        fit();
+        window.addEventListener('resize', fit);
+        window.addEventListener('orientationchange', function () { setTimeout(fit, 300); });
+      })();
+    </script>
     <noscript>Turn on JavaScript to use JSCI Ministry.</noscript>
     <div id="boot" aria-label="Loading JSCI Ministry">
       <img src="/ministrysystem/icons/logo.png" alt="" />
@@ -82,6 +106,6 @@
       <div class="dots"><span></span><span></span><span></span></div>
     </div>
     <div id="root"></div>
-  <script src="/ministrysystem/_expo/static/js/web/index-05145bed2dfeca8252407cb9f53419de.js" defer></script>
+  <script src="/ministrysystem/_expo/static/js/web/index-27662e2f8731cd69f8f41a281b20a1cf.js" defer></script>
 </body>
 </html>

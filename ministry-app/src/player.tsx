@@ -223,7 +223,8 @@ export function MiniPlayer({ onTabs, tabBarHeight }: { onTabs: boolean; tabBarHe
   if (!player?.current || !engine?.firstVideo) return null;
 
   const { current, state, error, expanded, queue, index } = player;
-  const bottom = (onTabs ? tabBarHeight + insets.bottom : insets.bottom) + space.sm;
+  // tabBarHeight is the whole tab bar, home-indicator room included.
+  const bottom = (onTabs ? tabBarHeight : insets.bottom) + space.sm;
   const playing = state === 'playing';
   const progress = duration ? Math.min(1, position / duration) : 0;
   const hasNext = index < queue.length - 1;
