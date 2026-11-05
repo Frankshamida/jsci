@@ -3,6 +3,16 @@
 Each section is the release note shown on sanctuaryhub.vercel.app/ministrymobileapp.
 Add a section for a new version before running `npm run release`.
 
+## 1.3.1
+
+- Attendance: check in within 30 m of the church (with a small allowance for GPS error indoors); distances now in metres
+- Tap anywhere on a song to play it
+- The Musicians tab name is no longer cut off
+- The welcome reads "this Sunday, November 8"
+- Group chats and teammates always show their names
+- Smoother animations and a tidier tab bar
+- The same app is now on iPhone: open sanctuaryhub.vercel.app/ministrysystem in Safari and Add to Home Screen
+
 ## 1.3.0
 
 - Home has a month calendar: go back to past months or ahead, and see your status on every Sunday - serving, REST, excused, covered by a sub, or waiting for approval

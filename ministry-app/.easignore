@@ -13,3 +13,6 @@ ios/
 *.key
 *.mobileprovision
 .env*.local
+
+# Web app build (npm run build:web)
+dist-web/
