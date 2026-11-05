@@ -24,7 +24,8 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = process.env.MINISTRY_APP_REPO || 'Frankshamida/jsci';
-const PAGE = 'https://sanctuaryhub.vercel.app/ministrymobileapp';
+const SITE = 'https://sanctuaryhub.vercel.app';
+const PAGE = `${SITE}/ministrymobileapp`;
 const publishOnly = process.argv.includes('--publish');
 
 const fail = (message) => { console.error(`\n✖ ${message}\n`); process.exit(1); };
@@ -79,8 +80,14 @@ const asset = await gh(uploadUrl, {
 });
 fs.rmSync(apkPath, { force: true });
 
+// The download page shows it now, not in 5 minutes.
+step('Refreshing the download page');
+const refreshed = await fetch(`${SITE}/api/ministry/app-release`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+  .then((r) => r.json()).catch(() => null);
+console.log(refreshed?.success ? `  ${refreshed.message}` : `  Not refreshed (${refreshed?.message || 'no answer'}) - it updates by itself within 5 minutes.`);
+
 console.log(`\n✔ JSCI Ministry ${version} is published.`);
-console.log(`  Download page: ${PAGE}   (updates within 5 minutes)`);
+console.log(`  Download page: ${PAGE}`);
 console.log(`  Always-latest link: ${PAGE}/download`);
 console.log(`  This file: ${asset.browser_download_url}\n`);
 
@@ -96,9 +103,11 @@ function changelogFor(v) {
 }
 
 function eas(args, { quiet = false } = {}) {
-  const res = spawnSync('eas', args, {
+  // One command line (the arguments are fixed words), run through the shell so
+  // Windows finds eas.cmd.
+  const res = spawnSync(['eas', ...args].join(' '), {
     cwd: ROOT,
-    shell: process.platform === 'win32',
+    shell: true,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', quiet ? 'pipe' : 'inherit'],
     env: { ...process.env, EAS_NO_VCS: '1' }, // upload this folder as it is
