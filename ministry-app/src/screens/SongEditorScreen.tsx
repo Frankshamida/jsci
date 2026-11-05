@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image, Pressable, Text, View } from 'react-native';
 import { useSession } from '../session';
 import { useLineup } from '../lineups';
 import { api } from '../api';
 import type { StackProps } from '../routes';
-import { Banner, Button, Card, ChoiceRow, EmptyState, Field, Screen } from '../components';
-import { colors, font, radius, space } from '../theme';
+import { useDialog } from '../dialog';
+import { Banner, Button, Card, ChoiceRow, EmptyState, Field, Icon, Screen, type IconName } from '../components';
+import { font, fonts, makeStyles, radius, space, useTheme } from '../theme';
 import { longDate, youtubeId, youtubeThumb } from '../utils';
 import type { Song } from '../types';
 
@@ -14,7 +14,6 @@ import type { Song } from '../types';
 const MAX_SONGS = 10;
 type ListKey = 'slow' | 'fast';
 const LISTS: ListKey[] = ['slow', 'fast'];
-const LIST_LABEL: Record<ListKey, string> = { slow: 'Slow Songs', fast: 'Fast Songs' };
 
 const blank = (): Song => ({ title: '', link: '', instructions: '' });
 const linkError = (link: string) => (link.trim() && !/^https?:\/\//i.test(link.trim()) ? 'Paste the full link, starting with https://' : null);
@@ -23,6 +22,9 @@ export default function SongEditorScreen({ route, navigation }: StackProps<'Song
   const { scheduleId } = route.params;
   const lineup = useLineup(scheduleId);
   const { refresh } = useSession();
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const dialog = useDialog();
 
   const [lists, setLists] = useState<Record<ListKey, Song[]>>(() => ({
     slow: lineup?.slowSongs.length ? lineup.slowSongs.map((x) => ({ ...x })) : [blank()],
@@ -38,15 +40,15 @@ export default function SongEditorScreen({ route, navigation }: StackProps<'Song
   useEffect(() => navigation.addListener('beforeRemove', (e) => {
     if (!dirty.current || leaving.current) return;
     e.preventDefault();
-    Alert.alert('Discard changes?', 'Your song changes are not saved yet.', [
-      { text: 'Keep editing', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
-    ]);
-  }), [navigation]);
+    dialog.confirm({
+      icon: 'triangle-exclamation', tone: 'danger', title: 'Discard changes?',
+      message: 'Your song changes are not saved yet.', confirmText: 'Discard', cancelText: 'Keep editing',
+    }).then((ok) => { if (ok) { leaving.current = true; navigation.dispatch(e.data.action); } });
+  }), [navigation, dialog]);
 
-  if (!lineup) return <Screen stacked><EmptyState icon="alert-circle-outline" title="Lineup not found" /></Screen>;
+  if (!lineup) return <Screen stacked><EmptyState icon="circle-exclamation" title="Lineup not found" /></Screen>;
   if (!lineup.isSongLeader) {
-    return <Screen stacked><EmptyState icon="lock-closed-outline" title="Song Leader only" text="Only the Song Leader of this lineup can set its songs." /></Screen>;
+    return <Screen stacked><EmptyState icon="lock" title="Song Leader only" text="Only the Song Leader of this lineup can set its songs." /></Screen>;
   }
 
   const edit = (list: ListKey, update: (songs: Song[]) => Song[]) => {
@@ -98,11 +100,14 @@ export default function SongEditorScreen({ route, navigation }: StackProps<'Song
         return (
           <Card key={`${tab}-${i}`}>
             <View style={s.songHead}>
-              <Text style={s.songNumber}>{LIST_LABEL[tab].replace('Songs', 'Song')} {i + 1}</Text>
+              <View style={s.songTag}>
+                <Icon name={tab === 'slow' ? 'leaf' : 'bolt'} size={11} color={c.goldText} />
+                <Text style={s.songNumber}>{tab === 'slow' ? 'Slow' : 'Fast'} song {i + 1}</Text>
+              </View>
               <View style={s.tools}>
-                <IconBtn icon="arrow-up" label="Move up" disabled={i === 0} onPress={() => move(i, -1)} />
-                <IconBtn icon="arrow-down" label="Move down" disabled={i === songs.length - 1} onPress={() => move(i, 1)} />
-                <IconBtn icon="trash-outline" label="Remove song" onPress={() => remove(i)} danger />
+                <ToolButton icon="arrow-up" label="Move up" disabled={i === 0} onPress={() => move(i, -1)} />
+                <ToolButton icon="arrow-down" label="Move down" disabled={i === songs.length - 1} onPress={() => move(i, 1)} />
+                <ToolButton icon="trash-can" label="Remove song" onPress={() => remove(i)} danger />
               </View>
             </View>
             <Field label="Title" value={song.title} onChangeText={(v) => setField(i, 'title', v)} placeholder="e.g. Way Maker" maxLength={120} autoCapitalize="words" />
@@ -120,6 +125,7 @@ export default function SongEditorScreen({ route, navigation }: StackProps<'Song
             {vid && (
               <View style={s.preview}>
                 <Image source={{ uri: youtubeThumb(vid) }} style={s.thumb} />
+                <Icon name="youtube" size={16} color="#ff0033" />
                 <Text style={s.previewText}>YouTube video found</Text>
               </View>
             )}
@@ -129,39 +135,40 @@ export default function SongEditorScreen({ route, navigation }: StackProps<'Song
       })}
 
       {songs.length < MAX_SONGS ? (
-        <Button title={`Add a ${tab === 'slow' ? 'slow' : 'fast'} song`} icon="add" variant="ghost" onPress={() => edit(tab, (list) => [...list, blank()])} />
+        <Button title={`Add a ${tab === 'slow' ? 'slow' : 'fast'} song`} icon="plus" variant="ghost" onPress={() => edit(tab, (list) => [...list, blank()])} />
       ) : (
         <Text style={s.help}>That is the most songs for one list ({MAX_SONGS}).</Text>
       )}
 
       <View style={s.saveArea}>
         {error && <Banner tone="danger" text={error} />}
-        <Button title="Save Songs" icon="checkmark" onPress={save} loading={saving} />
+        <Button title="Save Songs" icon="check" onPress={save} loading={saving} />
       </View>
     </Screen>
   );
 }
 
-function IconBtn({ icon, label, onPress, disabled, danger }: {
-  icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void; disabled?: boolean; danger?: boolean;
-}) {
+function ToolButton({ icon, label, onPress, disabled, danger }: { icon: IconName; label: string; onPress: () => void; disabled?: boolean; danger?: boolean }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
   return (
-    <Pressable onPress={onPress} disabled={disabled} hitSlop={6} accessibilityRole="button" accessibilityLabel={label} style={[s.iconBtn, disabled && s.iconOff]}>
-      <Ionicons name={icon} size={17} color={danger ? colors.danger : colors.textSecondary} />
+    <Pressable onPress={onPress} disabled={disabled} hitSlop={6} accessibilityRole="button" accessibilityLabel={label} style={[s.toolBtn, disabled && s.toolOff]}>
+      <Icon name={icon} size={13} color={danger ? c.danger : c.textSecondary} />
     </Pressable>
   );
 }
 
-const s = StyleSheet.create({
-  date: { color: colors.text, fontSize: font.xl, fontWeight: '900' },
-  help: { color: colors.textSecondary, fontSize: font.sm, lineHeight: 19, marginVertical: space.sm },
+const useStyles = makeStyles((c) => ({
+  date: { color: c.text, fontSize: font.xl, fontFamily: fonts.bold },
+  help: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular, lineHeight: 19, marginVertical: space.sm },
   songHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.sm },
-  songNumber: { color: colors.goldLight, fontSize: font.sm, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+  songTag: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  songNumber: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.bold, textTransform: 'uppercase', letterSpacing: 1 },
   tools: { flexDirection: 'row', gap: 4 },
-  iconBtn: { width: 34, height: 34, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
-  iconOff: { opacity: 0.3 },
-  preview: { flexDirection: 'row', alignItems: 'center', gap: space.md, marginTop: -4, marginBottom: space.md },
-  thumb: { width: 96, height: 54, borderRadius: radius.sm, backgroundColor: colors.surface },
-  previewText: { color: colors.success, fontSize: font.sm, fontWeight: '700' },
+  toolBtn: { width: 34, height: 34, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: c.input, borderWidth: 1, borderColor: c.border },
+  toolOff: { opacity: 0.35 },
+  preview: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: -4, marginBottom: space.md },
+  thumb: { width: 96, height: 54, borderRadius: radius.sm, backgroundColor: c.input },
+  previewText: { color: c.success, fontSize: font.sm, fontFamily: fonts.semibold },
   saveArea: { marginTop: space.lg },
-});
+}));

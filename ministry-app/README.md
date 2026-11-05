@@ -43,13 +43,29 @@ eas build -p ios --profile production     # needs an Apple Developer account
   minute), with a 10-minute cap so it fits the upload limit.
 - **YouTube previews:** the thumbnails are plain image links (`i.ytimg.com`), not the
   YouTube API.
-- **Smaller app:** only the Ionicons font is bundled, and release builds are minified
-  and shrunk.
+- **Smaller app:** only the fonts in use are bundled (Font Awesome 6 and five Outfit
+  weights), and release builds are minified and shrunk.
+
+## Look
+
+The app uses the website's look:
+- **Colours:** from `web/src/app/dashboard/dashboard.css`, in light and dark versions.
+- **Icons:** Font Awesome 6, the same ones the website uses.
+- **Font:** Outfit.
+
+**Light and dark mode:** the app follows the phone's setting. People can change it in
+Profile → Appearance, or with the moon/sun button on Home and on the sign-in screen.
+
+**Android:** the Home and Back buttons are hidden. Swiping up from the bottom shows them
+for a moment.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
+| `src/theme.tsx` | Palettes (light/dark), fonts, `useTheme`, `makeStyles` |
+| `src/icons.tsx` | The Font Awesome icons the app uses |
+| `src/keyboard.tsx` | Keeps the field being typed in above the keyboard |
 | `src/session.tsx` | Sign-in, the cached dashboard, the fingerprint lock |
 | `src/api.ts` | All server calls |
 | `src/recordings.ts` | Practice recordings, cached per lineup |

@@ -388,3 +388,7 @@ body.dark-mode .mp-person.away:not(.on) .mp-person-name { text-decoration-color:
 body.dark-mode .mp-sum-band,
 body.dark-mode .mp-panel-band .mp-panel-head i,
 body.dark-mode .mp-slot-inline .mp-slot-head i { color: #b69cf0; }
+
+/* Two accounts with one name: shown above the month until one is renamed. */
+.mp-twin-note { margin: 0 0 12px; }
+.mp-tag-clash i { font-size: 0.85em; margin-right: 2px; }

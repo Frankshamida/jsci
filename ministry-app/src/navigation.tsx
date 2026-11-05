@@ -1,13 +1,14 @@
-import React from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { DarkTheme, NavigationContainer } from '@react-navigation/native';
+import React, { useMemo } from 'react';
+import { Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DarkTheme, DefaultTheme, NavigationContainer, type Theme as NavTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { RootStackParams, TabParams } from './routes';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSession } from './session';
-import { colors } from './theme';
-import type { IconName } from './components';
+import { fonts, useTheme } from './theme';
+import { Icon, type IconName } from './icons';
+import { LoadingView } from './components';
 import LoginScreen from './screens/LoginScreen';
 import LockScreen from './screens/LockScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -22,25 +23,42 @@ import RequestFormScreen from './screens/RequestFormScreen';
 const Stack = createNativeStackNavigator<RootStackParams>();
 const Tab = createBottomTabNavigator<TabParams>();
 
-const TAB_ICONS: Record<keyof TabParams, [IconName, IconName]> = {
-  Home: ['home', 'home-outline'],
-  Requests: ['swap-horizontal', 'swap-horizontal-outline'],
-  Attendance: ['checkmark-done-circle', 'checkmark-done-circle-outline'],
-  Profile: ['person-circle', 'person-circle-outline'],
+// The website's sidebar icons for the same pages.
+const TAB_ICONS: Record<keyof TabParams, IconName> = {
+  Home: 'house',
+  Requests: 'people-arrows',
+  Attendance: 'clipboard-check',
+  Profile: 'user',
 };
 
+// A tall, clear tab bar: big icons, the open tab in a gold pill with a bold label.
 function Tabs() {
   const { home } = useSession();
+  const { colors: c } = useTheme();
+  const insets = useSafeAreaInsets();
   const openForMe = home?.openSubs.length || 0;
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: colors.goldLight,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: { backgroundColor: '#111122', borderTopColor: colors.border },
-        tabBarIcon: ({ focused, color, size }) => (
-          <Ionicons name={TAB_ICONS[route.name][focused ? 0 : 1]} size={size} color={color} />
+        tabBarActiveTintColor: c.goldText,
+        tabBarInactiveTintColor: c.textSecondary,
+        tabBarStyle: {
+          backgroundColor: c.surface,
+          borderTopColor: c.border,
+          height: 72 + insets.bottom,
+          paddingTop: 8,
+          paddingBottom: insets.bottom + 8,
+          boxShadow: c.scheme === 'light' ? '0px -4px 16px rgba(0, 0, 0, 0.06)' : undefined,
+        },
+        tabBarIconStyle: { width: 60, height: 34 },
+        tabBarIcon: ({ focused, color }) => (
+          <View style={{ width: 60, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: focused ? c.goldMuted : 'transparent' }}>
+            <Icon name={TAB_ICONS[route.name]} size={21} color={color} />
+          </View>
+        ),
+        tabBarLabel: ({ focused, color, children }) => (
+          <Text style={{ color, fontSize: 12, marginTop: 3, fontFamily: focused ? fonts.bold : fonts.medium }} numberOfLines={1}>{children}</Text>
         ),
       })}
     >
@@ -48,7 +66,7 @@ function Tabs() {
       <Tab.Screen
         name="Requests"
         component={RequestsScreen}
-        options={{ title: 'Excuse & Sub', tabBarBadge: openForMe || undefined, tabBarBadgeStyle: { backgroundColor: colors.info } }}
+        options={{ title: 'Excuse & Sub', tabBarBadge: openForMe || undefined, tabBarBadgeStyle: { backgroundColor: c.danger, color: '#ffffff', fontFamily: fonts.bold, fontSize: 11 } }}
       />
       <Tab.Screen name="Attendance" component={AttendanceScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
@@ -56,32 +74,33 @@ function Tabs() {
   );
 }
 
-const theme = {
-  ...DarkTheme,
-  colors: { ...DarkTheme.colors, background: colors.background, card: colors.surface, primary: colors.goldLight, text: colors.text, border: colors.border },
-};
-
 export default function RootNavigator() {
   const { status, locked } = useSession();
+  const { colors: c, scheme } = useTheme();
 
-  if (status === 'loading') {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={colors.gold} size="large" />
-      </View>
-    );
-  }
+  const navTheme = useMemo<NavTheme>(() => {
+    const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+    const face = (fontFamily: string) => ({ fontFamily, fontWeight: 'normal' as const });
+    return {
+      ...base,
+      colors: { ...base.colors, background: c.background, card: c.surface, primary: c.goldText, text: c.text, border: c.border, notification: c.danger },
+      fonts: { regular: face(fonts.regular), medium: face(fonts.medium), bold: face(fonts.bold), heavy: face(fonts.heavy) },
+    };
+  }, [c, scheme]);
+
+  if (status === 'loading') return <LoadingView />;
   if (status === 'signedOut') return <LoginScreen />;
   if (locked) return <LockScreen />;
 
   return (
-    <NavigationContainer theme={theme}>
+    <NavigationContainer theme={navTheme}>
       <Stack.Navigator
         screenOptions={{
-          headerStyle: { backgroundColor: colors.surface },
-          headerTintColor: colors.text,
-          headerTitleStyle: { fontWeight: '800' },
-          contentStyle: { backgroundColor: colors.background },
+          headerStyle: { backgroundColor: c.surface },
+          headerTintColor: c.goldText,
+          headerTitleStyle: { fontFamily: fonts.bold, color: c.text },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: c.background },
         }}
       >
         <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />

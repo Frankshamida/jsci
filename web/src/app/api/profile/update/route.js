@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { DASHBOARD_KEYS } from '@/lib/userRoles';
 import { formatPersonName } from '@/lib/eventFormat';
+import { accountWithName, fullNameKey, nameTakenForSelf } from '@/lib/nameClash';
 
 // GET - Fetch a user's public profile by userId (used when viewing another member)
 export async function GET(request) {
@@ -40,6 +41,15 @@ export async function POST(request) {
     // "frank DwEEZel gomez" is saved as "Frank Dweezel Gomez"
     if (firstname?.trim()) updateData.firstname = formatPersonName(firstname);
     if (lastname?.trim()) updateData.lastname = formatPersonName(lastname, { continues: true });
+    if (updateData.firstname || updateData.lastname) {
+      const { data: me } = await supabase.from('users').select('id, firstname, lastname').eq('email', email.trim().toLowerCase()).maybeSingle();
+      const nextFirst = updateData.firstname ?? me?.firstname;
+      const nextLast = updateData.lastname ?? me?.lastname;
+      if (me && fullNameKey(nextFirst, nextLast) !== fullNameKey(me.firstname, me.lastname)) {
+        const twin = await accountWithName(nextFirst, nextLast, me.id);
+        if (twin) return NextResponse.json({ success: false, message: nameTakenForSelf(twin) }, { status: 409 });
+      }
+    }
     if (birthdate !== undefined) updateData.birthdate = birthdate || null;
     if (life_verse !== undefined) updateData.life_verse = life_verse ? life_verse.trim() : null;
     // Where the account opens after signing in (Preferences > Start Dashboard).

@@ -96,6 +96,14 @@ export interface HomeData {
   substitutes: SubRequest[];
   openSubs: SubRequest[];
   attendance: AttendanceRecord[];
+  latestApp?: LatestApp | null; // the newest JSCI Ministry release, for the update notice
+}
+
+export interface LatestApp {
+  version: string;
+  apkUrl: string;
+  fileName: string;
+  publishedAt: string;
 }
 
 export interface Recording {

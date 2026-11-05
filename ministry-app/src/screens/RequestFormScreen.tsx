@@ -1,20 +1,22 @@
 import React, { useLayoutEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { Text, View } from 'react-native';
 import { useSession } from '../session';
 import { upcomingMine } from '../lineups';
 import { api } from '../api';
 import type { StackProps } from '../routes';
-import { Banner, Button, ChoiceRow, EmptyState, Field, Screen } from '../components';
-import { colors, font, space } from '../theme';
+import { Banner, Button, Card, ChoiceRow, EmptyState, Field, Icon, Screen } from '../components';
+import { font, fonts, makeStyles, space, useTheme } from '../theme';
 import { longDate, shortDate, upcomingSundays } from '../utils';
 import type { RoleType } from '../types';
 
 // Two forms in one:
-//   excuse  "I can't serve on this date" — the plotter leaves you off it
-//   sub     "I'm on this lineup but can't make it" — a teammate covers your part
+//   excuse  "I can't serve on this date" - the plotter leaves you off it
+//   sub     "I'm on this lineup but can't make it" - a teammate covers your part
 export default function RequestFormScreen({ route, navigation }: StackProps<'RequestForm'>) {
   const { mode } = route.params;
   const { home, profile, refresh } = useSession();
+  const { colors: c } = useTheme();
+  const s = useStyles();
   const isExcuse = mode === 'excuse';
 
   // Excuse: the coming Sundays and any other date you are on. Sub: your upcoming lineups.
@@ -46,11 +48,11 @@ export default function RequestFormScreen({ route, navigation }: StackProps<'Req
     navigation.setOptions({ title: isExcuse ? 'File an Excuse' : 'Ask for a Substitute' });
   }, [navigation, isExcuse]);
 
-  if (!home || !profile) return <Screen stacked><EmptyState icon="hourglass-outline" title="Loading…" /></Screen>;
+  if (!home || !profile) return <Screen stacked><EmptyState icon="hourglass-half" title="Loading…" /></Screen>;
   if (!dates.length) {
     return (
       <Screen stacked>
-        <EmptyState icon="calendar-outline" title="No upcoming lineups" text="You can ask for a substitute once you are plotted on a date." />
+        <EmptyState icon="calendar" title="No upcoming lineups" text="You can ask for a substitute once you are plotted on a date." />
       </Screen>
     );
   }
@@ -76,11 +78,14 @@ export default function RequestFormScreen({ route, navigation }: StackProps<'Req
 
   return (
     <Screen stacked>
-      <Text style={s.help}>
-        {isExcuse
-          ? 'Let the team know you cannot serve on a date. The admins review it, and the plotter leaves you off that lineup.'
-          : 'Ask a teammate to cover your part. Once an admin approves, it opens to teammates who can take it.'}
-      </Text>
+      <Card raised style={s.intro}>
+        <Icon name={isExcuse ? 'calendar-minus' : 'people-arrows'} size={20} color={c.goldText} />
+        <Text style={s.help}>
+          {isExcuse
+            ? 'Let the team know you cannot serve on a date. The admins review it, and the plotter leaves you off that lineup.'
+            : 'Ask a teammate to cover your part. Once an admin approves, it opens to teammates who can take it.'}
+        </Text>
+      </Card>
 
       <Text style={s.label}>Date</Text>
       <ChoiceRow
@@ -93,10 +98,10 @@ export default function RequestFormScreen({ route, navigation }: StackProps<'Req
       {isExcuse && <Text style={s.hint}>• marks dates you are already plotted on.</Text>}
 
       {roleOptions.length > 1 && (
-        <>
+        <View>
           <Text style={s.label}>Part</Text>
           <ChoiceRow options={roleOptions} value={role} onChange={setRoleType} />
-        </>
+        </View>
       )}
 
       <Field
@@ -110,14 +115,15 @@ export default function RequestFormScreen({ route, navigation }: StackProps<'Req
 
       {already && <Banner tone="warn" text={isExcuse ? `You already filed an excuse for this date (${already.status}).` : `You already asked for a substitute on this date (${already.status}).`} />}
       {error && <Banner tone="danger" text={error} />}
-      <Button title={isExcuse ? 'Send Excuse' : 'Ask for a Substitute'} icon="send" onPress={submit} loading={saving} disabled={!!already} />
+      <Button title={isExcuse ? 'Send Excuse' : 'Ask for a Substitute'} icon="paper-plane" onPress={submit} loading={saving} disabled={!!already} />
     </Screen>
   );
 }
 
-const s = StyleSheet.create({
-  help: { color: colors.textSecondary, fontSize: font.sm, lineHeight: 19, marginBottom: space.lg },
-  label: { color: colors.textSecondary, fontSize: font.sm, fontWeight: '700', marginBottom: 6 },
-  selected: { color: colors.goldLight, fontSize: font.sm, fontWeight: '700', marginTop: -4, marginBottom: space.sm },
-  hint: { color: colors.textMuted, fontSize: font.xs, marginBottom: space.md },
-});
+const useStyles = makeStyles((c) => ({
+  intro: { flexDirection: 'row', gap: space.md, alignItems: 'flex-start' },
+  help: { flex: 1, color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular, lineHeight: 19 },
+  label: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.semibold, marginBottom: 6, marginTop: space.sm },
+  selected: { color: c.goldText, fontSize: font.sm, fontFamily: fonts.semibold, marginTop: -4, marginBottom: space.sm },
+  hint: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, marginBottom: space.md },
+}));

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { requireMinistryUser, fullNameOf } from '@/lib/ministryAuth';
 import { ministryProfile, shapeLineup, coverableRoleTypes } from '@/lib/ministryApp';
+import { getLatestMinistryApp } from '@/lib/ministryAppRelease';
 
 const ymd = (d) => d.toISOString().slice(0, 10);
 
@@ -13,6 +14,7 @@ const ymd = (d) => d.toISOString().slice(0, 10);
 //   substitutes    their sub requests, and the ones they took
 //   openSubs       open sub requests they can cover
 //   attendance     their attendance records
+//   latestApp      the newest app version, so the app can say an update is out
 // The app caches this and asks again only on pull-to-refresh or after a change.
 export async function GET(request) {
   const auth = await requireMinistryUser(request);
@@ -24,7 +26,7 @@ export async function GET(request) {
     const since = ymd(new Date(Date.now() - 56 * 24 * 60 * 60 * 1000));
     const roleTypes = coverableRoleTypes(user.sub_role);
 
-    const [schedules, people, excuses, mySubs, openSubs, attendance] = await Promise.all([
+    const [schedules, people, excuses, mySubs, openSubs, attendance, latest] = await Promise.all([
       supabase.from('schedules').select('*').gte('schedule_date', since).order('schedule_date', { ascending: true }),
       supabase.from('users').select('firstname, lastname, profile_picture').eq('is_active', true).eq('ministry', 'Praise And Worship'),
       supabase.from('lineup_excuses').select('id, excuse_date, reason, status, role_type, created_at').eq('user_id', user.id).order('excuse_date', { ascending: false }).limit(40),
@@ -33,6 +35,7 @@ export async function GET(request) {
         ? supabase.from('lineup_substitutes').select('*').eq('status', 'Open for Sub').neq('requester_id', user.id).in('role_type', roleTypes).gte('schedule_date', today).order('schedule_date', { ascending: true })
         : Promise.resolve({ data: [] }),
       supabase.from('attendance').select('id, event_date, status, notes').eq('user_id', user.id).order('event_date', { ascending: false }).limit(60),
+      getLatestMinistryApp().catch(() => null), // cached on the server; never fails the dashboard
     ]);
     if (schedules.error) throw schedules.error;
 
@@ -69,6 +72,9 @@ export async function GET(request) {
         substitutes: (mySubs.data || []).map(shapeSub),
         openSubs: (openSubs.data || []).map(shapeSub),
         attendance: attendance.data || [],
+        latestApp: latest
+          ? { version: latest.version, apkUrl: latest.apk.url, fileName: latest.apk.name, publishedAt: latest.publishedAt }
+          : null,
       },
     });
   } catch (error) {

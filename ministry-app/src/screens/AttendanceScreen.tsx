@@ -1,17 +1,19 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useSession } from '../session';
-import { Card, EmptyState, Screen, SectionTitle, StatusBadge, statusColor } from '../components';
-import { colors, font, radius, space } from '../theme';
+import { Card, EmptyState, LoadingView, Screen, SectionTitle, StatusBadge, statusColor } from '../components';
+import { font, fonts, makeStyles, radius, space, useTheme } from '../theme';
 import { dayOfMonth, monthYear, weekday } from '../utils';
 import type { AttendanceRecord } from '../types';
 
 const ATTENDED = ['Present', 'Late'];
 
 export default function AttendanceScreen() {
-  const { home, refresh, refreshing } = useSession();
+  const { home, refresh } = useSession();
+  const { colors: c } = useTheme();
+  const s = useStyles();
 
-  if (!home) return <Screen><EmptyState icon="hourglass-outline" title="Loading…" /></Screen>;
+  if (!home) return <LoadingView message="Loading your attendance…" />;
   const records = home.attendance;
 
   // Counts and the rate over the records the server sent (the latest 60).
@@ -33,11 +35,11 @@ export default function AttendanceScreen() {
   const unmarked = home.assignments.filter((l) => l.date < home.today && !l.subbedOut && !marked.has(l.date)).length;
 
   return (
-    <Screen refreshing={refreshing} onRefresh={() => refresh(true)}>
+    <Screen onRefresh={() => refresh(true)}>
       <Text style={s.title}>Attendance</Text>
 
       {records.length === 0 ? (
-        <Card><EmptyState icon="checkmark-done-circle-outline" title="No attendance yet" text="Your attendance shows here once you are checked in at church." /></Card>
+        <Card><EmptyState icon="clipboard-check" title="No attendance yet" text="Your attendance shows here once you are checked in at church." /></Card>
       ) : (
         <>
           <Card style={s.summary}>
@@ -46,21 +48,24 @@ export default function AttendanceScreen() {
               <Text style={s.rateLabel}>attended</Text>
             </View>
             <View style={s.flex}>
-              <Stat label="Present" value={count('Present')} />
-              <Stat label="Late" value={count('Late')} />
-              <Stat label="Excused" value={count('Excused')} />
-              <Stat label="Absent" value={count('Absent')} />
+              {['Present', 'Late', 'Excused', 'Absent'].map((label) => (
+                <View key={label} style={s.stat}>
+                  <View style={[s.dot, { backgroundColor: statusColor(c, label) }]} />
+                  <Text style={s.statLabel}>{label}</Text>
+                  <Text style={s.statValue}>{count(label)}</Text>
+                </View>
+              ))}
             </View>
           </Card>
           <Text style={s.note}>Based on your latest {records.length} records.{unmarked ? ` ${unmarked} of your recent lineup dates ${unmarked === 1 ? 'is' : 'are'} not marked yet.` : ''}</Text>
 
           {months.map((m) => (
             <View key={m.label}>
-              <SectionTitle title={m.label} />
+              <SectionTitle title={m.label} icon="calendar" />
               <Card style={s.list}>
                 {m.items.map((r, i) => (
                   <View key={r.id} style={[s.row, i > 0 && s.divider]}>
-                    <View style={[s.dot, { backgroundColor: statusColor(r.status) }]} />
+                    <View style={[s.dot, { backgroundColor: statusColor(c, r.status) }]} />
                     <Text style={s.day}>{weekday(r.event_date)} {dayOfMonth(r.event_date)}</Text>
                     <Text style={s.notes} numberOfLines={1}>{r.notes || ''}</Text>
                     <StatusBadge status={r.status} />
@@ -75,31 +80,21 @@ export default function AttendanceScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={s.stat}>
-      <View style={[s.dot, { backgroundColor: statusColor(label) }]} />
-      <Text style={s.statLabel}>{label}</Text>
-      <Text style={s.statValue}>{value}</Text>
-    </View>
-  );
-}
-
-const s = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
-  title: { color: colors.text, fontSize: font.xxl, fontWeight: '900', marginTop: space.sm, marginBottom: space.md },
+  title: { color: c.text, fontSize: font.xxl, fontFamily: fonts.bold, marginTop: space.sm, marginBottom: space.md },
   summary: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
-  ring: { width: 104, height: 104, borderRadius: 52, borderWidth: 6, borderColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
-  rate: { color: colors.text, fontSize: font.xxl, fontWeight: '900' },
-  rateLabel: { color: colors.textSecondary, fontSize: font.xs },
+  ring: { width: 104, height: 104, borderRadius: 52, borderWidth: 6, borderColor: c.secondary, alignItems: 'center', justifyContent: 'center', backgroundColor: c.goldMuted },
+  rate: { color: c.text, fontSize: font.xxl, fontFamily: fonts.bold },
+  rateLabel: { color: c.textSecondary, fontSize: font.xs, fontFamily: fonts.regular },
   stat: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 3 },
-  statLabel: { flex: 1, color: colors.textSecondary, fontSize: font.sm },
-  statValue: { color: colors.text, fontSize: font.md, fontWeight: '800' },
-  note: { color: colors.textMuted, fontSize: font.xs, marginBottom: space.sm },
+  statLabel: { flex: 1, color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular },
+  statValue: { color: c.text, fontSize: font.md, fontFamily: fonts.bold },
+  note: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, marginBottom: space.sm },
   list: { paddingVertical: space.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 10 },
-  divider: { borderTopWidth: 1, borderTopColor: colors.border },
+  divider: { borderTopWidth: 1, borderTopColor: c.border },
   dot: { width: 8, height: 8, borderRadius: radius.pill },
-  day: { color: colors.text, fontSize: font.md, fontWeight: '700', width: 64 },
-  notes: { flex: 1, color: colors.textMuted, fontSize: font.xs },
-});
+  day: { color: c.text, fontSize: font.md, fontFamily: fonts.semibold, width: 64 },
+  notes: { flex: 1, color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular },
+}));

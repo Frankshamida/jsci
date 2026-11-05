@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import bcrypt from 'bcryptjs';
 import { formatAccountName } from '@/lib/eventFormat';
+import { accountWithName, nameTakenForSelf } from '@/lib/nameClash';
 
 // Signing up here creates an ordinary account in the SAME users table the main
 // registration writes to - the person can sign in on the main site with it
@@ -64,13 +65,18 @@ export async function POST(request) {
       }, { status: 409 });
     }
 
+    // One full name, one account: lineups record people by name.
+    const name = formatAccountName(firstname, lastname);
+    const twin = await accountWithName(name.firstname, name.lastname);
+    if (twin) return NextResponse.json({ success: false, message: nameTakenForSelf(twin) }, { status: 409 });
+
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const { data: newUser, error } = await supabase
       .from('users')
       .insert({
         // "frank DwEEZel gomez" is saved as "Frank Dweezel Gomez"
-        ...formatAccountName(firstname, lastname),
+        ...name,
         birthdate: birthdate || null,
         ministry: null,
         email: cleanEmail,

@@ -1,83 +1,87 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useSession } from '../session';
 import { useLineup } from '../lineups';
 import { useRecordings, invalidateRecordings } from '../recordings';
 import { api } from '../api';
 import type { StackProps } from '../routes';
-import { Avatar, Banner, Button, Card, Chip, EmptyState, Screen, SectionTitle, StatusBadge } from '../components';
-import { colors, font, partColor, radius, space } from '../theme';
+import { useDialog } from '../dialog';
+import { Avatar, Banner, Button, Card, Chip, EmptyState, Icon, Screen, SectionTitle, StatusBadge, type IconName } from '../components';
+import { font, fonts, makeStyles, partColor, radius, space, useTheme } from '../theme';
 import { formatClock, longDate, relativeDay, shortDate, youtubeId, youtubeThumb } from '../utils';
 import type { Person, Recording, Song } from '../types';
 
 export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>) {
   const { scheduleId } = route.params;
   const lineup = useLineup(scheduleId);
-  const { home, profile, refresh, refreshing } = useSession();
+  const { home, profile, refresh } = useSession();
+  const { colors: c } = useTheme();
+  const s = useStyles();
   const recordings = useRecordings(scheduleId);
 
   useEffect(() => { if (lineup) navigation.setOptions({ title: shortDate(lineup.date) }); }, [lineup, navigation]);
 
   if (!lineup || !home || !profile) {
-    return <Screen stacked><EmptyState icon="alert-circle-outline" title="Lineup not found" text="Pull down on Home to refresh, then try again." /></Screen>;
+    return <Screen stacked><EmptyState icon="circle-exclamation" title="Lineup not found" text="Pull down on Home to refresh, then try again." /></Screen>;
   }
 
   const past = lineup.date < home.today;
   const me = profile.fullName.toLowerCase();
   const isMe = (p: Person) => p.name.toLowerCase() === me;
   const myExcuse = home.excuses.find((e) => e.excuse_date === lineup.date && e.status !== 'Rejected');
-  const mySub = home.substitutes.find((s) => s.date === lineup.date && s.requesterId === profile.id && s.status !== 'Rejected');
+  const mySub = home.substitutes.find((x) => x.date === lineup.date && x.requesterId === profile.id && x.status !== 'Rejected');
   const canAct = lineup.mine && !past && !lineup.subbedOut;
+  const hasSongs = lineup.slowSongs.length + lineup.fastSongs.length > 0;
 
   return (
-    <Screen stacked refreshing={refreshing} onRefresh={() => { refresh(true); recordings.reload(); }}>
+    <Screen stacked onRefresh={() => Promise.all([refresh(true), recordings.reload()])}>
       <Text style={s.when}>{relativeDay(lineup.date, home.today)}</Text>
       <Text style={s.date}>{longDate(lineup.date)}</Text>
       {lineup.myParts.length > 0 && (
-        <View style={s.chips}>{lineup.myParts.map((p) => <Chip key={p} label={`You: ${p}`} color={partColor(p)} solid />)}</View>
+        <View style={s.chips}>{lineup.myParts.map((p) => <Chip key={p} label={`You: ${p}`} color={partColor(c, p)} solid />)}</View>
       )}
-      {lineup.subbedOut && <Banner tone="info" text={`A substitute is covering for you as Song Leader on this date.`} />}
+      {lineup.subbedOut && <Banner tone="info" icon="people-arrows" text="A substitute is covering for you as Song Leader on this date." />}
       {lineup.practiceDate && (
-        <Banner tone="info" icon="time-outline" text={`Practice: ${longDate(lineup.practiceDate)}${lineup.practiceTime ? ` at ${lineup.practiceTime}` : ''}`} />
+        <Banner tone="info" icon="calendar-check" text={`Practice: ${longDate(lineup.practiceDate)}${lineup.practiceTime ? ` at ${lineup.practiceTime}` : ''}`} />
       )}
 
       {/* Who is on */}
-      <SectionTitle title="Team" />
+      <SectionTitle title="Team" icon="users" />
       <Card>
-        {lineup.songLeader && <PersonRow person={lineup.songLeader} part="Song Leader" me={isMe(lineup.songLeader)} />}
+        {lineup.songLeader && <PersonRow person={lineup.songLeader} part="Song Leader" icon="microphone" me={isMe(lineup.songLeader)} />}
         {lineup.originalSongLeader && <Text style={s.subNote}>Substituting for {lineup.originalSongLeader}</Text>}
-        {lineup.backupSingers.map((p) => <PersonRow key={`b-${p.name}`} person={p} part="Backup Singer" me={isMe(p)} />)}
-        {lineup.musicians.map((p) => <PersonRow key={`m-${p.instrument}-${p.name}`} person={p} part={p.instrument} me={isMe(p)} />)}
-        {lineup.dancers.map((p) => <PersonRow key={`d-${p.name}`} person={p} part="Dancer" me={isMe(p)} />)}
+        {lineup.backupSingers.map((p) => <PersonRow key={`b-${p.name}`} person={p} part="Backup Singer" icon="users" me={isMe(p)} />)}
+        {lineup.musicians.map((p) => <PersonRow key={`m-${p.instrument}-${p.name}`} person={p} part={p.instrument} icon="guitar" me={isMe(p)} />)}
+        {lineup.dancers.map((p) => <PersonRow key={`d-${p.name}`} person={p} part="Dancer" icon="person-running" me={isMe(p)} />)}
         {!lineup.songLeader && !lineup.backupSingers.length && !lineup.musicians.length && <Text style={s.muted}>Nobody plotted yet.</Text>}
       </Card>
 
       {/* Songs */}
       <SectionTitle
         title="Songs"
-        action={lineup.isSongLeader && !past ? (lineup.slowSongs.length + lineup.fastSongs.length ? 'Edit' : 'Add') : undefined}
+        icon="music"
+        action={lineup.isSongLeader && !past ? (hasSongs ? 'Edit' : 'Add') : undefined}
         onAction={() => navigation.navigate('SongEditor', { scheduleId })}
       />
-      {lineup.slowSongs.length + lineup.fastSongs.length === 0 ? (
+      {!hasSongs ? (
         <Card>
           <EmptyState
-            icon="musical-notes-outline"
+            icon="music"
             title={lineup.isSongLeader ? 'Add the songs for your team' : 'No songs yet'}
             text={lineup.isSongLeader ? 'Your team sees them here as soon as you save.' : 'The Song Leader has not added the songs yet.'}
           />
-          {lineup.isSongLeader && !past && <Button title="Add Songs" icon="add" onPress={() => navigation.navigate('SongEditor', { scheduleId })} />}
+          {lineup.isSongLeader && !past && <Button title="Add Songs" icon="plus" onPress={() => navigation.navigate('SongEditor', { scheduleId })} />}
         </Card>
       ) : (
         <>
-          <SongGroup title="Slow Songs" icon="leaf-outline" songs={lineup.slowSongs} />
-          <SongGroup title="Fast Songs" icon="flash-outline" songs={lineup.fastSongs} />
+          <SongGroup title="Slow Songs" icon="leaf" songs={lineup.slowSongs} />
+          <SongGroup title="Fast Songs" icon="bolt" songs={lineup.fastSongs} />
         </>
       )}
 
       {/* Practice recordings */}
-      <SectionTitle title="Practice Recordings" />
+      <SectionTitle title="Practice Recordings" icon="microphone-lines" />
       <RecordingList
         list={recordings.list}
         error={recordings.error}
@@ -86,20 +90,20 @@ export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>
         onDeleted={() => { invalidateRecordings(scheduleId); recordings.reload(); }}
       />
       {lineup.mine && !lineup.subbedOut && (
-        <Button title="Record or Upload Practice" icon="mic-outline" variant="ghost" onPress={() => navigation.navigate('Recorder', { scheduleId })} />
+        <Button title="Record or Upload Practice" icon="microphone" variant="ghost" onPress={() => navigation.navigate('Recorder', { scheduleId })} />
       )}
 
       {/* Can't make it */}
       {canAct && (
         <>
-          <SectionTitle title="Can't make it?" />
+          <SectionTitle title="Can't make it?" icon="calendar-minus" />
           {myExcuse && <Card style={s.statusCard}><Text style={s.statusText}>Excuse filed</Text><StatusBadge status={myExcuse.status} /></Card>}
           {mySub && <Card style={s.statusCard}><Text style={s.statusText}>Substitute request</Text><StatusBadge status={mySub.status} label={mySub.status === 'Accepted' && mySub.substituteName ? `Covered by ${mySub.substituteName}` : mySub.status} /></Card>}
           {!myExcuse && !mySub && (
             <View style={s.actions}>
-              <Button title="File an Excuse" icon="document-text-outline" variant="secondary" style={s.flex}
+              <Button title="File an Excuse" icon="calendar-minus" variant="secondary" style={s.flex}
                 onPress={() => navigation.navigate('RequestForm', { mode: 'excuse', date: lineup.date, scheduleId })} />
-              <Button title="Ask for a Sub" icon="people-outline" variant="secondary" style={s.flex}
+              <Button title="Ask for a Sub" icon="people-arrows" variant="secondary" style={s.flex}
                 onPress={() => navigation.navigate('RequestForm', { mode: 'sub', scheduleId })} />
             </View>
           )}
@@ -109,27 +113,31 @@ export default function LineupScreen({ route, navigation }: StackProps<'Lineup'>
   );
 }
 
-function PersonRow({ person, part, me }: { person: Person; part: string; me: boolean }) {
+function PersonRow({ person, part, icon, me }: { person: Person; part: string; icon: IconName; me: boolean }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
   return (
     <View style={s.person}>
-      <Avatar name={person.name} picture={person.picture} size={36} ring={me ? colors.gold : undefined} />
+      <Avatar name={person.name} picture={person.picture} size={36} ring={me ? c.secondary : undefined} />
       <View style={s.flex}>
-        <Text style={[s.personName, me && s.personMe]}>{person.name}{me ? ' (You)' : ''}</Text>
+        <Text style={[s.personName, me && s.personMe]} numberOfLines={1}>{person.name}{me ? ' (You)' : ''}</Text>
       </View>
-      <Chip label={part} color={partColor(part)} />
+      <Chip label={part} icon={icon} color={partColor(c, part)} />
     </View>
   );
 }
 
-function SongGroup({ title, icon, songs }: { title: string; icon: React.ComponentProps<typeof Ionicons>['name']; songs: Song[] }) {
+function SongGroup({ title, icon, songs }: { title: string; icon: IconName; songs: Song[] }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
   if (!songs.length) return null;
   return (
     <Card>
-      <View style={s.groupHead}><Ionicons name={icon} size={16} color={colors.goldLight} /><Text style={s.groupTitle}>{title}</Text></View>
+      <View style={s.groupHead}><Icon name={icon} size={13} color={c.goldText} /><Text style={s.groupTitle}>{title}</Text></View>
       {songs.map((song, i) => {
         const vid = youtubeId(song.link);
         return (
-          <View key={`${song.title}-${i}`} style={[s.song, i > 0 && s.songDivider]}>
+          <View key={`${song.title}-${i}`} style={[s.song, i > 0 && s.divider]}>
             <Text style={s.songNumber}>{i + 1}</Text>
             <View style={s.flex}>
               <Text style={s.songTitle}>{song.title}</Text>
@@ -137,10 +145,13 @@ function SongGroup({ title, icon, songs }: { title: string; icon: React.Componen
               {vid ? (
                 <Pressable onPress={() => Linking.openURL(song.link)} style={s.thumbWrap} accessibilityRole="link" accessibilityLabel={`Play ${song.title} on YouTube`}>
                   <Image source={{ uri: youtubeThumb(vid) }} style={s.thumb} />
-                  <View style={s.thumbPlay}><Ionicons name="logo-youtube" size={30} color="#ff0033" /></View>
+                  <View style={s.thumbPlay}><Icon name="youtube" size={30} color="#ff0033" /></View>
                 </Pressable>
               ) : song.link ? (
-                <Pressable onPress={() => Linking.openURL(song.link)}><Text style={s.link}>Open link</Text></Pressable>
+                <Pressable onPress={() => Linking.openURL(song.link)} style={s.linkRow}>
+                  <Icon name="arrow-up-right-from-square" size={11} color={c.info} />
+                  <Text style={s.link}>Open link</Text>
+                </Pressable>
               ) : null}
             </View>
           </View>
@@ -154,6 +165,9 @@ function SongGroup({ title, icon, songs }: { title: string; icon: React.Componen
 function RecordingList({ list, error, loading, myId, onDeleted }: {
   list: Recording[] | null; error: string | null; loading: boolean; myId: string; onDeleted: () => void;
 }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const dialog = useDialog();
   const player = useAudioPlayer(null);
   const status = useAudioPlayerStatus(player);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -175,22 +189,21 @@ function RecordingList({ list, error, loading, myId, onDeleted }: {
     setActiveId(rec.id);
   };
 
-  const remove = (rec: Recording) => {
-    Alert.alert('Delete recording?', `"${rec.title}" will be removed for the whole team.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          if (activeId === rec.id) { player.pause(); setActiveId(null); }
-          const res = await api.deleteRecording(rec.id);
-          if (res.ok) onDeleted(); else Alert.alert('Could not delete', res.message);
-        },
-      },
-    ]);
+  const remove = async (rec: Recording) => {
+    const ok = await dialog.confirm({
+      icon: 'trash-can', tone: 'danger', title: 'Delete recording?',
+      message: `"${rec.title}" will be removed for the whole team.`, confirmText: 'Delete',
+    });
+    if (!ok) return;
+    if (activeId === rec.id) { player.pause(); setActiveId(null); }
+    const res = await api.deleteRecording(rec.id);
+    if (res.ok) onDeleted();
+    else dialog.alert({ icon: 'circle-exclamation', tone: 'danger', title: 'Could not delete', message: res.message });
   };
 
   if (error && !list) return <Banner tone="danger" text={error} />;
   if (!list) return <Card><Text style={s.muted}>{loading ? 'Loading recordings…' : ''}</Text></Card>;
-  if (!list.length) return <Card><Text style={s.muted}>No practice recordings yet.</Text></Card>;
+  if (!list.length) return <Card><EmptyState icon="headphones" title="No practice recordings yet" /></Card>;
 
   return (
     <Card>
@@ -198,9 +211,9 @@ function RecordingList({ list, error, loading, myId, onDeleted }: {
         const active = activeId === rec.id;
         const playing = active && status.playing;
         return (
-          <View key={rec.id} style={[s.rec, i > 0 && s.songDivider]}>
+          <View key={rec.id} style={[s.rec, i > 0 && s.divider]}>
             <Pressable onPress={() => toggle(rec)} style={[s.playBtn, active && s.playBtnOn]} accessibilityRole="button" accessibilityLabel={playing ? `Pause ${rec.title}` : `Play ${rec.title}`}>
-              <Ionicons name={playing ? 'pause' : 'play'} size={20} color={active ? colors.textOnGold : colors.goldLight} />
+              <Icon name={playing ? 'pause' : 'play'} size={15} color={active ? c.onGold : c.goldText} />
             </Pressable>
             <View style={s.flex}>
               <Text style={s.songTitle} numberOfLines={1}>{rec.title}</Text>
@@ -213,8 +226,8 @@ function RecordingList({ list, error, loading, myId, onDeleted }: {
               ) : null}
             </View>
             {rec.recorded_by === myId && (
-              <Pressable onPress={() => remove(rec)} hitSlop={10} accessibilityLabel={`Delete ${rec.title}`}>
-                <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+              <Pressable onPress={() => remove(rec)} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Delete ${rec.title}`}>
+                <Icon name="trash-can" size={15} color={c.textMuted} />
               </Pressable>
             )}
           </View>
@@ -224,33 +237,34 @@ function RecordingList({ list, error, loading, myId, onDeleted }: {
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
-  when: { color: colors.goldLight, fontSize: font.sm, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1 },
-  date: { color: colors.text, fontSize: font.xxl, fontWeight: '900', marginBottom: space.sm },
+  when: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.bold, textTransform: 'uppercase', letterSpacing: 1.2 },
+  date: { color: c.text, fontSize: font.xxl, fontFamily: fonts.bold, marginBottom: space.sm },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: space.md },
-  muted: { color: colors.textSecondary, fontSize: font.sm, lineHeight: 19 },
-  subNote: { color: colors.textMuted, fontSize: font.xs, marginLeft: 48, marginTop: -6, marginBottom: 6 },
+  muted: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular, lineHeight: 19 },
+  subNote: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, marginLeft: 48, marginTop: -6, marginBottom: 6 },
   person: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 7 },
-  personName: { color: colors.text, fontSize: font.md, fontWeight: '600' },
-  personMe: { color: colors.goldLight, fontWeight: '800' },
+  personName: { color: c.text, fontSize: font.md, fontFamily: fonts.medium },
+  personMe: { color: c.goldText, fontFamily: fonts.bold },
   groupHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: space.sm },
-  groupTitle: { color: colors.goldLight, fontSize: font.sm, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+  groupTitle: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.bold, textTransform: 'uppercase', letterSpacing: 1 },
   song: { flexDirection: 'row', gap: space.md, paddingVertical: space.sm },
-  songDivider: { borderTopWidth: 1, borderTopColor: colors.border },
-  songNumber: { color: colors.textMuted, fontSize: font.lg, fontWeight: '900', width: 18 },
-  songTitle: { color: colors.text, fontSize: font.md, fontWeight: '700' },
+  divider: { borderTopWidth: 1, borderTopColor: c.border },
+  songNumber: { color: c.textMuted, fontSize: font.lg, fontFamily: fonts.bold, width: 18 },
+  songTitle: { color: c.text, fontSize: font.md, fontFamily: fonts.semibold },
   thumbWrap: { marginTop: space.sm, borderRadius: radius.md, overflow: 'hidden', width: 200, height: 112 },
   thumb: { width: '100%', height: '100%' },
   thumbPlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' },
-  link: { color: colors.info, fontSize: font.sm, fontWeight: '700', marginTop: 4 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
+  link: { color: c.info, fontSize: font.sm, fontFamily: fonts.semibold },
   rec: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm },
-  playBtn: { width: 42, height: 42, borderRadius: 21, borderWidth: 1.5, borderColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
-  playBtnOn: { backgroundColor: colors.gold },
-  recMeta: { color: colors.textSecondary, fontSize: font.xs, marginTop: 2 },
-  progress: { height: 4, borderRadius: 2, backgroundColor: colors.border, marginTop: 6, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: colors.gold },
+  playBtn: { width: 42, height: 42, borderRadius: 21, borderWidth: 1.5, borderColor: c.secondary, alignItems: 'center', justifyContent: 'center' },
+  playBtnOn: { backgroundColor: c.secondary },
+  recMeta: { color: c.textSecondary, fontSize: font.xs, fontFamily: fonts.regular, marginTop: 2 },
+  progress: { height: 4, borderRadius: 2, backgroundColor: c.border, marginTop: 6, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: c.secondary },
   actions: { flexDirection: 'row', gap: space.sm },
   statusCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  statusText: { color: colors.text, fontSize: font.md, fontWeight: '700' },
-});
+  statusText: { color: c.text, fontSize: font.md, fontFamily: fonts.semibold },
+}));

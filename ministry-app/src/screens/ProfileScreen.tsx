@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
-import { Alert, Linking, StyleSheet, Switch, Text, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { Linking, Switch, Text, View } from 'react-native';
 import { useSession } from '../session';
-import { API_BASE_URL } from '../config';
-import { Avatar, Banner, Button, Card, Chip, Screen, SectionTitle } from '../components';
-import { colors, font, space } from '../theme';
+import { API_BASE_URL, APP_VERSION } from '../config';
+import { useDialog } from '../dialog';
+import { Avatar, Banner, Button, Card, Chip, ChoiceRow, Icon, Screen, SectionTitle, type IconName } from '../components';
+import { font, fonts, makeStyles, radius, space, useTheme, type ThemePref } from '../theme';
 import { longDate } from '../utils';
+
+const THEMES: ThemePref[] = ['system', 'light', 'dark'];
 
 export default function ProfileScreen() {
   const { profile, home, signOut, lockEnabled, biometricLabel, setLockEnabled, lastUpdated } = useSession();
+  const { colors: c, pref, setPref } = useTheme();
+  const s = useStyles();
+  const dialog = useDialog();
   const [lockBusy, setLockBusy] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
 
@@ -23,27 +28,36 @@ export default function ProfileScreen() {
     setLockBusy(false);
   };
 
-  const confirmSignOut = () => Alert.alert('Sign out?', 'You will need your email and password to sign in again.', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Sign out', style: 'destructive', onPress: () => signOut() },
-  ]);
+  const confirmSignOut = async () => {
+    const ok = await dialog.confirm({
+      icon: 'right-from-bracket',
+      tone: 'danger',
+      title: 'Sign out?',
+      message: 'You will need your email and password to sign in again.',
+      confirmText: 'Sign out',
+      cancelText: 'Stay',
+    });
+    if (ok) signOut(`See you soon, ${profile.firstname}!`, 'farewell');
+  };
 
   return (
     <Screen>
       <View style={s.head}>
-        <Avatar name={profile.fullName} picture={profile.profilePicture} size={88} ring={colors.gold} />
+        <Avatar name={profile.fullName} picture={profile.profilePicture} size={92} ring={c.secondary} />
         <Text style={s.name}>{profile.fullName}</Text>
         <Text style={s.muted}>{profile.email}</Text>
-        {profile.memberId ? <Text style={s.memberId}>Member ID {profile.memberId}</Text> : null}
+        {profile.memberId ? (
+          <View style={s.memberId}><Icon name="id-badge" size={11} color={c.goldText} /><Text style={s.memberIdText}>{profile.memberId}</Text></View>
+        ) : null}
       </View>
 
       <View style={s.stats}>
-        <View style={s.stat}><Text style={s.statValue}>{upcoming}</Text><Text style={s.statLabel}>Upcoming</Text></View>
-        <View style={s.stat}><Text style={s.statValue}>{served}</Text><Text style={s.statLabel}>Served (8 wks)</Text></View>
-        <View style={s.stat}><Text style={s.statValue}>{home?.attendance.length ?? 0}</Text><Text style={s.statLabel}>Check-ins</Text></View>
+        <Stat icon="calendar-check" value={upcoming} label="Upcoming" />
+        <Stat icon="hands-praying" value={served} label="Served (8 wks)" />
+        <Stat icon="clipboard-check" value={home?.attendance.length ?? 0} label="Check-ins" />
       </View>
 
-      <SectionTitle title="Ministry" />
+      <SectionTitle title="Ministry" icon="church" />
       <Card>
         {profile.ministries.length === 0 && <Text style={s.muted}>No ministry roles set. Ask an admin.</Text>}
         {profile.ministries.map((m, i) => (
@@ -54,21 +68,24 @@ export default function ProfileScreen() {
         ))}
         <View style={[s.ministry, s.divider]}>
           <Text style={s.ministryLabel}>Roles</Text>
-          <View style={s.chips}>{profile.roles.map((r) => <Chip key={r} label={r} color={colors.info} />)}</View>
+          <View style={s.chips}>{profile.roles.map((r) => <Chip key={r} label={r} color={c.info} />)}</View>
         </View>
       </Card>
 
       {profile.birthdate ? (
         <Card style={s.row}>
-          <Ionicons name="gift-outline" size={18} color={colors.goldLight} />
+          <RowIcon icon="gift" />
           <Text style={s.rowText}>Birthday</Text>
           <Text style={s.muted}>{longDate(profile.birthdate.slice(0, 10)).replace(/^\w+, /, '')}</Text>
         </Card>
       ) : null}
 
-      <SectionTitle title="Security" />
+      <SectionTitle title="Appearance" icon="circle-half-stroke" />
+      <ChoiceRow options={THEMES} value={pref} onChange={setPref} labels={{ system: 'Same as phone', light: 'Light', dark: 'Dark' }} />
+
+      <SectionTitle title="Security" icon="lock" />
       <Card style={s.row}>
-        <Ionicons name="finger-print" size={22} color={colors.goldLight} />
+        <RowIcon icon="fingerprint" />
         <View style={s.flex}>
           <Text style={s.rowText}>Lock with {biometricLabel}</Text>
           <Text style={s.muted}>Asks for your {biometricLabel.toLowerCase()} when you open the app.</Text>
@@ -77,47 +94,71 @@ export default function ProfileScreen() {
           value={lockEnabled}
           onValueChange={toggleLock}
           disabled={lockBusy}
-          trackColor={{ false: colors.border, true: colors.goldDark }}
-          thumbColor={lockEnabled ? colors.goldLight : colors.textSecondary}
+          trackColor={{ false: c.border, true: c.primary }}
+          thumbColor={lockEnabled ? c.accent : c.card}
           accessibilityLabel={`Lock with ${biometricLabel}`}
         />
       </Card>
       {lockError && <Banner tone="warn" text={lockError} />}
 
-      <SectionTitle title="Account" />
+      <SectionTitle title="Account" icon="user" />
       <Card style={s.row} onPress={() => Linking.openURL(`${API_BASE_URL}/dashboard`)}>
-        <Ionicons name="globe-outline" size={20} color={colors.textSecondary} />
+        <RowIcon icon="globe" />
         <View style={s.flex}>
           <Text style={s.rowText}>Edit profile on the website</Text>
           <Text style={s.muted}>Photo, name and password are changed on the JSCI website.</Text>
         </View>
-        <Ionicons name="open-outline" size={16} color={colors.textMuted} />
+        <Icon name="arrow-up-right-from-square" size={13} color={c.textMuted} />
       </Card>
 
-      <Button title="Sign Out" icon="log-out-outline" variant="danger" onPress={confirmSignOut} style={s.signOut} />
+      <Button title="Sign Out" icon="right-from-bracket" variant="danger" onPress={confirmSignOut} style={s.signOut} />
       <Text style={s.foot}>
-        JSCI Ministry · Praise & Worship{lastUpdated ? `\nSynced ${new Date(lastUpdated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+        JSCI Ministry {APP_VERSION} · Praise & Worship{lastUpdated ? `\nSynced ${new Date(lastUpdated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
       </Text>
     </Screen>
   );
 }
 
-const s = StyleSheet.create({
+function Stat({ icon, value, label }: { icon: IconName; value: number; label: string }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  return (
+    <View style={s.stat}>
+      <Icon name={icon} size={14} color={c.goldText} />
+      <Text style={s.statValue}>{value}</Text>
+      <Text style={s.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function RowIcon({ icon }: { icon: IconName }) {
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  return <View style={s.rowIcon}><Icon name={icon} size={15} color={c.goldText} /></View>;
+}
+
+const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
   head: { alignItems: 'center', gap: 4, marginTop: space.lg },
-  name: { color: colors.text, fontSize: font.xxl, fontWeight: '900', marginTop: space.sm, textAlign: 'center' },
-  memberId: { color: colors.goldLight, fontSize: font.xs, fontWeight: '700', marginTop: 2 },
-  muted: { color: colors.textSecondary, fontSize: font.sm, lineHeight: 19 },
+  name: { color: c.text, fontSize: font.xxl, fontFamily: fonts.bold, marginTop: space.sm, textAlign: 'center' },
+  memberId: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4, paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: c.goldMuted },
+  memberIdText: { color: c.goldText, fontSize: font.xs, fontFamily: fonts.semibold },
+  muted: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular, lineHeight: 19 },
   stats: { flexDirection: 'row', gap: space.sm, marginTop: space.lg },
-  stat: { flex: 1, alignItems: 'center', backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border, paddingVertical: space.md },
-  statValue: { color: colors.goldLight, fontSize: font.xl, fontWeight: '900' },
-  statLabel: { color: colors.textSecondary, fontSize: font.xs, marginTop: 2 },
+  stat: {
+    flex: 1, alignItems: 'center', gap: 2, backgroundColor: c.card, borderRadius: radius.lg, borderWidth: 1,
+    borderColor: c.scheme === 'light' ? '#eceef1' : c.border, paddingVertical: space.md,
+    boxShadow: c.scheme === 'light' ? '0px 2px 10px rgba(0, 0, 0, 0.05)' : undefined,
+  },
+  statValue: { color: c.text, fontSize: font.xl, fontFamily: fonts.bold },
+  statLabel: { color: c.textSecondary, fontSize: font.xs, fontFamily: fonts.regular },
   ministry: { paddingVertical: space.sm },
-  ministryLabel: { color: colors.text, fontSize: font.md, fontWeight: '800', marginBottom: 6 },
+  ministryLabel: { color: c.text, fontSize: font.md, fontFamily: fonts.semibold, marginBottom: 6 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  divider: { borderTopWidth: 1, borderTopColor: colors.border },
+  divider: { borderTopWidth: 1, borderTopColor: c.border },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  rowText: { flex: 1, color: colors.text, fontSize: font.md, fontWeight: '700' },
+  rowIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: c.goldMuted },
+  rowText: { flex: 1, color: c.text, fontSize: font.md, fontFamily: fonts.semibold },
   signOut: { marginTop: space.xl },
-  foot: { color: colors.textMuted, fontSize: font.xs, textAlign: 'center', marginTop: space.lg, lineHeight: 17 },
-});
+  foot: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, textAlign: 'center', marginTop: space.lg, lineHeight: 17 },
+}));

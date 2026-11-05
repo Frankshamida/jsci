@@ -2,25 +2,26 @@
   "expo": {
     "name": "JSCI Ministry",
     "slug": "jsci-ministry",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "jsciministry",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.jsci.ministry",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "buildNumber": "3"
     },
     "android": {
       "package": "com.jsci.ministry",
-      "versionCode": 1,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0d0d1a"
+        "backgroundColor": "#00000000"
       },
       "permissions": [
         "android.permission.INTERNET",
@@ -40,9 +41,14 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash.png",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#0d0d1a"
+          "backgroundColor": "#f8f9fa",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#1a1a2e"
+          }
         }
       ],
       [
@@ -62,18 +68,30 @@
         {
           "android": {
             "enableMinifyInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "buildArchs": [
+              "armeabi-v7a",
+              "arm64-v8a"
+            ]
           }
         }
       ],
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-navigation-bar",
+        {
+          "visibility": "hidden",
+          "behavior": "overlay-swipe"
+        }
+      ]
     ],
     "extra": {
       "eas": {
         "projectId": "3a63c924-4b33-4718-9a65-8c72571c02c0"
       }
     },
-    "owner": "frank030901"
+    "owner": "frank030901",
+    "backgroundColor": "#f8f9fa"
   }
 }

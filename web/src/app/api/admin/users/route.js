@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { ROLES, ASSIGNABLE_ROLES, getUserRoles } from '@/lib/permissions';
 import { arrangeRoles, canHoldEventPermissions, getAddableRoles, getRoleChangeEffects, getRoleRemovalEffects, roleDetailsFor, roleSetupError } from '@/lib/userRoles';
 import { formatAccountName, formatPersonName } from '@/lib/eventFormat';
+import { accountWithName, fullNameKey, nameTakenForAdmin } from '@/lib/nameClash';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -107,10 +108,14 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'Email already exists' }, { status: 409 });
     }
 
+    const name = formatAccountName(firstname, lastname);
+    const twin = await accountWithName(name.firstname, name.lastname);
+    if (twin) return NextResponse.json({ success: false, message: nameTakenForAdmin(twin) }, { status: 409 });
+
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const { data, error } = await supabase.from('users').insert({
-      ...formatAccountName(firstname, lastname),
+      ...name,
       email: email.trim().toLowerCase(), password: hashedPassword,
       ...roleDetailsFor(role, ministry, sub_role), role,
       security_question: 'Set by admin', security_answer: 'admin',
@@ -173,7 +178,7 @@ export async function PUT(request) {
     // Everything below needs the account as it stands now: a role change
     // clears what no remaining role owns, and details are checked against the roles.
     const { data: current, error: currentError } = await supabase.from('users')
-      .select('role, additional_roles, email, status, ministry, sub_role, allowed_event_types').eq('id', id).single();
+      .select('firstname, lastname, role, additional_roles, email, status, ministry, sub_role, allowed_event_types').eq('id', id).single();
     if (currentError || !current) return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
 
     // Change the main role
@@ -246,6 +251,14 @@ export async function PUT(request) {
     const updateData = {};
     if (updates.firstname?.trim()) updateData.firstname = formatPersonName(updates.firstname);
     if (updates.lastname?.trim()) updateData.lastname = formatPersonName(updates.lastname, { continues: true });
+    // A new name must not be another account's (accounts that already share
+    // one can still be edited, as long as the name stays as it is).
+    const nextFirst = updateData.firstname ?? current.firstname;
+    const nextLast = updateData.lastname ?? current.lastname;
+    if (fullNameKey(nextFirst, nextLast) !== fullNameKey(current.firstname, current.lastname)) {
+      const twin = await accountWithName(nextFirst, nextLast, id);
+      if (twin) return NextResponse.json({ success: false, message: nameTakenForAdmin(twin) }, { status: 409 });
+    }
 
     if (updates.email !== undefined) {
       const email = String(updates.email || '').trim().toLowerCase();

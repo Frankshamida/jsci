@@ -135,6 +135,19 @@ export default function MonthlyPlanner({ me, showToast, onSaved }) {
   }, [roster]);
   const short = (name) => shortNames[name] || String(name || '').split(' ')[0];
 
+  // Accounts that share one full name. Lineups record people by name, so the
+  // planner cannot tell them apart: picking one picks both. Shown as a warning
+  // so the name can be fixed in User Management.
+  const nameTwins = useMemo(() => {
+    const byName = {};
+    [...leaders, ...backups, ...players, ...dancerPool].forEach((p) => {
+      const k = nameKey(p.name);
+      if (!byName[k]) byName[k] = { name: p.name, ids: new Set() };
+      byName[k].ids.add(p.id);
+    });
+    return Object.fromEntries(Object.entries(byName).filter(([, v]) => v.ids.size > 1).map(([k, v]) => [k, { name: v.name, count: v.ids.size }]));
+  }, [leaders, backups, players, dancerPool]);
+
   const savedValue = (date) => ({
     songLeader: byDate[date]?.songLeader || '',
     backupSingers: [...(byDate[date]?.backupSingers || [])],
@@ -303,7 +316,9 @@ export default function MonthlyPlanner({ me, showToast, onSaved }) {
     const clash = selected && elsewhere.length > 0;
     const load = monthLoad[key] || 0;
     const isMe = me?.id && person.id === me.id;
-    const why = elsewhere.length ? `Already ${elsewhere.join(' · ')} on this date`
+    const twin = nameTwins[key];
+    const why = twin ? `${twin.count} accounts are named ${person.name}, so the planner counts them as one person`
+      : elsewhere.length ? `Already ${elsewhere.join(' · ')} on this date`
       : excuse ? `${excuse} for this date`
       : subbedTo ? `${subbedTo} is substituting for them on this date`
       : null;
@@ -315,6 +330,7 @@ export default function MonthlyPlanner({ me, showToast, onSaved }) {
         <Avatar name={person.name} picture={person.profile_picture} />
         <span className="mp-person-name">{short(person.name)}</span>
         {isMe && <span className="mp-tag mp-tag-you">You</span>}
+        {twin && <span className="mp-tag mp-tag-clash" title={why}><i className="fas fa-triangle-exclamation"></i> Same name</span>}
         {locked && <span className={`mp-tag ${excuse || subbedTo ? 'mp-tag-away' : 'mp-tag-taken'}`}>{lockedBy}</span>}
         {clash && <span className="mp-tag mp-tag-clash">Also {elsewhere.map((p) => PART_TAG[p] || p).join(' · ')}</span>}
         {selected && excuse && <span className="mp-tag mp-tag-away">{excuse}</span>}
@@ -483,6 +499,17 @@ export default function MonthlyPlanner({ me, showToast, onSaved }) {
         <span><span className="mp-tag mp-tag-sub">Sub for Ana</span> substituting</span>
         <span><span className="mp-tag mp-tag-load">2×</span> Sundays this month</span>
       </div>
+
+      {Object.values(nameTwins).map((t) => (
+        <p key={t.name} className="mp-note warn mp-twin-note">
+          <i className="fas fa-triangle-exclamation"></i>
+          <span>
+            <strong>{t.count} accounts are named {t.name}.</strong> Lineups save people by name, so the planner treats them
+            as one person &mdash; picking one picks both. Give one of them a different name (for example a middle initial) in
+            User Management &rsaquo; Manage &rsaquo; Edit User.
+          </span>
+        </p>
+      ))}
 
       {loading ? (
         <div className="mp-loading"><i className="fas fa-spinner fa-spin"></i> Loading the month&hellip;</div>

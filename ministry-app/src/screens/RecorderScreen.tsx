@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { Pressable, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   AudioQuality, IOSOutputFormat, requestRecordingPermissionsAsync, setAudioModeAsync,
   useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState,
@@ -11,8 +11,9 @@ import { useLineup } from '../lineups';
 import { api } from '../api';
 import { invalidateRecordings } from '../recordings';
 import type { StackProps } from '../routes';
-import { Banner, Button, Card, ChoiceRow, EmptyState, Field, Screen } from '../components';
-import { colors, font, radius, space } from '../theme';
+import { useDialog } from '../dialog';
+import { Banner, Button, Card, ChoiceRow, EmptyState, Field, Icon, Screen } from '../components';
+import { font, fonts, makeStyles, radius, space, tint, useTheme } from '../theme';
 import { MAX_RECORDING_SECONDS, MAX_UPLOAD_BYTES } from '../config';
 import { formatBytes, formatClock, shortDate } from '../utils';
 
@@ -31,11 +32,15 @@ const VOICE: RecordingOptions = {
 type Mode = 'record' | 'file';
 type SongType = 'Slow Song' | 'Fast Song';
 const SONG_TYPES: SongType[] = ['Slow Song', 'Fast Song'];
+const MODES: Mode[] = ['record', 'file'];
 interface Take { uri: string; name: string; mimeType: string; size?: number }
 
 export default function RecorderScreen({ route, navigation }: StackProps<'Recorder'>) {
   const { scheduleId } = route.params;
   const lineup = useLineup(scheduleId);
+  const { colors: c } = useTheme();
+  const s = useStyles();
+  const dialog = useDialog();
 
   const recorder = useAudioRecorder(VOICE);
   const rec = useAudioRecorderState(recorder, 250);
@@ -59,22 +64,22 @@ export default function RecorderScreen({ route, navigation }: StackProps<'Record
   useEffect(() => navigation.addListener('beforeRemove', (e) => {
     if (done.current || (!busy.current.recording && !busy.current.take)) return;
     e.preventDefault();
-    Alert.alert('Leave without uploading?', 'Your recording will be lost.', [
-      { text: 'Stay', style: 'cancel' },
-      {
-        text: 'Leave', style: 'destructive', onPress: async () => {
-          if (busy.current.recording) await recorder.stop().catch(() => {});
-          navigation.dispatch(e.data.action);
-        },
-      },
-    ]);
-  }), [navigation, recorder]);
+    dialog.confirm({
+      icon: 'microphone', tone: 'danger', title: 'Leave without uploading?',
+      message: 'Your recording will be lost.', confirmText: 'Leave', cancelText: 'Stay',
+    }).then(async (ok) => {
+      if (!ok) return;
+      if (busy.current.recording) await recorder.stop().catch(() => {});
+      done.current = true;
+      navigation.dispatch(e.data.action);
+    });
+  }), [navigation, recorder, dialog]);
 
   // Stops by itself at the limit.
   useEffect(() => { if (rec.isRecording && seconds >= MAX_RECORDING_SECONDS) stop(); }, [rec.isRecording, seconds]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!lineup) return <Screen stacked><EmptyState icon="alert-circle-outline" title="Lineup not found" /></Screen>;
-  if (!lineup.mine) return <Screen stacked><EmptyState icon="lock-closed-outline" title="Not on this lineup" text="You can add recordings to your own lineups only." /></Screen>;
+  if (!lineup) return <Screen stacked><EmptyState icon="circle-exclamation" title="Lineup not found" /></Screen>;
+  if (!lineup.mine) return <Screen stacked><EmptyState icon="lock" title="Not on this lineup" text="You can add recordings to your own lineups only." /></Screen>;
 
   const songsOfType = (songType === 'Slow Song' ? lineup.slowSongs : lineup.fastSongs).map((x) => x.title).filter(Boolean);
 
@@ -160,24 +165,29 @@ export default function RecorderScreen({ route, navigation }: StackProps<'Record
       {songsOfType.length > 0 && !title && (
         <View style={s.suggest}>
           {songsOfType.map((t) => (
-            <Pressable key={t} onPress={() => setTitle(t)} style={s.suggestChip}><Text style={s.suggestText}>{t}</Text></Pressable>
+            <Pressable key={t} onPress={() => setTitle(t)} style={s.suggestChip}>
+              <Icon name="music" size={10} color={c.goldText} />
+              <Text style={s.suggestText}>{t}</Text>
+            </Pressable>
           ))}
         </View>
       )}
 
-      <ChoiceRow options={['record', 'file'] as Mode[]} value={mode} onChange={(m) => { if (!rec.isRecording) { discard(); setMode(m); } }} labels={{ record: 'Record now', file: 'Upload a file' }} />
+      <ChoiceRow options={MODES} value={mode} onChange={(m) => { if (!rec.isRecording) { discard(); setMode(m); } }} labels={{ record: 'Record now', file: 'Upload a file' }} />
 
       <Card style={s.stage}>
         {take ? (
           <>
-            <Pressable onPress={togglePreview} style={s.bigPlay} accessibilityRole="button" accessibilityLabel={playback.playing ? 'Pause' : 'Play recording'}>
-              <Ionicons name={playback.playing ? 'pause' : 'play'} size={38} color={colors.textOnGold} />
+            <Pressable onPress={togglePreview} accessibilityRole="button" accessibilityLabel={playback.playing ? 'Pause' : 'Play recording'}>
+              <LinearGradient colors={c.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.bigButton}>
+                <Icon name={playback.playing ? 'pause' : 'play'} size={32} color="#ffffff" />
+              </LinearGradient>
             </Pressable>
             <Text style={s.clock}>
               {formatClock(playback.currentTime)}{playback.duration ? ` / ${formatClock(playback.duration)}` : ''}
             </Text>
             <Text style={s.muted} numberOfLines={1}>{mode === 'file' ? take.name : 'Listen before you upload'}{take.size ? ` · ${formatBytes(take.size)}` : ''}</Text>
-            <Button compact variant="secondary" icon={mode === 'file' ? 'folder-open-outline' : 'refresh'} title={mode === 'file' ? 'Choose another file' : 'Record again'}
+            <Button compact variant="secondary" icon={mode === 'file' ? 'folder-open' : 'rotate-right'} title={mode === 'file' ? 'Choose another file' : 'Record again'}
               onPress={mode === 'file' ? pickFile : () => { discard(); start(); }} style={s.again} />
           </>
         ) : mode === 'record' ? (
@@ -185,11 +195,11 @@ export default function RecorderScreen({ route, navigation }: StackProps<'Record
             <Pressable
               onPress={rec.isRecording ? stop : start}
               disabled={starting}
-              style={[s.bigRec, rec.isRecording && s.bigRecOn]}
+              style={[s.bigButton, s.recButton, rec.isRecording && s.recButtonOn]}
               accessibilityRole="button"
               accessibilityLabel={rec.isRecording ? 'Stop recording' : 'Start recording'}
             >
-              <Ionicons name={rec.isRecording ? 'stop' : 'mic'} size={40} color="#fff" />
+              <Icon name={rec.isRecording ? 'stop' : 'microphone'} size={34} color="#ffffff" />
             </Pressable>
             <Text style={s.clock}>{formatClock(seconds)}</Text>
             <Text style={s.muted}>
@@ -200,8 +210,8 @@ export default function RecorderScreen({ route, navigation }: StackProps<'Record
           </>
         ) : (
           <>
-            <Pressable onPress={pickFile} style={s.bigFile} accessibilityRole="button" accessibilityLabel="Choose an audio file">
-              <Ionicons name="cloud-upload-outline" size={38} color={colors.goldLight} />
+            <Pressable onPress={pickFile} style={[s.bigButton, s.fileButton]} accessibilityRole="button" accessibilityLabel="Choose an audio file">
+              <Icon name="cloud-arrow-up" size={32} color={c.goldText} />
             </Pressable>
             <Text style={s.muted}>Choose an audio file from your phone (up to {formatBytes(MAX_UPLOAD_BYTES)}).</Text>
           </>
@@ -209,25 +219,25 @@ export default function RecorderScreen({ route, navigation }: StackProps<'Record
       </Card>
 
       {error && <Banner tone="danger" text={error} />}
-      <Button title="Upload Recording" icon="cloud-upload" onPress={upload} loading={uploading} disabled={!take || rec.isRecording} />
+      <Button title="Upload Recording" icon="cloud-arrow-up" onPress={upload} loading={uploading} disabled={!take || rec.isRecording} />
       <Text style={s.foot}>Everyone on this lineup can listen to it.</Text>
     </Screen>
   );
 }
 
-const s = StyleSheet.create({
-  date: { color: colors.text, fontSize: font.xl, fontWeight: '900', marginBottom: space.md },
-  label: { color: colors.textSecondary, fontSize: font.sm, fontWeight: '700', marginBottom: 6 },
-  muted: { color: colors.textSecondary, fontSize: font.sm, textAlign: 'center', lineHeight: 19 },
+const useStyles = makeStyles((c) => ({
+  date: { color: c.text, fontSize: font.xl, fontFamily: fonts.bold, marginBottom: space.md },
+  label: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.semibold, marginBottom: 6 },
+  muted: { color: c.textSecondary, fontSize: font.sm, fontFamily: fonts.regular, textAlign: 'center', lineHeight: 19 },
   suggest: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: -6, marginBottom: space.md },
-  suggestChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderLight },
-  suggestText: { color: colors.text, fontSize: font.xs, fontWeight: '600' },
+  suggestChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: c.goldMuted, borderWidth: 1, borderColor: tint(c.secondary, 0.3) },
+  suggestText: { color: c.text, fontSize: font.xs, fontFamily: fonts.medium },
   stage: { alignItems: 'center', paddingVertical: space.xl, gap: space.sm },
-  bigRec: { width: 96, height: 96, borderRadius: 48, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
-  bigRecOn: { backgroundColor: '#b3212f', borderWidth: 4, borderColor: colors.dangerMuted },
-  bigPlay: { width: 96, height: 96, borderRadius: 48, backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
-  bigFile: { width: 96, height: 96, borderRadius: 48, borderWidth: 2, borderColor: colors.goldDark, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
-  clock: { color: colors.text, fontSize: font.hero, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  bigButton: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center' },
+  recButton: { backgroundColor: c.danger },
+  recButtonOn: { borderWidth: 5, borderColor: tint(c.danger, 0.35) },
+  fileButton: { borderWidth: 2, borderColor: tint(c.secondary, 0.6), borderStyle: 'dashed', backgroundColor: c.goldMuted },
+  clock: { color: c.text, fontSize: font.hero, fontFamily: fonts.bold, fontVariant: ['tabular-nums'] },
   again: { marginTop: space.sm },
-  foot: { color: colors.textMuted, fontSize: font.xs, textAlign: 'center', marginTop: space.sm },
-});
+  foot: { color: c.textMuted, fontSize: font.xs, fontFamily: fonts.regular, textAlign: 'center', marginTop: space.sm },
+}));

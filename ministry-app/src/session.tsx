@@ -23,6 +23,11 @@ const CACHE_KEY = 'jsci_ministry_home';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
+// Shown on the sign-in screen: why the app signed out ('warn'), or a goodbye
+// after signing out on purpose ('farewell').
+export type NoticeTone = 'warn' | 'farewell';
+export interface Notice { text: string; tone: NoticeTone }
+
 interface Session {
   status: Status;
   profile: Profile | null;
@@ -30,9 +35,11 @@ interface Session {
   refreshing: boolean;
   loadError: string | null;
   lastUpdated: number | null;
-  notice: string | null; // why the app signed out, shown on the sign-in screen
+  notice: Notice | null;
+  welcome: boolean; // just signed in: Home greets them once
+  dismissWelcome: () => void;
   signIn: (email: string, password: string) => Promise<string | null>;
-  signOut: (notice?: string) => Promise<void>;
+  signOut: (notice?: string, tone?: NoticeTone) => Promise<void>;
   refresh: (force?: boolean) => Promise<void>;
   lockEnabled: boolean;
   locked: boolean;
@@ -66,7 +73,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [welcome, setWelcome] = useState(false);
   const [lockEnabled, setLockEnabledState] = useState(false);
   const [locked, setLocked] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState('Fingerprint');
@@ -96,7 +104,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     return run;
   }, []);
 
-  const signOut = useCallback(async (why?: string) => {
+  const signOut = useCallback(async (why?: string, tone: NoticeTone = 'warn') => {
     setApiToken(null);
     await Promise.all([
       SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {}),
@@ -109,7 +117,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setLastUpdated(null);
     setLockEnabledState(false);
     setLocked(false);
-    setNotice(why || null);
+    setNotice(why ? { text: why, tone } : null);
+    setWelcome(false);
     setStatus('signedOut');
   }, []);
 
@@ -164,6 +173,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     await SecureStore.setItemAsync(TOKEN_KEY, res.data.token);
     setLoginProfile(res.data.profile);
     setNotice(null);
+    setWelcome(true);
     lastUpdatedRef.current = null;
     setStatus('signedIn');
     return null;
@@ -191,6 +201,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     return null;
   }, [biometricLabel]);
 
+  const dismissWelcome = useCallback(() => setWelcome(false), []);
+
   const value = useMemo<Session>(() => ({
     status,
     profile: home?.profile || loginProfile,
@@ -199,6 +211,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     loadError,
     lastUpdated,
     notice,
+    welcome,
+    dismissWelcome,
     signIn,
     signOut,
     refresh,
@@ -207,7 +221,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     biometricLabel,
     setLockEnabled,
     unlock,
-  }), [status, home, loginProfile, refreshing, loadError, lastUpdated, notice, signIn, signOut, refresh, lockEnabled, locked, biometricLabel, setLockEnabled, unlock]);
+  }), [status, home, loginProfile, refreshing, loadError, lastUpdated, notice, welcome, dismissWelcome, signIn, signOut, refresh, lockEnabled, locked, biometricLabel, setLockEnabled, unlock]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

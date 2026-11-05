@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import bcrypt from 'bcryptjs';
 import { formatAccountName } from '@/lib/eventFormat';
+import { accountWithName, nameTakenForSelf } from '@/lib/nameClash';
 
 export async function POST(request) {
   try {
@@ -33,6 +34,11 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'Email already registered. Please use another or login.' }, { status: 409 });
     }
 
+    // One full name, one account: lineups record people by name.
+    const name = formatAccountName(firstname, lastname);
+    const twin = await accountWithName(name.firstname, name.lastname);
+    if (twin) return NextResponse.json({ success: false, message: nameTakenForSelf(twin) }, { status: 409 });
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
@@ -41,7 +47,7 @@ export async function POST(request) {
       .from('users')
       .insert({
         // "frank DwEEZel gomez" is saved as "Frank Dweezel Gomez"
-        ...formatAccountName(firstname, lastname),
+        ...name,
         birthdate: birthdate || null,
         ministry: null,
         email: email.trim().toLowerCase(),
