@@ -2,7 +2,7 @@
   "expo": {
     "name": "JSCI Ministry",
     "slug": "jsci-ministry",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "jsciministry",
@@ -15,11 +15,11 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "JSCI Ministry checks that you are at church when you mark your attendance."
       },
-      "buildNumber": "5"
+      "buildNumber": "6"
     },
     "android": {
       "package": "com.jsci.ministry",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#00000000"

@@ -3,6 +3,12 @@
 Each section is the release note shown on sanctuaryhub.vercel.app/ministrymobileapp.
 Add a section for a new version before running `npm run release`.
 
+## 1.3.2
+
+- A new tab bar: the names under Home, Requests, Chat, Attendance and Profile always show in full, and the bar sits right on the bottom edge on every phone
+- The song player keeps clear of the screen edges
+- iPhone web app: fits every iPhone from the Home Screen, and a new Home Screen icon - the logo without the dark square behind it
+
 ## 1.3.1
 
 - Attendance: check in within 30 m of the church (with a small allowance for GPS error indoors); distances now in metres
