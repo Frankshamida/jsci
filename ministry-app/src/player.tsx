@@ -246,7 +246,7 @@ export function MiniPlayer({ onTabs, tabBarHeight }: { onTabs: boolean; tabBarHe
   );
 
   return (
-    <View style={[s.card, expanded ? s.cardBig : s.cardMini, { bottom }]} pointerEvents="box-none">
+    <View style={[s.card, expanded ? s.cardBig : s.cardMini, { bottom, left: space.sm + insets.left, right: space.sm + insets.right }]} pointerEvents="box-none">
       {/* The video. Same place in the tree open or closed, so it never restarts. */}
       <View style={expanded ? s.videoBig : s.videoMini} pointerEvents={ENGINE_NEEDS_TAP ? 'auto' : 'none'}>
         <PlayerEngine

@@ -1,15 +1,14 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Text, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { DarkTheme, DefaultTheme, NavigationContainer, type LinkingOptions, type NavigationState, type Theme as NavTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { RootStackParams, TabParams } from './routes';
 import { useSession } from './session';
 import { fonts, useTheme } from './theme';
-import { Icon, type IconName } from './icons';
 import { Button, EmptyState, LoadingView, Screen } from './components';
 import { MiniPlayer, PlayerProvider } from './player';
+import { TabBar, useTabBarHeight } from './tabbar';
 import { useChatUnreadCount } from './chat';
 import { IS_WEB } from './platform';
 import LoginScreen from './screens/LoginScreen';
@@ -32,68 +31,16 @@ import LineupEditorScreen from './screens/LineupEditorScreen';
 const Stack = createNativeStackNavigator<RootStackParams>();
 const Tab = createBottomTabNavigator<TabParams>();
 
-// The website's sidebar icons for the same pages.
-const TAB_ICONS: Record<keyof TabParams, IconName> = {
-  Home: 'house',
-  Requests: 'people-arrows',
-  Chat: 'comments',
-  Attendance: 'clipboard-check',
-  Profile: 'user',
-};
 
-// The tab bar, sized by what is in it - the same on every phone and browser:
-//   6 above, then each tab: 5 + icon pill 34 + 2 + label 16 + 5 (the 5s are
-//   the tab's own padding, in React Navigation's tab item)
-// and under it a little room for the phone's home indicator / gesture bar.
-// The room is capped, so a tall reported inset never pushes the tabs up.
-const TAB_TOP = 6;
-const TAB_ITEM = 5 + 34 + 2 + 16 + 5;
-const homeGap = (inset: number) => (inset > 0 ? Math.min(Math.max(inset - 12, 10), 24) : 8);
-
-/** The tab bar's full height from the bottom edge (the mini player sits on it). */
-export function useTabBarHeight(): number {
-  const insets = useSafeAreaInsets();
-  return TAB_TOP + TAB_ITEM + homeGap(insets.bottom);
-}
-
-// A tall, clear tab bar: big icons, the open tab in a gold pill with a bold label.
+// The bottom tabs. Their bar is the app's own (tabbar.tsx), the same on every phone.
 function Tabs() {
   const { home } = useSession();
-  const { colors: c } = useTheme();
-  const insets = useSafeAreaInsets();
-  const height = useTabBarHeight();
-  // Five labels share the width: a little smaller on the narrowest phones (iPhone SE).
-  const width = useWindowDimensions().width;
-  const labelSize = width < 340 ? 9.5 : width < 380 ? 10.5 : 11.5;
   const openForMe = (home?.openSubs.length || 0) + (home?.swapsForMe?.length || 0);
   const unread = useChatUnreadCount();
-  const badgeStyle = { backgroundColor: c.danger, color: '#ffffff', fontFamily: fonts.bold, fontSize: 11 };
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: c.goldText,
-        tabBarInactiveTintColor: c.textSecondary,
-        tabBarStyle: {
-          backgroundColor: c.surface,
-          borderTopColor: c.border,
-          height,
-          paddingTop: TAB_TOP,
-          paddingBottom: homeGap(insets.bottom),
-          boxShadow: c.scheme === 'light' ? '0px -4px 16px rgba(0, 0, 0, 0.06)' : undefined,
-        },
-        tabBarIconStyle: { width: 56, height: 34 },
-        tabBarItemStyle: { paddingVertical: 0, paddingHorizontal: 0 },
-        tabBarIcon: ({ focused, color }) => (
-          <View style={{ width: 56, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: focused ? c.goldMuted : 'transparent' }}>
-            <Icon name={TAB_ICONS[route.name]} size={20} color={color} />
-          </View>
-        ),
-        tabBarLabel: ({ focused, color, children }) => (
-          <Text style={{ color, fontSize: labelSize, lineHeight: 16, marginTop: 2, fontFamily: focused ? fonts.bold : fonts.medium }} numberOfLines={1}>{children}</Text>
-        ),
-        tabBarBadgeStyle: badgeStyle,
-      })}
+      tabBar={(props) => <TabBar {...props} />}
+      screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Requests" component={RequestsScreen} options={{ title: 'Requests', tabBarBadge: openForMe || undefined }} />

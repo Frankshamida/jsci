@@ -27,10 +27,11 @@
     <link rel="icon" type="image/png" href="/ministrysystem/icons/favicon.png" />
 
     <style id="expo-reset">
-      html, body { height: 100%; }
+      /* The page itself never scrolls or moves sideways: the app's screens
+         scroll inside it, and the tab bar stays on the bottom edge. */
+      html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; }
       body {
-        overflow: hidden;
-        margin: 0;
+        position: relative;
         background: #f8f9fa;
         /* An app, not a page: no bounce of the whole page, no grey tap flash,
            no text selection by a long press, no double-tap zoom. */
@@ -43,22 +44,38 @@
         touch-action: manipulation;
       }
       input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
-      /* The app fills exactly the screen it is on: --app-height is measured by
-         the script below (an iPhone Home Screen app is the whole screen, which
-         a plain 100% falls short of there by about the status bar). */
-      #root { display: flex; flex: 1; position: fixed; top: 0; left: 0; right: 0; height: var(--app-height, 100%); }
+      /* The app is exactly one screen tall, edge to edge (viewport-fit=cover):
+           100dvh  the visible height, browser bars left out (fallbacks: 100vh, 100%)
+           --app-height  set only on the iPhone Home Screen, by the script below,
+                         where the app is the whole screen and 100% / 100dvh can
+                         fall short by about the status bar
+         The safe areas (status bar, notch / Dynamic Island, home indicator,
+         the sides in landscape) are kept clear inside the app with
+         env(safe-area-inset-*), read by react-native-safe-area-context. */
+      #root {
+        display: flex; flex-direction: column;
+        position: absolute; top: 0; left: 0; right: 0;
+        width: 100%; max-width: 100vw;
+        height: 100%;
+        height: 100vh;
+        height: 100dvh;
+        height: var(--app-height, 100dvh);
+        overflow: hidden;
+      }
       @media (prefers-color-scheme: dark) { body { background: #1a1a2e; } }
 
       /* A computer: the app as a phone-wide column in the middle. */
       @media (min-width: 640px) {
         body { background: #e9ecf1; }
         #root { max-width: 480px; margin: 0 auto; box-shadow: 0 0 40px rgba(0, 0, 0, 0.12); }
+        #boot { max-width: 480px; margin: 0 auto; }
       }
       @media (min-width: 640px) and (prefers-color-scheme: dark) { body { background: #10101e; } }
 
       /* Shown until the app has started */
       #boot {
         position: fixed; inset: 0; z-index: 100000;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
         background: #f8f9fa; transition: opacity 0.3s ease;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -79,24 +96,34 @@
 
   <body>
     <script>
-      // The app's height: the browser's own, except from the iPhone Home
-      // Screen, where the app is the whole screen whatever the iPhone's size.
       (function () {
         var nav = navigator;
         var ios = /iphone|ipad|ipod/i.test(nav.userAgent) || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
         var standalone = nav.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+
+        // From the iPhone Home Screen the app is the whole screen, whatever the
+        // iPhone's size: its height is the screen's (portrait or landscape).
+        // Everywhere else the CSS (100dvh) already fits the visible area.
         function fit() {
-          var h = window.innerHeight;
-          if (ios && standalone) {
-            var portrait = window.innerWidth <= window.innerHeight;
-            var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-            if (full > h) h = full;
-          }
-          document.documentElement.style.setProperty('--app-height', h + 'px');
+          if (!(ios && standalone)) return;
+          var portrait = window.innerWidth <= window.innerHeight;
+          var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+          document.documentElement.style.setProperty('--app-height', Math.max(full, window.innerHeight) + 'px');
         }
         fit();
         window.addEventListener('resize', fit);
         window.addEventListener('orientationchange', function () { setTimeout(fit, 300); });
+
+        // iPhone moves the whole page up to show a field above the keyboard
+        // and sometimes leaves it there: put it back when typing ends.
+        if (ios) {
+          document.addEventListener('focusout', function () {
+            setTimeout(function () {
+              var el = document.activeElement;
+              if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) window.scrollTo(0, 0);
+            }, 80);
+          });
+        }
       })();
     </script>
     <noscript>Turn on JavaScript to use JSCI Ministry.</noscript>
@@ -106,6 +133,6 @@
       <div class="dots"><span></span><span></span><span></span></div>
     </div>
     <div id="root"></div>
-  <script src="/ministrysystem/_expo/static/js/web/index-5712c276f8bc36589e0cb7e4c4a4059b.js" defer></script>
+  <script src="/ministrysystem/_expo/static/js/web/index-56c3532cca3874bb98114877c3b8d364.js" defer></script>
 </body>
 </html>
