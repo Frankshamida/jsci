@@ -32837,6 +32837,35 @@ body.dark-mode .hero-cfg-head p,
 body.dark-mode .hero-cfg-mode small,
 body.dark-mode .hero-cfg-picker-label small { color: #a8a8a8; }
 
+/* ---- Site Branding (Super Admin): the same two-card switch, each card
+   carrying a miniature of the navbar lockup it would produce. ---- */
+.brand-cfg-now { background: rgba(146, 108, 21, 0.10); color: var(--primary); max-width: 46%; }
+.brand-cfg-preview {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 12px; margin-bottom: 8px; border-radius: 10px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #2a2540 100%);
+}
+.brand-cfg-preview img { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; }
+.brand-cfg-preview > span { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.brand-cfg-preview b { color: #fff; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.2px; }
+.brand-cfg-preview em {
+  font-style: normal; font-size: 0.68rem; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.brand-cfg-view {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.82rem; font-weight: 600; color: var(--primary); text-decoration: none;
+}
+.brand-cfg-view:hover { text-decoration: underline; }
+body.dark-mode .brand-cfg-now { background: rgba(255, 195, 0, 0.10); color: var(--accent); }
+body.dark-mode .brand-cfg-view { color: var(--accent); }
+@media (max-width: 600px) {
+  .brand-cfg .hero-cfg-head { flex-direction: column; }
+  .brand-cfg-now { max-width: 100%; }
+  .brand-cfg-view { margin-left: 0; }
+  .brand-cfg .hero-cfg-foot { flex-wrap: wrap; }
+}
+
 /* The Extras cell in the events list: what an event sells on top of the
    ticket. Gold rather than green - green in these tables means "this person
    took it", and here nobody has taken anything yet; it is what is on offer. */

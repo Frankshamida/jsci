@@ -1,6 +1,9 @@
 import { Outfit } from 'next/font/google';
 import './globals.css';
-import { DEFAULT_CARD_IMAGE, OG_HEIGHT, OG_WIDTH, SITE_NAME, SITE_TAGLINE, siteOrigin } from '@/lib/socialCard';
+import { DEFAULT_CARD_IMAGE, OG_HEIGHT, OG_WIDTH, SITE_TAGLINE, siteOrigin } from '@/lib/socialCard';
+import { brandFor } from '@/lib/branding';
+import { readBranding } from '@/lib/brandingServer';
+import BrandingProvider from '@/components/BrandingProvider';
 
 // Outfit is a variable font (100-900) — Next.js self-hosts it, so every
 // existing font-weight in the app maps to a real weight with no extra requests.
@@ -18,40 +21,48 @@ const outfit = Outfit({
 // `metadataBase` is what makes the rest work: Open Graph images have to be
 // absolute URLs, and without a base Next has no way to turn "/opengraph-image"
 // into one a crawler can fetch. Set NEXT_PUBLIC_SITE_URL to the live domain.
-export const metadata = {
-  metadataBase: new URL(siteOrigin()),
-  title: SITE_NAME,
-  description: SITE_TAGLINE,
-  applicationName: SITE_NAME,
-  icons: {
-    icon: '/assets/LOGO.png',
-    shortcut: '/assets/LOGO.png',
-    apple: '/assets/LOGO.png',
-  },
-  openGraph: {
-    type: 'website',
-    siteName: SITE_NAME,
-    url: '/',
+//
+// The name in the tab and on a shared link follows the branding a Super Admin
+// chose under System Configuration (lib/branding.js), which is why this is a
+// function rather than a constant.
+export async function generateMetadata() {
+  const SITE_NAME = brandFor(await readBranding()).siteTitle;
+  return {
+    metadataBase: new URL(siteOrigin()),
     title: SITE_NAME,
     description: SITE_TAGLINE,
-    locale: 'en_PH',
-    images: [{
-      url: DEFAULT_CARD_IMAGE,
-      width: OG_WIDTH,
-      height: OG_HEIGHT,
-      alt: SITE_NAME,
-      type: 'image/jpeg',
-    }],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: SITE_NAME,
-    description: SITE_TAGLINE,
-    images: [DEFAULT_CARD_IMAGE],
-  },
+    applicationName: SITE_NAME,
+    icons: {
+      icon: '/assets/LOGO.png',
+      shortcut: '/assets/LOGO.png',
+      apple: '/assets/LOGO.png',
+    },
+    openGraph: {
+      type: 'website',
+      siteName: SITE_NAME,
+      url: '/',
+      title: SITE_NAME,
+      description: SITE_TAGLINE,
+      locale: 'en_PH',
+      images: [{
+        url: DEFAULT_CARD_IMAGE,
+        width: OG_WIDTH,
+        height: OG_HEIGHT,
+        alt: SITE_NAME,
+        type: 'image/jpeg',
+      }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: SITE_NAME,
+      description: SITE_TAGLINE,
+      images: [DEFAULT_CARD_IMAGE],
+    },
+  };
 }
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  const branding = await readBranding();
   return (
     <html lang="en" className={outfit.variable}>
       <head>
@@ -90,7 +101,7 @@ export default function RootLayout({ children }) {
             __html: `(function(){try{if(localStorage.getItem('darkModeEnabled')==='true'){document.documentElement.classList.add('dark-mode');document.body.classList.add('dark-mode');}}catch(e){}})();`,
           }}
         />
-        {children}
+        <BrandingProvider initial={branding}>{children}</BrandingProvider>
       </body>
     </html>
   )

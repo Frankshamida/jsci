@@ -36,6 +36,8 @@ import {
 } from '@/lib/eventPricing';
 import { eventSlugFor, findEventBySlug, eventShareUrl } from '@/lib/eventSlug';
 import { HERO_MEDIA_DEFAULT, HERO_VIDEO_DIR, heroVideoWeight, normalizeHeroMedia } from '@/lib/heroMedia';
+import { brandFor, normalizeBranding } from '@/lib/branding';
+import { useBranding, useSetBranding } from '@/components/BrandingProvider';
 import ProofDrop from '@/components/ProofDrop';
 import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
 import PastorInput from '@/components/PastorInput';
@@ -2643,6 +2645,13 @@ export default function DashboardPage() {
   const [heroSaved, setHeroSaved] = useState(HERO_MEDIA_DEFAULT);
   const [heroVideos, setHeroVideos] = useState([]);
   const [heroSaving, setHeroSaving] = useState(false);
+  // ---- Site branding: the church's name, or SanctuaryHub (Super Admin) ----
+  // The saved mode comes in from the root layout through BrandingProvider, so
+  // the card opens on what the site is actually wearing with no request.
+  const siteBrand = useBranding();
+  const setSiteBranding = useSetBranding();
+  const [brandChoice, setBrandChoice] = useState(siteBrand.mode);
+  const [brandSaving, setBrandSaving] = useState(false);
 
   // Super Admin: Terms & Conditions Editor
   const [termsContent, setTermsContent] = useState('');
@@ -4583,6 +4592,7 @@ export default function DashboardPage() {
       if (data.success) setSystemSettings(data.data);
     } catch { /* silent */ }
     loadHeroMedia();
+    loadBranding();
   };
 
   // What the hero is set to, and what there is to choose from. The list of
@@ -4636,6 +4646,44 @@ export default function DashboardPage() {
       showToast('Could not reach the server', 'danger');
     } finally {
       setHeroSaving(false);
+    }
+  };
+
+  // The card opens on the layout's copy; this re-reads the table so a change
+  // made from another device is not shown as the old choice.
+  const loadBranding = async () => {
+    try {
+      const res = await fetch('/api/branding', { cache: 'no-store' });
+      const json = await res.json();
+      if (json?.data) {
+        const saved = normalizeBranding(json.data);
+        setSiteBranding(saved);
+        setBrandChoice(saved.mode);
+      }
+    } catch { /* the card still shows the layout's copy */ }
+  };
+
+  const saveBranding = async () => {
+    setBrandSaving(true);
+    try {
+      const res = await fetch('/api/branding', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: brandChoice, actorId: userData?.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const saved = normalizeBranding(data.data);
+        setSiteBranding(saved);
+        setBrandChoice(saved.mode);
+        showToast(`The site now shows "${brandFor(saved).full}"`, 'success');
+      } else {
+        showToast(data.message || 'Could not save the branding', 'danger');
+      }
+    } catch {
+      showToast('Could not reach the server', 'danger');
+    } finally {
+      setBrandSaving(false);
     }
   };
 
@@ -23225,7 +23273,7 @@ ${row('Change', rc.change, 'change')}
       {/* Mobile Top Navbar */}
       <header className="mobile-topbar">
         <div className="mobile-topbar-left">
-          <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" className="mobile-topbar-logo" />
+          <img src="/assets/LOGO.png" alt={`${siteBrand.full} logo`} className="mobile-topbar-logo" />
         </div>
         <button className="mobile-hamburger" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle menu">
           <span className={`hamburger-line ${sidebarOpen ? 'open' : ''}`}></span>
@@ -23242,11 +23290,11 @@ ${row('Change', rc.change, 'change')}
           <div className="sidebar-top">
             <div className="sidebar-brand">
               <div className="logo">
-                <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" />
+                <img src="/assets/LOGO.png" alt={`${siteBrand.full} logo`} />
               </div>
               <div className="brand-text">
-                <span className="brand-name">Joyful Sound Church</span>
-                <span className="brand-sub">International</span>
+                <span className="brand-name">{siteBrand.name}</span>
+                <span className="brand-sub">{siteBrand.navSub}</span>
               </div>
             </div>
             <button
@@ -38063,6 +38111,68 @@ ${row('Change', rc.change, 'change')}
 
           <section className={`content-section ${activeSection === 'system-config' ? 'active' : ''}`}>
             <h2 className="section-title">System Configuration</h2>
+
+            {/* ---- Whose name the site wears (Super Admin only) ---- */}
+            {isSuperAdmin && (
+              <div className="hero-cfg brand-cfg">
+                <div className="hero-cfg-head">
+                  <div>
+                    <h3><i className="fas fa-signature"></i> Site Branding</h3>
+                    <p>The name on the public home page, the sign-in pages, the browser tab and the sidebar.</p>
+                  </div>
+                  <span className="hero-cfg-live brand-cfg-now">
+                    <i className="fas fa-circle-check"></i> Showing: {siteBrand.full}
+                  </span>
+                </div>
+
+                <div className="hero-cfg-modes" role="radiogroup" aria-label="Site branding">
+                  {['church', 'platform'].map((mode) => {
+                    const b = brandFor(mode);
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="radio"
+                        aria-checked={brandChoice === mode}
+                        className={`hero-cfg-mode brand-cfg-mode ${brandChoice === mode ? 'active' : ''}`}
+                        onClick={() => setBrandChoice(mode)}
+                      >
+                        <span className="brand-cfg-preview" aria-hidden="true">
+                          <img src="/assets/LOGO.png" alt="" />
+                          <span>
+                            <b>{b.name}</b>
+                            <em>{b.sub}</em>
+                          </span>
+                        </span>
+                        <strong>{mode === 'church' ? 'Church name' : 'SanctuaryHub platform'}</strong>
+                        <small>
+                          {mode === 'church'
+                            ? 'Visitors see Joyful Sound Church – International. This is the default.'
+                            : 'SanctuaryHub is the headline, with the church named under it — for demos, the defense and partner churches.'}
+                        </small>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="hero-cfg-foot">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={brandChoice === siteBrand.mode || brandSaving}
+                    onClick={saveBranding}
+                  >
+                    {brandSaving
+                      ? <><i className="fas fa-spinner fa-spin"></i> Saving…</>
+                      : <><i className="fas fa-check"></i> Save branding</>}
+                  </button>
+                  {brandChoice !== siteBrand.mode && !brandSaving && <span className="hero-cfg-dirty">Unsaved changes</span>}
+                  <a href="/" target="_blank" rel="noopener noreferrer" className="brand-cfg-view">
+                    <i className="fas fa-arrow-up-right-from-square"></i> View home page
+                  </a>
+                </div>
+              </div>
+            )}
 
             {/* ---- What the public hero shows ---- */}
             <div className="hero-cfg">

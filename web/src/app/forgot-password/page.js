@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import emailjs from '@emailjs/browser';
 import './forgot-password.css';
+import { useBranding } from '@/components/BrandingProvider';
 
 const EMAILJS_SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
 const EMAILJS_TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
@@ -11,6 +12,7 @@ const EMAILJS_PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
+  const brand = useBranding();
   const [darkMode, setDarkMode] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [alert, setAlert] = useState({ message: '', type: '' });
@@ -226,7 +228,7 @@ export default function ForgotPasswordPage() {
         <div className="forgot-container">
           <div className="forgot-header">
             <div className="logo"></div>
-            <h1>SanctuaryHub</h1>
+            <h1>{brand.name}</h1>
           </div>
 
           <div className="forgot-body">
@@ -348,7 +350,7 @@ export default function ForgotPasswordPage() {
             <div className="forgot-footer">
               <p>Remember your password? <a href="/login">Back to Login</a></p>
               <p style={{ marginTop: '10px', fontSize: '0.8rem', color: '#999' }}>
-                &copy; {new Date().getFullYear()} SanctuaryHub. All rights reserved.
+                &copy; {new Date().getFullYear()} {brand.owner}. All rights reserved.
               </p>
             </div>
           </div>

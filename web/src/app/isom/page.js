@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import './isom.css';
+import { useBranding } from '@/components/BrandingProvider';
 
 export default function IsomPage() {
   const router = useRouter();
+  const brand = useBranding();
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [subtitle, setSubtitle] = useState('');
@@ -79,8 +81,8 @@ export default function IsomPage() {
               <span>Back</span>
             </button>
             <div className="isom-brand">
-              <img src="/assets/LOGO.png" alt="SanctuaryHub Logo" />
-              <div className="isom-brand-text">SanctuaryHub</div>
+              <img src="/assets/LOGO.png" alt={`${brand.full} logo`} />
+              <div className="isom-brand-text">{brand.name}</div>
             </div>
           </div>
 
@@ -161,7 +163,7 @@ export default function IsomPage() {
 
           {/* Footer */}
           <div className="isom-footer">
-            <p>&copy; {new Date().getFullYear()} SanctuaryHub &mdash; All Rights Reserved</p>
+            <p>&copy; {new Date().getFullYear()} {brand.owner} &mdash; All Rights Reserved</p>
           </div>
         </div>
       </div>

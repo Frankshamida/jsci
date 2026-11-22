@@ -58,10 +58,10 @@ export default function PrivacyPolicyPage() {
           <div className="terms-body">
             <div className="terms-content">
               <h2>Privacy Policy</h2>
-              <p className="legal-effective-date"><strong>Effective Date:</strong> March 7, 2026</p>
+              <p className="legal-effective-date"><strong>Effective Date:</strong> November 23, 2026</p>
 
               <p>
-                SanctuaryHub (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) is committed to protecting the privacy of our members and users. This Privacy Policy explains how we collect, use, store, and protect your personal information when you use the SanctuaryHub Ministry Portal (&quot;Platform&quot;).
+                SanctuaryHub (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) is the online church management platform of Joyful Sound Church &ndash; International in Cebu City, Philippines, available at <a href="https://sanctuaryhub.vercel.app">sanctuaryhub.vercel.app</a>. We are committed to protecting the privacy of our members and users. This Privacy Policy explains how we collect, use, store, and protect your personal information when you use the SanctuaryHub website and its ministry app (together, the &quot;Platform&quot;).
               </p>
 
               <h3><i className="fas fa-database"></i> 1. Information We Collect</h3>
@@ -86,7 +86,18 @@ export default function PrivacyPolicyPage() {
                 <li><strong>Improvement:</strong> To analyze usage patterns and improve the Platform&apos;s features and performance.</li>
               </ul>
 
-              <h3><i className="fas fa-share-alt"></i> 3. Information Sharing</h3>
+              <h3><i className="fab fa-google"></i> 3. Signing In with Google</h3>
+              <p>You can create an account and sign in with your Google account instead of a password. When you do:</p>
+              <ul>
+                <li><strong>What we receive:</strong> Google shares your name, email address, profile picture, and a Google account identifier with us. We ask only for this basic profile information. We do not request access to your Gmail, Google Drive, Contacts, Calendar, or any other Google data.</li>
+                <li><strong>How we use it:</strong> Only to create your SanctuaryHub account, sign you in, keep your account linked to your Google account, and show your name and picture on your profile and to other members as described in Section 4.</li>
+                <li><strong>How we store it:</strong> It is saved with your account in our database (hosted by Supabase) and protected as described in Section 5.</li>
+                <li><strong>Sharing:</strong> We do not sell Google user data, do not use it for advertising, and do not share or transfer it to anyone except as needed to run the Platform or as required by law.</li>
+                <li><strong>Limited Use:</strong> SanctuaryHub&apos;s use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
+                <li><strong>Removing access:</strong> You can disconnect SanctuaryHub from your Google account at any time at <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener noreferrer">myaccount.google.com/connections</a>, and you can ask us to delete your account and its Google data as described in Section 9.</li>
+              </ul>
+
+              <h3><i className="fas fa-share-alt"></i> 4. Information Sharing</h3>
               <p>We value your privacy and commit to the following:</p>
               <ul>
                 <li><strong>No Selling of Data:</strong> We will never sell, rent, or trade your personal information to third parties.</li>
@@ -96,7 +107,7 @@ export default function PrivacyPolicyPage() {
                 <li><strong>Legal Requirements:</strong> We may disclose information if required by law or to protect the safety of our community.</li>
               </ul>
 
-              <h3><i className="fas fa-lock"></i> 4. Data Security</h3>
+              <h3><i className="fas fa-lock"></i> 5. Data Security</h3>
               <p>We take the security of your data seriously:</p>
               <ul>
                 <li>Passwords are encrypted using industry-standard hashing algorithms — we cannot see your password.</li>
@@ -106,7 +117,7 @@ export default function PrivacyPolicyPage() {
                 <li>Profile pictures are stored securely and accessed only through authenticated requests.</li>
               </ul>
 
-              <h3><i className="fas fa-robot"></i> 5. AI-Powered Features</h3>
+              <h3><i className="fas fa-robot"></i> 6. AI-Powered Features</h3>
               <p>The Platform uses AI-powered features to enhance your spiritual experience:</p>
               <ul>
                 <li>The Spiritual AI Assistant provides scripture-based guidance and is not a replacement for personal prayer and Bible study.</li>
@@ -115,7 +126,7 @@ export default function PrivacyPolicyPage() {
                 <li>AI features use third-party language models — your queries are processed but not used to train these models.</li>
               </ul>
 
-              <h3><i className="fas fa-cookie-bite"></i> 6. Cookies & Local Storage</h3>
+              <h3><i className="fas fa-cookie-bite"></i> 7. Cookies & Local Storage</h3>
               <p>The Platform uses browser local storage and session storage for:</p>
               <ul>
                 <li>Keeping you logged in (session management).</li>
@@ -125,34 +136,34 @@ export default function PrivacyPolicyPage() {
               </ul>
               <p>We do not use third-party tracking cookies or advertising cookies.</p>
 
-              <h3><i className="fas fa-child"></i> 7. Children&apos;s Privacy</h3>
+              <h3><i className="fas fa-child"></i> 8. Children&apos;s Privacy</h3>
               <p>
                 The Platform requires users to be at least <strong>13 years of age</strong> to create an account. Users under 18 should have parental or guardian consent. We do not knowingly collect information from children under 13. If we discover that we have collected such information, we will delete it promptly.
               </p>
 
-              <h3><i className="fas fa-user-shield"></i> 8. Your Rights</h3>
+              <h3><i className="fas fa-user-shield"></i> 9. Your Rights</h3>
               <p>As a user, you have the following rights regarding your data:</p>
               <ul>
                 <li><strong>Access:</strong> You can view all personal information stored in your profile at any time.</li>
                 <li><strong>Correction:</strong> You can update your personal information through the Profile section.</li>
-                <li><strong>Deletion:</strong> You may request account deletion, which will remove your personal data from the Platform.</li>
+                <li><strong>Deletion:</strong> You may request account deletion by emailing us (see Section 12), which will remove your personal data, including any data received from Google, from the Platform.</li>
                 <li><strong>Portability:</strong> You can request a copy of your personal data by contacting church administration.</li>
                 <li><strong>Withdraw Consent:</strong> You can stop using the Platform at any time.</li>
               </ul>
 
-              <h3><i className="fas fa-history"></i> 9. Data Retention</h3>
+              <h3><i className="fas fa-history"></i> 10. Data Retention</h3>
               <p>
                 We retain your personal data for as long as your account is active. If your account is deleted (either by you or by administration), your personal information will be removed from our systems. Community posts and content may be retained in anonymized form for record-keeping purposes.
               </p>
 
-              <h3><i className="fas fa-edit"></i> 10. Changes to This Policy</h3>
+              <h3><i className="fas fa-edit"></i> 11. Changes to This Policy</h3>
               <p>
                 We may update this Privacy Policy from time to time to reflect changes in our practices or legal requirements. Any changes will be posted on this page with an updated effective date. We encourage you to review this policy periodically.
               </p>
 
-              <h3><i className="fas fa-envelope"></i> 11. Contact Us</h3>
+              <h3><i className="fas fa-envelope"></i> 12. Contact Us</h3>
               <p>
-                If you have any questions, concerns, or requests regarding this Privacy Policy or how your data is handled, please contact church administration through the Platform or during church services.
+                If you have any questions, concerns, or requests regarding this Privacy Policy or how your data is handled, including a request to see, correct, or delete your data, email us at <a href="mailto:joyfulsoundchurchc@gmail.com">joyfulsoundchurchc@gmail.com</a>, or contact church administration through the Platform or during church services.
               </p>
 
               <div className="legal-scripture-box">
@@ -165,7 +176,7 @@ export default function PrivacyPolicyPage() {
             </div>
 
             <div className="terms-updated">
-              Effective: March 7, 2026
+              Effective: November 23, 2026
             </div>
           </div>
 

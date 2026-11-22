@@ -1127,3 +1127,10 @@ body.dark-mode .login-alert-success .login-alert-text {
     font-size: 0.88rem;
   }
 }
+
+/* SanctuaryHub branding (System Configuration): "CHURCH PLATFORM" is two
+   words, not the one 13-letter word the 1.29em tracking was tuned for. */
+.login-panel-brand-text.is-platform span {
+  letter-spacing: 0.42em;
+  margin-right: -0.42em;
+}

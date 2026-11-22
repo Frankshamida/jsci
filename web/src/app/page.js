@@ -11,6 +11,7 @@ import { eventCardTitle } from '@/lib/socialCard';
 import { EVENT_IMAGE_SIZES, eventImageSrcSet, eventImageUrl } from '@/lib/eventImage';
 import { HERO_MEDIA_DEFAULT, heroVideoFor, normalizeHeroMedia } from '@/lib/heroMedia';
 import HeroVideo from '@/components/HeroVideo';
+import { useBranding } from '@/components/BrandingProvider';
 import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
 import { buildEventsDigest, eventsMentionedIn, evtPlaceLabel } from '@/lib/eventDigest';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
@@ -58,21 +59,113 @@ const PASTORS = [
   { name: 'Ptr. Psalm Gambe', title: 'Youth Pastor', photo: '/assets/ptr-psalm-gambe.png' },
 ];
 
+// `group` is what the filter chips above the grid sort them by.
 const ACTIVITIES = [
-  { title: 'Sunday Worship Service', desc: 'Our church family united in powerful worship and biblical teaching every Sunday morning.', photo: '/assets/worship-service.jpg', badge: 'Weekly' },
-  { title: 'Friday Bible Study', desc: 'In-depth Bible study and discussion for spiritual growth and deeper understanding of God\'s Word.', photo: '/assets/friday-bible-study.jpg', badge: 'Weekly' },
-  { title: 'ISOM Training', desc: 'International School of Ministry — equipping leaders for effective kingdom work and ministry.', photo: '/assets/isom-training.jpg', badge: 'Ongoing' },
-  { title: 'Online Midweek Service', desc: 'Join us online every Wednesday for worship, teaching, and fellowship from wherever you are.', photo: '/assets/Midweek_Service.png', badge: 'Weekly' },
-  { title: 'Youth Ministry', desc: 'Dynamic gatherings filled with fun, fellowship, games, and spiritual growth for the youth.', photo: '/assets/youth-event.jpg', badge: 'Monthly' },
-  { title: 'Community Outreach', desc: 'Serving our community with practical needs and sharing the good news of Jesus Christ.', photo: '/assets/community-outreach.jpg', badge: 'Quarterly' },
-  { title: 'Pastor Appreciation', desc: 'Honoring and celebrating our dedicated pastors for their faithful service and leadership.', photo: '/assets/pastor-appreciation.jpg', badge: 'Annual' },
-  { title: 'Leadership Conference', desc: 'Equipping and empowering believers to raise up the next generation of kingdom leaders.', photo: '/assets/Leadership Conference.jpg', badge: 'Annual' },
+  { title: 'Sunday Worship Service', desc: 'Our church family united in powerful worship and biblical teaching every Sunday morning.', photo: '/assets/worship-service.jpg', badge: 'Weekly', group: 'weekly' },
+  { title: 'Friday Bible Study', desc: 'In-depth Bible study and discussion for spiritual growth and deeper understanding of God\'s Word.', photo: '/assets/friday-bible-study.jpg', badge: 'Weekly', group: 'weekly' },
+  { title: 'ISOM Training', desc: 'International School of Ministry — equipping leaders for effective kingdom work and ministry.', photo: '/assets/isom-training.jpg', badge: 'Ongoing', group: 'training' },
+  { title: 'Online Midweek Service', desc: 'Join us online every Wednesday for worship, teaching, and fellowship from wherever you are.', photo: '/assets/Midweek_Service.png', badge: 'Weekly', group: 'weekly' },
+  { title: 'Youth Ministry', desc: 'Dynamic gatherings filled with fun, fellowship, games, and spiritual growth for the youth.', photo: '/assets/youth-event.jpg', badge: 'Monthly', group: 'monthly' },
+  { title: 'Community Outreach', desc: 'Serving our community with practical needs and sharing the good news of Jesus Christ.', photo: '/assets/community-outreach.jpg', badge: 'Quarterly', group: 'special' },
+  { title: 'Pastor Appreciation', desc: 'Honoring and celebrating our dedicated pastors for their faithful service and leadership.', photo: '/assets/pastor-appreciation.jpg', badge: 'Annual', group: 'special' },
+  { title: 'Leadership Conference', desc: 'Equipping and empowering believers to raise up the next generation of kingdom leaders.', photo: '/assets/Leadership Conference.jpg', badge: 'Annual', group: 'special' },
 ];
 
+const ACTIVITY_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'weekly', label: 'Weekly' },
+  { key: 'monthly', label: 'Monthly' },
+  { key: 'special', label: 'Special Events' },
+  { key: 'training', label: 'Training' },
+];
+
+// The ministries a member can serve in - the same five the ministry app and
+// the dashboard's ministry roles are built around.
+const MINISTRIES = [
+  { name: 'Praise & Worship', desc: 'Lead the church in Spirit-filled worship through music and song.' },
+  { name: 'Media Ministry', desc: 'Run the screens, sound and live stream that carry every service.' },
+  { name: 'Dance Ministry', desc: 'Worship through movement and bring the message to life on stage.' },
+  { name: 'Ushering Ministry', desc: 'Welcome every guest at the door and keep each service in order.' },
+  { name: 'Youth Ministry', desc: 'Fellowship, games and the Word for the next generation of believers.' },
+];
+
+// "What to expect" on a first visit. Nothing here promises a detail the
+// church has not stated - no service length, no parking, no dress code.
+const VISIT_STEPS = [
+  { title: 'Come as you are', text: 'Arrive a few minutes early. Our ushers will welcome you and help you find a seat.' },
+  { title: 'Worship together', text: 'Spirit-filled praise led by our Praise & Worship ministry.' },
+  { title: 'Hear the Word', text: 'Bible-centered preaching from our pastors that you can live out during the week.' },
+  { title: 'Stay and connect', text: 'Meet the church family, and ask about our ministries, events and ISOM.' },
+];
+
+// ---- Where the church is ----
+// The pin the Visit Us map has always pointed at. The Street View embed is the
+// view somebody chose of the building; the plain map is what gets a visitor
+// there, so the map is shown first and the street view is one tap away.
+const CHURCH_LAT = 10.31957253395332;
+const CHURCH_LNG = 123.8994709106599;
+const CHURCH_CITY = 'Cebu City, Philippines';
+// Google's keyless embed, at the address `maps.google.com/maps?...&output=embed`
+// redirects to - asked for directly, so the frame does not ride a redirect.
+const MAP_EMBED_URL = `https://www.google.com/maps/embed?origin=mfe&pb=!1m3!2m1!1s${CHURCH_LAT},${CHURCH_LNG}!6i17`;
+const STREET_EMBED_URL = 'https://www.google.com/maps/embed?pb=!4v1772207931266!6m8!1m7!1sdo9Akv3QAW6kJETCDEd_HQ!2m2!1d10.31957253395332!2d123.8994709106599!3f236.24502041751504!4f2.753458141938296!5f0.7820865974627469';
+const DIRECTIONS_URL = `https://www.google.com/maps/dir/?api=1&destination=${CHURCH_LAT},${CHURCH_LNG}`;
+const MAP_URL = `https://www.google.com/maps/search/?api=1&query=${CHURCH_LAT},${CHURCH_LNG}`;
+const FACEBOOK_URL = 'https://www.facebook.com/CebuCityJoyfulSound';
+const MESSENGER_URL = 'https://m.me/CebuCityJoyfulSound';
+const YOUTUBE_URL = 'https://www.youtube.com/@JoyfulSoundChurchCebuCity';
+
+// ---- The next gathering, in church time ----
+// The services are held in Cebu, so "Sunday 9:00 AM" means 9:00 in the
+// Philippines (UTC+8, no daylight saving) wherever the visitor is reading
+// from. The wall clock is worked out in UTC+8 and turned back into an instant.
+const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+const nextGathering = (nowMs) => {
+  const ph = new Date(nowMs + PH_OFFSET_MS);
+  let best = null;
+  SERVICE_TIMES.forEach((s) => {
+    for (let add = 0; add <= 7; add += 1) {
+      const wall = new Date(Date.UTC(ph.getUTCFullYear(), ph.getUTCMonth(), ph.getUTCDate() + add, s.hour, s.minute));
+      if (wall.getUTCDay() !== s.dow) continue;
+      const startMs = wall.getTime() - PH_OFFSET_MS;
+      if (startMs <= nowMs) continue;
+      if (!best || startMs < best.startMs) best = { ...s, startMs };
+      break;
+    }
+  });
+  return best;
+};
+
+// "in 2 days, 4 hrs" / "in 3 hrs 20 min" / "in 12 min"
+const untilLabel = (ms) => {
+  const mins = Math.max(1, Math.round(ms / 60000));
+  const days = Math.floor(mins / 1440);
+  const hrs = Math.floor((mins % 1440) / 60);
+  const min = mins % 60;
+  if (days > 0) return `in ${days} day${days > 1 ? 's' : ''}${hrs ? `, ${hrs} hr${hrs > 1 ? 's' : ''}` : ''}`;
+  if (hrs > 0) return `in ${hrs} hr${hrs > 1 ? 's' : ''}${min ? ` ${min} min` : ''}`;
+  return `in ${min} min`;
+};
+
+const phDayLabel = (ms) => new Date(ms).toLocaleDateString('en-US', {
+  weekday: 'long', month: 'short', day: 'numeric', timeZone: 'Asia/Manila',
+});
+
+// The verse is wrapped in curly quotes by the page, so quotes the AI (or an
+// old cached copy) put round the whole thing are taken off first, and any
+// left inside become single quotes - a quotation inside a quotation.
+const cleanVerse = (text) => {
+  const t = String(text || '').trim().replace(/^["“”]+|["“”]+$/g, '').trim();
+  return t.replace(/(^|[\s(—-])["“]/g, '$1‘').replace(/["”]/g, '’');
+};
+
+// `dow` (0 = Sunday) and the hour are what "Next Gathering" counts down to;
+// the rest is what the cards print.
 const SERVICE_TIMES = [
-  { icon: 'fa-sun', day: 'Sunday', time: '9:00 AM', name: 'Worship Service' },
-  { icon: 'fa-book-bible', day: 'Friday', time: '7:00 PM', name: 'Bible Study' },
-  { icon: 'fa-users', day: 'Saturday', time: '2:00 PM', name: 'Youth Fellowship' },
+  { icon: 'fa-sun', day: 'Sunday', time: '9:00 AM', name: 'Worship Service', dow: 0, hour: 9, minute: 0 },
+  { icon: 'fa-book-bible', day: 'Friday', time: '7:00 PM', name: 'Bible Study', dow: 5, hour: 19, minute: 0 },
+  { icon: 'fa-users', day: 'Saturday', time: '2:00 PM', name: 'Youth Fellowship', dow: 6, hour: 14, minute: 0 },
 ];
 
 const ISOM_SLIDES = [
@@ -82,9 +175,6 @@ const ISOM_SLIDES = [
   '/assets/worship-service.jpg',
   '/assets/community-outreach.jpg',
 ];
-
-// Icons cycled across the ISOM highlight badges, matched by bullet index.
-const ISOM_BULLET_ICONS = ['fa-bible', 'fa-dove', 'fa-people-group', 'fa-earth-americas'];
 
 // ---- Event date helpers -------------------------------------------------
 // evtDate / evtMs / evtDayCount / evtStatus / evtWhen now live in
@@ -183,6 +273,9 @@ const AI_CHAT_URL = '/api/ai/chat';
 export default function HomePage() {
   const router = useRouter();
   const pathname = usePathname();
+  // Whose name the page wears - the church's, or SanctuaryHub's. Chosen by a
+  // Super Admin under System Configuration; see lib/branding.js.
+  const brand = useBranding();
   const [darkMode, setDarkMode] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
@@ -220,6 +313,16 @@ export default function HomePage() {
   const [liveEvents, setLiveEvents] = useState([]);
   const [eventsVersion, setEventsVersion] = useState(0); // bumped after a registration so the slot counts refresh
   const [detailEvent, setDetailEvent] = useState(null);
+
+  // ---- Landing page: This Week, the activity filter, the map ----
+  // `nowMs` is null on the server and set on mount: the countdown is the
+  // visitor's clock, and rendering it during SSR would hand React a time that
+  // no longer matches by the time the page hydrates.
+  const [nowMs, setNowMs] = useState(null);
+  const [liveStreams, setLiveStreams] = useState([]);
+  const [activityFilter, setActivityFilter] = useState('all');
+  const [mapView, setMapView] = useState('map');
+  const [heroAsk, setHeroAsk] = useState('');
 
 
   // ---- ISOM Inquire modal ----
@@ -1326,7 +1429,10 @@ export default function HomePage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState([
-    { role: 'assistant', content: "Hello, I'm **Joy**, your SanctuaryHub assistant. 😊\n\nI'd be glad to help you with:\n- **Service times** and weekly gatherings\n- **ISOM** enrollment and details\n- Upcoming **events** and announcements\n- Getting connected or creating an account\n\nHow may I assist you today?" },
+    {
+      role: 'assistant',
+      content: `Hello, I'm **Joy**, ${brand.isPlatform ? `your SanctuaryHub assistant for **${brand.church}**` : `your assistant at **${brand.church}**`}. 😊\n\nI'd be glad to help you with:\n- **Service times** and planning your first visit\n- **ISOM** enrollment and details\n- Upcoming **events** and registration\n- Getting connected or creating an account\n\nHow may I assist you today?`,
+    },
   ]);
   const chatBodyRef = useRef(null);
 
@@ -1398,6 +1504,32 @@ export default function HomePage() {
     }, 6000);
     return () => clearInterval(heroTimer.current);
   }, [heroVideoSrc]);
+
+  // ---- "Next Gathering" ticks over without a reload ----
+  useEffect(() => {
+    setNowMs(Date.now());
+    const t = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // ---- Is a service streaming right now? ----
+  // The same public list the /live page reads, cached at the CDN for ten
+  // seconds - so this costs the church nothing per visitor. Asked again every
+  // two minutes, which is how a tab left open finds out the service started.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/live-streams/public');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && Array.isArray(json)) setLiveStreams(json);
+      } catch { /* no live card is the same as nothing live */ }
+    };
+    load();
+    const t = setInterval(load, 120_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
 
   // ---- ISOM carousel auto-rotate ----
   useEffect(() => {
@@ -1590,9 +1722,18 @@ export default function HomePage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Sections that arrive after the first paint (the events, once they load)
+  // are revealed by the same check, run again when they land - otherwise a
+  // grid already on screen would wait for the visitor to scroll before it
+  // faded in.
+  useEffect(() => {
+    const t = setTimeout(() => window.dispatchEvent(new Event('scroll')), 80);
+    return () => clearTimeout(t);
+  }, [newsEvents.length]);
+
   // ---- Daily verse (cached 24h in localStorage) ----
   const fetchDailyVerse = useCallback(async () => {
-    const FALLBACK = { verse: '"For I know the plans I have for you," declares the Lord, "plans to prosper you and not to harm you, plans to give you hope and a future."', reference: 'Jeremiah 29:11 (NIV)' };
+    const FALLBACK = { verse: '‘For I know the plans I have for you,’ declares the Lord, ‘plans to prosper you and not to harm you, plans to give you hope and a future.’', reference: 'Jeremiah 29:11 (NIV)' };
     // The verse turns over on the calendar day, not 24h after it was fetched,
     // so everyone sees the same verse change at midnight local time.
     const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
@@ -1683,7 +1824,7 @@ export default function HomePage() {
     return chips;
   }, [liveEvents]);
 
-  const CHAT_SYSTEM_PROMPT = `You are "Joy", the professional AI assistant for SanctuaryHub — the online ministry portal of Jesus Sanctuary Christian International (JSCI).
+  const CHAT_SYSTEM_PROMPT = `You are "Joy", the professional AI assistant of ${brand.church} (JSCI), a Spirit-filled church in ${CHURCH_CITY}. You answer visitors on the church's website, which runs on SanctuaryHub — the church's AI-powered church management platform.
 
 TONE & STYLE:
 - Write in a warm but professional and polished tone, like a helpful ministry representative.
@@ -1694,8 +1835,12 @@ TONE & STYLE:
 - Do NOT use markdown headings (#) or tables. Only **bold**, plain paragraphs, and "- " bullets.
 
 KEY FACTS:
-- Worship Service: **Sunday 9:00 AM**. Bible Study: **Friday 7:00 PM**. Youth Fellowship: **Saturday 2:00 PM**.
-- Senior Pastors: **Dr. Weldon Pior** and **Dr. Dorothy Pior**.
+- Worship Service: **Sunday 9:00 AM**. Bible Study: **Friday 7:00 PM**. Youth Fellowship: **Saturday 2:00 PM**. These are Philippine time (GMT+8). There is also an **Online Midweek Service** every **Wednesday**.
+- Senior Pastors: **Dr. Weldon Pior** and **Dr. Dorothy Pior**. Associate Pastors: **Ptr. Gracelyn Gambe** and **Ptr. Eldan Gambe**. Youth Pastor: **Ptr. Psalm Gambe**.
+- Location: **${CHURCH_CITY}**. For directions, point visitors to the **Visit Us** map on this page, which has a Get Directions button. Never invent a street address.
+- Ministries members can serve in: Praise & Worship, Media, Dance, Ushering and Youth.
+- Contact: visitors can message the church on its **Facebook page**. Never invent a phone number or an email address.
+- Giving: tithes and offerings are received during the services. **Online giving is coming soon** — never give bank details, account numbers or payment links for donations.
 - ISOM (International School of Ministries) is a ministry-training program. Classes begin **August 2026**. People enroll by signing up / clicking "Enroll Now".
 - Users can sign up or log in from the navbar buttons, and watch live streams when a service is live.
 
@@ -1820,6 +1965,18 @@ ${eventsDigest}`;
     return actions;
   };
 
+  // The hero's "Ask Joy" bar and the buttons that say "Ask Joy": open the chat
+  // and send the question, so the visitor lands on an answer rather than an
+  // empty box they then have to type into again.
+  const askJoy = (question) => {
+    const q = String(question || '').trim();
+    setChatOpen(true);
+    if (q) {
+      setHeroAsk('');
+      sendChatMessage(q);
+    }
+  };
+
   // `preset` is what the starter chips send - the same path as typing it, so a
   // tapped suggestion and a typed question are one code path.
   const sendChatMessage = async (preset) => {
@@ -1932,8 +2089,29 @@ ${eventsDigest}`;
 
   const scrollToSection = (id) => {
     setMobileNavOpen(false);
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+    // The events grid is only on the page while there are events to show; with
+    // none, "This Week" is where the visitor is told so.
+    const el = document.getElementById(id) || (id === 'news' ? document.getElementById('this-week') : null);
+    el?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // ---- What the landing page shows, worked out once per render ----
+  const verseText = cleanVerse(dailyVerse.verse);
+  const nextSvc = nowMs ? nextGathering(nowMs) : null;
+  const liveStream = liveStreams[0] || null;
+  const nextEvent = newsEvents.find((e) => evtStatus(e.event_date, e.end_date) !== 'ended') || null;
+  const shownActivities = activityFilter === 'all'
+    ? ACTIVITIES
+    : ACTIVITIES.filter((a) => a.group === activityFilter);
+  const NAV_LINKS = [
+    { id: 'about', label: 'About' },
+    { id: 'plan-visit', label: 'Plan a Visit' },
+    { id: 'ministries', label: 'Ministries' },
+    { id: 'news', label: 'Events' },
+    { id: 'isom', label: 'ISOM' },
+    { id: 'give', label: 'Give' },
+    { id: 'location', label: 'Location' },
+  ];
 
   // ============================================
   // RENDER
@@ -1941,31 +2119,30 @@ ${eventsDigest}`;
   return (
     <>
       {/* ---- NAVBAR ---- */}
-      <nav className="hp-navbar">
+      <nav className={`hp-navbar ${brand.isPlatform ? 'is-platform' : ''}`} aria-label="Main">
         <a className="hp-navbar-brand" href="/">
-          <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" className="hp-navbar-logo" fetchPriority="high" decoding="async" />
+          <img src="/assets/LOGO.png" alt={`${brand.full} logo`} className="hp-navbar-logo" fetchPriority="high" decoding="async" />
           <div className="hp-navbar-title">
-            Joyful Sound Church
-            <span>International</span>
+            {brand.name}
+            <span>{brand.navSub}</span>
           </div>
         </a>
 
         <div className={`hp-navbar-links ${mobileNavOpen ? 'open' : ''}`}>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('about'); }}>About</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('services'); }}>Services</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('activities'); }}>Activities</a>
-          <a href="#" className="hp-nav-isom" onClick={(e) => { e.preventDefault(); scrollToSection('isom'); }} title="ISOM"><img src="/assets/ISOM_Logo.png" alt="ISOM" className="hp-nav-isom-icon" /></a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('news'); }}>Events</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('pastors'); }}>Pastors</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); scrollToSection('location'); }}>Location</a>
-          <a href="/login" className="hp-btn-login"><i className="fas fa-sign-in-alt"></i> Login</a>
+          {NAV_LINKS.map((link) => (
+            <a key={link.id} href={`#${link.id}`} onClick={(e) => { e.preventDefault(); scrollToSection(link.id); }}>{link.label}</a>
+          ))}
+          {liveStream && (
+            <a href="/live" className="hp-btn-live"><span className="hp-live-dot" aria-hidden="true"></span> Live</a>
+          )}
+          <a href="/login" className="hp-btn-login">Log In</a>
         </div>
 
         <div className="hp-navbar-actions">
-          <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode">
+          <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode" aria-label="Toggle dark mode">
             <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
           </button>
-          <button className="hp-nav-toggle" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
+          <button className="hp-nav-toggle" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'} aria-expanded={mobileNavOpen}>
             <i className={`fas ${mobileNavOpen ? 'fa-times' : 'fa-bars'}`}></i>
           </button>
         </div>
@@ -1988,24 +2165,41 @@ ${eventsDigest}`;
           </div>
         ))}
 
-        <div className="hp-hero-overlay">
-          <img src="/assets/LOGO.png" alt="Joyful Sound Church International Logo" className="hp-hero-logo" />
-          <h1 className="hp-hero-heading">Joyful Sound Church</h1>
-          <p className="hp-hero-sub">International</p>
-          {dailyVerse.verse && (
+        <div className={`hp-hero-overlay ${brand.isPlatform ? 'is-platform' : ''}`}>
+          <img src="/assets/LOGO.png" alt={`${brand.full} logo`} className="hp-hero-logo" />
+          {brand.isPlatform && <p className="hp-hero-eyebrow">{brand.platformTagline}</p>}
+          <h1 className="hp-hero-heading">{brand.name}</h1>
+          <p className="hp-hero-sub">{brand.sub}</p>
+          {verseText && (
             <div className="hp-hero-verse">
-              <p className="hp-hero-verse-text">&ldquo;{dailyVerse.verse}&rdquo;</p>
+              <p className="hp-hero-verse-text">&ldquo;{verseText}&rdquo;</p>
               <p className="hp-hero-verse-ref">{dailyVerse.reference}</p>
             </div>
           )}
           <div className="hp-hero-buttons">
-            <a href="/signup" className="hp-btn-primary">
-              <i className="fas fa-user-plus"></i> Join Our Family
-            </a>
-            <a href="#about" className="hp-btn-outline" onClick={(e) => { e.preventDefault(); scrollToSection('about'); }}>
-              <i className="fas fa-info-circle"></i> Learn More
+            <a href="/signup" className="hp-btn-primary">Join Our Family</a>
+            <a href="#plan-visit" className="hp-btn-outline" onClick={(e) => { e.preventDefault(); scrollToSection('plan-visit'); }}>
+              Plan Your Visit
             </a>
           </div>
+
+          {/* Joy, in the one place every visitor looks. A question typed here
+              opens the chat with the answer already on its way. */}
+          <form
+            className="hp-hero-ask"
+            onSubmit={(e) => { e.preventDefault(); askJoy(heroAsk); }}
+            role="search"
+          >
+            <input
+              type="text"
+              value={heroAsk}
+              onChange={(e) => setHeroAsk(e.target.value)}
+              placeholder="Ask Joy: “When is Sunday worship?”"
+              aria-label="Ask Joy, our AI assistant, a question"
+              maxLength={300}
+            />
+            <button type="submit">Ask Joy</button>
+          </form>
         </div>
 
         {/* Arrows and dots steer the carousel, so a video hero has no use for
@@ -2013,45 +2207,103 @@ ${eventsDigest}`;
             nothing. */}
         {!heroVideoSrc && (
           <>
-            <button className="hp-hero-arrow left" onClick={prevSlide}>
+            <button className="hp-hero-arrow left" onClick={prevSlide} aria-label="Previous photo">
               <i className="fas fa-chevron-left"></i>
             </button>
-            <button className="hp-hero-arrow right" onClick={nextSlide}>
+            <button className="hp-hero-arrow right" onClick={nextSlide} aria-label="Next photo">
               <i className="fas fa-chevron-right"></i>
             </button>
 
             <div className="hp-hero-dots">
               {HERO_SLIDES.map((_, i) => (
-                <button key={i} className={`hp-hero-dot ${i === heroIndex ? 'active' : ''}`} onClick={() => goSlide(i)} />
+                <button key={i} className={`hp-hero-dot ${i === heroIndex ? 'active' : ''}`} onClick={() => goSlide(i)} aria-label={`Photo ${i + 1}`} />
               ))}
             </div>
           </>
         )}
+      </section>
 
-        {/* The events are the thing most visitors came for, and they sit far down
-            the page - this drops them straight there. */}
-        <button
-          type="button"
-          className="hp-hero-jump"
-          onClick={() => scrollToSection('news')}
-          aria-label="Jump to upcoming events"
-        >
-          <span>Events</span>
-          <i className="fas fa-chevron-down"></i>
-        </button>
+      {/* ---- THIS WEEK: the three things a visitor came to find out ---- */}
+      {/* When is the next service, is anything live, and what is coming up -
+          answered in the first screen below the hero instead of four sections
+          further down. */}
+      <section id="this-week" className="hp-week" aria-label="This week">
+        <div className="hp-week-inner">
+          <article className="hp-week-card">
+            <span className="hp-week-label">Next Gathering</span>
+            {nextSvc ? (
+              <>
+                <h3>{nextSvc.name}</h3>
+                <p className="hp-week-when">{phDayLabel(nextSvc.startMs)}, {nextSvc.time}</p>
+                <p className="hp-week-count">Starts {untilLabel(nextSvc.startMs - nowMs)}</p>
+              </>
+            ) : (
+              <>
+                <h3>Worship Service</h3>
+                <p className="hp-week-when">Every Sunday, 9:00 AM</p>
+                <p className="hp-week-count">&nbsp;</p>
+              </>
+            )}
+            <button type="button" className="hp-week-link" onClick={() => scrollToSection('plan-visit')}>
+              All service times
+            </button>
+          </article>
+
+          <article className={`hp-week-card ${liveStream ? 'is-live' : ''}`}>
+            <span className="hp-week-label">
+              {liveStream ? <><span className="hp-live-dot" aria-hidden="true"></span> Live Now</> : 'Watch Online'}
+            </span>
+            <h3>{liveStream ? (liveStream.caption || liveStream.title || 'Our service is live') : 'Worship from anywhere'}</h3>
+            <p>
+              {liveStream
+                ? 'Join the service as it happens, and react and comment with the church family.'
+                : 'Services stream on our live page the moment they begin. The Online Midweek Service meets every Wednesday.'}
+            </p>
+            <a href="/live" className="hp-week-link">
+              {liveStream ? 'Watch now' : 'Open the live page'}
+            </a>
+          </article>
+
+          <article className="hp-week-card">
+            <span className="hp-week-label">Next Event</span>
+            {nextEvent ? (
+              <>
+                <h3>{nextEvent.title}</h3>
+                <p className="hp-week-when">
+                  {evtDate(nextEvent.event_date)?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                  {evtPlaceWord(nextEvent) ? `, ${evtPlaceWord(nextEvent)}` : ''}
+                </p>
+                <button type="button" className="hp-week-link" onClick={() => setDetailEvent(nextEvent)}>
+                  {evtRegOpen(nextEvent) ? 'Details and registration' : 'View details'}
+                </button>
+              </>
+            ) : (
+              <>
+                <h3>Nothing announced yet</h3>
+                <p>New events appear here the moment they are published. Our weekly services are always open to you.</p>
+                <button type="button" className="hp-week-link" onClick={() => askJoy('What events are coming up?')}>
+                  Ask Joy what&apos;s coming
+                </button>
+              </>
+            )}
+          </article>
+        </div>
       </section>
 
       {/* ---- UPCOMING EVENTS ---- */}
+      {/* Only while there is something to show. An empty grid with a "No
+          Upcoming Events" card was the first thing under the hero; "This Week"
+          above already says so in one line. */}
+      {newsEvents.length > 0 && (
       <section id="news" className="hp-section">
         <div className="hp-section-header hp-animate">
           <div className="hp-divider"></div>
-          <h2>Church Upcoming Events</h2>
-          <p>Stay updated with the upcoming events in our church community</p>
+          <h2>Upcoming Events</h2>
+          <p>Conferences, gatherings and celebrations you can register for online</p>
         </div>
 
         <div className="hp-invite-grid">
-          {newsEvents.length > 0 ? (
-            newsEvents.map((evt, i) => (
+          {newsEvents.map((evt, i) => (
               <button
                 type="button"
                 className="hp-invite-card hp-animate"
@@ -2074,7 +2326,6 @@ ${eventsDigest}`;
                     : <span className="hp-invite-hero-ph"><i className="fas fa-calendar-day"></i></span>}
 
                   <span className="hp-invite-pill">
-                    <i className="fas fa-star"></i>
                     <span>Upcoming{evtPlaceWord(evt) ? <> <b>{evtPlaceWord(evt)}</b></> : null} Event</span>
                   </span>
 
@@ -2093,137 +2344,204 @@ ${eventsDigest}`;
                   <span className="hp-invite-key">
                     {evt.event_date && (
                       <span className="hp-invite-line">
-                        <i className="fas fa-calendar-check"></i>
                         {evtDate(evt.event_date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
                     )}
                     {evtPlaceWord(evt) && (
                       <span className="hp-invite-line">
-                        <i className="fas fa-location-dot"></i>
                         {evtPlaceWord(evt)}
                       </span>
                     )}
                   </span>
                   {(evt.location || evt.loc_city) && (
                     <span className="hp-invite-line hp-invite-venue">
-                      <i className="fas fa-map-pin"></i>
                       {[evt.location, evt.loc_city].filter(Boolean).join(', ')}
                     </span>
                   )}
-                  <span className="hp-invite-cta">
-                    <i className="fas fa-circle-info"></i> View Details
-                  </span>
+                  <span className="hp-invite-cta">View Details</span>
                 </span>
               </button>
-            ))
-          ) : (
-            <div className="hp-empty-state hp-animate">
-              <div className="hp-empty-state-icon"><i className="fas fa-calendar-xmark"></i></div>
-              <h3>No Upcoming Events</h3>
-              <p>There are no events scheduled right now. Check back soon — we&apos;re always planning something new!</p>
-            </div>
-          )}
+          ))}
         </div>
       </section>
+      )}
 
-      {/* ---- WELCOME / ABOUT ---- */}
+      {/* ---- PLAN YOUR VISIT (service times + what to expect) ---- */}
+      <div className="hp-section-dark">
+        <section id="plan-visit" className="hp-section">
+          <span id="services" className="hp-anchor" aria-hidden="true"></span>
+          <div className="hp-section-header hp-animate">
+            <div className="hp-divider"></div>
+            <h2>Plan Your First Visit</h2>
+            <p>New here? We would love to meet you. Here is when we gather and what to expect.</p>
+          </div>
+
+          <div className="hp-visit-grid">
+            <div className="hp-visit-panel hp-animate">
+              <h3>Weekly Gatherings</h3>
+              <ul className="hp-visit-times">
+                {SERVICE_TIMES.map((s) => {
+                  const isNext = nextSvc?.dow === s.dow;
+                  return (
+                    <li key={s.day} className={isNext ? 'is-next' : ''}>
+                      <span className="hp-visit-day">{s.day}</span>
+                      <span className="hp-visit-name">
+                        {s.name}
+                        {isNext && <em>Next</em>}
+                      </span>
+                      <span className="hp-visit-at">{s.time}</span>
+                    </li>
+                  );
+                })}
+                <li>
+                  <span className="hp-visit-day">Wednesday</span>
+                  <span className="hp-visit-name">Online Midweek Service</span>
+                  <span className="hp-visit-at">Online</span>
+                </li>
+              </ul>
+              <p className="hp-visit-tz">All times are Philippine time (GMT+8).</p>
+            </div>
+
+            <div className="hp-visit-panel hp-animate">
+              <h3>What to Expect</h3>
+              <ol className="hp-visit-steps">
+                {VISIT_STEPS.map((step, i) => (
+                  <li key={step.title}>
+                    <span className="hp-visit-step-num" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+                    <div>
+                      <strong>{step.title}</strong>
+                      <p>{step.text}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              <div className="hp-visit-actions">
+                <a href={DIRECTIONS_URL} target="_blank" rel="noopener noreferrer" className="hp-btn-solid">Get Directions</a>
+                <button type="button" className="hp-btn-soft" onClick={() => askJoy('I am planning my first visit. What should I know?')}>
+                  Ask Joy a Question
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* ---- WELCOME / ABOUT + OUR PASTORS ---- */}
       <section id="about" className="hp-section">
         <div className="hp-section-header hp-animate">
           <div className="hp-divider"></div>
-          <h2>Welcome to Our Church</h2>
+          <h2>Welcome Home</h2>
           <p>A community of believers passionate about God&apos;s Word, worship, and reaching the nations</p>
         </div>
 
         <div className="hp-welcome-grid hp-animate">
           <div className="hp-welcome-img-wrapper">
-            <img src="/assets/worship-service.jpg" alt="Church worship" loading="lazy" decoding="async" />
-            <div className="hp-welcome-img-badge">
-              <i className="fas fa-church"></i>&nbsp; Est. by God&apos;s Grace
-            </div>
+            <img src="/assets/worship-service.jpg" alt="The church family in worship" loading="lazy" decoding="async" />
           </div>
 
           <div className="hp-welcome-text">
             <h3>Bringing the Joy of the Lord to Every Nation</h3>
             <p>
-              SanctuaryHub is a vibrant, Spirit-filled community 
-              committed to spreading the gospel of Jesus Christ. Under the leadership 
-              of our Senior Pastors Dr. Weldon and Dr. Dorothy Pior, we are a family 
-              that worships, grows, and serves together.
+              {brand.church} is a vibrant, Spirit-filled community committed to
+              spreading the gospel of Jesus Christ. Under the leadership of our Senior
+              Pastors, Dr. Weldon and Dr. Dorothy Pior, we are a family that worships,
+              grows, and serves together.
             </p>
-            <p>
-              Whether you&apos;re seeking a church home, looking for fellowship, or simply 
-              curious about the Christian faith — you are welcome here. Come experience 
-              the love of God in an atmosphere of praise and genuine community.
-            </p>
+            {brand.isPlatform ? (
+              <p>
+                {brand.platform} is the church&apos;s online home, where members register
+                for events, follow live services, serve in ministries and get answers from
+                Joy, our AI assistant, any time of day.
+              </p>
+            ) : (
+              <p>
+                Whether you&apos;re seeking a church home, looking for fellowship, or simply
+                curious about the Christian faith, you are welcome here. Come experience
+                the love of God in an atmosphere of praise and genuine community.
+              </p>
+            )}
 
-            <div className="hp-welcome-highlights">
-              <div className="hp-highlight-item">
-                <i className="fas fa-bible"></i>
-                <span>Bible-Centered Teaching</span>
+            <ul className="hp-welcome-points">
+              <li>Bible-centered teaching</li>
+              <li>Spirit-filled worship</li>
+              <li>Community outreach</li>
+              <li>Youth and family ministry</li>
+            </ul>
+          </div>
+        </div>
+
+        <div id="pastors" className="hp-leaders">
+          <div className="hp-subhead hp-animate">
+            <h3>Our Pastors</h3>
+            <p>The leaders shepherding our church family</p>
+          </div>
+          <div className="hp-pastors-grid hp-animate">
+            {PASTORS.map((p) => (
+              <div className="hp-pastor-card" key={p.name}>
+                <div className="hp-pastor-photo-wrapper">
+                  <img src={p.photo} alt={p.name} loading="lazy" decoding="async" />
+                </div>
+                <h4>{p.name}</h4>
+                <div className="hp-pastor-role">{p.title}</div>
               </div>
-              <div className="hp-highlight-item">
-                <i className="fas fa-music"></i>
-                <span>Spirit-Filled Worship</span>
-              </div>
-              <div className="hp-highlight-item">
-                <i className="fas fa-hands-helping"></i>
-                <span>Community Outreach</span>
-              </div>
-              <div className="hp-highlight-item">
-                <i className="fas fa-users"></i>
-                <span>Youth & Family Ministry</span>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ---- SERVICE TIMES ---- */}
+      {/* ---- FIND YOUR PLACE: ministries + activities ---- */}
       <div className="hp-section-dark">
-        <section id="services" className="hp-section">
+        <section id="ministries" className="hp-section">
           <div className="hp-section-header hp-animate">
             <div className="hp-divider"></div>
-            <h2>Service Times</h2>
-            <p>Join us for worship and fellowship throughout the week</p>
+            <h2>Find Your Place</h2>
+            <p>There is room for everyone to belong, grow and serve. Explore our ministries and the ways we gather.</p>
           </div>
 
-          <div className="hp-services-grid hp-animate">
-            {SERVICE_TIMES.map((s, i) => (
-              <div className="hp-service-card" key={i}>
-                <div className="hp-service-icon">
-                  <i className={`fas ${s.icon}`}></i>
-                </div>
-                <h4>{s.name}</h4>
-                <div className="hp-service-time">{s.time}</div>
-                <div className="hp-service-day">Every {s.day}</div>
-              </div>
+          <div className="hp-ministry-grid hp-animate">
+            {MINISTRIES.map((m) => (
+              <a key={m.name} href="/signup" className="hp-ministry-card">
+                <strong>{m.name}</strong>
+                <p>{m.desc}</p>
+                <span className="hp-ministry-cta">Get involved</span>
+              </a>
             ))}
           </div>
-        </section>
-      </div>
 
-      {/* ---- ACTIVITIES ---- */}
-      <div className="hp-section-dark">
-        <section id="activities" className="hp-section">
-          <div className="hp-section-header hp-animate">
-            <div className="hp-divider"></div>
-            <h2>Church Activities</h2>
-            <p>Discover the many ways you can connect, grow, and serve in our community</p>
+          <div id="activities" className="hp-activities-head hp-animate">
+            <div className="hp-subhead">
+              <h3>Church Activities</h3>
+              <p>Weekly gatherings, special events and training through the year</p>
+            </div>
+            <div className="hp-filter" role="tablist" aria-label="Filter activities">
+              {ACTIVITY_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={activityFilter === f.key}
+                  className={`hp-filter-chip ${activityFilter === f.key ? 'active' : ''}`}
+                  onClick={() => setActivityFilter(f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="hp-activities-grid">
-            {ACTIVITIES.map((a, i) => (
-              <div className="hp-activity-card hp-animate" key={i} style={{ transitionDelay: `${i * 0.1}s` }}>
+          {/* Keyed by the filter so the cards play their entrance again when the
+              set changes - and not tied to the scroll reveal, which a re-render
+              would undo by rewriting the class list. */}
+          <div className="hp-activities-grid" key={activityFilter}>
+            {shownActivities.map((a, i) => (
+              <div className="hp-activity-card hp-pop" key={a.title} style={{ animationDelay: `${i * 0.06}s` }}>
                 <div className="hp-activity-img-wrapper">
                   <img src={a.photo} alt={a.title} className="hp-activity-img" loading="lazy" decoding="async" />
-                  <div className="hp-activity-badge">{a.badge}</div>
                 </div>
                 <div className="hp-activity-body">
+                  <span className="hp-activity-freq">{a.badge}</span>
                   <h4>{a.title}</h4>
                   <p>{a.desc}</p>
-                  <div className="hp-activity-meta">
-                    <i className="fas fa-calendar-alt"></i> {a.badge} Activity
-                  </div>
                 </div>
               </div>
             ))}
@@ -2232,95 +2550,99 @@ ${eventsDigest}`;
       </div>
 
       {/* ---- ISOM ---- */}
+      {/* The school's own content (subtitle, points, start date, photos) is
+          edited by a Super Admin under ISOM Management; this only lays it out. */}
       <section id="isom" className="hp-isom">
-        <div className="hp-isom-dotgrid"></div>
-        <div className="hp-isom-wave hp-isom-wave-left"></div>
-        <div className="hp-isom-wave hp-isom-wave-right"></div>
-
         <div className="hp-isom-inner">
-          <div className="hp-isom-topbar hp-animate">
-            <span className="hp-isom-eyebrow"><i className="fas fa-star"></i> Now Enrolling</span>
-            <div className="hp-isom-quote">
-              <i className="fas fa-quote-left"></i>
-              <p>Raising Kingdom Leaders.<br />Impacting Nations.</p>
+          <div className="hp-isom-copy hp-animate">
+            <div className="hp-isom-mark">
+              <img src="/assets/ISOM_Logo.png" alt="ISOM logo" loading="lazy" decoding="async" />
+              <span>Now Enrolling</span>
+            </div>
+            <h2 className="hp-isom-heading">International School of Ministries</h2>
+            <p className="hp-isom-tagline">Raising kingdom leaders. Impacting nations.</p>
+            <p className="hp-isom-lead">{isomData.subtitle}</p>
+
+            <ul className="hp-isom-points">
+              {isomData.bullets.map((b) => <li key={b}>{b}</li>)}
+            </ul>
+
+            <div className="hp-isom-foot">
+              <div className="hp-isom-date">
+                <span>Classes begin</span>
+                <strong>{isomData.class_start_date}</strong>
+              </div>
+              <div className="hp-isom-cta">
+                <button type="button" className="hp-isom-primary" onClick={openIsomInquire}>
+                  Inquire or Enroll
+                </button>
+                <a href="/isom" className="hp-isom-secondary">Learn more about ISOM</a>
+              </div>
             </div>
           </div>
 
-          <div className="hp-isom-grid hp-animate">
-            <div className="hp-isom-left">
-              <div className="hp-isom-brandrow">
-                <img src="/assets/ISOM_Logo.png" alt="ISOM Logo" className="hp-isom-logo-sm" loading="lazy" decoding="async" />
-                <span className="hp-isom-brandrow-divider"></span>
-                <span className="hp-isom-brandrow-text">International<br />School of<br />Ministries</span>
-              </div>
-
-              <h2 className="hp-isom-title">International School<br />of <span>Ministries</span></h2>
-              <p className="hp-isom-sub">{isomData.subtitle}</p>
-
-              <div className="hp-isom-badges">
-                {isomData.bullets.map((b, i) => (
-                  <div className="hp-isom-badge" key={i}>
-                    <div className="hp-isom-badge-icon">
-                      <i className={`fas ${ISOM_BULLET_ICONS[i % ISOM_BULLET_ICONS.length]}`}></i>
-                    </div>
-                    <span>{b}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="hp-isom-actions">
-                <button type="button" className="hp-isom-btn" onClick={openIsomInquire}>
-                  Inquire / Enroll Now
-                  <span className="hp-isom-btn-arrow"><i className="fas fa-arrow-right"></i></span>
-                </button>
-                <a href="/isom" className="hp-isom-outline-btn">
-                  <i className="fas fa-circle-info"></i> Learn More About ISOM
-                </a>
-              </div>
-            </div>
-
-            <div className="hp-isom-right">
-              <div className="hp-isom-carousel">
-                {isomData.slides.map((slide, i) => (
-                  <img
+          <figure className="hp-isom-photo hp-animate">
+            {isomData.slides.map((slide, i) => (
+              <img
+                key={i}
+                src={slide.url}
+                alt={`ISOM class photo ${i + 1}`}
+                loading="lazy"
+                decoding="async"
+                className={`hp-isom-slide ${i === isomIndex ? 'active' : ''}`}
+              />
+            ))}
+            {isomData.slides.length > 1 && (
+              <div className="hp-isom-dots">
+                {isomData.slides.map((_, i) => (
+                  <button
                     key={i}
-                    src={slide.url}
-                    alt={`ISOM ${i + 1}`}
-                    loading="lazy"
-                    decoding="async"
-                    className={`hp-isom-slide ${i === isomIndex ? 'active' : ''}`}
+                    type="button"
+                    className={`hp-isom-dot ${i === isomIndex ? 'active' : ''}`}
+                    aria-label={`Show photo ${i + 1}`}
+                    onClick={() => setIsomIndex(i)}
                   />
                 ))}
-                <button className="hp-isom-arrow left" aria-label="Previous"
-                  onClick={() => setIsomIndex((isomIndex - 1 + isomData.slides.length) % isomData.slides.length)}>
-                  <i className="fas fa-chevron-left"></i>
-                </button>
-                <button className="hp-isom-arrow right" aria-label="Next"
-                  onClick={() => setIsomIndex((isomIndex + 1) % isomData.slides.length)}>
-                  <i className="fas fa-chevron-right"></i>
-                </button>
-                <div className="hp-isom-dots">
-                  {isomData.slides.map((_, i) => (
-                    <button key={i} className={`hp-isom-dot ${i === isomIndex ? 'active' : ''}`}
-                      aria-label={`Slide ${i + 1}`} onClick={() => setIsomIndex(i)} />
-                  ))}
-                </div>
               </div>
-            </div>
+            )}
+          </figure>
+        </div>
+      </section>
+
+      {/* ---- GIVE ---- */}
+      {/* Honest about where giving stands: in person today, online once the
+          giving module ships. No account numbers here - a church page that
+          prints bank details is the page scammers copy. */}
+      <section id="give" className="hp-section hp-give">
+        <div className="hp-give-card hp-animate">
+          <div className="hp-give-copy">
+            <span className="hp-give-eyebrow">Give</span>
+            <h2>Support the Ministry</h2>
+            <p>
+              Your tithes and offerings keep worship going, reach our community through
+              outreach, and help train the next generation of leaders.
+            </p>
+            <blockquote className="hp-give-verse">
+              &ldquo;Each of you should give what you have decided in your heart to give, not
+              reluctantly or under compulsion, for God loves a cheerful giver.&rdquo;
+              <cite>2 Corinthians 9:7 (NIV)</cite>
+            </blockquote>
           </div>
 
-          <div className="hp-isom-statsbar hp-animate">
-            <div className="hp-isom-stat hp-isom-stat-date">
-              <i className="fas fa-calendar-day"></i>
-              <div>
-                <span className="hp-isom-stat-label">Classes Begin</span>
-                <span className="hp-isom-stat-value">{isomData.class_start_date}</span>
-              </div>
-            </div>
-            <div className="hp-isom-stat"><i className="fas fa-graduation-cap"></i><span>Spirit-Filled Learning</span></div>
-            <div className="hp-isom-stat"><i className="fas fa-people-group"></i><span>Global Community</span></div>
-            <div className="hp-isom-stat"><i className="fas fa-earth-americas"></i><span>Transforming Lives</span></div>
-          </div>
+          <ol className="hp-give-ways">
+            <li>
+              <strong>During any service</strong>
+              <span>Give your tithes and offerings when we gather on Sunday, Friday or Saturday.</span>
+            </li>
+            <li>
+              <strong>Through the church office</strong>
+              <span>Our ushers and church staff can receive your gift and answer any questions.</span>
+            </li>
+            <li className="is-soon">
+              <strong>Online giving <em>Coming soon</em></strong>
+              <span>Secure online giving, including special campaigns, is being built into {brand.platform}.</span>
+            </li>
+          </ol>
         </div>
       </section>
 
@@ -3842,72 +4164,98 @@ ${eventsDigest}`;
         document.body
       )}
 
-      {/* ---- PASTORS ---- */}
+      {/* ---- VISIT US / MAP ---- */}
       <div className="hp-section-dark">
-        <section id="pastors" className="hp-section">
+        <section id="location" className="hp-section">
           <div className="hp-section-header hp-animate">
             <div className="hp-divider"></div>
-            <h2>Our Pastors</h2>
-            <p>Meet the dedicated leaders shepherding our church family</p>
+            <h2>Visit Us</h2>
+            <p>Come and worship with us. Here is where you can find our church.</p>
           </div>
 
-          <div className="hp-pastors-grid hp-animate">
-            {PASTORS.map((p, i) => (
-              <div className="hp-pastor-card" key={i}>
-                <div className="hp-pastor-photo-wrapper">
-                  <img src={p.photo} alt={p.name} loading="lazy" decoding="async" />
-                </div>
-                <h4>{p.name}</h4>
-                <div className="hp-pastor-role">{p.title}</div>
+          <div className="hp-map-wrapper hp-animate">
+            <div className="hp-map-info">
+              <span className="hp-map-eyebrow">Our Church</span>
+              <h3>{brand.church}</h3>
+              <p className="hp-map-city">{CHURCH_CITY}</p>
+              <dl className="hp-map-hours">
+                {SERVICE_TIMES.map((s) => (
+                  <div key={s.day}>
+                    <dt>{s.name}</dt>
+                    <dd>{s.day}, {s.time}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="hp-map-actions">
+                <a href={DIRECTIONS_URL} target="_blank" rel="noopener noreferrer" className="hp-map-btn primary">Get Directions</a>
+                <a href={MESSENGER_URL} target="_blank" rel="noopener noreferrer" className="hp-map-btn">Message Us</a>
               </div>
-            ))}
+            </div>
+            <div className="hp-map-embed">
+              <div className="hp-map-toggle" role="tablist" aria-label="Map view">
+                <button type="button" role="tab" aria-selected={mapView === 'map'} className={mapView === 'map' ? 'active' : ''} onClick={() => setMapView('map')}>
+                  Map
+                </button>
+                <button type="button" role="tab" aria-selected={mapView === 'street'} className={mapView === 'street' ? 'active' : ''} onClick={() => setMapView('street')}>
+                  Street View
+                </button>
+              </div>
+              <iframe
+                key={mapView}
+                src={mapView === 'map' ? MAP_EMBED_URL : STREET_EMBED_URL}
+                width="100%"
+                height="100%"
+                style={{ border: 0 }}
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                allow="accelerometer; gyroscope; magnetometer; fullscreen"
+                title={`${brand.church} on the map`}
+              ></iframe>
+            </div>
           </div>
         </section>
       </div>
 
-      {/* ---- VISIT US / MAP ---- */}
-      <section id="location" className="hp-section">
-        <div className="hp-section-header hp-animate">
-          <div className="hp-divider"></div>
-          <h2>Visit Us</h2>
-          <p>Come and experience worship with us — here&apos;s where you can find our church</p>
-        </div>
-
-        <div className="hp-map-wrapper hp-animate">
-          <div className="hp-map-info">
-            <div className="hp-map-info-icon">
-              <i className="fas fa-map-marker-alt"></i>
-            </div>
-            <h3>SanctuaryHub</h3>
-            <p>Join us for Sunday Worship Service every week. Everyone is welcome!</p>
-            <div className="hp-map-details">
-              <div className="hp-map-detail-item">
-                <i className="fas fa-clock"></i>
-                <span>Sunday Worship: 9:00 AM</span>
-              </div>
-              <div className="hp-map-detail-item">
-                <i className="fas fa-book-bible"></i>
-                <span>Friday Bible Study: 7:00 PM</span>
-              </div>
-              <div className="hp-map-detail-item">
-                <i className="fas fa-phone"></i>
-                <span>Contact us for more info</span>
-              </div>
-            </div>
+      {/* ---- ABOUT SANCTUARYHUB ---- */}
+      {/* What this site is, and what signing in with Google shares. Google reads
+          this page when it checks the sign-in app's branding: it wants the app
+          name (SanctuaryHub) on the home page, the app's purpose explained, and
+          a link to the privacy policy - so this names the platform in either
+          branding mode and is plain text, not animated in. */}
+      <section id="platform" className="hp-platform">
+        <div className="hp-platform-inner">
+          <div className="hp-platform-copy">
+            <span className="hp-give-eyebrow">About this site</span>
+            <h2>About {brand.platform}</h2>
+            <p>
+              {brand.platform} is the online church management platform of {brand.church} in{' '}
+              {CHURCH_CITY}. It gives our members one place to stay connected with church life,
+              and gives our pastors and ministry leaders the tools to care for the congregation.
+            </p>
+            <p className="hp-platform-signin">
+              Accounts are free. You can sign up with your email address or with your Google
+              account. If you choose Google, {brand.platform} receives only your name, email
+              address and profile picture, and uses them only to create your account, sign you in
+              and show your name and picture on your profile. We never sell your information or
+              use it for advertising. Read our <a href="/privacy-policy">Privacy Policy</a> and{' '}
+              <a href="/terms">Terms of Service</a>.
+            </p>
           </div>
-          <div className="hp-map-embed">
-            <iframe
-              src="https://www.google.com/maps/embed?pb=!4v1772207931266!6m8!1m7!1sdo9Akv3QAW6kJETCDEd_HQ!2m2!1d10.31957253395332!2d123.8994709106599!3f236.24502041751504!4f2.753458141938296!5f0.7820865974627469"
-              width="100%"
-              height="100%"
-              style={{ border: 0 }}
-              allowFullScreen
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              allow="accelerometer; gyroscope; magnetometer; fullscreen"
-              title="SanctuaryHub Location"
-            ></iframe>
-          </div>
+          <dl className="hp-platform-uses">
+            <div>
+              <dt>For members</dt>
+              <dd>Register for church events, follow live services, read announcements and the Bible, and ask Joy, our AI assistant, about church life.</dd>
+            </div>
+            <div>
+              <dt>For ministries</dt>
+              <dd>Plan worship lineups, weekly schedules and ministry meetings, and keep in touch with your team through messages.</dd>
+            </div>
+            <div>
+              <dt>For church leaders</dt>
+              <dd>Manage members, events, attendance, accommodation and reports from one dashboard.</dd>
+            </div>
+          </dl>
         </div>
       </section>
 
@@ -3915,11 +4263,13 @@ ${eventsDigest}`;
       <section className="hp-cta">
         <h2>Join Our Church Family Today</h2>
         <p>
-          We&apos;d love to welcome you! Whether online or in person, there&apos;s a place for you at SanctuaryHub.
+          Create your free account to register for events, follow live services and stay
+          connected with {brand.church}{brand.isPlatform ? ` on ${brand.platform}` : ''}.
         </p>
-        <a href="/signup" className="hp-btn-primary">
-          <i className="fas fa-user-plus"></i> Create an Account
-        </a>
+        <div className="hp-cta-buttons">
+          <a href="/signup" className="hp-btn-primary">Create an Account</a>
+          <a href="/login" className="hp-btn-outline">Log In</a>
+        </div>
       </section>
 
       {/* ---- FOOTER ---- */}
@@ -3928,45 +4278,45 @@ ${eventsDigest}`;
           {/* About col */}
           <div className="hp-footer-about">
             <div className="hp-footer-brand">
-              <img src="/assets/LOGO.png" alt="SanctuaryHub" loading="lazy" decoding="async" />
+              <img src="/assets/LOGO.png" alt={`${brand.full} logo`} loading="lazy" decoding="async" />
               <h3>
-                SanctuaryHub
+                {brand.name}
+                <span>{brand.isPlatform ? brand.church : brand.sub}</span>
               </h3>
             </div>
             <p>
-              A Spirit-filled community of believers dedicated to spreading the gospel, 
+              A Spirit-filled community of believers dedicated to spreading the gospel,
               building disciples, and making a lasting impact for God&apos;s kingdom.
             </p>
             <div className="hp-footer-socials">
-              <a href="https://www.facebook.com/CebuCityJoyfulSound" target="_blank" rel="noopener noreferrer" title="Facebook"><i className="fab fa-facebook-f"></i></a>
-              <a href="https://www.youtube.com/@JoyfulSoundChurchCebuCity" target="_blank" rel="noopener noreferrer" title="YouTube"><i className="fab fa-youtube"></i></a>
-              <span className="hp-social-disabled" title="Instagram (coming soon)"><i className="fab fa-instagram"></i></span>
-              <span className="hp-social-disabled" title="TikTok (coming soon)"><i className="fab fa-tiktok"></i></span>
+              <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer" title="Facebook" aria-label="Facebook"><i className="fab fa-facebook-f"></i></a>
+              <a href={YOUTUBE_URL} target="_blank" rel="noopener noreferrer" title="YouTube" aria-label="YouTube"><i className="fab fa-youtube"></i></a>
+              <a href={MESSENGER_URL} target="_blank" rel="noopener noreferrer" title="Messenger" aria-label="Messenger"><i className="fab fa-facebook-messenger"></i></a>
             </div>
           </div>
 
           {/* Quick Links */}
           <div className="hp-footer-col">
-            <h4>Quick Links</h4>
+            <h4>Explore</h4>
             <ul>
-              <li><a href="#about"><i className="fas fa-chevron-right"></i> About Us</a></li>
-              <li><a href="#services"><i className="fas fa-chevron-right"></i> Service Times</a></li>
-              <li><a href="#activities"><i className="fas fa-chevron-right"></i> Activities</a></li>
-              <li><a href="#news"><i className="fas fa-chevron-right"></i> Events</a></li>
-              <li><a href="#pastors"><i className="fas fa-chevron-right"></i> Our Pastors</a></li>
-              <li><a href="#location"><i className="fas fa-chevron-right"></i> Visit Us</a></li>
+              <li><a href="#about">About Us</a></li>
+              <li><a href="#plan-visit">Plan a Visit</a></li>
+              <li><a href="#ministries">Ministries</a></li>
+              <li><a href="#this-week">Events</a></li>
+              <li><a href="#isom">ISOM</a></li>
+              <li><a href="#give">Give</a></li>
             </ul>
           </div>
 
-          {/* Ministry */}
+          {/* Online */}
           <div className="hp-footer-col">
-            <h4>Ministries</h4>
+            <h4>Online</h4>
             <ul>
-              <li><a href="/login"><i className="fas fa-chevron-right"></i> Praise & Worship</a></li>
-              <li><a href="/login"><i className="fas fa-chevron-right"></i> Media Ministry</a></li>
-              <li><a href="/login"><i className="fas fa-chevron-right"></i> Dance Ministry</a></li>
-              <li><a href="/login"><i className="fas fa-chevron-right"></i> Ushering Ministry</a></li>
-              <li><a href="/login"><i className="fas fa-chevron-right"></i> Youth Ministry</a></li>
+              <li><a href="/live">Watch Live</a></li>
+              <li><a href="/ministrymobileapp">Ministry App</a></li>
+              <li><a href="#" onClick={(e) => { e.preventDefault(); askJoy(''); }}>Ask Joy</a></li>
+              <li><a href="/login">Member Login</a></li>
+              <li><a href="/signup">Create an Account</a></li>
             </ul>
           </div>
 
@@ -3974,17 +4324,22 @@ ${eventsDigest}`;
           <div className="hp-footer-col">
             <h4>Get in Touch</h4>
             <ul>
-              <li><a href="#"><i className="fas fa-map-marker-alt"></i> Church Location</a></li>
-              <li><a href="#"><i className="fas fa-phone"></i> Contact Us</a></li>
-              <li><a href="#"><i className="fas fa-envelope"></i> Email Us</a></li>
-              <li><a href="/login"><i className="fas fa-sign-in-alt"></i> Member Login</a></li>
-              <li><a href="/signup"><i className="fas fa-user-plus"></i> Sign Up</a></li>
+              <li><a href="#location">{CHURCH_CITY}</a></li>
+              <li><a href={DIRECTIONS_URL} target="_blank" rel="noopener noreferrer">Get Directions</a></li>
+              <li><a href={MESSENGER_URL} target="_blank" rel="noopener noreferrer">Message Us</a></li>
+              <li><a href="/terms">Terms</a></li>
+              <li><a href="/privacy-policy">Privacy Policy</a></li>
             </ul>
           </div>
         </div>
 
         <div className="hp-footer-bottom">
-          <p>&copy; {new Date().getFullYear()} <span>SanctuaryHub</span>. All rights reserved.</p>
+          <p>
+            &copy; {new Date().getFullYear()} <span>{brand.owner}</span>. All rights reserved.
+            {brand.isPlatform
+              ? <> Serving {brand.church}.</>
+              : <> Powered by <span>{brand.platform}</span>.</>}
+          </p>
         </div>
       </footer>
 
