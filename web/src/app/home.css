@@ -1384,6 +1384,387 @@ body.dark-mode .hp-chat-em {
 
 .hp-chat-action-btn i { font-size: 0.85rem; }
 
+/* ---- Links in Joy's replies: the platform's icon and a readable title ---- */
+.hp-chat-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 2px 1px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(146, 108, 21, 0.25);
+  background: #faf7f0;
+  font-weight: 600;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: #1f1f2b;
+  text-decoration: none;
+  vertical-align: baseline;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.hp-chat-link:hover { border-color: var(--secondary); background: #fff6db; }
+.hp-chat-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-chat-link i { flex-shrink: 0; width: 16px; text-align: center; font-size: 0.9rem; color: var(--primary); }
+.hp-chat-link.is-facebook i { color: #1877f2; }
+.hp-chat-link.is-messenger i { color: #0084ff; }
+.hp-chat-link.is-instagram i { color: #e4405f; }
+.hp-chat-link.is-x i,
+.hp-chat-link.is-tiktok i,
+.hp-chat-link.is-threads i { color: #000; }
+.hp-chat-link.is-youtube i { color: #ff0000; }
+.hp-chat-link.is-linkedin i { color: #0a66c2; }
+.hp-chat-link.is-spotify i { color: #1db954; }
+.hp-chat-link.is-whatsapp i { color: #25d366; }
+.hp-chat-link.is-viber i { color: #7360f2; }
+.hp-chat-link.is-telegram i { color: #26a5e4; }
+.hp-chat-link.is-maps i { color: #ea4335; }
+.hp-chat-link.is-drive i { color: #1fa463; }
+.hp-chat-link.is-form i { color: #7248b9; }
+.hp-chat-em .hp-chat-link { font-weight: 700; }
+body.dark-mode .hp-chat-link { background: #1f1f1f; border-color: rgba(255, 255, 255, 0.14); color: #eee; }
+body.dark-mode .hp-chat-link:hover { border-color: var(--accent); background: #2a2a2a; }
+body.dark-mode .hp-chat-link i { color: var(--accent); }
+body.dark-mode .hp-chat-link.is-x i,
+body.dark-mode .hp-chat-link.is-tiktok i,
+body.dark-mode .hp-chat-link.is-threads i { color: #fff; }
+
+/* ---- A list of links in a reply: one row each - the platform's icon on its
+   own colour, the name, what it is for, and an arrow ---- */
+.hp-chat-linklist {
+  display: flex;
+  flex-direction: column;
+  margin: 6px 0 10px;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(146, 108, 21, 0.16);
+  background: #fdfbf6;
+}
+.hp-chat-linklist:last-child { margin-bottom: 0; }
+.hp-chat-linkrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(146, 108, 21, 0.1);
+  color: #1f1f2b;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+.hp-chat-linkrow:first-child { border-top: 0; }
+.hp-chat-linkrow:hover { background: #f6efdc; }
+.hp-chat-linkrow-icon {
+  flex: 0 0 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  font-size: 1rem;
+  color: #fff;
+  background: var(--primary);
+}
+.hp-chat-linkrow.is-facebook .hp-chat-linkrow-icon { background: #1877f2; }
+.hp-chat-linkrow.is-messenger .hp-chat-linkrow-icon { background: linear-gradient(135deg, #00b2ff, #006aff); }
+.hp-chat-linkrow.is-instagram .hp-chat-linkrow-icon { background: linear-gradient(45deg, #f09433, #dc2743 50%, #bc1888); }
+.hp-chat-linkrow.is-x .hp-chat-linkrow-icon,
+.hp-chat-linkrow.is-tiktok .hp-chat-linkrow-icon,
+.hp-chat-linkrow.is-threads .hp-chat-linkrow-icon { background: #111; }
+.hp-chat-linkrow.is-youtube .hp-chat-linkrow-icon { background: #ff0000; }
+.hp-chat-linkrow.is-linkedin .hp-chat-linkrow-icon { background: #0a66c2; }
+.hp-chat-linkrow.is-spotify .hp-chat-linkrow-icon { background: #1db954; }
+.hp-chat-linkrow.is-whatsapp .hp-chat-linkrow-icon { background: #25d366; }
+.hp-chat-linkrow.is-viber .hp-chat-linkrow-icon { background: #7360f2; }
+.hp-chat-linkrow.is-telegram .hp-chat-linkrow-icon { background: #26a5e4; }
+.hp-chat-linkrow.is-maps .hp-chat-linkrow-icon { background: #ea4335; }
+.hp-chat-linkrow.is-form .hp-chat-linkrow-icon { background: #7248b9; }
+.hp-chat-linkrow.is-drive .hp-chat-linkrow-icon { background: #1fa463; }
+.hp-chat-linkrow.is-email .hp-chat-linkrow-icon { background: #6b7280; }
+.hp-chat-linkrow.is-phone .hp-chat-linkrow-icon { background: #16a34a; }
+.hp-chat-linkrow-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.hp-chat-linkrow-text strong {
+  font-size: 0.88rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hp-chat-linkrow-text small {
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: #6b6b76;
+}
+.hp-chat-linkrow-go {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: #b3a78c;
+}
+.hp-chat-linkrow:hover .hp-chat-linkrow-go { color: var(--primary); }
+body.dark-mode .hp-chat-linklist { background: #222; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .hp-chat-linkrow { color: #eee; border-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .hp-chat-linkrow:hover { background: #2c2c2c; }
+body.dark-mode .hp-chat-linkrow-text small { color: #a8a8a8; }
+body.dark-mode .hp-chat-linkrow-go { color: #777; }
+body.dark-mode .hp-chat-linkrow:hover .hp-chat-linkrow-go { color: var(--accent); }
+
+/* ---- Pastors in a reply: a small directory - photo, name, role ---- */
+.hp-chat-pastorlist {
+  list-style: none;
+  margin: 6px 0 10px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(146, 108, 21, 0.16);
+  background: #fdfbf6;
+}
+.hp-chat-pastorlist:last-child { margin-bottom: 0; }
+.hp-chat-pastorlist li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-top: 1px solid rgba(146, 108, 21, 0.1);
+}
+.hp-chat-pastorlist li:first-child { border-top: 0; }
+.hp-chat-pastorlist img {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center top;
+  background: #f1ead9;
+  border: 2px solid rgba(201, 152, 11, 0.5);
+}
+.hp-chat-pastorlist span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hp-chat-pastorlist strong {
+  font-size: 0.88rem;
+  line-height: 1.3;
+  color: #1f1f2b;
+}
+.hp-chat-pastorlist small {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--secondary);
+}
+/* Under a reply rather than inside it: a card of its own. */
+.hp-chat-pastorlist.standalone {
+  margin: 0;
+  min-width: 230px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+body.dark-mode .hp-chat-pastorlist { background: #222; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .hp-chat-pastorlist.standalone { background: #2a2a2a; }
+body.dark-mode .hp-chat-pastorlist li { border-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .hp-chat-pastorlist strong { color: #fff; }
+body.dark-mode .hp-chat-pastorlist small { color: var(--accent); }
+
+/* ---- Past events in the chat: a date-range question, then a card each ---- */
+.hp-chat-msg.wide {
+  max-width: 100%;
+  width: 100%;
+}
+
+.hp-chat-events {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Poster on the left, details on the right: two or three events fit in the
+   chat window at once. The full poster is one tap away in the details dialog. */
+.hp-chat-evt {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(146, 108, 21, 0.14);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.hp-chat-evt-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 150px;
+  object-fit: cover;
+  object-position: center top;
+  background: #f1ead9;
+}
+
+.hp-chat-evt-img.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+}
+
+.hp-chat-evt-body {
+  min-width: 0;
+  padding: 10px 12px 12px;
+}
+
+.hp-chat-evt-status {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b6b76;
+  background: #f1f1f3;
+}
+.hp-chat-evt-status.ongoing { color: #166534; background: #dcfce7; }
+.hp-chat-evt-status.upcoming { color: var(--primary); background: rgba(201, 152, 11, 0.14); }
+
+.hp-chat-evt h4 {
+  margin: 0 0 6px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #1f1f2b;
+}
+
+.hp-chat-evt-facts {
+  margin: 0 0 8px;
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+}
+.hp-chat-evt-facts > div {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 6px;
+}
+.hp-chat-evt-facts dt {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.9;
+  color: var(--secondary);
+}
+.hp-chat-evt-facts dd {
+  margin: 0;
+  line-height: 1.5;
+  color: #3a3a48;
+}
+
+.hp-chat-evt-about {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #6b6b76;
+}
+
+.hp-chat-evt-more {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.hp-chat-evt-more:hover { color: var(--secondary); }
+
+.hp-chat-range {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hp-chat-range-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hp-chat-range-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(146, 108, 21, 0.14);
+}
+.hp-chat-range-custom label {
+  display: flex;
+  flex: 1 1 120px;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.hp-chat-range-custom label span {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--secondary);
+}
+.hp-chat-range-custom input {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid #ddd6c6;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  color: #1f1f2b;
+  background: #fff;
+}
+.hp-chat-range-custom input:focus {
+  outline: none;
+  border-color: var(--secondary);
+  box-shadow: 0 0 0 2px rgba(201, 152, 11, 0.2);
+}
+.hp-chat-range-custom .hp-chat-action-btn {
+  flex: 1 0 100%;
+  justify-content: center;
+}
+
+body.dark-mode .hp-chat-evt,
+body.dark-mode .hp-chat-range-custom {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+body.dark-mode .hp-chat-evt h4 { color: #fff; }
+body.dark-mode .hp-chat-evt-facts dd { color: #ddd; }
+body.dark-mode .hp-chat-evt-about { color: #b0b0ba; }
+body.dark-mode .hp-chat-evt-more,
+body.dark-mode .hp-chat-evt-facts dt,
+body.dark-mode .hp-chat-range-custom label span { color: var(--accent); }
+body.dark-mode .hp-chat-evt-status { color: #ccc; background: #3a3a3a; }
+body.dark-mode .hp-chat-range-custom input {
+  color: #eee;
+  background: #1f1f1f;
+  border-color: #444;
+  color-scheme: dark;
+}
+
 /* Starter chips under Joy's greeting: things worth asking, so a first-time
    visitor does not have to guess what she knows. Outlined rather than filled,
    so they read as prompts and not as the primary action buttons above. */
@@ -5160,4 +5541,44 @@ body.dark-mode .hp-map-btn.primary { background: var(--accent); border-color: va
    and Ask Joy; the verse is the one that can go. */
 @media (max-width: 768px) and (max-height: 640px) {
   .hp-hero-verse { display: none; }
+}
+
+/* ---- FROM THE NEWS: the three newest articles from /news ---- */
+.hp-news-strip { padding-top: 80px; padding-bottom: 80px; }
+.hp-news-strip-inner { max-width: 1200px; margin: 0 auto; }
+.hp-news-strip-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(26, 26, 46, 0.1);
+}
+.hp-news-strip-head h2 { margin: 8px 0 0; font-family: var(--font-body); font-size: 2rem; font-weight: 700; color: var(--primary); }
+.hp-news-all { font-weight: 700; font-size: 0.92rem; color: var(--primary); text-decoration: underline; text-underline-offset: 5px; text-decoration-color: rgba(201, 152, 11, 0.6); }
+.hp-news-strip-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.hp-news-card { display: flex; flex-direction: column; gap: 8px; color: inherit; text-decoration: none; }
+.hp-news-card-img { display: block; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 10px; background: #efe9da; margin-bottom: 6px; }
+.hp-news-card-img img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
+.hp-news-card:hover .hp-news-card-img img { transform: scale(1.03); }
+.hp-news-card-img > span {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #fff; background: var(--primary);
+}
+.hp-news-card-kicker { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--secondary); }
+.hp-news-card strong { font-size: 1.1rem; font-weight: 700; line-height: 1.35; color: #1f1f2b; }
+.hp-news-card:hover strong { color: var(--primary); }
+.hp-news-card-sum { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 0.92rem; line-height: 1.55; color: #6b6b76; }
+body.dark-mode .hp-news-strip-head { border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .hp-news-strip-head h2, body.dark-mode .hp-news-all { color: var(--accent); }
+body.dark-mode .hp-news-card strong { color: #fff; }
+body.dark-mode .hp-news-card-sum { color: #b0b0ba; }
+@media (max-width: 900px) {
+  .hp-news-strip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .hp-news-strip { padding: 56px 16px; }
+  .hp-news-strip-grid { grid-template-columns: minmax(0, 1fr); }
+  .hp-news-strip-head h2 { font-size: 1.6rem; }
 }

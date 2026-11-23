@@ -55,6 +55,8 @@ import { reviewPayments, recordSource } from '@/lib/paymentReview';
 import { publicEventSlugFor } from '@/lib/eventPublic';
 import { eventDayForToday, eventTodayKey, guessDoorCheckIn, localDateKey } from '@/lib/eventFormat';
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
+import JoyKnowledgeManager from '@/components/JoyKnowledgeManager';
+import NewsManager from '@/components/NewsManager';
 import {
   PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
   channelHasAccount, channelNeedsProof, channelNameLabel, channelNamePlaceholder,
@@ -288,7 +290,7 @@ const VALID_SECTIONS = new Set([
   'home', 'announcements', 'announcements-management', 'attendance-management', 'audit-logs',
   'bible-reader', 'cloudinary-usage', 'community-events', 'community-hub', 'create-lineup',
   'daily-quote', 'events', 'events-management', 'isom-management', 'live-stream-management',
-  'messages', 'ministry-management', 'ministry-meetings', 'ministry-oversight', 'my-created-events',
+  'messages', 'ministry-management', 'ministry-meetings', 'ministry-oversight', 'my-created-events', 'news-management',
   'my-profile', 'permissions-control', 'praise-worship', 'recordings', 'reports', 'roles-permissions',
   'spiritual-assistant', 'system-config', 'terms-conditions', 'user-events-oversight',
   'user-management', 'weekly-schedule',
@@ -38109,6 +38111,12 @@ ${row('Change', rc.change, 'change')}
             </div>
           </section>
 
+          {/* ---- News (Admin and Super Admin): the articles on /news ---- */}
+          <section className={`content-section ${activeSection === 'news-management' ? 'active' : ''}`}>
+            <h2 className="section-title">News</h2>
+            {activeSection === 'news-management' && userData?.id && <NewsManager actorId={userData.id} />}
+          </section>
+
           <section className={`content-section ${activeSection === 'system-config' ? 'active' : ''}`}>
             <h2 className="section-title">System Configuration</h2>
 
@@ -38172,6 +38180,11 @@ ${row('Change', rc.change, 'change')}
                   </a>
                 </div>
               </div>
+            )}
+
+            {/* ---- Documents Joy answers from (Super Admin only) ---- */}
+            {isSuperAdmin && activeSection === 'system-config' && userData?.id && (
+              <JoyKnowledgeManager actorId={userData.id} />
             )}
 
             {/* ---- What the public hero shows ---- */}

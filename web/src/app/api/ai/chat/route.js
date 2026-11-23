@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { limit, tooManyRequests } from '@/lib/rateLimiter';
 import { groqChat, groqConfigured } from '@/lib/groq';
+import { knowledgeLinks, knowledgePrompt, searchKnowledge } from '@/lib/joyKnowledge';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +56,28 @@ export async function POST(request) {
 
     if (messages.length === 0) {
       return NextResponse.json({ success: false, message: 'Nothing to ask.' }, { status: 400 });
+    }
+
+    // Joy on the home page asks for the church's own documents (Dashboard >
+    // System Configuration > Joy's Knowledge). The sections that match the
+    // visitor's question are added to her instructions here, on the server, so
+    // the documents themselves never reach the browser. Nothing found, or the
+    // tables not there yet: she answers as she always did.
+    if (body?.knowledge === true) {
+      try {
+        const asked = messages.filter((m) => m.role === 'user');
+        const question = asked[asked.length - 1]?.content || '';
+        const context = asked[asked.length - 2]?.content || '';
+        const sections = await searchKnowledge(question, { context });
+        const extra = knowledgePrompt(sections, await knowledgeLinks());
+        if (extra) {
+          const sys = messages.findIndex((m) => m.role === 'system');
+          if (sys >= 0) messages[sys] = { ...messages[sys], content: messages[sys].content + extra };
+          else messages.unshift({ role: 'system', content: extra.trim() });
+        }
+      } catch (err) {
+        console.warn('[AI chat] knowledge lookup skipped:', err.message);
+      }
     }
 
     const temperature = Math.min(2, Math.max(0, Number(body?.temperature ?? 0.7) || 0));

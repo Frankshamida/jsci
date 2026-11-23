@@ -468,6 +468,7 @@ export function getSidebarMenu(role) {
       { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events-management' },
       { id: 'community-events', icon: 'fas fa-calendar-day', label: 'Community Events', section: 'community-events' },
       { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements-management' },
+      { id: 'news', icon: 'fas fa-newspaper', label: 'News', section: 'news-management' },
       { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },
       { id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' },
       { id: 'accommodation', icon: 'fas fa-bed', label: 'Accommodation', section: 'accommodation' },
@@ -505,6 +506,7 @@ export function getSidebarMenu(role) {
     { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events' },
     { id: 'community-events', icon: 'fas fa-calendar-day', label: 'Community Events', section: 'community-events' },
     { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements' },
+    { id: 'news', icon: 'fas fa-newspaper', label: 'News', section: 'news-management' },
     { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
     { id: 'live-stream-mgmt', icon: 'fas fa-broadcast-tower', label: 'Live Streams', section: 'live-stream-management' },
     { id: 'recordings', icon: 'fas fa-microphone-alt', label: 'Recordings', section: 'recordings' },
@@ -567,6 +569,8 @@ export const SECTION_ACCESS = {
   'payment-methods': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
   'events-management': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
   'announcements-management': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
+  // Writing and publishing the public News page - Admin (and Super Admin)
+  'news-management': { roles: [ROLES.ADMIN] },
   // People & Roles - Admin only
   'attendance-management': { roles: [ROLES.ADMIN] },
   'user-management': { roles: [ROLES.ADMIN] },

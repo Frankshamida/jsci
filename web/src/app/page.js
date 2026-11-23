@@ -12,6 +12,8 @@ import { EVENT_IMAGE_SIZES, eventImageSrcSet, eventImageUrl } from '@/lib/eventI
 import { HERO_MEDIA_DEFAULT, heroVideoFor, normalizeHeroMedia } from '@/lib/heroMedia';
 import HeroVideo from '@/components/HeroVideo';
 import { useBranding } from '@/components/BrandingProvider';
+import { linkMeta } from '@/lib/linkMeta';
+import { newsDate, newsImage } from '@/lib/news';
 import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
 import { buildEventsDigest, eventsMentionedIn, evtPlaceLabel } from '@/lib/eventDigest';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
@@ -51,13 +53,17 @@ const EMPTY_GUEST_REG_FORM = {
   paymentMethod: '', paymentReference: '',
 };
 
+// `match` finds the pastor in one of Joy's replies, so her answer can show
+// their photo. "Psalm" alone is a book of the Bible, so that one needs the
+// "Pastor"/"Ptr." in front of it or the surname after it.
 const PASTORS = [
-  { name: 'Dr. Weldon Pior', title: 'Senior Pastor', photo: '/assets/dr-weldon-pior.png' },
-  { name: 'Dr. Dorothy Pior', title: 'Senior Pastor', photo: '/assets/dr-dorothy-pior.png' },
-  { name: 'Ptr. Gracelyn Gambe', title: 'Associate Pastor', photo: '/assets/ptr-gracelyn-gambe.png' },
-  { name: 'Ptr. Eldan Gambe', title: 'Associate Pastor', photo: '/assets/ptr-eldan-gambe.png' },
-  { name: 'Ptr. Psalm Gambe', title: 'Youth Pastor', photo: '/assets/ptr-psalm-gambe.png' },
+  { name: 'Dr. Weldon Pior', title: 'Senior Pastor', photo: '/assets/dr-weldon-pior.png', match: /\bweldon\b/i },
+  { name: 'Dr. Dorothy Pior', title: 'Senior Pastor', photo: '/assets/dr-dorothy-pior.png', match: /\bdorothy\b/i },
+  { name: 'Ptr. Gracelyn Gambe', title: 'Associate Pastor', photo: '/assets/ptr-gracelyn-gambe.png', match: /\bgracelyn\b/i },
+  { name: 'Ptr. Eldan Gambe', title: 'Associate Pastor', photo: '/assets/ptr-eldan-gambe.png', match: /\beldan\b/i },
+  { name: 'Ptr. Psalm Gambe', title: 'Youth Pastor', photo: '/assets/ptr-psalm-gambe.png', match: /\b(?:ptr\.?|pastor)\s+psalm\b|\bpsalm\s+gambe\b/i },
 ];
+const pastorsNamedIn = (text) => PASTORS.filter((p) => p.match.test(String(text || '')));
 
 // `group` is what the filter chips above the grid sort them by.
 const ACTIVITIES = [
@@ -243,13 +249,17 @@ const evtRegGate = (evt) => {
   // is dead rather than letting someone submit and be rejected.
   const opensAt = evtDate(evt?.registration_start_date);
   const closesAt = evtDate(evt?.registration_deadline);
+  // An event that is over takes no more registrations, deadline or not - Joy
+  // can show past events, and their details must not offer a form.
+  const ended = evtStatus(evt?.event_date, evt?.end_date) === 'ended';
   return {
     left,
     opensAt,
+    ended,
     required: evt?.registration_required !== false,
     full: left != null && left <= 0,
-    notOpenYet: !!opensAt && Date.now() < opensAt.getTime(),
-    closed: !!closesAt && Date.now() > closesAt.getTime(),
+    notOpenYet: !ended && !!opensAt && Date.now() < opensAt.getTime(),
+    closed: ended || (!!closesAt && Date.now() > closesAt.getTime()),
   };
 };
 
@@ -266,6 +276,145 @@ const evtRegOpen = (evt) => {
 // The route answers in Groq's own shape, so the 'data.choices[0].message
 // .content' reads below still find the reply.
 const AI_CHAT_URL = '/api/ai/chat';
+
+// ---- Joy and past events ----------------------------------------------------
+// Joy's live briefing only carries events that have not ended. Past ones are
+// looked up by a date range the visitor chooses, so a question like "what were
+// the last events?" gets a short, relevant list instead of everything the
+// church has ever held. She asks for the dates first; the answer is a card per
+// event (poster, date, venue, a line about it) built from the database rows -
+// the AI never describes a past event itself, so it cannot invent one.
+
+// "past events", "last events", "previous activities", "events that already
+// ended", "what is the last evets" (typos happen). "the last day of the event"
+// is not a question about past events.
+const PAST_EVENT_WORD = String.raw`(?:events?|evets?|evnts?|eventz|activit(?:y|ies)|gatherings?|conferences?)`;
+const PAST_EVENTS_ASK = new RegExp(
+  String.raw`\b(?:past|last|previous|recent|latest|earlier|older|ended|finished|completed|done)\s+(?:\w+\s+){0,2}${PAST_EVENT_WORD}\b`
+  + String.raw`|\b${PAST_EVENT_WORD}\s+(?:\w+\s+){0,3}?(?:happened|ended|finished|before|ago|already|were\s+held|took\s+place)\b`,
+  'i',
+);
+const asksPastEvents = (text) => PAST_EVENTS_ASK.test(text) && !/\blast\s+day\b/i.test(text);
+
+// Did the question already say WHEN? Then the AI turns the words into dates
+// (it knows today's date); otherwise Joy asks before answering.
+const MENTIONS_DATES = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|\b(?:19|20)\d{2}\b|\b\d{1,2}[/-]\d{1,2}\b|\b(?:this|last|past)\s+(?:\d+\s+)?(?:weeks?|months?|years?|days?)\b|\byesterday\b/i;
+
+const PAST_TAG_ASK = /\[\[\s*ASK_PAST_RANGE\s*\]\]/i;
+const PAST_TAG_RANGE = /\[\[\s*PAST_EVENTS\s+(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})\s*\]\]/i;
+const PAST_EVENTS_MAX = 6; // cards per answer; a narrower range shows the rest
+
+// Dates as the <input type="date"> writes them, read as LOCAL days - the same
+// way evtDate() reads an event's wall-clock time, so the two compare cleanly.
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const fromYmd = (s, endOfDay = false) => {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return endOfDay
+    ? new Date(+m[1], +m[2] - 1, +m[3], 23, 59, 59, 999)
+    : new Date(+m[1], +m[2] - 1, +m[3]);
+};
+const prettyDay = (s) => fromYmd(s)?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) || s;
+
+const PAST_RANGE_PRESETS = [
+  { label: 'Last 30 days', from: (t) => new Date(t.getFullYear(), t.getMonth(), t.getDate() - 30) },
+  { label: 'Last 3 months', from: (t) => new Date(t.getFullYear(), t.getMonth() - 3, t.getDate()) },
+  { label: 'Last 6 months', from: (t) => new Date(t.getFullYear(), t.getMonth() - 6, t.getDate()) },
+  { label: 'This year', from: (t) => new Date(t.getFullYear(), 0, 1) },
+];
+
+// Events that touch the range at all - a conference that started before it and
+// ended inside it still happened in it. Most recent first.
+const eventsInRange = (events, fromStr, toStr) => {
+  const from = fromYmd(fromStr)?.getTime();
+  const to = fromYmd(toStr, true)?.getTime();
+  if (from == null || to == null) return [];
+  return events
+    .filter((e) => {
+      const start = evtMs(e.event_date);
+      if (start == null) return false;
+      const end = evtMs(e.end_date) ?? start;
+      return start <= to && end >= from;
+    })
+    .sort((a, b) => (evtMs(b.event_date) ?? 0) - (evtMs(a.event_date) ?? 0));
+};
+
+// "Oct 2–3, 2026", "Sep 30 – Oct 2, 2026", "Oct 2, 2026"
+const evtShortWhen = (startStr, endStr) => {
+  const s = evtDate(startStr);
+  if (!s) return 'Date to be announced';
+  const e = evtDate(endStr) || s;
+  const md = { month: 'short', day: 'numeric' };
+  const year = s.getFullYear();
+  if (s.toDateString() === e.toDateString()) return s.toLocaleDateString('en-US', { ...md, year: 'numeric' });
+  if (year === e.getFullYear() && s.getMonth() === e.getMonth()) {
+    return `${s.toLocaleDateString('en-US', { month: 'short' })} ${s.getDate()}–${e.getDate()}, ${year}`;
+  }
+  if (year === e.getFullYear()) return `${s.toLocaleDateString('en-US', md)} – ${e.toLocaleDateString('en-US', md)}, ${year}`;
+  return `${s.toLocaleDateString('en-US', { ...md, year: 'numeric' })} – ${e.toLocaleDateString('en-US', { ...md, year: 'numeric' })}`;
+};
+
+// The dates a visitor typed, read here rather than by the AI - which, asked to
+// turn "last month" into two dates, would sometimes ask again instead. Covers
+// what people actually write: a month ("October", "September to October
+// 2026"), "last month", "this year", "the past 3 months", "yesterday", a year,
+// or the dates themselves. A month with no year is the most recent one that
+// has begun. Returns { from, to } as YYYY-MM-DD, or null when there is no date.
+const MONTH_RE = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?(?:\s+(\d{1,2})(?:st|nd|rd|th)?)?(?:,?\s+(\d{4}))?\b/gi;
+const MONTH_KEYS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const orderedRange = (a, b) => (a <= b ? { from: a, to: b } : { from: b, to: a });
+const parseDateRange = (text, today = new Date()) => {
+  const t = String(text || '').toLowerCase();
+  const y = today.getFullYear();
+  const mo = today.getMonth();
+  const d = today.getDate();
+  const todayStr = ymd(today);
+  let m;
+
+  const written = [];
+  for (const x of t.matchAll(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/g)) written.push(ymd(new Date(+x[1], +x[2] - 1, +x[3])));
+  for (const x of t.matchAll(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g)) written.push(ymd(new Date(+x[3], +x[1] - 1, +x[2])));
+  if (written.length) return orderedRange(written[0], written[written.length - 1]);
+
+  if (/\b(?:last|previous)\s+month\b/.test(t)) return { from: ymd(new Date(y, mo - 1, 1)), to: ymd(new Date(y, mo, 0)) };
+  if (/\bthis\s+month\b/.test(t)) return { from: ymd(new Date(y, mo, 1)), to: todayStr };
+  if (/\b(?:last|previous)\s+year\b/.test(t)) return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
+  if (/\bthis\s+year\b/.test(t)) return { from: `${y}-01-01`, to: todayStr };
+  if (/\byesterday\b/.test(t)) { const s = ymd(new Date(y, mo, d - 1)); return { from: s, to: s }; }
+  if ((m = t.match(/\b(?:last|past|previous)\s+(?:(\d{1,3})\s+)?(day|week|month|year)s?\b/))) {
+    const n = m[1] ? +m[1] : 1;
+    const back = { day: new Date(y, mo, d - n), week: new Date(y, mo, d - 7 * n), month: new Date(y, mo - n, d), year: new Date(y - n, mo, d) }[m[2]];
+    return { from: ymd(back), to: todayStr };
+  }
+
+  const months = [];
+  for (const x of t.matchAll(MONTH_RE)) {
+    const word = x[1].toLowerCase();
+    // "may I see..." is not May.
+    if (word === 'may' && !x[2] && !x[3] && !/\b(?:in|from|to|since|of|until|through|and|between)\s*$|-\s*$/.test(t.slice(0, x.index))) continue;
+    months.push({ month: MONTH_KEYS.indexOf(word.slice(0, 3)), day: x[2] ? +x[2] : null, year: x[3] ? +x[3] : null });
+  }
+  if (months.length) {
+    const first = months[0];
+    const last = months[months.length - 1];
+    const lastYear = last.year ?? first.year ?? (last.month <= mo ? y : y - 1);
+    const firstYear = first.year ?? (first.month <= last.month ? lastYear : lastYear - 1);
+    const from = first.day ? new Date(firstYear, first.month, first.day) : new Date(firstYear, first.month, 1);
+    const to = last.day ? new Date(lastYear, last.month, last.day) : new Date(lastYear, last.month + 1, 0);
+    return orderedRange(ymd(from), ymd(to));
+  }
+
+  if ((m = t.match(/\b(20\d{2})\b/))) return { from: `${m[1]}-01-01`, to: `${m[1]}-12-31` };
+  return null;
+};
+const EVENT_WORD_RE = new RegExp(String.raw`\b${PAST_EVENT_WORD}\b`, 'i');
+
+// A sentence or two of the description, cut at a word.
+const evtBlurb = (text, max = 150) => {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max).replace(/\s+\S*$/, '')}…`;
+};
 
 // ============================================
 // COMPONENT
@@ -311,6 +460,15 @@ export default function HomePage() {
   // the eight the News section shows. Joy answers out of this, so a visitor
   // asking about the ninth event still gets a real answer.
   const [liveEvents, setLiveEvents] = useState([]);
+  // The three newest articles from /news, for the "From the News" strip.
+  // Nothing is shown until there is at least one.
+  const [latestNews, setLatestNews] = useState([]);
+  useEffect(() => {
+    fetch('/api/news?limit=3')
+      .then((r) => r.json())
+      .then((j) => { if (j.success && Array.isArray(j.data)) setLatestNews(j.data); })
+      .catch(() => {});
+  }, []);
   const [eventsVersion, setEventsVersion] = useState(0); // bumped after a registration so the slot counts refresh
   const [detailEvent, setDetailEvent] = useState(null);
 
@@ -1431,7 +1589,7 @@ export default function HomePage() {
   const [chatMessages, setChatMessages] = useState([
     {
       role: 'assistant',
-      content: `Hello, I'm **Joy**, ${brand.isPlatform ? `your SanctuaryHub assistant for **${brand.church}**` : `your assistant at **${brand.church}**`}. 😊\n\nI'd be glad to help you with:\n- **Service times** and planning your first visit\n- **ISOM** enrollment and details\n- Upcoming **events** and registration\n- Getting connected or creating an account\n\nHow may I assist you today?`,
+      content: `Hello, I'm **Joy**, ${brand.isPlatform ? `your SanctuaryHub assistant for **${brand.church}**` : `your assistant at **${brand.church}**`}. 😊\n\nI'd be glad to help you with:\n- **Service times** and planning your first visit\n- **ISOM** enrollment and details\n- Upcoming **events** and registration\n- **Past events**, for the dates you choose\n- Getting connected or creating an account\n\nHow may I assist you today?`,
     },
   ]);
   const chatBodyRef = useRef(null);
@@ -1795,9 +1953,84 @@ export default function HomePage() {
   // from whenever the page was loaded. Opening the chat re-reads the list; the
   // route is cached for half a minute on the server and twenty seconds in the
   // browser, so this costs nothing when the chat is opened and closed again.
+  // Every published event, past ones included, for "show me past events".
+  // Read only when somebody asks, and kept for the rest of the chat. Same URL
+  // as the magic-link lookup, so the server's cache serves both.
+  const eventArchive = useRef(null);
+
   useEffect(() => {
-    if (chatOpen) setEventsVersion((v) => v + 1);
+    if (chatOpen) {
+      setEventsVersion((v) => v + 1);
+      eventArchive.current = null; // past events are re-read on the next lookup too
+    }
   }, [chatOpen]);
+
+  const loadEventArchive = async () => {
+    if (eventArchive.current) return eventArchive.current;
+    const res = await fetch('/api/events?limit=200&published=true');
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success || !Array.isArray(json.data)) {
+      throw new Error(json.message || 'The events could not be loaded.');
+    }
+    eventArchive.current = json.data.map(withTitleCase);
+    return eventArchive.current;
+  };
+
+  // The custom range under Joy's question. Starts on the last three months.
+  const [pastFrom, setPastFrom] = useState('');
+  const [pastTo, setPastTo] = useState('');
+
+  const pastRangeQuestion = (text) => ({
+    role: 'assistant',
+    content: text || 'I’d be glad to show you our past events. **Which dates** would you like me to look up? Choose a range below, or type the dates (for example, “September to October 2026”).',
+    rangePicker: true,
+  });
+
+  // The answer itself: a card per event, written from the rows. `content` is
+  // what the AI is shown on the next turn, so a follow-up like "tell me more
+  // about the Ormoc one" still has something to go on; `display` is what the
+  // visitor reads above the cards.
+  const answerPastEvents = async (fromStr, toStr) => {
+    const [a, b] = fromStr <= toStr ? [fromStr, toStr] : [toStr, fromStr];
+    let all;
+    try {
+      all = await loadEventArchive();
+    } catch (err) {
+      console.error('[Joy] past events:', err.message);
+      return pastRangeQuestion('I couldn’t load the events just now. Please try again in a moment.');
+    }
+    const found = eventsInRange(all, a, b);
+    const span = `**${prettyDay(a)}** to **${prettyDay(b)}**`;
+    if (found.length === 0) {
+      return pastRangeQuestion(`I couldn’t find any church events from ${span}. Would you like to try a wider range?`);
+    }
+    const shown = found.slice(0, PAST_EVENTS_MAX);
+    let display;
+    if (found.length === 1) display = `Here is the event from ${span}.`;
+    else if (found.length === shown.length) display = `Here are the **${found.length} events** from ${span}, most recent first.`;
+    else display = `I found **${found.length} events** from ${span}. Here are the ${shown.length} most recent; choose a shorter range to see the others.`;
+    const summary = shown.map((e) => {
+      const st = evtStatus(e.event_date, e.end_date);
+      const where = [e.location, e.loc_city].filter(Boolean).join(', ');
+      return `- ${e.title} — ${evtShortWhen(e.event_date, e.end_date)}${where ? ` — ${where}` : ''}${st ? ` (${st})` : ''}${e.description ? ` — ${evtBlurb(e.description, 200)}` : ''}`;
+    }).join('\n');
+    return { role: 'assistant', content: `${display}\n\n${summary}`, display, events: shown };
+  };
+
+  // A preset chip or the custom range: said back as the visitor's own message,
+  // then answered straight from the database - no AI round trip needed.
+  const pickPastRange = async (fromStr, toStr) => {
+    if (!fromStr || !toStr || chatLoading) return;
+    const [a, b] = fromStr <= toStr ? [fromStr, toStr] : [toStr, fromStr];
+    const asked = [...chatMessages, { role: 'user', content: `Show events from ${prettyDay(a)} to ${prettyDay(b)}` }];
+    setChatMessages(asked);
+    setChatLoading(true);
+    try {
+      setChatMessages([...asked, await answerPastEvents(a, b)]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   // The events briefing Joy answers out of. Rebuilt whenever the event list
   // changes (a registration comes in, an admin edits a date), so what she says
@@ -1820,7 +2053,8 @@ export default function HomePage() {
     }
     if (liveEvents.length > 1) chips.push('What events are coming up?');
     chips.push('What time is Sunday service?');
-    if (chips.length < 3) chips.push('How do I enroll in ISOM?');
+    chips.push('Show me past events');
+    if (chips.length < 4) chips.push('How do I enroll in ISOM?');
     return chips;
   }, [liveEvents]);
 
@@ -1839,7 +2073,7 @@ KEY FACTS:
 - Senior Pastors: **Dr. Weldon Pior** and **Dr. Dorothy Pior**. Associate Pastors: **Ptr. Gracelyn Gambe** and **Ptr. Eldan Gambe**. Youth Pastor: **Ptr. Psalm Gambe**.
 - Location: **${CHURCH_CITY}**. For directions, point visitors to the **Visit Us** map on this page, which has a Get Directions button. Never invent a street address.
 - Ministries members can serve in: Praise & Worship, Media, Dance, Ushering and Youth.
-- Contact: visitors can message the church on its **Facebook page**. Never invent a phone number or an email address.
+- Contact: visitors can message the church on its **Facebook page** or **Messenger** (see OFFICIAL LINKS). Never invent a phone number or an email address.
 - Giving: tithes and offerings are received during the services. **Online giving is coming soon** — never give bank details, account numbers or payment links for donations.
 - ISOM (International School of Ministries) is a ministry-training program. Classes begin **August 2026**. People enroll by signing up / clicking "Enroll Now".
 - Users can sign up or log in from the navbar buttons, and watch live streams when a service is live.
@@ -1854,36 +2088,141 @@ ANSWERING ABOUT EVENTS:
 - When asked about ONE event, give the useful specifics: **when** (with the day of the week), **where** (the full venue), **how many days** it runs, the daily start and end times when it has a multi-day schedule, the **cost**, how many **slots are left**, and whether registration is open, closing soon, or already full.
 - If registration is not open yet, closed, or fully booked, say so plainly and say why — never invite someone to register for an event they cannot join.
 - If an event is free, say **Free**. If it has a fee, always give the peso amount. Mention early-bird pricing and its deadline when one is still running.
-- If there are no events in the data below, say so honestly and invite them to check back or join the weekly services. Do NOT guess.
-- Do not paste URLs and do not name a specific button. After you name an event, a button for it appears under your message automatically, so you may end with something like "tap the button below to see the full details or to register".
+- The EVENT DATA below lists only events that have NOT ended yet. If it has none, say there are no **upcoming** events and invite them to check back or join the weekly services. Never say there are no past events — past events are looked up separately (see PAST EVENTS). Do NOT guess.
+- Do not paste event URLs and do not name a specific button. After you name an event, a button for it appears under your message automatically, so you may end with something like "tap the button below to see the full details or to register".
+
+LINKS:
+- When a link helps, write it as [Title](URL), for example [Facebook](${FACEBOOK_URL}). The visitor sees it as a button with the right icon, so never paste a bare address and never write the address twice.
+- Only share links listed in OFFICIAL LINKS, MORE CHURCH LINKS or CHURCH DOCUMENTS, exactly as written. Never invent or guess a web address, and never say the church has an account on a social media site that is not listed.
+- When asked for the church's social media, write one short sentence first, then list each listed account as its own "- " bullet that STARTS with its link and then says what it is for, e.g. "- [Facebook](${FACEBOOK_URL}) — news and announcements". Do not write the platform's name again before or after the link; the button already shows it.
+- When the visitor asks for ONE link (e.g. "what's your Facebook page?"), answer in a friendly sentence with the link inside it, e.g. "You can find us on [Facebook](${FACEBOOK_URL}), where we post news and announcements." — not a one-item list.
+
+OFFICIAL LINKS:
+- [Facebook](${FACEBOOK_URL}) — the church's Facebook page: news, announcements and photos
+- [Messenger](${MESSENGER_URL}) — to send the church a message
+- [YouTube](${YOUTUBE_URL}) — sermons and past live services
+- [Watch live](/live) — the live page, when a service is streaming
+- [Directions on Google Maps](${DIRECTIONS_URL}) — directions to the church
+
+PASTORS: when you mention a pastor, use their full name and title as written in KEY FACTS (e.g. **Ptr. Eldan Gambe**) - their photo is shown with your answer automatically.
+
+PAST EVENTS (events that already happened):
+- You do not have past events in your data. They are looked up from the church database by a date range, and shown to the visitor as cards with the poster and details.
+- When the visitor asks about past, previous, recent, last or finished events and has NOT said which dates, do not list or describe any event. Reply with one short, friendly sentence asking which dates they would like to see, then put the tag [[ASK_PAST_RANGE]] on its own line at the very end.
+- When the visitor names ANY period — a month ("October", "October 2026"), a year ("2026", "this year"), "last month", "last week", "the past 3 months", or two dates — that IS the date range. Do NOT ask for exact days. Work out the first and last day using today's date below: a month runs from its 1st to its last day; "last month" is the whole previous calendar month; "this year" runs from January 1 to today; "the past N days/weeks/months" runs from that far back to today; a month with no year means the most recent one that has started. Then reply with one short sentence and put the tag [[PAST_EVENTS YYYY-MM-DD YYYY-MM-DD]] (start date, then end date) on its own line at the very end.
+- Never list or describe the past events yourself — the cards appear automatically under your message.
+- Examples, if today were Monday, November 23, 2026:
+  Visitor: "What events did you have in October 2026?" → You: "Here are our events from October 2026." then [[PAST_EVENTS 2026-10-01 2026-10-31]]
+  Visitor: "past events last month" → You: "Here are our events from last month." then [[PAST_EVENTS 2026-10-01 2026-10-31]]
+  Visitor: "September to October" → You: "Here are our events from September to October 2026." then [[PAST_EVENTS 2026-09-01 2026-10-31]]
+  Visitor: "what were the last events?" → You: "Which dates would you like me to look up?" then [[ASK_PAST_RANGE]]
+- Only use these tags for past events, never for upcoming ones.
 
 ${eventsDigest}`;
 
-  // Render a single line, converting **bold** markdown into <strong> spans
+  // Render a single line: **bold**, [Title](link) and bare web addresses. A
+  // link is drawn as its platform's icon and a readable title - "Facebook ·
+  // CebuCityJoyfulSound", not a raw address - and opens in a new tab. Only
+  // http(s), mailto:, tel: and this site's own paths become links (lib/linkMeta).
+  const INLINE_TOKEN = /(\*\*[^*]+\*\*)|\[([^\]\n]+)\]\(([^)\s]+)\)|((?:https?:\/\/|www\.)[^\s<>()]*[^\s<>().,!?;:'"*])/g;
   const renderInline = (text, keyPrefix) => {
-    const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={`${keyPrefix}-${i}`} className="hp-chat-em">{part.slice(2, -2)}</strong>;
+    const out = [];
+    let last = 0;
+    let n = 0;
+    for (const m of text.matchAll(INLINE_TOKEN)) {
+      if (m.index > last) out.push(<span key={`${keyPrefix}-t${n}`}>{text.slice(last, m.index)}</span>);
+      if (m[1]) {
+        out.push(<strong key={`${keyPrefix}-b${n}`} className="hp-chat-em">{renderInline(m[1].slice(2, -2), `${keyPrefix}-b${n}`)}</strong>);
+      } else {
+        const link = linkMeta(m[3] || m[4], m[2]);
+        out.push(link ? (
+          <a
+            key={`${keyPrefix}-l${n}`}
+            href={link.href}
+            className={`hp-chat-link is-${link.key}`}
+            {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+          >
+            <i className={link.icon} aria-hidden="true"></i>
+            <span>{link.title}</span>
+          </a>
+        ) : <span key={`${keyPrefix}-l${n}`}>{m[2] || m[0]}</span>);
       }
-      return <span key={`${keyPrefix}-${i}`}>{part}</span>;
-    });
+      last = m.index + m[0].length;
+      n += 1;
+    }
+    if (last < text.length) out.push(<span key={`${keyPrefix}-t${n}`}>{text.slice(last)}</span>);
+    return out;
   };
 
-  // Convert Joy's reply (bold, paragraphs, "- " bullets) into formatted JSX
-  const renderRichText = (content) => {
+  // The pastors as a small directory: photo, name, role - one row each. Used
+  // in place of a bulleted list of their names, and under a reply that names
+  // one in passing.
+  const renderPastorList = (list, key, standalone = false) => (
+    <ul className={`hp-chat-pastorlist${standalone ? ' standalone' : ''}`} key={key}>
+      {list.map((p) => (
+        <li key={p.name}>
+          <img src={p.photo} alt="" loading="lazy" decoding="async" />
+          <span>
+            <strong>{p.name}</strong>
+            <small>{p.title}</small>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+
+  // "- [Facebook](https://…) — news and announcements": a list made of these
+  // is drawn as rows - the platform's icon, the name, what it is for - rather
+  // than bullets with a small button and a sentence wrapping under it.
+  const LINK_ROW = /^\[([^\]\n]+)\]\(([^)\s]+)\)\s*(?:[—–:-]+\s*(.*))?$/;
+  const renderLinkList = (rows, key) => (
+    <div className="hp-chat-linklist" key={key}>
+      {rows.map(({ link, about }) => (
+        <a
+          key={link.href}
+          href={link.href}
+          className={`hp-chat-linkrow is-${link.key}`}
+          {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        >
+          <span className="hp-chat-linkrow-icon" aria-hidden="true"><i className={link.icon}></i></span>
+          <span className="hp-chat-linkrow-text">
+            <strong>{link.title}</strong>
+            {about && <small>{about}</small>}
+          </span>
+          <i className={`fas ${link.external ? 'fa-arrow-up-right-from-square' : 'fa-chevron-right'} hp-chat-linkrow-go`} aria-hidden="true"></i>
+        </a>
+      ))}
+    </div>
+  );
+
+  // Convert Joy's reply (bold, paragraphs, "- " bullets) into formatted JSX.
+  // `shown` notes whether the pastors were drawn inside the reply, so the
+  // message does not draw them a second time underneath.
+  const renderRichText = (content, shown = {}) => {
     const lines = content.split('\n');
     const blocks = [];
     let bullets = [];
     const flushBullets = (key) => {
-      if (bullets.length) {
+      if (!bullets.length) return;
+      const links = bullets.map((b) => {
+        const m = b.replace(/\*\*/g, '').trim().match(LINK_ROW);
+        const link = m && linkMeta(m[2], m[1]);
+        return link ? { link, about: (m[3] || '').trim() } : null;
+      });
+      const named = bullets.map((b) => pastorsNamedIn(b));
+      if (links.every(Boolean)) {
+        blocks.push(renderLinkList(links, `links-${key}`));
+      } else if (named.every((n) => n.length === 1)) {
+        blocks.push(renderPastorList(named.map((n) => n[0]), `pastors-${key}`));
+        shown.pastors = true;
+      } else {
         blocks.push(
           <ul className="hp-chat-list" key={`ul-${key}`}>
             {bullets.map((b, i) => <li key={i}>{renderInline(b, `li-${key}-${i}`)}</li>)}
           </ul>
         );
-        bullets = [];
       }
+      bullets = [];
     };
     lines.forEach((raw, idx) => {
       const line = raw.trim();
@@ -1986,6 +2325,33 @@ ${eventsDigest}`;
     const newMessages = [...chatMessages, { role: 'user', content: text }];
     setChatMessages(newMessages);
     setChatInput('');
+
+    // Past events are answered here, without the AI, so they work even when it
+    // cannot be reached:
+    //  - dates given ("events last month", "October", or the reply to Joy
+    //    asking which dates) -> the cards for that range;
+    //  - a question about past events with no dates -> ask for the range.
+    // A question about events in a range that is already over ("any events
+    // from September to October?") counts as a past-events question too;
+    // "events this month" does not, as that is mostly about what is coming.
+    const awaitingRange = !!chatMessages[chatMessages.length - 1]?.rangePicker;
+    const today = new Date();
+    const range = parseDateRange(text, today);
+    const rangeIsOver = !!range && range.to < ymd(today);
+    if (range && (asksPastEvents(text) || awaitingRange || (EVENT_WORD_RE.test(text) && rangeIsOver))) {
+      setChatLoading(true);
+      try {
+        setChatMessages([...newMessages, await answerPastEvents(range.from, range.to)]);
+      } finally {
+        setChatLoading(false);
+      }
+      return;
+    }
+    if (asksPastEvents(text) && !MENTIONS_DATES.test(text)) {
+      setChatMessages([...newMessages, pastRangeQuestion()]);
+      return;
+    }
+
     setChatLoading(true);
 
     // Something useful to say when Joy cannot reach the AI at all, so a visitor
@@ -2016,6 +2382,9 @@ ${eventsDigest}`;
           // Room for a short list of events with their dates and venues - 400
           // cut the third event off mid-sentence.
           temperature: 0.6, max_tokens: 700,
+          // The server adds whatever the church's documents say about the
+          // question (Dashboard > System Configuration > Joy's Knowledge).
+          knowledge: true,
         }),
       });
       const data = await res.json();
@@ -2035,7 +2404,27 @@ ${eventsDigest}`;
         return;
       }
 
-      setChatMessages([...newMessages, { role: 'assistant', content: reply, actions: buildChatActions(reply, liveEvents) }]);
+      // Past events: the AI turned the visitor's words into dates; the cards
+      // are built from the database, not from anything the AI wrote.
+      const range = reply.match(PAST_TAG_RANGE);
+      if (range) {
+        setChatMessages([...newMessages, await answerPastEvents(range[1], range[2])]);
+        return;
+      }
+      const clean = reply.replace(/\[\[[^\]]*\]\]/g, '').trim();
+      if (PAST_TAG_ASK.test(reply) || (awaitingRange && MENTIONS_DATES.test(text))) {
+        // Asked for dates, or was given dates it could not place - either way
+        // the picker goes under the reply so the visitor can just choose.
+        setChatMessages([...newMessages, pastRangeQuestion(clean || undefined)]);
+        return;
+      }
+
+      setChatMessages([...newMessages, {
+        role: 'assistant',
+        content: clean,
+        actions: buildChatActions(clean, liveEvents),
+        pastors: pastorsNamedIn(clean),
+      }]);
     } catch (error) {
       console.error('[Joy]', error.message);
       setChatMessages([...newMessages, { role: 'assistant', content: "I'm having trouble connecting right now. Please try again in a moment, or contact the church office. 🙏" }]);
@@ -2087,6 +2476,19 @@ ${eventsDigest}`;
     return () => window.removeEventListener('load', mountAhead);
   }, [heroIndex]);
 
+  // Arriving from another page on a section link (/#plan-visit from the News
+  // navbar): go to that section once the page has drawn, the same smooth way
+  // the navbar's own links do. OAuth tokens in the hash are not a section.
+  useEffect(() => {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    if (!id || /[=&]/.test(id)) return undefined;
+    const t = setTimeout(() => {
+      const el = document.getElementById(id) || (id === 'this-week' ? document.getElementById('news') : null);
+      el?.scrollIntoView({ behavior: 'smooth' });
+    }, 450);
+    return () => clearTimeout(t);
+  }, []);
+
   const scrollToSection = (id) => {
     setMobileNavOpen(false);
     // The events grid is only on the page while there are events to show; with
@@ -2109,6 +2511,7 @@ ${eventsDigest}`;
     { id: 'ministries', label: 'Ministries' },
     { id: 'news', label: 'Events' },
     { id: 'isom', label: 'ISOM' },
+    { id: 'news-page', label: 'News', href: '/news' },
     { id: 'give', label: 'Give' },
     { id: 'location', label: 'Location' },
   ];
@@ -2129,9 +2532,11 @@ ${eventsDigest}`;
         </a>
 
         <div className={`hp-navbar-links ${mobileNavOpen ? 'open' : ''}`}>
-          {NAV_LINKS.map((link) => (
+          {NAV_LINKS.map((link) => (link.href ? (
+            <a key={link.id} href={link.href}>{link.label}</a>
+          ) : (
             <a key={link.id} href={`#${link.id}`} onClick={(e) => { e.preventDefault(); scrollToSection(link.id); }}>{link.label}</a>
-          ))}
+          )))}
           {liveStream && (
             <a href="/live" className="hp-btn-live"><span className="hp-live-dot" aria-hidden="true"></span> Live</a>
           )}
@@ -2548,6 +2953,35 @@ ${eventsDigest}`;
           </div>
         </section>
       </div>
+
+      {/* ---- FROM THE NEWS: the three newest articles ---- */}
+      {latestNews.length > 0 && (
+        <section id="latest-news" className="hp-section hp-news-strip">
+          <div className="hp-news-strip-inner">
+            <div className="hp-news-strip-head">
+              <div>
+                <span className="hp-give-eyebrow">From the News</span>
+                <h2>Latest from the church</h2>
+              </div>
+              <a href="/news" className="hp-news-all">All news</a>
+            </div>
+            <div className="hp-news-strip-grid">
+              {latestNews.map((a) => (
+                <a key={a.id} href={`/news/${a.slug}`} className="hp-news-card">
+                  <span className="hp-news-card-img">
+                    {a.featured_image_url
+                      ? <img src={newsImage(a.featured_image_url, 440)} alt="" loading="lazy" decoding="async" />
+                      : <span>{a.category}</span>}
+                  </span>
+                  <span className="hp-news-card-kicker">{a.category} · {newsDate(a.published_at)}</span>
+                  <strong>{a.title}</strong>
+                  {a.summary && <span className="hp-news-card-sum">{a.summary}</span>}
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ---- ISOM ---- */}
       {/* The school's own content (subtitle, points, start date, photos) is
@@ -4121,8 +4555,15 @@ ${eventsDigest}`;
               )}
 
               {detailEvent.registration_required !== false && (() => {
-                const { full, notOpenYet, closed, opensAt } = evtRegGate(detailEvent);
+                const { full, notOpenYet, closed, opensAt, ended } = evtRegGate(detailEvent);
 
+                if (ended) {
+                  return (
+                    <button className="hp-evt-register" disabled style={{ opacity: 0.55, cursor: 'not-allowed' }}>
+                      <i className="fas fa-flag-checkered"></i> This Event Has Ended
+                    </button>
+                  );
+                }
                 if (notOpenYet) {
                   return (
                     <>
@@ -4305,6 +4746,7 @@ ${eventsDigest}`;
               <li><a href="#this-week">Events</a></li>
               <li><a href="#isom">ISOM</a></li>
               <li><a href="#give">Give</a></li>
+              <li><a href="/news">News</a></li>
             </ul>
           </div>
 
@@ -4360,11 +4802,117 @@ ${eventsDigest}`;
           </div>
 
           <div className="hp-chat-body" ref={chatBodyRef}>
-            {chatMessages.map((m, i) => (
-              <div key={i} className={`hp-chat-msg ${m.role}`}>
+            {chatMessages.map((m, i) => {
+              const shown = {};
+              const body = m.role === 'assistant' ? renderRichText(m.display ?? m.content, shown) : m.content;
+              return (
+              <div key={i} className={`hp-chat-msg ${m.role}${m.events?.length || m.rangePicker ? ' wide' : ''}`}>
                 <div className="hp-chat-bubble">
-                  {m.role === 'assistant' ? renderRichText(m.content) : m.content}
+                  {body}
                 </div>
+
+                {/* Pastors Joy named in a sentence rather than a list: their
+                    photo, name and role under the reply - the same pictures
+                    as the Our Pastors section. */}
+                {m.pastors && m.pastors.length > 0 && !shown.pastors && renderPastorList(m.pastors, 'pastors', true)}
+
+                {/* Past events Joy looked up: one card each, straight from the
+                    database row. "View full details" opens the same dialog the
+                    event cards on the page open. */}
+                {m.events && m.events.length > 0 && (
+                  <div className="hp-chat-events">
+                    {m.events.map((evt) => {
+                      const st = evtStatus(evt.event_date, evt.end_date);
+                      const days = evtDayCount(evt.event_date, evt.end_date);
+                      const place = [evt.location, evt.loc_city].filter(Boolean).join(', ');
+                      const about = evtBlurb(evt.description);
+                      return (
+                        <article key={evt.id} className="hp-chat-evt">
+                          {evt.image_url ? (
+                            <img
+                              className="hp-chat-evt-img"
+                              src={eventImageUrl(evt.image_url, 440)}
+                              alt={`${evt.title} poster`}
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          ) : (
+                            <div className="hp-chat-evt-img placeholder" aria-hidden="true">{evt.title}</div>
+                          )}
+                          <div className="hp-chat-evt-body">
+                            {st && (
+                              <span className={`hp-chat-evt-status ${st}`}>
+                                {{ upcoming: 'Upcoming', ongoing: 'Happening now', ended: 'Ended' }[st]}
+                              </span>
+                            )}
+                            <h4>{evt.title}</h4>
+                            <dl className="hp-chat-evt-facts">
+                              <div>
+                                <dt>When</dt>
+                                <dd>{evtShortWhen(evt.event_date, evt.end_date)}{days > 1 ? ` · ${days} days` : ''}</dd>
+                              </div>
+                              {place && (
+                                <div>
+                                  <dt>Where</dt>
+                                  <dd>{place}</dd>
+                                </div>
+                              )}
+                            </dl>
+                            {about && <p className="hp-chat-evt-about">{about}</p>}
+                            <button
+                              type="button"
+                              className="hp-chat-evt-more"
+                              onClick={() => { setChatOpen(false); setDetailEvent(evt); }}
+                            >
+                              View full details
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Joy asked which dates: quick ranges, or a custom one. Only
+                    under her latest message - an older picker would answer a
+                    question the conversation has moved past. */}
+                {m.rangePicker && i === chatMessages.length - 1 && !chatLoading && (() => {
+                  const today = new Date();
+                  const todayStr = ymd(today);
+                  const from = pastFrom || ymd(PAST_RANGE_PRESETS[1].from(today));
+                  const to = pastTo || todayStr;
+                  return (
+                    <div className="hp-chat-range">
+                      <div className="hp-chat-range-presets">
+                        {PAST_RANGE_PRESETS.map((p) => (
+                          <button
+                            key={p.label}
+                            type="button"
+                            className="hp-chat-suggestion"
+                            onClick={() => pickPastRange(ymd(p.from(today)), todayStr)}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                      <form
+                        className="hp-chat-range-custom"
+                        onSubmit={(e) => { e.preventDefault(); pickPastRange(from, to); }}
+                      >
+                        <label>
+                          <span>From</span>
+                          <input type="date" value={from} max={todayStr} onChange={(e) => setPastFrom(e.target.value)} required />
+                        </label>
+                        <label>
+                          <span>To</span>
+                          <input type="date" value={to} max={todayStr} onChange={(e) => setPastTo(e.target.value)} required />
+                        </label>
+                        <button type="submit" className="hp-chat-action-btn">Show events</button>
+                      </form>
+                    </div>
+                  );
+                })()}
+
                 {m.actions && m.actions.length > 0 && (
                   <div className="hp-chat-actions">
                     {/* An event button opens a dialog on this very page, so it
@@ -4382,7 +4930,8 @@ ${eventsDigest}`;
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
             {chatLoading && (
               <div className="hp-chat-msg assistant">
                 <div className="hp-chat-bubble hp-chat-typing">
