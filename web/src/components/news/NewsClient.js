@@ -95,6 +95,111 @@ export function StoryCard({ article, size = 'md' }) {
   );
 }
 
+// "More news" under an article: suggestions picked for this story (same
+// topic, shared tags, then the newest), the latest stories, or any one topic.
+// Each tab is fetched once and kept, so switching back is instant.
+export function MoreNews({ currentId, category, suggested = [], latest = [], counts = {}, categories = [] }) {
+  const [tab, setTab] = useState('for-you');
+  const [lists, setLists] = useState(() => ({ 'for-you': suggested, latest }));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const pick = async (key) => {
+    setTab(key);
+    setError('');
+    if (lists[key]) return;
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams({ limit: '7', category: key });
+      const res = await fetch(`/api/news?${qs}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'Could not load these stories.');
+      const items = (json.data || []).filter((a) => a.id !== currentId).slice(0, 6);
+      setLists((l) => ({ ...l, [key]: items }));
+    } catch (err) {
+      setError(err.message || 'Could not load these stories.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const items = lists[tab] || [];
+  const isTopic = tab !== 'for-you' && tab !== 'latest';
+  const seeAll = isTopic ? `/news?category=${encodeURIComponent(tab)}` : '/news';
+  const tabs = [
+    { key: 'for-you', label: 'For you', icon: 'fa-wand-magic-sparkles' },
+    { key: 'latest', label: 'Latest', icon: 'fa-clock' },
+    ...categories.map((c) => ({ key: c, label: c, count: counts[c] || 0 })),
+  ];
+
+  return (
+    <section className="nw-keep nw-more-news" aria-label="More news">
+      <div className="nw-wrap">
+        <div className="nw-section-head">
+          <div>
+            <span className="nw-eyebrow">Keep reading</span>
+            <h2>More news</h2>
+          </div>
+          <Link href={seeAll}>{isTopic ? `All ${tab} stories` : 'See all news'}</Link>
+        </div>
+
+        <div className="nw-chips" role="tablist" aria-label="Choose what to read next">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.key}
+              className={`${tab === t.key ? 'on' : ''} ${t.count === 0 ? 'empty' : ''}`}
+              onClick={() => pick(t.key)}
+            >
+              {t.icon && <i className={`fas ${t.icon}`} aria-hidden="true"></i>}
+              {t.label}
+              {t.count !== undefined && <span className="nw-chip-count">{t.count}</span>}
+            </button>
+          ))}
+        </div>
+
+        <div className="nw-more-body" role="tabpanel" aria-busy={loading}>
+          {loading && (
+            <div className="nw-grid nw-more-grid" aria-hidden="true">
+              {[0, 1, 2].map((i) => <div key={i} className="nw-card-skel"><span /><span /><span /></div>)}
+            </div>
+          )}
+          {!loading && error && <p className="nw-more-error" role="alert">{error}</p>}
+          {!loading && !error && items.length > 0 && (
+            <div className="nw-grid nw-more-grid" key={tab}>
+              {items.map((a, i) => (
+                <div key={a.id} className="nw-rise" style={{ '--i': i }}>
+                  <StoryCard article={a} />
+                  {tab === 'for-you' && a.category === category && <span className="nw-why">Also in {category}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {!loading && !error && items.length === 0 && (
+            <div className="nw-more-empty" key={`empty-${tab}`}>
+              <i className="fas fa-feather-pointed" aria-hidden="true"></i>
+              <strong>
+                {isTopic ? `No other ${tab} stories yet` : 'You are all caught up'}
+              </strong>
+              <p>
+                {isTopic
+                  ? 'Pick another topic above, or see everything the church has shared.'
+                  : 'This is our newest story. New ones are on the way, so check back soon.'}
+              </p>
+              <div className="nw-more-empty-actions">
+                <Link href="/news" className="nw-btn">See all news</Link>
+                <Link href="/#news" className="nw-btn-soft">Upcoming events</Link>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // "Load more" under the Latest Stories grid.
 export function LoadMore({ offset, total, category }) {
   const [items, setItems] = useState([]);

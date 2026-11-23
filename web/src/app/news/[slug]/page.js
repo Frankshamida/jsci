@@ -2,16 +2,15 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import '../../home.css';
 import '../news.css';
-import { newsFonts } from '../fonts';
-import { articlePath, newsDate, newsImage, readingMinutes, safeHref, timeAgo } from '@/lib/news';
-import { publishedArticle, publishedList, safely } from '@/lib/newsServer';
+import { NEWS_CATEGORIES, articlePath, newsDate, newsImage, readingMinutes, safeHref, timeAgo } from '@/lib/news';
+import { categoryCounts, publishedArticle, publishedList, safely } from '@/lib/newsServer';
 import { supabaseAdmin } from '@/lib/supabase';
 import { brandFor } from '@/lib/branding';
 import { readBranding } from '@/lib/brandingServer';
 import { DEFAULT_CARD_IMAGE, OG_HEIGHT, OG_WIDTH, absoluteUrl, siteOrigin, socialCardImage } from '@/lib/socialCard';
 import { evtDate } from '@/lib/eventWhen';
 import { SiteFooter, SiteNavbar } from '@/components/SiteChrome';
-import { ReadingProgress, StoryCard, ViewPing } from '@/components/news/NewsClient';
+import { MoreNews, ReadingProgress, ViewPing } from '@/components/news/NewsClient';
 import Story from '@/components/news/Story';
 
 // /news/<slug> - one article, laid out to be read (see components/news/Story
@@ -63,6 +62,24 @@ export async function generateMetadata({ params }) {
   };
 }
 
+// "For you": stories like this one first - the same topic, then shared tags -
+// and the newest to fill the row. Six at most.
+function suggestionsFor(article, pool) {
+  const tags = new Set((article.tags || []).map((t) => String(t).toLowerCase()));
+  const seen = new Set([article.id]);
+  return pool
+    .filter((a) => (seen.has(a.id) ? false : seen.add(a.id)))
+    .map((a) => ({
+      a,
+      score: (a.category === article.category ? 3 : 0)
+        + (a.tags || []).filter((t) => tags.has(String(t).toLowerCase())).length,
+      at: new Date(a.published_at || 0).getTime(),
+    }))
+    .sort((x, y) => y.score - x.score || y.at - x.at)
+    .slice(0, 6)
+    .map((x) => x.a);
+}
+
 const initials = (name) => String(name || 'News Desk').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
 // "Oct 2 – 3, 2026" for an event card.
@@ -103,15 +120,18 @@ export default async function ArticlePage({ params }) {
   const article = await safely(() => publishedArticle(params.slug), null);
   if (!article) notFound();
 
-  const [{ articles: latestAll }, { articles: sameTopic }, events] = await Promise.all([
-    safely(() => publishedList({ limit: 6 }), { articles: [] }),
-    safely(() => publishedList({ limit: 4, category: article.category }), { articles: [] }),
+  const [{ articles: latestAll }, { articles: sameTopic }, counts, events] = await Promise.all([
+    safely(() => publishedList({ limit: 13 }), { articles: [] }),
+    safely(() => publishedList({ limit: 8, category: article.category }), { articles: [] }),
+    safely(() => categoryCounts(), {}),
     safely(() => linkedEvents(article.content), {}),
   ]);
-  // More of the same topic first, then the newest, three in all.
-  const more = [...sameTopic, ...latestAll]
-    .filter((a, i, list) => a.id !== article.id && list.findIndex((b) => b.id === a.id) === i)
-    .slice(0, 3);
+  const others = (list) => list.filter((a) => a.id !== article.id);
+  const suggested = suggestionsFor(article, [...sameTopic, ...latestAll]);
+  const latest = others(latestAll).slice(0, 6);
+  // Stories in each topic apart from this one.
+  const otherCounts = { ...counts };
+  if (otherCounts[article.category]) otherCounts[article.category] -= 1;
 
   const edited = article.updated_at && article.published_at
     && new Date(article.updated_at).getTime() - new Date(article.published_at).getTime() > 10 * 60000;
@@ -120,7 +140,7 @@ export default async function ArticlePage({ params }) {
   const coverUrl = article.featured_image_url;
 
   return (
-    <div className={`nw-page nw-story ${newsFonts}`}>
+    <div className="nw-page nw-story">
       <SiteNavbar current="news" />
       <ReadingProgress />
       <ViewPing id={article.id} />
@@ -154,20 +174,15 @@ export default async function ArticlePage({ params }) {
         }}
       />
 
-      {/* ---- More stories ---- */}
-      {more.length > 0 && (
-        <section className="nw-keep" aria-label="Keep reading">
-          <div className="nw-wrap">
-            <div className="nw-section-head">
-              <h2>Keep reading</h2>
-              <Link href="/news">All news</Link>
-            </div>
-            <div className="nw-grid">
-              {more.map((a) => <StoryCard key={a.id} article={a} />)}
-            </div>
-          </div>
-        </section>
-      )}
+      {/* ---- More news: suggestions, the latest, or any topic ---- */}
+      <MoreNews
+        currentId={article.id}
+        category={article.category}
+        suggested={suggested}
+        latest={latest}
+        counts={otherCounts}
+        categories={NEWS_CATEGORIES}
+      />
 
       {/* ---- An invitation, as the landing page ends ---- */}
       <section className="nw-invite">

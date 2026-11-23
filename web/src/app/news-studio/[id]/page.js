@@ -19,7 +19,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import '../../news/news.css';
 import '../news-studio.css';
-import { newsFonts } from '../../news/fonts';
 import {
   BLOCK_LIBRARY, NEWS_CATEGORIES, NEWS_LANGS, TEXT_BLOCKS, TRANSLATION_LANGS, articleIn, articlePath, blocksToText,
   hasContent, htmlToMarkup, htmlToText, markupToHtml, newBlock, newsDate, sanitizeHtml, slugify, sourceHash,
@@ -27,8 +26,10 @@ import {
 } from '@/lib/news';
 import { getUserRoles } from '@/lib/permissions';
 import { eventSlugFor } from '@/lib/eventSlug';
+import { ImageLink } from '@/components/news/ImageLink';
 import { evtDate } from '@/lib/eventWhen';
 import ArticleBody from '@/components/news/ArticleBody';
+import { uploadNewsImage as uploadImage } from '@/lib/newsUpload';
 
 const EDITOR_ROLES = ['Admin', 'Super Admin'];
 const EMPTY = {
@@ -107,6 +108,9 @@ const DEVICES = [
   { key: 'mobile', icon: 'fas fa-mobile-screen-button', label: 'Phone', width: 390 },
 ];
 const COLORS = ['#1a1a2e', '#926C15', '#C9980B', '#4b5563', '#b91c1c', '#15803d', '#1d4ed8'];
+// How many photos a block can hold.
+const maxImages = (type) => (type === 'carousel' ? 20 : 12);
+
 const BLOCK_NAMES = Object.fromEntries(BLOCK_LIBRARY.flatMap((g) => g.items.map((i) => [i.type, i.label])));
 
 const rowToDoc = (a) => ({
@@ -133,24 +137,6 @@ const savedLabel = (t) => {
   const m = Math.round(s / 60);
   return m === 1 ? 'a minute ago' : `${m} minutes ago`;
 };
-
-// A picture from the computer, made small enough to upload (phone photos are
-// often 5-10 MB) and sent to Cloudinary through our own API.
-async function uploadImage(file, actorId) {
-  if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) throw new Error('Use a JPG, PNG, WebP or GIF picture.');
-  let blob = file;
-  if (file.type !== 'image/gif' && file.size > 1.5 * 1024 * 1024) {
-    const imageCompression = (await import('browser-image-compression')).default;
-    blob = await imageCompression(file, { maxSizeMB: 1.5, maxWidthOrHeight: 2000, useWebWorker: true });
-  }
-  const form = new FormData();
-  form.append('actorId', actorId);
-  form.append('file', blob, file.name || 'news-image.jpg');
-  const res = await fetch('/api/news/upload', { method: 'POST', body: form });
-  const json = await res.json().catch(() => ({}));
-  if (!json.success) throw new Error(json.message || 'The picture could not be uploaded.');
-  return { url: json.data.url, publicId: json.data.publicId, caption: '', alt: '' };
-}
 
 // A contentEditable whose HTML is set once, when it appears. Typing never
 // re-renders it (that would throw the cursor to the start); an outside change
@@ -201,7 +187,58 @@ function AutoTextarea({ value, onChange, className, placeholder, maxLength }) {
   );
 }
 
-function ImageSlot({ image, onPick, onChange, onRemove, busy, label = 'Add a photo', compact = false }) {
+// The "See more" link under a picture: pick one of the church's events (the
+// link and its text fill themselves in) or write any link and text.
+function ImageLinkEditor({ image, onChange, links }) {
+  const [open, setOpen] = useState(Boolean(image.link || image.linkLabel));
+  const { load } = links;
+  useEffect(() => { if (open) load(); }, [open, load]);
+  if (!open) {
+    return (
+      <button type="button" className="ns-imglink-add" onClick={() => setOpen(true)}>
+        <i className="fas fa-link"></i> Add a &ldquo;See more&rdquo; link
+      </button>
+    );
+  }
+  const pick = (id) => {
+    const evt = (links.events || []).find((e) => e.id === id);
+    if (evt) onChange({ ...image, link: `/${eventSlugFor(evt, links.events)}`, linkLabel: `See more: ${evt.title}` });
+  };
+  const clear = () => { onChange({ ...image, link: undefined, linkLabel: undefined }); setOpen(false); };
+  return (
+    <div className="ns-imglink">
+      <div className="ns-imglink-head">
+        <span><i className="fas fa-link"></i> See more link</span>
+        <button type="button" onClick={clear} title="Remove the link" aria-label="Remove the link"><i className="fas fa-xmark"></i></button>
+      </div>
+      <select value="" onFocus={links.load} onChange={(e) => pick(e.target.value)}>
+        <option value="">{links.events === null ? 'Loading events…' : 'Link to an event…'}</option>
+        {(links.events || []).map((e) => (
+          <option key={e.id} value={e.id}>{e.title} · {eventWhen(e.event_date, e.end_date)}</option>
+        ))}
+      </select>
+      <input
+        value={image.linkLabel || ''}
+        maxLength={160}
+        placeholder="Link text, e.g. See more: Youth Camp 2026"
+        onChange={(e) => onChange({ ...image, linkLabel: e.target.value })}
+      />
+      <input
+        value={image.link || ''}
+        maxLength={600}
+        placeholder="Link: /youth-camp-2026 or https://…"
+        onChange={(e) => onChange({ ...image, link: e.target.value.trim() })}
+      />
+      {image.link && (
+        <div className="ns-inert ns-imglink-preview" onClickCapture={(e) => e.preventDefault()}>
+          <ImageLink image={image} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ImageSlot({ image, onPick, onChange, onRemove, onMove, links, busy, label = 'Add a photo', compact = false }) {
   const input = useRef(null);
   if (!image) {
     return (
@@ -216,6 +253,8 @@ function ImageSlot({ image, onPick, onChange, onRemove, busy, label = 'Add a pho
     <figure className="ns-img">
       <img src={image.url} alt="" />
       <div className="ns-img-tools">
+        {onMove && <button type="button" onClick={() => onMove(-1)} title="Move earlier"><i className="fas fa-arrow-left"></i></button>}
+        {onMove && <button type="button" onClick={() => onMove(1)} title="Move later"><i className="fas fa-arrow-right"></i></button>}
         <button type="button" onClick={() => input.current?.click()} title="Replace photo"><i className="fas fa-arrows-rotate"></i></button>
         <button type="button" onClick={onRemove} title="Remove photo"><i className="fas fa-trash"></i></button>
         <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onPick(f); }} />
@@ -229,6 +268,7 @@ function ImageSlot({ image, onPick, onChange, onRemove, busy, label = 'Add a pho
           onChange={(e) => onChange({ ...image, caption: e.target.value })}
         />
       )}
+      {onChange && links && <ImageLinkEditor image={image} onChange={onChange} links={links} />}
     </figure>
   );
 }
@@ -398,14 +438,18 @@ export default function NewsStudio({ params }) {
     const img = await uploadImage(file, user.id);
     update((d) => ({ ...d, featured_image: { url: img.url, publicId: img.publicId } }));
   });
+  // A new photo in place of the old one keeps the old one's caption and link.
+  const keepWords = (up, old) => (old ? { ...up, caption: old.caption || '', link: old.link, linkLabel: old.linkLabel } : up);
   const pickBlockImage = (id, file) => withBusy(id, async () => {
     const img = await uploadImage(file, user.id);
-    setBlock(id, { image: img });
+    const old = docRef.current.content.find((b) => b.id === id)?.image;
+    setBlock(id, { image: keepWords(img, old) });
   });
   const addBlockImages = (id, files) => withBusy(id, async () => {
+    const max = maxImages(docRef.current.content.find((b) => b.id === id)?.type);
     const list = [];
-    for (const f of Array.from(files).slice(0, 12)) list.push(await uploadImage(f, user.id));
-    update((d) => ({ ...d, content: d.content.map((b) => (b.id === id ? { ...b, images: [...(b.images || []), ...list].slice(0, 12) } : b)) }));
+    for (const f of Array.from(files).slice(0, max)) list.push(await uploadImage(f, user.id));
+    update((d) => ({ ...d, content: d.content.map((b) => (b.id === id ? { ...b, images: [...(b.images || []), ...list].slice(0, max) } : b)) }));
   });
 
   // ---- Formatting (the toolbar acts on the text the cursor is in) ----
@@ -501,7 +545,7 @@ export default function NewsStudio({ params }) {
         if (status === 'published') notify('ok', d.status === 'published' ? 'Article updated.' : 'Article published.', articlePath(saved.slug));
         else notify('ok', d.status === 'published' ? 'Moved back to drafts. It is no longer on the News page.' : 'Draft saved.');
       }
-      return true;
+      return saved.id || true;
     } catch (err) {
       notify('error', err.message);
       return false;
@@ -545,6 +589,23 @@ export default function NewsStudio({ params }) {
   const goBack = () => {
     if (dirty && !window.confirm('You have unsaved changes. Leave without saving?')) return;
     router.push('/news-management');
+  };
+
+  // A Facebook poster of this article (/news-management/poster/<id>). The
+  // poster is made from the saved article, so a draft is saved first; a
+  // published one is only changed by "Update", so its edits are asked about.
+  const makePoster = async () => {
+    let id = articleId;
+    if (!id || dirty) {
+      if (docRef.current.status === 'published' && id) {
+        if (!window.confirm('Your latest changes are not live yet, and the poster uses the saved article. Leave them unsaved and make the poster?')) return;
+      } else {
+        const saved = await save('draft', { silent: true });
+        if (!saved) return;
+        id = typeof saved === 'string' ? saved : id;
+      }
+    }
+    if (id) router.push(`/news-management/poster/${id}?from=studio`);
   };
 
   // ---- AI ----
@@ -711,6 +772,14 @@ export default function NewsStudio({ params }) {
   useEffect(() => {
     if (doc.content.some((b) => b.type === 'event')) loadEvents();
   }, [doc.content, loadEvents]);
+  const imageLinks = { events: eventList, load: loadEvents };
+  const moveImage = (b, j, dir) => {
+    const k = j + dir;
+    if (k < 0 || k >= (b.images || []).length) return;
+    const imgs = [...b.images];
+    [imgs[j], imgs[k]] = [imgs[k], imgs[j]];
+    setBlock(b.id, { images: imgs });
+  };
   const pickEvent = (blockId, eventId) => {
     const evt = (eventList || []).find((e) => e.id === eventId);
     if (!evt) { setBlock(blockId, { eventId: null }); return; }
@@ -819,6 +888,7 @@ export default function NewsStudio({ params }) {
             image={b.image}
             busy={working}
             label="Add a wide photo"
+            links={imageLinks}
             onPick={(f) => pickBlockImage(b.id, f)}
             onChange={(img) => setBlock(b.id, { image: img }, true)}
             onRemove={() => setBlock(b.id, { image: null })}
@@ -834,10 +904,12 @@ export default function NewsStudio({ params }) {
                 image={img}
                 onPick={(f) => withBusy(b.id, async () => {
                   const up = await uploadImage(f, user.id);
-                  setBlock(b.id, { images: b.images.map((x, k) => (k === j ? up : x)) });
+                  setBlock(b.id, { images: b.images.map((x, k) => (k === j ? keepWords(up, x) : x)) });
                 })}
                 onChange={(next) => setBlock(b.id, { images: b.images.map((x, k) => (k === j ? next : x)) }, true)}
                 onRemove={() => setBlock(b.id, { images: b.images.filter((_, k) => k !== j) })}
+                onMove={b.images.length > 1 ? (dir) => moveImage(b, j, dir) : null}
+                links={imageLinks}
               />
             ))}
             {(b.images || []).length < 12 && (
@@ -849,6 +921,44 @@ export default function NewsStudio({ params }) {
             )}
           </div>
         );
+      case 'carousel': {
+        const imgs = b.images || [];
+        return (
+          <div className="ns-carousel-edit">
+            {imgs.length > 0 && (
+              <div className="ns-inert ns-carousel-preview" onClickCapture={(e) => { if (e.target.closest('a')) e.preventDefault(); }}>
+                <ArticleBody blocks={[b]} />
+              </div>
+            )}
+            <div className="ns-carousel-strip">
+              {imgs.map((img, j) => (
+                <div key={`${img.url}-${j}`} className="ns-carousel-slot">
+                  <span className="ns-carousel-num">{j + 1}</span>
+                  <ImageSlot
+                    image={img}
+                    onPick={(f) => withBusy(b.id, async () => {
+                      const up = await uploadImage(f, user.id);
+                      setBlock(b.id, { images: b.images.map((x, k) => (k === j ? keepWords(up, x) : x)) });
+                    })}
+                    onChange={(next) => setBlock(b.id, { images: b.images.map((x, k) => (k === j ? next : x)) }, true)}
+                    onRemove={() => setBlock(b.id, { images: b.images.filter((_, k) => k !== j) })}
+                    onMove={imgs.length > 1 ? (dir) => moveImage(b, j, dir) : null}
+                    links={imageLinks}
+                  />
+                </div>
+              ))}
+              {imgs.length < maxImages('carousel') && (
+                <label className="ns-imgslot compact">
+                  <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" hidden disabled={working} onChange={(e) => { const fs = e.target.files; if (fs?.length) addBlockImages(b.id, fs); e.target.value = ''; }} />
+                  {working ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-images"></i>}
+                  <span>{working ? 'Uploading…' : (imgs.length ? 'Add more photos' : 'Add photos to slide through')}</span>
+                </label>
+              )}
+            </div>
+            {imgs.length > 0 && <p className="ns-carousel-hint"><i className="fas fa-circle-info"></i> Try the arrows above: readers see the photos slide one at a time. Use the arrow buttons on each photo to change the order.</p>}
+          </div>
+        );
+      }
       case 'media-left':
       case 'media-right':
         return (
@@ -857,6 +967,7 @@ export default function NewsStudio({ params }) {
               image={b.image}
               busy={busy[b.id]}
               compact
+              links={imageLinks}
               onPick={(f) => pickBlockImage(b.id, f)}
               onChange={(img) => setBlock(b.id, { image: img }, true)}
               onRemove={() => setBlock(b.id, { image: null })}
@@ -924,7 +1035,7 @@ export default function NewsStudio({ params }) {
   };
 
   return (
-    <div className={`ns-app ${newsFonts} ${panelOpen ? '' : 'panel-closed'}`}>
+    <div className={`ns-app ${panelOpen ? '' : 'panel-closed'}`}>
       {/* ---- Top bar ---- */}
       <header className="ns-top">
         <button type="button" className="ns-back" onClick={goBack} aria-label="Back to News"><i className="fas fa-arrow-left"></i></button>
@@ -935,6 +1046,7 @@ export default function NewsStudio({ params }) {
         <div className="ns-top-actions">
           <button type="button" className="ns-ai-btn" onClick={() => setAiOpen(true)}><i className="fas fa-wand-magic-sparkles"></i> AI Writer</button>
           <button type="button" className="ns-ghost" onClick={() => setPreview(true)}><i className="far fa-eye"></i> Preview</button>
+          <button type="button" className="ns-ghost" disabled={saving} onClick={makePoster} title="Make a Facebook poster from this article"><i className="far fa-image"></i> Make poster</button>
           {published ? (
             <>
               <button type="button" className="ns-draft" disabled={saving} onClick={() => { if (window.confirm('Take this article off the News page and make it a draft again?')) save('draft'); }}>Unpublish</button>
@@ -1318,7 +1430,17 @@ export default function NewsStudio({ params }) {
             </div>
             <button type="button" className="ns-ghost" onClick={() => setPreview(false)}>Close</button>
           </div>
-          <div className="ns-preview-scroll">
+          {/* A link in the preview opens in a new tab, so the editor (and any
+              unsaved work) stays where it is. */}
+          <div
+            className="ns-preview-scroll"
+            onClickCapture={(e) => {
+              const a = e.target.closest('a[href]');
+              if (!a) return;
+              e.preventDefault();
+              window.open(a.href, '_blank', 'noopener');
+            }}
+          >
             {/* The article page's own header and reading column (news.css), so
                 the preview is what readers will get. */}
             <div className="nw-page nw-story ns-preview-page" style={{ maxWidth: deviceWidth + 80 }}>
@@ -1390,6 +1512,7 @@ export default function NewsStudio({ params }) {
                   : it.key === 'summary' ? 'Summary'
                     : it.key.endsWith(':cite') ? `Block ${blockAt} · quote by`
                       : it.key.includes(':cap') ? `Block ${blockAt} · photo caption`
+                        : it.key.includes(':link') ? `Block ${blockAt} · photo link`
                         : it.key.endsWith(':label') ? `Block ${blockAt} · button`
                           : `Block ${blockAt} · ${BLOCK_NAMES[doc.content[blockAt - 1]?.type] || 'text'}`;
                 return (

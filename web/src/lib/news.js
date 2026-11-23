@@ -54,6 +54,7 @@ export const BLOCK_LIBRARY = [
     { type: 'media-right', label: 'Right Image', icon: 'fas fa-outdent', hint: 'Text left, photo right' },
   ] },
   { group: 'Special layouts', items: [
+    { type: 'carousel', label: 'Carousel', icon: 'fas fa-images', hint: 'Photos that slide, one at a time, with arrows' },
     { type: 'stack', label: 'Photo Stack', icon: 'fas fa-layer-group', hint: 'Several photos in a row, top to bottom' },
     { type: 'divider', label: 'Divider', icon: 'fas fa-minus', hint: 'A thin line between parts' },
   ] },
@@ -64,7 +65,7 @@ export const BLOCK_LIBRARY = [
 ];
 
 export const TEXT_BLOCKS = new Set(['text', 'centered', 'quote', 'media-left', 'media-right']);
-export const IMAGE_LIST_BLOCKS = new Set(['grid', 'stack']);
+export const IMAGE_LIST_BLOCKS = new Set(['grid', 'stack', 'carousel']);
 export const SINGLE_IMAGE_BLOCKS = new Set(['image', 'media-left', 'media-right']);
 
 const rid = () => `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -73,7 +74,7 @@ export function newBlock(type) {
   const id = rid();
   switch (type) {
     case 'image': return { id, type, image: null };
-    case 'grid': case 'stack': return { id, type, images: [] };
+    case 'grid': case 'stack': case 'carousel': return { id, type, images: [] };
     case 'media-left': case 'media-right': return { id, type, image: null, html: '' };
     case 'quote': return { id, type, html: '', cite: '' };
     case 'divider': return { id, type };
@@ -193,17 +194,29 @@ export const textToHtml = (text) => String(text || '')
 
 const plain = (v, max) => String(v ?? '').replace(/<[^>]*>/g, '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
 
+// A picture may also carry a link shown under it as text - "See more: Youth
+// Camp 2026" - to an event's page or anywhere else safe.
 const cleanImage = (img) => {
   if (!img || typeof img !== 'object') return null;
   const url = String(img.url || '').trim();
   if (!/^https:\/\/[^\s"'<>]+$/i.test(url)) return null;
+  const link = img.link ? safeHref(String(img.link).slice(0, 600)) : null;
   return {
     url,
     publicId: img.publicId ? plain(img.publicId, 300) : null,
     caption: plain(img.caption, 300),
     alt: plain(img.alt, 200),
+    ...(link ? { link, linkLabel: plain(img.linkLabel, 160) } : {}),
   };
 };
+
+// "See more: Youth Camp 2026" -> the words before the colon, and the title.
+export function imageLinkParts(label) {
+  const text = String(label || '').trim() || 'See more';
+  const i = text.indexOf(':');
+  if (i > 0 && i < 40 && text.slice(i + 1).trim()) return { lead: text.slice(0, i + 1), title: text.slice(i + 1).trim() };
+  return { lead: '', title: text };
+}
 
 // Whatever came from the browser, made into blocks this site can trust.
 export function normalizeBlocks(raw) {
@@ -226,6 +239,9 @@ export function normalizeBlocks(raw) {
       case 'grid':
       case 'stack':
         out.push({ id, type: b.type, images: (Array.isArray(b.images) ? b.images : []).slice(0, 12).map(cleanImage).filter(Boolean) });
+        break;
+      case 'carousel':
+        out.push({ id, type: 'carousel', images: (Array.isArray(b.images) ? b.images : []).slice(0, 20).map(cleanImage).filter(Boolean) });
         break;
       case 'media-left':
       case 'media-right':
@@ -387,7 +403,8 @@ export function markupToHtml(text) {
 // English one, in news_articles.translations:
 //   { tl: { fields: { "<key>": "<text>" }, sourceHash, at, reviewed }, ceb: {...} }
 // Every piece of text in the article has a key (title, summary, b:<block>:html,
-// b:<block>:cite, b:<block>:cap, b:<block>:cap:<n>, b:<block>:label). The
+// b:<block>:cite, b:<block>:cap, b:<block>:cap:<n>, b:<block>:link,
+// b:<block>:link:<n> - a picture's "See more" link - and b:<block>:label). The
 // translations are written by the AI in the editor, where they can be read
 // and corrected before readers see them; the page shows the English for
 // anything a translation lacks.
@@ -408,7 +425,11 @@ export function translatableItems({ title, summary, content }) {
     if (b.html && htmlToText(b.html)) items.push({ key: `b:${b.id}:html`, text: htmlToMarkup(b.html) });
     if (b.cite) items.push({ key: `b:${b.id}:cite`, text: b.cite });
     if (b.image?.caption) items.push({ key: `b:${b.id}:cap`, text: b.image.caption });
-    (b.images || []).forEach((img, i) => { if (img?.caption) items.push({ key: `b:${b.id}:cap:${i}`, text: img.caption }); });
+    if (b.image?.link && b.image.linkLabel) items.push({ key: `b:${b.id}:link`, text: b.image.linkLabel });
+    (b.images || []).forEach((img, i) => {
+      if (img?.caption) items.push({ key: `b:${b.id}:cap:${i}`, text: img.caption });
+      if (img?.link && img.linkLabel) items.push({ key: `b:${b.id}:link:${i}`, text: img.linkLabel });
+    });
     if (b.type === 'button' && b.label) items.push({ key: `b:${b.id}:label`, text: b.label });
   });
   return items;
@@ -437,8 +458,20 @@ export function articleIn(article, lang) {
       const next = { ...b };
       if (b.html && f[`b:${b.id}:html`]) next.html = markupToHtml(f[`b:${b.id}:html`]);
       if (b.cite) next.cite = pick(`b:${b.id}:cite`, b.cite);
-      if (b.image?.caption) next.image = { ...b.image, caption: pick(`b:${b.id}:cap`, b.image.caption) };
-      if (b.images) next.images = b.images.map((img, i) => (img?.caption ? { ...img, caption: pick(`b:${b.id}:cap:${i}`, img.caption) } : img));
+      if (b.image) {
+        next.image = { ...b.image };
+        if (b.image.caption) next.image.caption = pick(`b:${b.id}:cap`, b.image.caption);
+        if (b.image.linkLabel) next.image.linkLabel = pick(`b:${b.id}:link`, b.image.linkLabel);
+      }
+      if (b.images) {
+        next.images = b.images.map((img, i) => {
+          if (!img) return img;
+          const out = { ...img };
+          if (img.caption) out.caption = pick(`b:${b.id}:cap:${i}`, img.caption);
+          if (img.linkLabel) out.linkLabel = pick(`b:${b.id}:link:${i}`, img.linkLabel);
+          return out;
+        });
+      }
       if (b.type === 'button' && b.label) next.label = pick(`b:${b.id}:label`, b.label);
       return next;
     }),
@@ -458,7 +491,7 @@ export function normalizeTranslations(raw) {
     if (!t || typeof t !== 'object' || !t.fields || typeof t.fields !== 'object') continue;
     const fields = {};
     Object.entries(t.fields).slice(0, 400).forEach(([k, v]) => {
-      if (/^(title|summary|b:[A-Za-z0-9_-]{1,40}:(html|cite|label|cap(:\d{1,2})?))$/.test(k) && typeof v === 'string' && v.trim()) {
+      if (/^(title|summary|b:[A-Za-z0-9_-]{1,40}:(html|cite|label|cap(:\d{1,2})?|link(:\d{1,2})?))$/.test(k) && typeof v === 'string' && v.trim()) {
         fields[k] = v.replace(/<[^>]*>/g, '').slice(0, k.endsWith(':html') ? 60000 : 2000);
       }
     });

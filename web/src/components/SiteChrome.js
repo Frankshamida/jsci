@@ -1,13 +1,18 @@
 'use client';
 
-// The landing page's navbar and footer, for the pages that live beside it
-// (News). Same markup and the same classes as src/app/page.js, styled by the
-// landing page's own stylesheet (home.css, imported by those pages), so the
-// black-glass bar, the gold brand lockup, the gold Log In button and the dark
-// mode switch look and behave exactly as they do on the home page. Section
-// links point back to the home page (/#plan-visit), which scrolls to them.
+// The site's navbar and footer - one component, used by the home page and the
+// pages beside it (News), styled by the landing page's stylesheet (home.css):
+// the black-glass bar, the gold brand lockup, the gold Log In button and the
+// dark mode switch.
+//
+// The links are grouped so the bar holds five things instead of eight:
+//   About ▾ (Who We Are, Our Pastors, Location)   Plan a Visit
+//   Get Involved ▾ (Ministries, Events, ISOM, Watch Live)   News   Give
+// On a computer a group opens on hover or click; on a phone the menu lists
+// every group under its name. Section links point at the home page
+// (/#plan-visit); ON the home page, `onSection` scrolls there smoothly instead.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useBranding } from '@/components/BrandingProvider';
 
 const FACEBOOK_URL = 'https://www.facebook.com/CebuCityJoyfulSound';
@@ -15,43 +20,71 @@ const MESSENGER_URL = 'https://m.me/CebuCityJoyfulSound';
 const YOUTUBE_URL = 'https://www.youtube.com/@JoyfulSoundChurchCebuCity';
 const DIRECTIONS_URL = 'https://www.google.com/maps/dir/?api=1&destination=10.31957253395332,123.8994709106599';
 
-// The landing page's links, in its order. `page` marks the one you are on.
-const LINKS = [
-  { href: '/#about', label: 'About' },
-  { href: '/#plan-visit', label: 'Plan a Visit' },
-  { href: '/#ministries', label: 'Ministries' },
-  { href: '/#this-week', label: 'Events' },
-  { href: '/#isom', label: 'ISOM' },
+// `section` is the id on the home page; `page` marks the page you are on.
+const NAV = [
+  {
+    label: 'About',
+    items: [
+      { href: '/#about', section: 'about', label: 'Who We Are', hint: 'Our story and what we believe' },
+      { href: '/#pastors', section: 'pastors', label: 'Our Pastors', hint: 'The leaders shepherding our church' },
+      { href: '/#location', section: 'location', label: 'Location', hint: 'Find us in Cebu City' },
+    ],
+  },
+  { href: '/#plan-visit', section: 'plan-visit', label: 'Plan a Visit' },
+  {
+    label: 'Get Involved',
+    items: [
+      { href: '/#ministries', section: 'ministries', label: 'Ministries', hint: 'Find your place to serve' },
+      { href: '/#news', section: 'news', label: 'Events', hint: 'What is coming up' },
+      { href: '/#isom', section: 'isom', label: 'ISOM', hint: 'International School of Ministries' },
+      { href: '/live', label: 'Watch Live', hint: 'Join a service online' },
+    ],
+  },
   { href: '/news', label: 'News', page: 'news' },
-  { href: '/#give', label: 'Give' },
-  { href: '/#location', label: 'Location' },
+  { href: '/#give', section: 'give', label: 'Give' },
 ];
 
-export function SiteNavbar({ current = null }) {
+export function SiteNavbar({ current = null, onSection = null, live: liveProp }) {
   const brand = useBranding();
   const [open, setOpen] = useState(false);
+  const [group, setGroup] = useState(null); // the dropdown that is open
   const [dark, setDark] = useState(false);
-  const [live, setLive] = useState(false);
+  const [liveFetched, setLiveFetched] = useState(false);
+  const live = liveProp ?? liveFetched;
+  const navRef = useRef(null);
+  const closeTimer = useRef(null);
 
   useEffect(() => {
     setDark(document.body.classList.contains('dark-mode'));
   }, []);
 
-  // "Live" appears in the bar while a service is streaming, as on the home page.
+  // "Live" appears in the bar while a service is streaming. The home page
+  // already knows and says so through `live`; other pages ask.
   useEffect(() => {
+    if (liveProp !== undefined) return undefined;
     let cancelled = false;
     const load = async () => {
       try {
         const res = await fetch('/api/live-streams/public');
         if (!res.ok) return;
         const json = await res.json();
-        if (!cancelled) setLive(Array.isArray(json) && json.length > 0);
+        if (!cancelled) setLiveFetched(Array.isArray(json) && json.length > 0);
       } catch { /* nothing live */ }
     };
     load();
     const t = setInterval(load, 120_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, []);
+  }, [liveProp]);
+
+  // A click anywhere else, or Escape, closes an open dropdown.
+  useEffect(() => {
+    if (!group) return undefined;
+    const onDown = (e) => { if (!navRef.current?.contains(e.target)) setGroup(null); };
+    const onKey = (e) => { if (e.key === 'Escape') setGroup(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [group]);
 
   const toggleDark = () => {
     const next = !dark;
@@ -61,10 +94,31 @@ export function SiteNavbar({ current = null }) {
     document.documentElement.classList.toggle('dark-mode', next);
   };
 
+  const go = (e, item) => {
+    setOpen(false);
+    setGroup(null);
+    if (onSection && item.section) {
+      e.preventDefault();
+      onSection(item.section);
+    }
+  };
+
+  // Hover opens a group on a computer; a short delay on leaving lets the
+  // pointer cross the gap into the dropdown.
+  const enter = (label) => { clearTimeout(closeTimer.current); setGroup(label); };
+  const leave = () => { clearTimeout(closeTimer.current); closeTimer.current = setTimeout(() => setGroup(null), 180); };
+  const isCurrent = (item) => item.page && item.page === current;
+
   return (
-    <nav className={`hp-navbar ${brand.isPlatform ? 'is-platform' : ''}`} aria-label="Main">
+    <nav ref={navRef} className={`hp-navbar ${brand.isPlatform ? 'is-platform' : ''}`} aria-label="Main">
       <a className="hp-navbar-brand" href="/">
-        <img src="/assets/LOGO.png" alt={`${brand.full} logo`} className="hp-navbar-logo" decoding="async" />
+        <img
+          src="/assets/LOGO.png"
+          alt={`${brand.full} logo`}
+          className="hp-navbar-logo"
+          fetchPriority={current === 'home' ? 'high' : undefined}
+          decoding="async"
+        />
         <div className="hp-navbar-title">
           {brand.name}
           <span>{brand.navSub}</span>
@@ -72,17 +126,44 @@ export function SiteNavbar({ current = null }) {
       </a>
 
       <div className={`hp-navbar-links ${open ? 'open' : ''}`}>
-        {LINKS.map((l) => (
-          <a
-            key={l.href}
-            href={l.href}
-            className={l.page && l.page === current ? 'is-current' : undefined}
-            aria-current={l.page && l.page === current ? 'page' : undefined}
-            onClick={() => setOpen(false)}
+        {NAV.map((n) => (n.items ? (
+          <div
+            key={n.label}
+            className={`hp-nav-group ${group === n.label ? 'open' : ''}`}
+            onMouseEnter={() => enter(n.label)}
+            onMouseLeave={leave}
           >
-            {l.label}
+            <button
+              type="button"
+              className="hp-nav-group-btn"
+              aria-expanded={group === n.label}
+              aria-haspopup="true"
+              onClick={() => setGroup((g) => (g === n.label ? null : n.label))}
+            >
+              {n.label}
+              <i className="fas fa-chevron-down" aria-hidden="true"></i>
+            </button>
+            <div className="hp-nav-drop" role="menu">
+              <span className="hp-nav-drop-title">{n.label}</span>
+              {n.items.map((item) => (
+                <a key={item.href} href={item.href} role="menuitem" onClick={(e) => go(e, item)}>
+                  <strong>{item.label}</strong>
+                  <small>{item.hint}</small>
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <a
+            key={n.href}
+            href={n.href}
+            className={isCurrent(n) ? 'is-current' : undefined}
+            aria-current={isCurrent(n) ? 'page' : undefined}
+            onClick={(e) => go(e, n)}
+          >
+            {n.label}
           </a>
-        ))}
+        )))}
         {live && (
           <a href="/live" className="hp-btn-live"><span className="hp-live-dot" aria-hidden="true"></span> Live</a>
         )}
@@ -131,7 +212,7 @@ export function SiteFooter() {
             <li><a href="/#about">About Us</a></li>
             <li><a href="/#plan-visit">Plan a Visit</a></li>
             <li><a href="/#ministries">Ministries</a></li>
-            <li><a href="/#this-week">Events</a></li>
+            <li><a href="/#news">Events</a></li>
             <li><a href="/#isom">ISOM</a></li>
             <li><a href="/#give">Give</a></li>
             <li><a href="/news">News</a></li>

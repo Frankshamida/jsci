@@ -5,9 +5,12 @@
 //
 // `events` (optional) is the live copy of any events the article links to,
 // by id: { slug, title, when, place, image }. Without it an Event block shows
-// the copy it took when it was added.
+// the copy it took when it was added. The photo carousel is the one piece that
+// runs in the browser (components/news/Carousel).
 
 import { blockImages, newsImage, safeHref, sanitizeHtml } from '@/lib/news';
+import Carousel from '@/components/news/Carousel';
+import { ImageLink } from '@/components/news/ImageLink';
 
 const WIDE = '(max-width: 1000px) 100vw, 980px';
 const srcSet = (url) => [480, 760, 1200, 1600].map((w) => `${newsImage(url, w)} ${w}w`).join(', ');
@@ -24,7 +27,12 @@ function Figure({ image, className = '', sizes = WIDE, eager = false }) {
         loading={eager ? 'eager' : 'lazy'}
         decoding="async"
       />
-      {image.caption && <figcaption>{image.caption}</figcaption>}
+      {(image.caption || image.link) && (
+        <figcaption>
+          {image.caption && <span>{image.caption}</span>}
+          <ImageLink image={image} />
+        </figcaption>
+      )}
     </figure>
   );
 }
@@ -111,6 +119,8 @@ export default function ArticleBody({ blocks = [], events = {} }) {
               </div>
             );
           }
+          case 'carousel':
+            return blockImages(b).length ? <Carousel key={b.id} images={blockImages(b)} /> : null;
           case 'media-left':
           case 'media-right':
             if (!b.image?.url) return <Html key={b.id} html={b.html} className="na-text" />;

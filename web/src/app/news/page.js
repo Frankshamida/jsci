@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import '../home.css';
 import './news.css';
-import { newsFonts } from './fonts';
 import { NEWS_CATEGORIES, articlePath, newsDate, newsImage, timeAgo } from '@/lib/news';
 import { publishedList, safely, trendingList } from '@/lib/newsServer';
 import { brandFor } from '@/lib/branding';
@@ -88,7 +87,7 @@ export default async function NewsPage({ searchParams }) {
   const grid = category ? articles : rest.slice(8);
 
   return (
-    <div className={`nw-page ${newsFonts}`}>
+    <div className="nw-page">
       <SiteNavbar current="news" />
       <NewsHero category={category} />
       <NewsTopics category={category} />

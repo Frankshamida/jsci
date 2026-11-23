@@ -12,6 +12,7 @@ import { EVENT_IMAGE_SIZES, eventImageSrcSet, eventImageUrl } from '@/lib/eventI
 import { HERO_MEDIA_DEFAULT, heroVideoFor, normalizeHeroMedia } from '@/lib/heroMedia';
 import HeroVideo from '@/components/HeroVideo';
 import { useBranding } from '@/components/BrandingProvider';
+import { SiteNavbar } from '@/components/SiteChrome';
 import { linkMeta } from '@/lib/linkMeta';
 import { newsDate, newsImage } from '@/lib/news';
 import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
@@ -419,14 +420,18 @@ const evtBlurb = (text, max = 150) => {
 // ============================================
 // COMPONENT
 // ============================================
+// The events grid is only on the page while there are events to show; with
+// none, "This Week" is where the visitor is told so (and the other way round).
+const sectionEl = (id) => document.getElementById(id)
+  || (id === 'news' ? document.getElementById('this-week') : null)
+  || (id === 'this-week' ? document.getElementById('news') : null);
+
 export default function HomePage() {
   const router = useRouter();
   const pathname = usePathname();
   // Whose name the page wears - the church's, or SanctuaryHub's. Chosen by a
   // Super Admin under System Configuration; see lib/branding.js.
   const brand = useBranding();
-  const [darkMode, setDarkMode] = useState(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
   // Which hero slides have an <img> in the DOM. All five used to, and because
   // they are stacked absolutely they are all "in the viewport" - so the browser
@@ -1625,7 +1630,6 @@ export default function HomePage() {
       return;
     }
     const saved = localStorage.getItem('darkModeEnabled') === 'true';
-    setDarkMode(saved);
     if (saved) { document.body.classList.add('dark-mode'); document.documentElement.classList.add('dark-mode'); }
   }, [router]);
 
@@ -2434,14 +2438,6 @@ ${eventsDigest}`;
   };
 
   // ---- Helpers ----
-  const toggleDarkMode = () => {
-    const next = !darkMode;
-    setDarkMode(next);
-    localStorage.setItem('darkModeEnabled', next);
-    document.body.classList.toggle('dark-mode', next);
-    document.documentElement.classList.toggle('dark-mode', next);
-  };
-
   const goSlide = (i) => {
     setHeroIndex(i);
     clearInterval(heroTimer.current);
@@ -2483,18 +2479,13 @@ ${eventsDigest}`;
     const id = decodeURIComponent(window.location.hash.slice(1));
     if (!id || /[=&]/.test(id)) return undefined;
     const t = setTimeout(() => {
-      const el = document.getElementById(id) || (id === 'this-week' ? document.getElementById('news') : null);
-      el?.scrollIntoView({ behavior: 'smooth' });
+      sectionEl(id)?.scrollIntoView({ behavior: 'smooth' });
     }, 450);
     return () => clearTimeout(t);
   }, []);
 
   const scrollToSection = (id) => {
-    setMobileNavOpen(false);
-    // The events grid is only on the page while there are events to show; with
-    // none, "This Week" is where the visitor is told so.
-    const el = document.getElementById(id) || (id === 'news' ? document.getElementById('this-week') : null);
-    el?.scrollIntoView({ behavior: 'smooth' });
+    sectionEl(id)?.scrollIntoView({ behavior: 'smooth' });
   };
 
   // ---- What the landing page shows, worked out once per render ----
@@ -2505,53 +2496,14 @@ ${eventsDigest}`;
   const shownActivities = activityFilter === 'all'
     ? ACTIVITIES
     : ACTIVITIES.filter((a) => a.group === activityFilter);
-  const NAV_LINKS = [
-    { id: 'about', label: 'About' },
-    { id: 'plan-visit', label: 'Plan a Visit' },
-    { id: 'ministries', label: 'Ministries' },
-    { id: 'news', label: 'Events' },
-    { id: 'isom', label: 'ISOM' },
-    { id: 'news-page', label: 'News', href: '/news' },
-    { id: 'give', label: 'Give' },
-    { id: 'location', label: 'Location' },
-  ];
 
   // ============================================
   // RENDER
   // ============================================
   return (
     <>
-      {/* ---- NAVBAR ---- */}
-      <nav className={`hp-navbar ${brand.isPlatform ? 'is-platform' : ''}`} aria-label="Main">
-        <a className="hp-navbar-brand" href="/">
-          <img src="/assets/LOGO.png" alt={`${brand.full} logo`} className="hp-navbar-logo" fetchPriority="high" decoding="async" />
-          <div className="hp-navbar-title">
-            {brand.name}
-            <span>{brand.navSub}</span>
-          </div>
-        </a>
-
-        <div className={`hp-navbar-links ${mobileNavOpen ? 'open' : ''}`}>
-          {NAV_LINKS.map((link) => (link.href ? (
-            <a key={link.id} href={link.href}>{link.label}</a>
-          ) : (
-            <a key={link.id} href={`#${link.id}`} onClick={(e) => { e.preventDefault(); scrollToSection(link.id); }}>{link.label}</a>
-          )))}
-          {liveStream && (
-            <a href="/live" className="hp-btn-live"><span className="hp-live-dot" aria-hidden="true"></span> Live</a>
-          )}
-          <a href="/login" className="hp-btn-login">Log In</a>
-        </div>
-
-        <div className="hp-navbar-actions">
-          <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode" aria-label="Toggle dark mode">
-            <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
-          </button>
-          <button className="hp-nav-toggle" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'} aria-expanded={mobileNavOpen}>
-            <i className={`fas ${mobileNavOpen ? 'fa-times' : 'fa-bars'}`}></i>
-          </button>
-        </div>
-      </nav>
+      {/* ---- NAVBAR: the same one the News pages use ---- */}
+      <SiteNavbar current="home" onSection={scrollToSection} live={!!liveStream} />
 
       {/* ---- HERO: the photo carousel, or one looping clip ---- */}
       <section className="hp-hero">

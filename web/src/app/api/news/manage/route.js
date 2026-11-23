@@ -5,7 +5,9 @@ import { deleteFromCloudinary } from '@/lib/cloudinary';
 import {
   NEWS_CATEGORIES, blocksToText, hasContent, imagePublicIds, normalizeBlocks, normalizeTranslations, safeHref, slugify,
 } from '@/lib/news';
-import { NEWS_MIGRATION_NOTE, NEWS_TABLE, newsEditor, newsTableMissing } from '@/lib/newsServer';
+import {
+  NEWS_MIGRATION_NOTE, NEWS_TABLE, POSTERS_TABLE, dropUnusedNewsImages, imagesInPosters, newsEditor, newsTableMissing,
+} from '@/lib/newsServer';
 
 export const dynamic = 'force-dynamic';
 
@@ -229,9 +231,12 @@ export async function PUT(request) {
     }
     if (error) throw error;
 
+    // Pictures taken out of the article go, unless a saved poster shows one.
     const before = [old.featured_image_public_id, ...(old.image_public_ids || [])].filter(Boolean);
     const after = new Set([data.featured_image_public_id, ...(data.image_public_ids || [])].filter(Boolean));
-    await dropImages(before.filter((p) => !after.has(p)));
+    const removed = before.filter((p) => !after.has(p));
+    const onPosters = await imagesInPosters(removed);
+    await dropImages(removed.filter((p) => !onPosters.has(p)));
 
     await audit(who.user, 'update', old.id, `News: ${publishing ? (old.status === 'published' ? 'updated' : 'published') : 'saved a draft of'} "${data.title}"`);
     refreshPages([old.slug, data.slug]);
@@ -247,12 +252,15 @@ export async function DELETE(request) {
     const who = await newsEditor(body.actorId);
     if (who.error) return fail(who.error, who.status);
     if (!body.id) return fail('Which article?');
+    // Its posters go with it (ON DELETE CASCADE); note their own photos first.
+    const { data: posters } = await supabaseAdmin.from(POSTERS_TABLE).select('data->>imagePublicId').eq('article_id', body.id);
     const { data, error } = await supabaseAdmin
       .from(NEWS_TABLE).delete().eq('id', body.id)
       .select('id, title, slug, featured_image_public_id, image_public_ids').maybeSingle();
     if (error) throw error;
     if (data) {
       await dropImages([data.featured_image_public_id, ...(data.image_public_ids || [])].filter(Boolean));
+      await dropUnusedNewsImages((posters || []).map((p) => p.imagePublicId));
       await audit(who.user, 'delete', data.id, `News: deleted "${data.title}"`);
       refreshPages([data.slug]);
     }

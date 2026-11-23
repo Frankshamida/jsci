@@ -1,8 +1,9 @@
 'use client';
 
 // Dashboard > News (Admin and Super Admin). Every article, drafts included:
-// open one in the editor, publish or unpublish it, make it the top story, or
-// delete it. Writing happens in the full-screen editor at /news-studio.
+// open one in the editor, publish or unpublish it, make it the top story, make
+// a poster of it, or delete it. Writing happens in the full-screen editor at
+// /news-studio, posters at /news-management/poster/<id>.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { articlePath, newsImage, timeAgo } from '@/lib/news';
@@ -63,7 +64,7 @@ export default function NewsManager({ actorId }) {
   };
 
   const remove = async (article) => {
-    if (!window.confirm(`Delete "${article.title}"? Its pictures are deleted too. This cannot be undone.`)) return;
+    if (!window.confirm(`Delete "${article.title}"? Its pictures and posters are deleted too. This cannot be undone.`)) return;
     setBusyId(article.id);
     setNotice(null);
     try {
@@ -171,6 +172,7 @@ export default function NewsManager({ actorId }) {
                 <div className="nm-actions">
                   <a href={`/news-studio/${a.id}`} className="nm-btn primary">Edit</a>
                   {live && <a href={articlePath(a.slug)} target="_blank" rel="noopener noreferrer" className="nm-btn">View</a>}
+                  <a href={`/news-management/poster/${a.id}`} className="nm-btn" title="Make a Facebook poster from this article"><i className="fas fa-image"></i> Poster</a>
                   {live
                     ? <button type="button" className="nm-btn" disabled={busyId === a.id} onClick={() => act(a, a.is_featured ? 'unfeature' : 'feature')}>{a.is_featured ? 'Unfeature' : 'Make top story'}</button>
                     : <button type="button" className="nm-btn" disabled={busyId === a.id} onClick={() => act(a, 'publish')}>Publish</button>}
