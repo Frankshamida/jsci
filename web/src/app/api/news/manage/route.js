@@ -148,8 +148,8 @@ export async function POST(request) {
       updated_by: who.user.id,
       updated_at: now,
     };
-    if (insert.is_featured) await supabaseAdmin.from(NEWS_TABLE).update({ is_featured: false }).eq('is_featured', true);
-
+    // Several stories can be featured at once: they make the Featured row
+    // at the top of /news.
     let warning = null;
     let { data, error } = await supabaseAdmin.from(NEWS_TABLE).insert(insert).select('*').single();
     if (error && noTranslationsColumn(error)) {
@@ -190,7 +190,6 @@ export async function PUT(request) {
         patch.is_featured = false;
       } else if (body.action === 'feature') {
         if (old.status !== 'published') return fail('Publish the article first, then feature it.');
-        await supabaseAdmin.from(NEWS_TABLE).update({ is_featured: false }).eq('is_featured', true);
         patch.is_featured = true;
       } else if (body.action === 'unfeature') {
         patch.is_featured = false;
@@ -219,9 +218,6 @@ export async function PUT(request) {
       updated_by: who.user.id,
       updated_at: now,
     };
-    if (update.is_featured && !old.is_featured) {
-      await supabaseAdmin.from(NEWS_TABLE).update({ is_featured: false }).eq('is_featured', true);
-    }
     let warning = null;
     let { data, error } = await supabaseAdmin.from(NEWS_TABLE).update(update).eq('id', old.id).select('*').single();
     if (error && noTranslationsColumn(error)) {

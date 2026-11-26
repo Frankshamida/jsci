@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import './signup.css';
 import { useBranding } from '@/components/BrandingProvider';
 import GoogleSignInButton from '@/components/GoogleSignInButton';
+import { rememberReturn } from '@/lib/viewer';
 
 const WELCOME_VERSES = [
   { verse: 'Therefore, if anyone is in Christ, the new creation has come: The old has gone, the new is here!', reference: '2 Corinthians 5:17' },
@@ -37,6 +38,12 @@ export default function SignupPage() {
     email: '', password: '', confirmPassword: '',
     terms: false,
   });
+
+  // Sent here from a page that needs an account (?next=/sunday-service): after the
+  // account is made and signed in, the login page goes back there.
+  useEffect(() => {
+    rememberReturn(new URLSearchParams(window.location.search).get('next'));
+  }, []);
 
   // Restore form data from sessionStorage (when returning from T&C page)
   useEffect(() => {

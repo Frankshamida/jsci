@@ -6,7 +6,7 @@ import {
   newsTableMissing, postersTableMissing,
 } from '@/lib/newsServer';
 import {
-  POSTER_SETTINGS_KEY, TEMPLATE_KEYS, normalizePosterData, normalizePosterDefaults,
+  POSTER_SETTINGS_KEY, TEMPLATE_KEY, normalizePosterData, normalizePosterDefaults,
 } from '@/lib/posterTemplates';
 
 export const dynamic = 'force-dynamic';
@@ -48,7 +48,7 @@ function posterRow(p, { partial = false } = {}) {
   const src = p && typeof p === 'object' ? p : {};
   const row = {};
   if (!partial || src.name !== undefined) row.name = plain(src.name, 60) || 'Poster';
-  if (!partial || src.template_key !== undefined) row.template_key = TEMPLATE_KEYS.includes(src.template_key) ? src.template_key : TEMPLATE_KEYS[0];
+  if (!partial || src.template_key !== undefined) row.template_key = TEMPLATE_KEY.test(String(src.template_key || '')) ? src.template_key : 'landscape';
   if (!partial || src.data !== undefined) row.data = normalizePosterData(src.data);
   if (!partial || src.preview_url !== undefined) row.preview_url = cleanPreview(src.preview_url);
   return row;

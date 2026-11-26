@@ -74,16 +74,39 @@ export async function dropUnusedNewsImages(publicIds) {
 
 // ---- Published articles, for the public pages ----
 
-export async function publishedList({ limit = 24, offset = 0, category = null } = {}) {
-  let q = supabaseAdmin
+// Words to search for, made safe for a PostgREST filter: no wildcards,
+// commas, brackets or quotes of the reader's own.
+export const searchTerm = (q) => String(q || '').replace(/[%_,()*"\\:]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+
+export const NEWS_SORTS = ['newest', 'popular', 'oldest'];
+
+// Published stories for a page of the News list: a topic, words to search
+// for (in the headline, the summary and the story itself) and the order -
+// newest first, most read, or oldest first.
+export async function publishedList({ limit = 24, offset = 0, category = null, q = '', sort = 'newest' } = {}) {
+  let query = supabaseAdmin
     .from(NEWS_TABLE).select(LIST_FIELDS, { count: 'exact' })
-    .eq('status', 'published')
-    .order('published_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-  if (category) q = q.eq('category', category);
-  const { data, error, count } = await q;
+    .eq('status', 'published');
+  if (category) query = query.eq('category', category);
+  const term = searchTerm(q);
+  if (term) query = query.or(['title', 'summary', 'content_text'].map((c) => `${c}.ilike."%${term}%"`).join(','));
+  if (sort === 'popular') query = query.order('views', { ascending: false }).order('published_at', { ascending: false });
+  else query = query.order('published_at', { ascending: sort === 'oldest' });
+  const { data, error, count } = await query.range(offset, offset + limit - 1);
   if (error) throw error;
   return { articles: data || [], total: count || 0 };
+}
+
+// The stories an Admin chose to feature, newest first (the Featured row at
+// the top of /news).
+export async function featuredList({ limit = 8 } = {}) {
+  const { data, error } = await supabaseAdmin
+    .from(NEWS_TABLE).select(LIST_FIELDS)
+    .eq('status', 'published').eq('is_featured', true)
+    .order('published_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
 }
 
 // How many published stories each topic has: { 'Church News': 4, ... }.

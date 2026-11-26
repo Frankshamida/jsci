@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { Suspense } from 'react';
-import { formatAccountName } from '@/lib/eventFormat';
+import { homeFor, isGuestOnly, peekReturn, readViewer, takeReturn } from '@/lib/viewer';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -80,126 +80,47 @@ function AuthCallbackContent() {
           return;
         }
 
-        const googleUser = session.user;
-        const email = googleUser.email;
-        const fullName = googleUser.user_metadata?.full_name || '';
-        const nameParts = fullName.split(' ');
-        const firstname = nameParts[0] || '';
-        const lastname = nameParts.slice(1).join(' ') || '';
-        const googleAvatarUrl = googleUser.user_metadata?.avatar_url || googleUser.user_metadata?.picture || null;
+        // The account is found (or, signing up, made) by the server, from the
+        // Google identity Supabase confirms for this session's token - the
+        // users table is not readable from the browser.
+        const res = await fetch('/api/auth/google/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessToken: session.access_token, mode }),
+        });
+        const result = await res.json().catch(() => ({}));
 
-        // Check if a user with this email/google_id already exists in our users table
-        const { data: existingUser, error: lookupError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('google_id', googleUser.id)
-          .single();
-
-        if (existingUser) {
-          // User exists — log them in
-          if (existingUser.is_active === false) {
+        if (!result.success) {
+          const code = result.code || 'unknown';
+          if (code === 'deactivated') {
             setStatus('Account has been deactivated. Contact admin.');
             setTimeout(() => router.push('/login?error=deactivated'), 2000);
-            return;
+          } else if (code === 'no_account') {
+            // On login mode, if no account exists, redirect to signup
+            setStatus('No account found. Please sign up first.');
+            setTimeout(() => router.push('/signup?error=no_account&google=true'), 2000);
+          } else if (code === 'create_failed') {
+            setStatus('Error creating account. Please try again.');
+            setTimeout(() => router.push('/signup?error=create_failed'), 2000);
+          } else if (code === 'auth_failed') {
+            setStatus('Authentication failed. Redirecting...');
+            setTimeout(() => router.push(`/${mode === 'signup' ? 'signup' : 'login'}?error=auth_failed`), 2000);
+          } else {
+            setStatus('An error occurred. Redirecting...');
+            setTimeout(() => router.push('/login?error=unknown'), 2000);
           }
-
-          // Update last login + sync Google profile picture
-          const updateFields = { last_login: new Date().toISOString() };
-          if (googleAvatarUrl) updateFields.profile_picture = googleAvatarUrl;
-          if (fullName && !existingUser.firstname) updateFields.firstname = firstname;
-          if (fullName && !existingUser.lastname) updateFields.lastname = lastname;
-          await supabase.from('users').update(updateFields).eq('id', existingUser.id);
-
-          const userData = {
-            id: existingUser.id,
-            memberId: existingUser.member_id,
-            firstname: existingUser.firstname,
-            lastname: existingUser.lastname,
-            email: existingUser.email,
-            birthdate: existingUser.birthdate,
-            life_verse: existingUser.life_verse || null,
-            ministry: existingUser.ministry,
-            sub_role: existingUser.sub_role || null,
-            role: existingUser.role || 'Guest',
-            additional_roles: existingUser.additional_roles || [],
-            default_dashboard: existingUser.default_dashboard || null,
-            status: existingUser.status,
-            isActive: existingUser.is_active !== false,
-            isGoogleUser: true,
-            hasPassword: existingUser.password !== 'GOOGLE_AUTH',
-            profile_picture: googleAvatarUrl || existingUser.profile_picture || null,
-            allowed_event_types: existingUser.allowed_event_types || [],
-          };
-
-          sessionStorage.setItem('userData', JSON.stringify(userData));
-          localStorage.setItem('userData', JSON.stringify(userData));
-          setSplashName(userData.firstname || 'Friend');
-          setSplashVerse(CALLBACK_VERSES[Math.floor(Math.random() * CALLBACK_VERSES.length)]);
-          setSplashType('login');
-          setShowSplash(true);
-          setTimeout(() => router.push('/dashboard'), 3000);
           return;
         }
 
-        // No existing user found
-        if (mode === 'login') {
-          // On login mode, if no account exists, redirect to signup
-          setStatus('No account found. Please sign up first.');
-          setTimeout(() => router.push('/signup?error=no_account&google=true'), 2000);
-          return;
-        }
-
-        // Signup mode — create new user in our users table
-        const { data: newUser, error: insertError } = await supabase
-          .from('users')
-          .insert({
-            // Google names come as typed into Google: saved as "Frank Dweezel Gomez"
-            ...formatAccountName(firstname, lastname),
-            google_id: googleUser.id,
-            email: email,
-            password: 'GOOGLE_AUTH',
-            role: 'Guest',
-            security_question: 'Google Account',
-            security_answer: 'GOOGLE_AUTH',
-            status: 'Unverified',
-            profile_picture: googleAvatarUrl,
-          })
-          .select()
-          .single();
-
-        if (insertError) {
-          console.error('Error creating user:', insertError);
-          setStatus('Error creating account. Please try again.');
-          setTimeout(() => router.push('/signup?error=create_failed'), 2000);
-          return;
-        }
-
-        const userData = {
-          id: newUser.id,
-          memberId: newUser.member_id,
-          firstname: newUser.firstname,
-          lastname: newUser.lastname,
-          email: newUser.email,
-          birthdate: newUser.birthdate,
-          life_verse: newUser.life_verse || null,
-          ministry: newUser.ministry,
-          sub_role: newUser.sub_role || null,
-          role: newUser.role || 'Guest',
-          status: newUser.status,
-          isActive: newUser.is_active !== false,
-          isGoogleUser: true,
-          hasPassword: false,
-          profile_picture: googleAvatarUrl || null,
-          allowed_event_types: newUser.allowed_event_types || [],
-        };
-
+        const userData = result.data;
         sessionStorage.setItem('userData', JSON.stringify(userData));
         localStorage.setItem('userData', JSON.stringify(userData));
         setSplashName(userData.firstname || 'Friend');
         setSplashVerse(CALLBACK_VERSES[Math.floor(Math.random() * CALLBACK_VERSES.length)]);
-        setSplashType('signup');
+        setSplashType(result.created ? 'signup' : 'login');
         setShowSplash(true);
-        setTimeout(() => router.push('/dashboard'), 3000);
+        // A Guest's home is the landing page; everyone else's, the dashboard.
+        setTimeout(() => router.push(takeReturn(homeFor(userData))), 3000);
 
       } catch (error) {
         console.error('Auth callback error:', error);
@@ -291,7 +212,7 @@ function AuthCallbackContent() {
             }}>
               <div style={{ width: '100%', height: '100%', background: 'linear-gradient(90deg, #926C15, #FFC300)', borderRadius: 3, animation: 'splashBar 2.5s 0.5s ease-in-out forwards', transformOrigin: 'left', transform: 'scaleX(0)' }} />
             </div>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', animation: 'splashFadeUp 0.6s 1.5s ease both' }}>Entering your dashboard...</p>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', animation: 'splashFadeUp 0.6s 1.5s ease both' }}>{peekReturn() ? 'Taking you back...' : isGuestOnly(readViewer()) ? 'Taking you home...' : 'Entering your dashboard...'}</p>
           </div>
 
           <style>{`

@@ -124,6 +124,17 @@ export const socialCardImage = (imageUrl, origin = siteOrigin()) => {
   return `${base}${publicId ? layeredTransform(publicId) : PADDED_TRANSFORM}/${rest}`;
 };
 
+// A news article's card: unlike an event poster (no words printed on it to
+// lose), a news photo fills the whole 1200x630 card, cropped around what
+// matters in it (g_auto: faces and the subject), with no blurred border.
+export const newsCardImage = (imageUrl, origin = siteOrigin()) => {
+  const url = absoluteUrl(imageUrl, origin);
+  if (!url) return '';
+  const parts = url.match(CLOUDINARY_UPLOAD);
+  if (!parts) return url;
+  return `${parts[1]}c_fill,g_auto,w_${OG_WIDTH},h_${OG_HEIGHT},f_jpg,q_auto:good/${parts[2]}`;
+};
+
 // ---- The words -----------------------------------------------------------
 
 // The place an event is known by, matching the slug its link is built from:

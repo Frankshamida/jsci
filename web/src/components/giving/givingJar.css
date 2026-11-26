@@ -1,0 +1,159 @@
+/* ==========================================================================
+   THE GIVING JAR (components/giving/GivingJar): a box as wide as --gj-w
+   holding the <heart-jar> element, which keeps the jar's own shape
+   (720 x 1050). Nothing here clips it: the hearts fall in from above the
+   box, and past the goal the spill shows around it.
+   ========================================================================== */
+
+.gj {
+  position: relative;
+  width: var(--gj-w, 260px);
+  max-width: 100%;
+  margin: 0 auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.gj heart-jar {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  max-width: none;
+}
+/* Its place, kept while heart-jar.js loads. */
+.gj-wait {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  aspect-ratio: 720 / 1050;
+}
+/* Cards: a square stage. The jar stands in the middle of it, and past the
+   goal its spill fills the width. */
+.gj.is-square heart-jar,
+.gj.is-square .gj-wait { aspect-ratio: 1 / 1; }
+
+/* ---- The abstract shapes behind the jar ----
+   A warm halo where the jar stands, two soft shapes drifting apart, rings,
+   a faint dotted texture and two sparkles. Behind the glass, so they show
+   through it; quiet, so the hearts stay the thing to look at. */
+.gj.has-art { isolation: isolate; }
+.gj-art {
+  --gj-halo: rgba(255, 195, 0, 0.34);
+  --gj-blob-a: rgba(42, 91, 216, 0.22);
+  --gj-blob-b: rgba(255, 179, 0, 0.32);
+  --gj-ring: rgba(146, 108, 21, 0.4);
+  --gj-ring-2: rgba(201, 152, 11, 0.52);
+  --gj-arc: rgba(42, 91, 216, 0.42);
+  --gj-dots: rgba(146, 108, 21, 0.24);
+  --gj-spark: #e0a800;
+  position: absolute;
+  inset: -3% -7% 0 -7%;
+  z-index: 0;
+  pointer-events: none;
+  /* Everything fades out toward the edge of this box, so no shape is ever
+     cut off by the card around it. */
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 52%, #000 72%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 52%, #000 72%, transparent 100%);
+}
+body.dark-mode .gj-art {
+  --gj-halo: rgba(255, 195, 0, 0.3);
+  --gj-blob-a: rgba(92, 130, 255, 0.38);
+  --gj-blob-b: rgba(255, 179, 0, 0.2);
+  --gj-ring: rgba(255, 214, 102, 0.32);
+  --gj-ring-2: rgba(255, 195, 0, 0.42);
+  --gj-arc: rgba(130, 165, 255, 0.5);
+  --gj-dots: rgba(255, 255, 255, 0.13);
+  --gj-spark: #ffd24a;
+}
+.gj-art::before,
+.gj-art::after,
+.gj-art i {
+  content: '';
+  position: absolute;
+  display: block;
+}
+/* The halo. */
+.gj-art::before {
+  inset: 0;
+  background: radial-gradient(ellipse 52% 46% at 50% 60%, var(--gj-halo) 0%, transparent 70%);
+}
+/* The dotted texture, fading out from the middle. */
+.gj-art::after {
+  inset: 4%;
+  background-image: radial-gradient(var(--gj-dots) 1px, transparent 1.6px);
+  background-size: 13px 13px;
+  -webkit-mask-image: radial-gradient(circle at 50% 55%, #000 0%, transparent 62%);
+  mask-image: radial-gradient(circle at 50% 55%, #000 0%, transparent 62%);
+}
+/* Two soft shapes: blue, up and to the left; gold, down and to the right. */
+.gj-art i:nth-child(1) {
+  left: 3%;
+  top: 12%;
+  width: 60%;
+  aspect-ratio: 1;
+  border-radius: 58% 42% 55% 45% / 47% 58% 42% 53%;
+  background: radial-gradient(circle at 38% 38%, var(--gj-blob-a), transparent 70%);
+  animation: gj-drift-a 22s ease-in-out infinite alternate;
+}
+.gj-art i:nth-child(2) {
+  right: 2%;
+  bottom: 5%;
+  width: 56%;
+  aspect-ratio: 1;
+  border-radius: 44% 56% 38% 62% / 55% 41% 59% 45%;
+  background: radial-gradient(circle at 60% 60%, var(--gj-blob-b), transparent 70%);
+  animation: gj-drift-b 26s ease-in-out infinite alternate;
+}
+/* Rings around the jar: one dashed and slowly turning, one fine. */
+.gj-art i:nth-child(3),
+.gj-art i:nth-child(4),
+.gj-art i:nth-child(5) {
+  left: 50%;
+  top: 57%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+}
+.gj-art i:nth-child(3) {
+  width: 82%;
+  border: 1.5px dashed var(--gj-ring);
+  animation: gj-turn 90s linear infinite;
+}
+.gj-art i:nth-child(4) {
+  width: 62%;
+  border: 1px solid var(--gj-ring-2);
+}
+/* A blue arc, part of a wider circle. */
+.gj-art i:nth-child(5) {
+  width: 94%;
+  border: 2px solid transparent;
+  border-top-color: var(--gj-arc);
+  border-left-color: var(--gj-arc);
+  rotate: -28deg;
+  -webkit-mask-image: linear-gradient(135deg, #000 20%, transparent 62%);
+  mask-image: linear-gradient(135deg, #000 20%, transparent 62%);
+  animation: gj-turn 70s linear infinite reverse;
+}
+/* Two sparkles. */
+.gj-art i:nth-child(6),
+.gj-art i:nth-child(7) {
+  aspect-ratio: 1;
+  background: var(--gj-spark);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  animation: gj-twinkle 4.8s ease-in-out infinite;
+}
+.gj-art i:nth-child(6) { left: 17%; top: 24%; width: 7%; }
+.gj-art i:nth-child(7) { right: 16%; top: 40%; width: 5%; animation-delay: -2.4s; }
+
+@keyframes gj-drift-a { from { translate: 0 0; rotate: 0deg; } to { translate: 6% 4%; rotate: 14deg; } }
+@keyframes gj-drift-b { from { translate: 0 0; rotate: 0deg; } to { translate: -5% -6%; rotate: -12deg; } }
+@keyframes gj-turn { to { rotate: 360deg; } }
+@keyframes gj-twinkle {
+  0%, 100% { opacity: 0.25; scale: 0.7; }
+  50% { opacity: 1; scale: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gj-art i { animation: none !important; }
+}

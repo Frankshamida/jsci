@@ -1,127 +1,40 @@
-// News posters (/news-management/poster/<article>): the templates, and the
-// rules the editor and the server share.
+// News posters (/news-management/poster/<article>): the rules the editor and
+// the server share - headline words and their highlight, the photo crop,
+// the style settings, and what a saved poster may hold.
 //
-// A template is data, not code. The renderer (lib/posterRender.js) draws
-// whatever these objects describe, so a new template is a new entry in
-// POSTER_TEMPLATES, usually the shared BASE with a different photo frame.
-// Every number is in poster pixels on the 1126 x 1408 canvas, taken from the
-// designer's SVGs in public/News_Article_Template.
+// The templates themselves are SVG files (lib/posterBuiltins.js and the
+// poster_templates table), read through the "contract" in
+// lib/posterSvgSanitize.js and drawn by lib/posterEngine.js.
 //
-// Blur and shadow sizes are Gaussian standard deviations, as in the SVGs
-// (feGaussianBlur stdDeviation). The renderer turns them into canvas units.
-//
-// No browser or server APIs here: the server imports this to check what is
-// saved, the editor to draw it.
+// No browser or server APIs here: both sides import it.
 
-export const POSTER_WIDTH = 1126;
-export const POSTER_HEIGHT = 1408;
-export const POSTER_LOGO = '/Frames/Logo_Stamp.png';
 export const POSTER_SETTINGS_KEY = 'news_poster_defaults';
 export const POSTER_DEFAULTS = { website: 'jsci.vercel.app', facebook: 'facebook.com/CebuCityJoyfulSound' };
 export const POSTER_ZOOM = { min: 1, max: 3 };
+export const MAX_LOGOS = 3;
 
-// The metallic gold of a highlighted headline word.
-const GOLD_TEXT = [[0, '#FFF3C4'], [0.42, '#FFD25C'], [0.52, '#E9A72E'], [0.78, '#FFE39A'], [1, '#F4BE4A']];
+// The two built-in gold card templates. Posters saved before templates were
+// SVG files used four keys; the "+ subtext" ones are the same card with the
+// subtext switched on.
+export const LEGACY_TEMPLATE_KEYS = { landscape_sub: 'landscape', portrait_sub: 'portrait' };
+export const TEMPLATE_KEY = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 
-const CARD = { x: 50, y: 188, w: 1026, h: 785, r: 30 };
-
-// What every template has: the gold background with the photo blurred into
-// it, the logo, the photo card, the credit, the headline and the footer.
-const BASE = {
-  background: {
-    gradient: [[0, '#F3D58E'], [0.45, '#D9A441'], [1, '#8A5A16']],
-    photo: { opacity: 0.45, blur: 14 },
-    overlay: [[0, 'rgba(255,246,224,0.35)'], [0.55, 'rgba(201,139,42,0.25)'], [0.72, 'rgba(110,69,16,0.7)'], [1, 'rgba(62,38,6,0.92)']],
-    glow: { cx: 563, cy: 90, rx: 560, ry: 260, opacity: 0.45 },
-  },
-  logo: {
-    src: POSTER_LOGO,
-    width: 330,
-    band: [0, 188], // centred in the top 188px
-    shadows: [
-      { dy: 4, blur: 8, color: 'rgba(110,69,16,0.35)' },
-      { dy: 1.5, blur: 1.2, color: 'rgba(90,54,8,0.75)' },
-    ],
-  },
-  card: {
-    ...CARD,
-    fill: '#F3E2BC',
-    shadow: { dy: 16, blur: 22, color: 'rgba(90,58,10,0.35)' },
-    frame: { width: 6, stops: [[0, '#FFFFFF'], [0.5, '#F3C25A'], [1, '#FFFFFF']] },
-  },
-  credit: {
-    right: CARD.x + CARD.w,
-    baseline: 1005,
-    font: { family: 'poppins', weight: 500, size: 20, min: 14 },
-    color: 'rgba(255,255,255,0.9)',
-    maxWidth: CARD.w,
-  },
-  headline: {
-    zone: [1030, 1300], // the headline (and subtext) sit centred in here
-    centerX: POSTER_WIDTH / 2,
-    maxWidth: 1000,
-    size: [68, 44], // starts at 68px, shrinks to 44px before it wraps further
-    maxLines: 3,
-    // Fewer, fuller lines win when they cost little size: two lines at 66px
-    // over three at 68px, as in the designs (at least 90% of the biggest).
-    fewerLines: 0.9,
-    lineHeight: 1.04,
-    font: { family: 'outfit', weight: 800 },
-    color: '#FFFFFF',
-    gold: GOLD_TEXT,
-    shadow: { dy: 4, blur: 3, color: 'rgba(0,0,0,0.4)' },
-  },
-  subtextStyle: {
-    gap: 46, // from the last headline line's baseline to the subtext's
-    font: { family: 'poppins', weight: 600, size: 26, min: 16 },
-    color: '#FCD877',
-    maxWidth: 1000,
-  },
-  footer: {
-    baseline: 1352,
-    centerX: POSTER_WIDTH / 2,
-    font: { family: 'poppins', weight: 400, size: 22 },
-    color: '#FFFFFF',
-    icon: { r: 11.5, stroke: 2, textOffset: 23 }, // text starts 23px right of the icon's centre
-    gap: 41, // between the website and the Facebook page
-  },
+// Highlight colours offered for the gold words.
+export const HIGHLIGHT_PRESETS = {
+  gold: { label: 'Gold', stops: [[0, '#FFF3C4'], [0.42, '#FFD25C'], [0.52, '#E9A72E'], [0.78, '#FFE39A'], [1, '#F4BE4A']] },
+  joyful: { label: 'Joyful Yellow', stops: [[0, '#FFF6C4'], [0.45, '#FFE066'], [0.55, '#FFC83A'], [1, '#F2A81E']] },
+  orange: { label: 'Homes.ph Orange', stops: [[0, '#FFE2BC'], [0.45, '#FFAE45'], [0.55, '#F7931E'], [1, '#E06A00']] },
 };
-
-const LANDSCAPE_PHOTO = { frame: { ...CARD } };
-
-const PORTRAIT_W = (CARD.h * 9) / 16;
-const PORTRAIT_PHOTO = {
-  frame: { x: POSTER_WIDTH / 2 - PORTRAIT_W / 2, y: CARD.y, w: PORTRAIT_W, h: CARD.h, r: 0 },
-  // The card behind a portrait photo: the same photo, blurred, with a cream tint.
-  backdrop: { blur: 22, opacity: 0.7, tint: 'rgba(255,246,224,0.15)' },
-  edges: { width: 2, color: 'rgba(234,164,58,0.6)' },
-};
-
-export const POSTER_TEMPLATES = [
-  { key: 'landscape', label: 'Landscape photo', family: 'landscape', subtext: false, photo: LANDSCAPE_PHOTO },
-  { key: 'landscape_sub', label: 'Landscape + subtext', family: 'landscape', subtext: true, photo: LANDSCAPE_PHOTO },
-  { key: 'portrait', label: 'Portrait photo', family: 'portrait', subtext: false, photo: PORTRAIT_PHOTO },
-  { key: 'portrait_sub', label: 'Portrait + subtext', family: 'portrait', subtext: true, photo: PORTRAIT_PHOTO },
-].map((t) => ({ ...BASE, ...t }));
-
-export const TEMPLATE_KEYS = POSTER_TEMPLATES.map((t) => t.key);
-
-export const posterTemplate = (key) => POSTER_TEMPLATES.find((t) => t.key === key) || POSTER_TEMPLATES[0];
-
-// The template of a family ("landscape", "portrait") with or without subtext.
-export const templateFor = (family, subtext) => POSTER_TEMPLATES.find((t) => t.family === family && t.subtext === !!subtext)
-  || POSTER_TEMPLATES.find((t) => t.family === family)
-  || POSTER_TEMPLATES[0];
 
 // A wide (or square) photo gets the landscape card, a tall one the portrait.
 export const familyForImage = (width, height) => (width >= height ? 'landscape' : 'portrait');
 
-// ---- Headline words and their gold highlight ----
+// ---- Headline words and their highlight ----
 //
 // The highlight is saved as phrases ("8TH ANNIVERSARY"), not word positions,
-// so it survives the headline being edited around it. A phrase lights up
-// wherever its words appear in a row in the headline, ignoring case and the
-// punctuation at the ends of a word.
+// so it survives the text being edited around it. A phrase lights up
+// wherever its words appear in a row, ignoring case and the punctuation at
+// the ends of a word.
 
 export const headlineWords = (text) => String(text || '').split(/\s+/).filter(Boolean);
 
@@ -155,7 +68,7 @@ export function phrasesFromMarks(words, marks) {
   return [...new Set(out)];
 }
 
-// Clicking a word turns its gold on or off.
+// Clicking a word turns its highlight on or off.
 export function toggleHighlight(text, phrases, index) {
   const words = headlineWords(text);
   const marks = highlightMarks(words, phrases);
@@ -170,19 +83,19 @@ export const phraseInHeadline = (headline, phrase) => {
   return pw.length > 0 && highlightMarks(headlineWords(headline), [phrase]).some(Boolean);
 };
 
-// "A |B|  C" -> "A | B | C", in capitals.
+// "A |B|  C" -> "A | B | C".
 export const formatSubtext = (text) => String(text || '')
-  .split('|').map((s) => s.trim()).filter(Boolean).join(' | ').toUpperCase();
+  .split('|').map((s) => s.trim()).filter(Boolean).join(' | ');
 
 // ---- The photo's zoom and position ----
 //
 // Saved as { zoom, x, y }: zoom 1 is the photo just covering its frame, and
 // x, y are the point of the photo (0-1 across and down) at the frame's
-// centre. Relative to the photo, so it draws the same at any size and after
-// a reload.
+// centre. Relative to the photo, so it draws the same at any size, in any
+// template, and after a reload.
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+const num = (v, fallback) => (v !== null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : fallback);
 
 export const DEFAULT_CROP = { zoom: 1, x: 0.5, y: 0.5 };
 
@@ -200,20 +113,13 @@ export function clampCrop(imgW, imgH, frame, crop) {
   };
 }
 
-// Where the whole photo lands, in poster pixels, for drawImage.
+// Where the whole photo lands, in poster units.
 export function cropPlacement(imgW, imgH, frame, crop) {
   const c = clampCrop(imgW, imgH, frame, crop);
   const scale = Math.max(frame.w / imgW, frame.h / imgH) * c.zoom;
   const dw = imgW * scale;
   const dh = imgH * scale;
-  return {
-    ...c,
-    scale,
-    dw,
-    dh,
-    dx: frame.x + frame.w / 2 - c.x * dw,
-    dy: frame.y + frame.h / 2 - c.y * dh,
-  };
+  return { ...c, scale, dw, dh, dx: frame.x + frame.w / 2 - c.x * dw, dy: frame.y + frame.h / 2 - c.y * dh };
 }
 
 // Zoom to `zoom`, keeping the photo point under (px, py) where it is.
@@ -223,26 +129,135 @@ export function zoomCropAt(imgW, imgH, frame, crop, zoom, px, py) {
   const u = (px - before.dx) / before.dw;
   const v = (py - before.dy) / before.dh;
   const scale = Math.max(frame.w / imgW, frame.h / imgH) * z;
-  const cx = frame.x + frame.w / 2;
-  const cy = frame.y + frame.h / 2;
   return clampCrop(imgW, imgH, frame, {
     zoom: z,
-    x: u - (px - cx) / (imgW * scale),
-    y: v - (py - cy) / (imgH * scale),
+    x: u - (px - (frame.x + frame.w / 2)) / (imgW * scale),
+    y: v - (py - (frame.y + frame.h / 2)) / (imgH * scale),
   });
+}
+
+// ---- Style settings ----
+//
+// Everything is optional: a setting that is not there means "as the
+// template has it". The template's own saved defaults (poster_templates.
+// defaults) come first, then the poster's choices on top (mergeStyle).
+//
+//   text      headlineSize (none = auto), subtextSize, headlineColor,
+//             highlight { kind: preset | solid, preset, color },
+//             subtextColor, subtextHighlightColor, creditColor, footerColor
+//   overlay   the bottom gradient: on, height (% of the poster), color, strength
+//   topShade  the top gradient: on, height, color, strength
+//   background top, bottom (the background gradient's end colours)
+//   filters   brightness, contrast, saturation, warmth, blur, vignette,
+//             vignetteStrength, applyToCopies
+//   logos     items (1-3: { template: i } or an uploaded { url, ... }),
+//             divider, shadow { mode, color, blur, opacity },
+//             glow { on, color, strength }
+
+const hex = (v) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v.trim()) ? v.trim().toUpperCase() : undefined);
+const within = (v, lo, hi) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? undefined : clamp(Number(v), lo, hi));
+const flag = (v) => (typeof v === 'boolean' ? v : undefined);
+const oneOf = (v, list) => (list.includes(v) ? v : undefined);
+
+// Drop what is not set; an empty group is no group.
+function prune(obj) {
+  const out = {};
+  Object.entries(obj).forEach(([k, v]) => {
+    if (v === undefined) return;
+    if (v && typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length) return;
+    out[k] = v;
+  });
+  return Object.keys(out).length ? out : undefined;
+}
+
+const text = (v, max) => String(v ?? '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
+
+function cleanLogo(l) {
+  if (!l || typeof l !== 'object') return null;
+  if (l.template !== undefined) {
+    const i = Math.round(Number(l.template));
+    return Number.isFinite(i) && i >= 0 && i < 10 ? { template: i } : null;
+  }
+  const url = String(l.url || '').trim();
+  if (!/^https:\/\/[^\s"'<>]+$/i.test(url)) return null;
+  return {
+    url: url.slice(0, 700),
+    publicId: l.publicId ? text(l.publicId, 300) : null,
+    width: within(l.width, 1, 20000) || null,
+    height: within(l.height, 1, 20000) || null,
+  };
+}
+
+export function normalizeStyle(raw) {
+  const s = raw && typeof raw === 'object' ? raw : {};
+  const t = s.text && typeof s.text === 'object' ? s.text : {};
+  const hl = t.highlight && typeof t.highlight === 'object' ? t.highlight : {};
+  const ov = s.overlay || {};
+  const ts = s.topShade || {};
+  const bg = s.background || {};
+  const f = s.filters || {};
+  const lg = s.logos || {};
+  const sh = lg.shadow || {};
+  const gl = lg.glow || {};
+  return prune({
+    text: prune({
+      headlineSize: within(t.headlineSize, 40, 110),
+      subtextSize: within(t.subtextSize, 18, 48),
+      headlineColor: hex(t.headlineColor),
+      highlight: prune({
+        kind: oneOf(hl.kind, ['preset', 'solid']),
+        preset: HIGHLIGHT_PRESETS[hl.preset] ? hl.preset : undefined,
+        color: hex(hl.color),
+      }),
+      subtextColor: hex(t.subtextColor),
+      subtextHighlightColor: hex(t.subtextHighlightColor),
+      creditColor: hex(t.creditColor),
+      footerColor: hex(t.footerColor),
+    }),
+    overlay: prune({ on: flag(ov.on), height: within(ov.height, 20, 80), color: hex(ov.color), strength: within(ov.strength, 0, 100) }),
+    topShade: prune({ on: flag(ts.on), height: within(ts.height, 0, 50), color: hex(ts.color), strength: within(ts.strength, 0, 100) }),
+    background: prune({ top: hex(bg.top), bottom: hex(bg.bottom) }),
+    filters: prune({
+      brightness: within(f.brightness, 50, 150),
+      contrast: within(f.contrast, 50, 150),
+      saturation: within(f.saturation, 0, 200),
+      warmth: within(f.warmth, 0, 100),
+      blur: within(f.blur, 0, 20),
+      vignette: flag(f.vignette),
+      vignetteStrength: within(f.vignetteStrength, 0, 100),
+      applyToCopies: flag(f.applyToCopies),
+    }),
+    logos: prune({
+      items: Array.isArray(lg.items) ? lg.items.map(cleanLogo).filter(Boolean).slice(0, MAX_LOGOS) : undefined,
+      divider: flag(lg.divider),
+      shadow: prune({ mode: oneOf(sh.mode, ['none', 'soft', 'strong']), color: hex(sh.color), blur: within(sh.blur, 0, 20), opacity: within(sh.opacity, 0, 100) }),
+      glow: prune({ on: flag(gl.on), color: hex(gl.color), strength: within(gl.strength, 0, 100) }),
+    }),
+  }) || {};
+}
+
+const isPlain = (v) => v && typeof v === 'object' && !Array.isArray(v);
+
+// a, with b on top (arrays are replaced, not merged).
+export function mergeStyle(a, b) {
+  if (!isPlain(a)) return isPlain(b) ? { ...b } : (b ?? a);
+  if (!isPlain(b)) return b === undefined ? { ...a } : b;
+  const out = { ...a };
+  Object.entries(b).forEach(([k, v]) => { out[k] = isPlain(v) && isPlain(a[k]) ? mergeStyle(a[k], v) : v; });
+  return out;
 }
 
 // ---- What is saved ----
 
-const text = (v, max) => String(v ?? '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
-
 export function normalizePosterData(raw) {
   const d = raw && typeof raw === 'object' ? raw : {};
   const url = String(d.imageUrl || '').trim();
+  const phrases = (list) => [...new Set((Array.isArray(list) ? list : []).map((p) => text(p, 80).toUpperCase()).filter(Boolean))].slice(0, 12);
   return {
     headline: text(d.headline, 200),
-    highlights: [...new Set((Array.isArray(d.highlights) ? d.highlights : []).map((p) => text(p, 80).toUpperCase()).filter(Boolean))].slice(0, 12),
-    subtext: text(d.subtext, 140),
+    highlights: phrases(d.highlights),
+    subtext: text(d.subtext, 200),
+    subtextHighlights: phrases(d.subtextHighlights),
     showSubtext: d.showSubtext === true,
     credit: text(d.credit, 90),
     showCredit: d.showCredit !== false,
@@ -256,7 +271,16 @@ export function normalizePosterData(raw) {
       y: clamp(num(d.crop?.y, 0.5), 0, 1),
     },
     templateLocked: d.templateLocked === true,
+    style: normalizeStyle(d.style),
   };
+}
+
+// A saved poster's template, with the old "+ subtext" keys read as the card
+// with the subtext on.
+export function resolveTemplateKey(key, data) {
+  const k = String(key || '');
+  if (LEGACY_TEMPLATE_KEYS[k]) return { key: LEGACY_TEMPLATE_KEYS[k], data: { ...data, showSubtext: true } };
+  return { key: TEMPLATE_KEY.test(k) ? k : 'landscape', data };
 }
 
 export function normalizePosterDefaults(raw) {

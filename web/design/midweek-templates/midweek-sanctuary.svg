@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Midweek Service">
+<defs><style>@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&amp;display=swap');</style>
+<radialGradient id="sa-bg" cx="0.5" cy="0" r="1"><stop offset="0" stop-color="#2A2416"/><stop offset="0.55" stop-color="#12121A"/><stop offset="1" stop-color="#050507"/></radialGradient>
+<linearGradient id="sa-beam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD43B"/><stop offset="1" stop-color="#FFD43B" stop-opacity="0"/></linearGradient>
+<filter id="sa-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
+<linearGradient id="sa-title" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F3E3B0"/></linearGradient></defs>
+
+<rect width="1280" height="720" fill="url(#sa-bg)"/>
+<g filter="url(#sa-blur)"><path d="M640 -60 L590 760 L690 760 Z" fill="url(#sa-beam)" opacity="0.2" transform="rotate(-40 640 -60)"/><path d="M640 -60 L590 760 L690 760 Z" fill="url(#sa-beam)" opacity="0.14" transform="rotate(-18 640 -60)"/><path d="M640 -60 L590 760 L690 760 Z" fill="url(#sa-beam)" opacity="0.26" transform="rotate(0 640 -60)"/><path d="M640 -60 L590 760 L690 760 Z" fill="url(#sa-beam)" opacity="0.14" transform="rotate(18 640 -60)"/><path d="M640 -60 L590 760 L690 760 Z" fill="url(#sa-beam)" opacity="0.2" transform="rotate(40 640 -60)"/></g>
+<rect x="36" y="36" width="1208" height="648" fill="none" stroke="#FFD43B" stroke-opacity="0.25" stroke-width="1.5"/>
+<path d="M36 96 V36 H96" fill="none" stroke="#FFD43B" stroke-width="4"/><path d="M1244 96 V36 H1184" fill="none" stroke="#FFD43B" stroke-width="4"/><path d="M36 624 V684 H96" fill="none" stroke="#FFD43B" stroke-width="4"/><path d="M1244 624 V684 H1184" fill="none" stroke="#FFD43B" stroke-width="4"/>
+<line x1="470" y1="170" x2="540" y2="170" stroke="#FFD43B" stroke-width="2"/><line x1="740" y1="170" x2="810" y2="170" stroke="#FFD43B" stroke-width="2"/>
+<text x="640" y="179" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="600" font-size="28" letter-spacing="1" text-anchor="middle" fill="#FFD43B">Midweek Service</text>
+<text font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="800" font-size="132" letter-spacing="1.32" text-anchor="middle" fill="url(#sa-title)" ><tspan x="640" y="334.5">MIDWEEK</tspan><tspan x="640" y="469.2">SERVICE</tspan></text>
+<text x="640" y="535.18" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="500" font-size="32" letter-spacing="0" text-anchor="middle" fill="#FFD43B">Wednesday, November 25, 2026</text>
+
+<text x="640" y="646" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="600" font-size="20" letter-spacing="5" text-anchor="middle" fill="#FFFFFF" opacity="0.55">JOYFUL SOUND CHURCH INTERNATIONAL</text>
+</svg>

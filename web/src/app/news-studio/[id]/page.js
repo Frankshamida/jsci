@@ -5,7 +5,7 @@
 //
 //   Left:    Library (blocks to add - click, or drag onto the page) and
 //            Settings (title, summary, topic, tags, address, source, featured
-//            picture, top story, author).
+//            picture, featured, author).
 //   Middle:  the page as it will read: headline, summary, picture, blocks.
 //   Top:     undo/redo, desktop/tablet/phone width, text formatting, AI.
 //
@@ -1014,7 +1014,7 @@ export default function NewsStudio({ params }) {
               </label>
               <label>
                 <span>Link</span>
-                <input value={b.url || ''} placeholder="https://… or /live" onFocus={focus} onChange={(e) => setBlock(b.id, { url: e.target.value.trim() }, true)} />
+                <input value={b.url || ''} placeholder="https://… or /sunday-service" onFocus={focus} onChange={(e) => setBlock(b.id, { url: e.target.value.trim() }, true)} />
               </label>
               <label className="ns-button-style">
                 <span>Style</span>
@@ -1026,7 +1026,7 @@ export default function NewsStudio({ params }) {
             </div>
             {b.label && b.url
               ? <div className="ns-inert" onClickCapture={(e) => e.preventDefault()}><ArticleBody blocks={[b]} /></div>
-              : <p className="ns-event-empty"><i className="fas fa-arrow-pointer"></i> Write the button text and paste the link (a web address, or a page on this site such as /live).</p>}
+              : <p className="ns-event-empty"><i className="fas fa-arrow-pointer"></i> Write the button text and paste the link (a web address, or a page on this site such as /sunday-service).</p>}
           </div>
         );
       default:
@@ -1282,7 +1282,7 @@ export default function NewsStudio({ params }) {
 
               <label className="ns-check">
                 <input type="checkbox" checked={doc.is_featured} onChange={(e) => set('is_featured', e.target.checked)} />
-                <span><strong>Top story</strong> Show it big at the top of the News page (only one at a time).</span>
+                <span><strong>Featured</strong> Show it in the Featured row at the top of the News page.</span>
               </label>
 
               <label className="ns-field">

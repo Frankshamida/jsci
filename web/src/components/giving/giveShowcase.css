@@ -1,0 +1,182 @@
+/* ==========================================================================
+   THE LANDING PAGE'S GIVE SECTION (components/giving/GiveShowcase): the
+   newest donation drive - its jar, its details, its photos, then Donate.
+   Wide: the three side by side, Donate under the details. Narrower: jar and
+   details, then the photos, then Donate. A phone: one after another.
+   ========================================================================== */
+
+.gvs-card {
+  --gvs-card: #ffffff;
+  --gvs-ink: #1a1a2e;
+  --gvs-text: #555562;
+  --gvs-muted: #6b6b76;
+  --gvs-line: rgba(26, 26, 46, 0.09);
+  --gvs-gold: #926c15;
+  --gvs-track: rgba(26, 26, 46, 0.08);
+  --gvs-photo: #f3efe4;
+  --gvs-shadow: 0 1px 2px rgba(16, 16, 32, 0.04), 0 18px 44px rgba(16, 16, 32, 0.08);
+  position: relative;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(220px, 290px) minmax(0, 1fr) minmax(0, 1.2fr);
+  grid-template-areas:
+    'jar details photos'
+    'jar action photos';
+  grid-template-rows: 1fr auto;
+  gap: 16px 44px;
+  align-items: center;
+  padding: 40px 44px;
+  border-radius: 28px;
+  border: 1px solid var(--gvs-line);
+  background: var(--gvs-card);
+  box-shadow: var(--gvs-shadow);
+  font-family: var(--font-body);
+  transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+}
+body.dark-mode .gvs-card {
+  --gvs-card: #1c1c26;
+  --gvs-ink: #f4f4f8;
+  --gvs-text: #b9b9c4;
+  --gvs-muted: #9d9daa;
+  --gvs-line: rgba(255, 195, 0, 0.22);
+  --gvs-gold: #ffc300;
+  --gvs-track: rgba(255, 255, 255, 0.1);
+  --gvs-photo: #262633;
+  --gvs-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 18px 44px rgba(0, 0, 0, 0.35);
+}
+.gvs-card.no-photos {
+  grid-template-columns: minmax(220px, 290px) minmax(0, 1fr);
+  grid-template-areas:
+    'jar details'
+    'jar action';
+}
+
+/* The jar, most of its column wide, with its backdrop spread across the
+   column. Its hearts fall in from above it. */
+.gvs-jar { grid-area: jar; align-self: center; }
+.gvs-jar .gj { --gj-w: 84%; }
+.gvs-jar .gj-art { inset: -6% -14% -2% -14%; }
+
+/* The details. */
+.gvs-details { grid-area: details; align-self: end; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.gvs-eyebrow {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gvs-gold);
+}
+.gvs-ends { letter-spacing: 0.06em; color: var(--gvs-muted); }
+.gvs-details h2 {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: clamp(1.6rem, 2.6vw, 2.2rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.gvs-details h2 a { color: var(--gvs-ink) !important; text-decoration: none; }
+.gvs-details h2 a:hover { color: var(--gvs-gold) !important; }
+.gvs-summary {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--gvs-text);
+}
+.gvs-amount { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin-top: 6px; }
+.gvs-amount strong { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em; color: var(--gvs-ink); }
+.gvs-amount span { font-size: 0.95rem; color: var(--gvs-muted); }
+.gvs-meter { height: 8px; border-radius: 999px; background: var(--gvs-track); overflow: hidden; }
+.gvs-meter > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #c9980b, #ffc300); }
+.gvs-reached { margin: 2px 0 0; font-weight: 700; color: var(--gvs-gold); }
+
+/* The photos: one, two stacked, or one large beside two. */
+.gvs-photos {
+  grid-area: photos;
+  align-self: stretch;
+  display: grid;
+  gap: 10px;
+  min-height: 320px;
+  text-decoration: none;
+}
+.gvs-photos.is-2 { grid-template-rows: 1fr 1fr; }
+.gvs-photos.is-3 { grid-template-columns: 1.5fr 1fr; grid-template-rows: 1fr 1fr; }
+.gvs-photos.is-3 .gvs-photo:first-child { grid-row: 1 / span 2; }
+.gvs-photo { position: relative; overflow: hidden; border-radius: 18px; background: var(--gvs-photo); }
+.gvs-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 0.6s ease; }
+.gvs-photos:hover .gvs-photo img { transform: scale(1.03); }
+.gvs-photos:focus-visible { outline: 3px solid rgba(255, 195, 0, 0.6); outline-offset: 4px; border-radius: 20px; }
+.gvs-more {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 10, 20, 0.45);
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+/* Donate. */
+.gvs-action { grid-area: action; align-self: start; display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
+.gvs-donate {
+  padding: 14px 38px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffc300;
+  color: #1a1a2e;
+  font-family: var(--font-body);
+  font-size: 1.02rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(255, 195, 0, 0.32);
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.gvs-donate:hover { background: #ffd235; transform: translateY(-1px); box-shadow: 0 10px 26px rgba(255, 195, 0, 0.4); }
+.gvs-donate:focus-visible { outline: 3px solid rgba(255, 195, 0, 0.6); outline-offset: 3px; }
+.gvs-link { font-size: 0.95rem; font-weight: 700; color: var(--gvs-gold) !important; text-decoration: none; }
+.gvs-link:hover { text-decoration: underline; }
+
+/* Narrower: jar beside the details; the photos and Donate across below. */
+@media (max-width: 980px) {
+  .gvs-card,
+  .gvs-card.no-photos {
+    grid-template-columns: minmax(160px, 230px) minmax(0, 1fr);
+    grid-template-areas:
+      'jar details'
+      'photos photos'
+      'action action';
+    grid-template-rows: auto auto auto;
+    gap: 22px 28px;
+    padding: 32px;
+  }
+  .gvs-card.no-photos { grid-template-areas: 'jar details' 'action action'; }
+  .gvs-details { align-self: center; }
+  .gvs-photos { min-height: 0; aspect-ratio: 16 / 9; }
+  .gvs-photos.is-2 { grid-template-rows: none; grid-template-columns: 1fr 1fr; }
+}
+/* A phone: one after another - the jar, the details, the photos, Donate. */
+@media (max-width: 600px) {
+  .gvs-card,
+  .gvs-card.no-photos {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'jar' 'details' 'photos' 'action';
+    padding: 26px 20px 24px;
+    border-radius: 22px;
+  }
+  .gvs-card.no-photos { grid-template-areas: 'jar' 'details' 'action'; }
+  .gvs-jar .gj { --gj-w: min(220px, 62vw); }
+  .gvs-photos { aspect-ratio: 4 / 3; }
+  .gvs-donate { flex: 1 1 100%; }
+  .gvs-action { justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gvs-photo img, .gvs-donate { transition: none; }
+  .gvs-photos:hover .gvs-photo img, .gvs-donate:hover { transform: none; }
+}

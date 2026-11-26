@@ -1,8 +1,8 @@
 'use client';
 
-// The small interactive pieces of the News pages: sharing, counting a view,
-// and loading more stories. Everything else on those pages is drawn on the
-// server.
+// The small interactive pieces of the article page: sharing, reading
+// progress, counting a view, and "More news". (The /news list is in
+// NewsBrowser.js.) Everything else on those pages is drawn on the server.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -98,7 +98,7 @@ export function StoryCard({ article, size = 'md' }) {
 // "More news" under an article: suggestions picked for this story (same
 // topic, shared tags, then the newest), the latest stories, or any one topic.
 // Each tab is fetched once and kept, so switching back is instant.
-export function MoreNews({ currentId, category, suggested = [], latest = [], counts = {}, categories = [] }) {
+export function MoreNews({ currentId, suggested = [], latest = [], counts = {}, categories = [] }) {
   const [tab, setTab] = useState('for-you');
   const [lists, setLists] = useState(() => ({ 'for-you': suggested, latest }));
   const [loading, setLoading] = useState(false);
@@ -129,7 +129,7 @@ export function MoreNews({ currentId, category, suggested = [], latest = [], cou
   const tabs = [
     { key: 'for-you', label: 'For you', icon: 'fa-wand-magic-sparkles' },
     { key: 'latest', label: 'Latest', icon: 'fa-clock' },
-    ...categories.map((c) => ({ key: c, label: c, count: counts[c] || 0 })),
+    ...categories.filter((c) => counts[c] > 0 || c === tab).map((c) => ({ key: c, label: c, count: counts[c] || 0 })),
   ];
 
   return (
@@ -172,7 +172,6 @@ export function MoreNews({ currentId, category, suggested = [], latest = [], cou
               {items.map((a, i) => (
                 <div key={a.id} className="nw-rise" style={{ '--i': i }}>
                   <StoryCard article={a} />
-                  {tab === 'for-you' && a.category === category && <span className="nw-why">Also in {category}</span>}
                 </div>
               ))}
             </div>
@@ -197,42 +196,5 @@ export function MoreNews({ currentId, category, suggested = [], latest = [], cou
         </div>
       </div>
     </section>
-  );
-}
-
-// "Load more" under the Latest Stories grid.
-export function LoadMore({ offset, total, category }) {
-  const [items, setItems] = useState([]);
-  const [next, setNext] = useState(offset);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  if (next >= total) {
-    return items.length ? <div className="nw-grid">{items.map((a) => <StoryCard key={a.id} article={a} />)}</div> : null;
-  }
-  const more = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const qs = new URLSearchParams({ limit: '12', offset: String(next) });
-      if (category) qs.set('category', category);
-      const res = await fetch(`/api/news?${qs}`);
-      const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'Could not load more.');
-      setItems((list) => [...list, ...json.data]);
-      setNext((n) => n + json.data.length + (json.data.length ? 0 : total));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-  return (
-    <>
-      {items.length > 0 && <div className="nw-grid">{items.map((a) => <StoryCard key={a.id} article={a} />)}</div>}
-      <div className="nw-more">
-        <button type="button" onClick={more} disabled={loading}>{loading ? 'Loading…' : 'Load more stories'}</button>
-        {error && <p role="alert">{error}</p>}
-      </div>
-    </>
   );
 }

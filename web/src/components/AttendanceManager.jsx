@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { readViewer } from '@/lib/viewer';
 
 const STATUSES = ['Present', 'Absent', 'Late', 'Excused'];
 
@@ -16,15 +16,19 @@ export default function AttendanceManager({ initialDate }) {
 
   async function fetchData() {
     setLoading(true);
-    // fetch users (active members)
-    const { data: usersData, error: usersErr } = await supabase.from('users').select('id, firstname, lastname, ministry').order('firstname');
-    if (usersErr) {
+    // fetch users (active members) - through the server: the users table is
+    // not readable from the browser (supabase/migrations/security_rls_lockdown.sql)
+    try {
+      const me = readViewer();
+      const res = await fetch(`/api/attendance/people?actorId=${encodeURIComponent(me?.id || '')}`, { cache: 'no-store' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'Could not load the people list.');
+      setUsers(json.data || []);
+    } catch (usersErr) {
       console.error(usersErr);
       setLoading(false);
       return;
     }
-
-    setUsers(usersData || []);
 
     // fetch attendance for selected date via API
     try {
