@@ -74,4 +74,20 @@ try {
   supabaseAdmin = supabase;
 }
 
+// ---- On the server, `supabase` IS the service-role client ----
+// The tables are locked to the public (anon) key - supabase/migrations/
+// security_rls_lockdown.sql - so the database is reached through the server
+// only. Server code (API routes, server components, server libs) has always
+// imported `supabase` as freely as `supabaseAdmin`; on the server both are now
+// the service-role client, so none of it changes. In the browser
+// SUPABASE_SERVICE_ROLE_KEY does not exist (it is not NEXT_PUBLIC_), so there
+// `supabase` stays the anon client: it can sign in with Google and read
+// published events and news, and nothing else.
+const onServer = typeof window === 'undefined';
+if (onServer && supabaseServiceRoleKey && supabaseAdmin) {
+  supabase = supabaseAdmin;
+} else if (onServer && !supabaseServiceRoleKey && process.env.NODE_ENV === 'production') {
+  console.error('[supabase] SUPABASE_SERVICE_ROLE_KEY is not set: the server cannot read the locked tables. Set it in the environment.');
+}
+
 export { supabase, supabaseAdmin };

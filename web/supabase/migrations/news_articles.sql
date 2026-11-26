@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS news_articles (
   author_id UUID REFERENCES users(id) ON DELETE SET NULL,
   author_name TEXT,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
-  is_featured BOOLEAN NOT NULL DEFAULT FALSE, -- the big story at the top of /news
+  is_featured BOOLEAN NOT NULL DEFAULT FALSE, -- in the Featured row at the top of /news (several may be)
   views INTEGER NOT NULL DEFAULT 0,
   published_at TIMESTAMPTZ,
   created_by UUID REFERENCES users(id) ON DELETE SET NULL,

@@ -13,11 +13,11 @@
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-// Read server-side only. NEXT_PUBLIC_GROQ_API_KEY is still accepted because
-// that is where the key already lives in existing .env files - but referenced
-// from HERE it never reaches the browser, because Next only inlines those vars
-// into the client bundle where client code asks for them.
-const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.NEXT_PUBLIC_GROQ_API_KEY || '';
+// Read server-side only, and only under its server name. It used to be
+// NEXT_PUBLIC_GROQ_API_KEY, which Next will copy into the browser's JavaScript
+// the moment any browser-side file mentions it - one careless line away from
+// publishing the key. That name is no longer read.
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 
 // In preference order. The first is what everything uses; the rest are tried
 // only when a model has been retired, so a decommission degrades the answers

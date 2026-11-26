@@ -1,0 +1,15 @@
+/* A Midweek Service thumbnail (components/midweek/MidweekThumbnail): 16:9,
+   the SVG filling it. Before it is drawn, the template's own ground colour. */
+.mwt {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #14151f;
+}
+.mwt-bulletin { background: #f5f3ee; }
+.mwt-joyfulSound { background: #1e1640; }
+.mwt svg { display: block; width: 100%; height: 100%; }
+.mwt.is-drawn { animation: mwt-in 0.25s ease-out; }
+@keyframes mwt-in { from { opacity: 0.6; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mwt.is-drawn { animation: none; } }

@@ -13,6 +13,9 @@ import { HERO_MEDIA_DEFAULT, heroVideoFor, normalizeHeroMedia } from '@/lib/hero
 import HeroVideo from '@/components/HeroVideo';
 import { useBranding } from '@/components/BrandingProvider';
 import { SiteNavbar } from '@/components/SiteChrome';
+import { isGuestOnly, useViewer } from '@/lib/viewer';
+import GuestHome from '@/components/guest/GuestHome';
+import GiveShowcase from '@/components/giving/GiveShowcase';
 import { linkMeta } from '@/lib/linkMeta';
 import { newsDate, newsImage } from '@/lib/news';
 import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
@@ -428,6 +431,8 @@ const sectionEl = (id) => document.getElementById(id)
 
 export default function HomePage() {
   const router = useRouter();
+  // Who is signed in on this browser (a Guest stays on this page; see below).
+  const { viewer } = useViewer();
   const pathname = usePathname();
   // Whose name the page wears - the church's, or SanctuaryHub's. Chosen by a
   // Super Admin under System Configuration; see lib/branding.js.
@@ -465,11 +470,12 @@ export default function HomePage() {
   // the eight the News section shows. Joy answers out of this, so a visitor
   // asking about the ninth event still gets a real answer.
   const [liveEvents, setLiveEvents] = useState([]);
-  // The three newest articles from /news, for the "From the News" strip.
-  // Nothing is shown until there is at least one.
+  // Church News on the landing page: the stories an Admin featured first
+  // (Dashboard > News > Feature), then the newest - four at most. Nothing is
+  // shown until there is at least one.
   const [latestNews, setLatestNews] = useState([]);
   useEffect(() => {
-    fetch('/api/news?limit=3')
+    fetch('/api/news?limit=4&featured=1')
       .then((r) => r.json())
       .then((j) => { if (j.success && Array.isArray(j.data)) setLatestNews(j.data); })
       .catch(() => {});
@@ -1609,9 +1615,16 @@ export default function HomePage() {
     }
 
     const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
-    if (userData && userData.firstname && userData.email) {
-      // Somebody already signed in never sees this page - they are sent to
-      // their dashboard. But an event link IS this page's address, and sending
+    // A Guest account (and nothing more) stays here, signed in: the navbar
+    // shows who they are, and the live service plays for them. Members and
+    // staff work from their dashboard, so they go on there as before.
+    const signedIn = !!(userData && userData.firstname && userData.email);
+    const roles = [userData?.role, ...(userData?.additional_roles || [])].filter(Boolean);
+    const guestOnly = roles.every((r) => r === 'Guest');
+    const onEventLink = !!slugFromPath(window.location.pathname);
+    if (signedIn && (!guestOnly || onEventLink)) {
+      // Somebody signed in is sent to their dashboard. But an event link IS
+      // this page's address, and sending
       // them to /dashboard threw the slug away: tapping a link to a specific
       // event landed them on the dashboard home with no sign of the event they
       // were invited to.
@@ -1675,7 +1688,7 @@ export default function HomePage() {
   }, []);
 
   // ---- Is a service streaming right now? ----
-  // The same public list the /live page reads, cached at the CDN for ten
+  // The same public list the Sunday Service page checks, cached at the CDN for ten
   // seconds - so this costs the church nothing per visitor. Asked again every
   // two minutes, which is how a tab left open finds out the service started.
   useEffect(() => {
@@ -2073,14 +2086,14 @@ TONE & STYLE:
 - Do NOT use markdown headings (#) or tables. Only **bold**, plain paragraphs, and "- " bullets.
 
 KEY FACTS:
-- Worship Service: **Sunday 9:00 AM**. Bible Study: **Friday 7:00 PM**. Youth Fellowship: **Saturday 2:00 PM**. These are Philippine time (GMT+8). There is also an **Online Midweek Service** every **Wednesday**.
+- Worship Service: **Sunday 9:00 AM**. Bible Study: **Friday 7:00 PM**. Youth Fellowship: **Saturday 2:00 PM**. These are Philippine time (GMT+8). There is also an **Online Midweek Service** every **Wednesday**; its videos are on the website to watch any time, with a free account.
 - Senior Pastors: **Dr. Weldon Pior** and **Dr. Dorothy Pior**. Associate Pastors: **Ptr. Gracelyn Gambe** and **Ptr. Eldan Gambe**. Youth Pastor: **Ptr. Psalm Gambe**.
 - Location: **${CHURCH_CITY}**. For directions, point visitors to the **Visit Us** map on this page, which has a Get Directions button. Never invent a street address.
 - Ministries members can serve in: Praise & Worship, Media, Dance, Ushering and Youth.
 - Contact: visitors can message the church on its **Facebook page** or **Messenger** (see OFFICIAL LINKS). Never invent a phone number or an email address.
-- Giving: tithes and offerings are received during the services. **Online giving is coming soon** — never give bank details, account numbers or payment links for donations.
+- Giving: tithes and offerings are received during the services, and online on the Sunday Service page (/sunday-service, its "Tithes & Offering" card) by GCash, Maya or bank transfer — no account needed. Donations to the church's drives are at /donation, where each drive has a jar that fills as people give. Send people to those pages; never type out bank details, account numbers or payment links yourself.
 - ISOM (International School of Ministries) is a ministry-training program. Classes begin **August 2026**. People enroll by signing up / clicking "Enroll Now".
-- Users can sign up or log in from the navbar buttons, and watch live streams when a service is live.
+- Users can sign up or log in from the navbar buttons. Watching the live service on the website needs a free account (a Guest account is enough); anyone can make one in a minute from Sign Up.
 
 If you don't know something specific, professionally encourage the user to contact the church office or visit in person. Keep answers focused (usually 2-4 short paragraphs or a short list). Never invent doctrine; refer spiritual counsel to a pastor.
 
@@ -2105,7 +2118,8 @@ OFFICIAL LINKS:
 - [Facebook](${FACEBOOK_URL}) — the church's Facebook page: news, announcements and photos
 - [Messenger](${MESSENGER_URL}) — to send the church a message
 - [YouTube](${YOUTUBE_URL}) — sermons and past live services
-- [Watch live](/live) — the live page, when a service is streaming
+- [Sunday Service](/sunday-service) — the Sunday Service live when it is streaming, and past Sunday services (sign in with a free account to watch)
+- [Midweek Service videos](/midweek) — the Online Midweek Service and other past services on video, to watch any time; they open on Facebook (sign in with a free account to see them)
 - [Directions on Google Maps](${DIRECTIONS_URL}) — directions to the church
 
 PASTORS: when you mention a pastor, use their full name and title as written in KEY FACTS (e.g. **Ptr. Eldan Gambe**) - their photo is shown with your answer automatically.
@@ -2534,7 +2548,11 @@ ${eventsDigest}`;
             </div>
           )}
           <div className="hp-hero-buttons">
-            <a href="/signup" className="hp-btn-primary">Join Our Family</a>
+            {viewer ? (
+              <a href="/sunday-service" className="hp-btn-primary">Watch Live</a>
+            ) : (
+              <a href="/signup" className="hp-btn-primary">Join Our Family</a>
+            )}
             <a href="#plan-visit" className="hp-btn-outline" onClick={(e) => { e.preventDefault(); scrollToSection('plan-visit'); }}>
               Plan Your Visit
             </a>
@@ -2613,12 +2631,24 @@ ${eventsDigest}`;
             <h3>{liveStream ? (liveStream.caption || liveStream.title || 'Our service is live') : 'Worship from anywhere'}</h3>
             <p>
               {liveStream
-                ? 'Join the service as it happens, and react and comment with the church family.'
-                : 'Services stream on our live page the moment they begin. The Online Midweek Service meets every Wednesday.'}
+                ? (viewer
+                  ? 'Join the service as it happens, and react and comment with the church family.'
+                  : 'Join the service as it happens. Sign in with a free account to watch.')
+                : (viewer
+                  ? 'Services stream on our live page the moment they begin. Missed one? The Online Midweek Service is here on video.'
+                  : 'Services stream on our live page the moment they begin, and the Online Midweek Service is on video, for anyone with a free account.')}
             </p>
-            <a href="/live" className="hp-week-link">
-              {liveStream ? 'Watch now' : 'Open the live page'}
-            </a>
+            {!liveStream ? (
+              <a href="/midweek" className="hp-week-link">
+                Watch the Midweek Service
+              </a>
+            ) : viewer ? (
+              <a href="/sunday-service" className="hp-week-link">Watch now</a>
+            ) : (
+              <a href="/login?next=%2Fsunday-service" className="hp-week-link">
+                <i className="fas fa-lock" aria-hidden="true"></i> Sign in to watch
+              </a>
+            )}
           </article>
 
           <article className="hp-week-card">
@@ -2646,6 +2676,10 @@ ${eventsDigest}`;
           </article>
         </div>
       </section>
+
+      {/* ---- A GUEST'S HOME: their giving, events and services. Guests have
+          no dashboard; this is theirs (components/guest/GuestHome). ---- */}
+      {viewer && isGuestOnly(viewer) && <GuestHome viewer={viewer} live={!!liveStream} />}
 
       {/* ---- UPCOMING EVENTS ---- */}
       {/* Only while there is something to show. An empty grid with a "No
@@ -2723,6 +2757,71 @@ ${eventsDigest}`;
       </section>
       )}
 
+      {/* ---- CHURCH NEWS: one story large (a featured one first), the next
+          three beside it, and the way to all the news ---- */}
+      {latestNews.length > 0 && (
+        <section id="latest-news" className="hp-section hp-newsfeat" aria-label="Church News">
+          <div className="hp-newsfeat-inner">
+            <div className="hp-newsfeat-head">
+              <div>
+                <span className="hp-newsfeat-eyebrow">Church News</span>
+                <h2>Stories from our church family</h2>
+                <p>What God is doing among us: outreach, celebrations, testimonies and announcements.</p>
+              </div>
+              <a href="/news" className="hp-newsfeat-all">See all news <i className="fas fa-arrow-right" aria-hidden="true"></i></a>
+            </div>
+
+            <div className={`hp-newsfeat-grid ${latestNews.length === 1 ? 'solo' : ''}`}>
+              {(() => {
+                const [lead, ...others] = latestNews;
+                return (
+                  <>
+                    <a href={`/news/${lead.slug}`} className="hp-newsfeat-lead">
+                      <span className="hp-newsfeat-img">
+                        {lead.featured_image_url
+                          ? <img src={newsImage(lead.featured_image_url, 1100)} srcSet={[640, 900, 1100, 1400].map((w) => `${newsImage(lead.featured_image_url, w)} ${w}w`).join(', ')} sizes="(max-width: 900px) 92vw, 720px" alt="" loading="lazy" decoding="async" />
+                          : <span className="hp-newsfeat-noimg">{lead.category}</span>}
+                      </span>
+                      <span className="hp-newsfeat-shade" aria-hidden="true" />
+                      <span className="hp-newsfeat-tags">
+                        {lead.is_featured && <span className="hp-newsfeat-pill"><i className="fas fa-star" aria-hidden="true"></i> Featured</span>}
+                        <span className="hp-newsfeat-cat">{lead.category}</span>
+                      </span>
+                      <span className="hp-newsfeat-body">
+                        <span className="hp-newsfeat-date">{newsDate(lead.published_at)}</span>
+                        <strong>{lead.title}</strong>
+                        {lead.summary && <span className="hp-newsfeat-sum">{lead.summary}</span>}
+                        <span className="hp-newsfeat-read">Read story <i className="fas fa-arrow-right" aria-hidden="true"></i></span>
+                      </span>
+                    </a>
+                    {others.length > 0 && (
+                      <div className="hp-newsfeat-side">
+                        {others.map((a) => (
+                          <a key={a.id} href={`/news/${a.slug}`} className="hp-newsfeat-item">
+                            <span className="hp-newsfeat-thumb">
+                              {a.featured_image_url
+                                ? <img src={newsImage(a.featured_image_url, 320)} alt="" loading="lazy" decoding="async" />
+                                : <span className="hp-newsfeat-noimg">{a.category}</span>}
+                            </span>
+                            <span className="hp-newsfeat-text">
+                              <span className="hp-newsfeat-kicker">
+                                {a.is_featured && <i className="fas fa-star" aria-label="Featured"></i>}
+                                {a.category} · {newsDate(a.published_at)}
+                              </span>
+                              <strong>{a.title}</strong>
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ---- PLAN YOUR VISIT (service times + what to expect) ---- */}
       <div className="hp-section-dark">
         <section id="plan-visit" className="hp-section">
@@ -2753,7 +2852,9 @@ ${eventsDigest}`;
                 <li>
                   <span className="hp-visit-day">Wednesday</span>
                   <span className="hp-visit-name">Online Midweek Service</span>
-                  <span className="hp-visit-at">Online</span>
+                  <a href="/midweek" className="hp-visit-at hp-visit-watch" title="Watch the Midweek Service on video">
+                    <i className="fas fa-circle-play" aria-hidden="true"></i> Watch
+                  </a>
                 </li>
               </ul>
               <p className="hp-visit-tz">All times are Philippine time (GMT+8).</p>
@@ -2906,35 +3007,6 @@ ${eventsDigest}`;
         </section>
       </div>
 
-      {/* ---- FROM THE NEWS: the three newest articles ---- */}
-      {latestNews.length > 0 && (
-        <section id="latest-news" className="hp-section hp-news-strip">
-          <div className="hp-news-strip-inner">
-            <div className="hp-news-strip-head">
-              <div>
-                <span className="hp-give-eyebrow">From the News</span>
-                <h2>Latest from the church</h2>
-              </div>
-              <a href="/news" className="hp-news-all">All news</a>
-            </div>
-            <div className="hp-news-strip-grid">
-              {latestNews.map((a) => (
-                <a key={a.id} href={`/news/${a.slug}`} className="hp-news-card">
-                  <span className="hp-news-card-img">
-                    {a.featured_image_url
-                      ? <img src={newsImage(a.featured_image_url, 440)} alt="" loading="lazy" decoding="async" />
-                      : <span>{a.category}</span>}
-                  </span>
-                  <span className="hp-news-card-kicker">{a.category} · {newsDate(a.published_at)}</span>
-                  <strong>{a.title}</strong>
-                  {a.summary && <span className="hp-news-card-sum">{a.summary}</span>}
-                </a>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* ---- ISOM ---- */}
       {/* The school's own content (subtitle, points, start date, photos) is
           edited by a Super Admin under ISOM Management; this only lays it out. */}
@@ -2996,41 +3068,13 @@ ${eventsDigest}`;
       </section>
 
       {/* ---- GIVE ---- */}
-      {/* Honest about where giving stands: in person today, online once the
-          giving module ships. No account numbers here - a church page that
-          prints bank details is the page scammers copy. */}
-      <section id="give" className="hp-section hp-give">
-        <div className="hp-give-card hp-animate">
-          <div className="hp-give-copy">
-            <span className="hp-give-eyebrow">Give</span>
-            <h2>Support the Ministry</h2>
-            <p>
-              Your tithes and offerings keep worship going, reach our community through
-              outreach, and help train the next generation of leaders.
-            </p>
-            <blockquote className="hp-give-verse">
-              &ldquo;Each of you should give what you have decided in your heart to give, not
-              reluctantly or under compulsion, for God loves a cheerful giver.&rdquo;
-              <cite>2 Corinthians 9:7 (NIV)</cite>
-            </blockquote>
-          </div>
-
-          <ol className="hp-give-ways">
-            <li>
-              <strong>During any service</strong>
-              <span>Give your tithes and offerings when we gather on Sunday, Friday or Saturday.</span>
-            </li>
-            <li>
-              <strong>Through the church office</strong>
-              <span>Our ushers and church staff can receive your gift and answer any questions.</span>
-            </li>
-            <li className="is-soon">
-              <strong>Online giving <em>Coming soon</em></strong>
-              <span>Secure online giving, including special campaigns, is being built into {brand.platform}.</span>
-            </li>
-          </ol>
-        </div>
-      </section>
+      {/* The newest donation drive: its jar of hearts, its details, its photos
+          and Donate (components/giving/GiveShowcase). Left out while no drive
+          is open. Tithes and offerings are on the Sunday Service page. Still
+          no account numbers here - a church page that prints bank details is
+          the page scammers copy; the accounts are shown in the giving window,
+          step by step, from Mode of Payment. */}
+      <GiveShowcase />
 
       {/* ---- MAGIC LINK: looking the event up ---- */}
       {/* A shared link opens the page, then has to find the event before the
@@ -4653,17 +4697,31 @@ ${eventsDigest}`;
       </section>
 
       {/* ---- CTA BANNER ---- */}
-      <section className="hp-cta">
-        <h2>Join Our Church Family Today</h2>
-        <p>
-          Create your free account to register for events, follow live services and stay
-          connected with {brand.church}{brand.isPlatform ? ` on ${brand.platform}` : ''}.
-        </p>
-        <div className="hp-cta-buttons">
-          <a href="/signup" className="hp-btn-primary">Create an Account</a>
-          <a href="/login" className="hp-btn-outline">Log In</a>
-        </div>
-      </section>
+      {viewer ? (
+        <section className="hp-cta">
+          <h2>Welcome back, {viewer.firstname}!</h2>
+          <p>
+            You are signed in. Watch our services live, sign up for events and keep your
+            details up to date in your account.
+          </p>
+          <div className="hp-cta-buttons">
+            <a href="/sunday-service" className="hp-btn-primary">Watch Live</a>
+            <a href="/dashboard" className="hp-btn-outline">My Account</a>
+          </div>
+        </section>
+      ) : (
+        <section className="hp-cta">
+          <h2>Join Our Church Family Today</h2>
+          <p>
+            Create your free account to register for events, watch our services live and stay
+            connected with {brand.church}{brand.isPlatform ? ` on ${brand.platform}` : ''}.
+          </p>
+          <div className="hp-cta-buttons">
+            <a href="/signup" className="hp-btn-primary">Create an Account</a>
+            <a href="/login" className="hp-btn-outline">Log In</a>
+          </div>
+        </section>
+      )}
 
       {/* ---- FOOTER ---- */}
       <footer className="hp-footer">
@@ -4697,7 +4755,7 @@ ${eventsDigest}`;
               <li><a href="#ministries">Ministries</a></li>
               <li><a href="#this-week">Events</a></li>
               <li><a href="#isom">ISOM</a></li>
-              <li><a href="#give">Give</a></li>
+              <li><a href="/donation">Donate</a></li>
               <li><a href="/news">News</a></li>
             </ul>
           </div>
@@ -4706,11 +4764,21 @@ ${eventsDigest}`;
           <div className="hp-footer-col">
             <h4>Online</h4>
             <ul>
-              <li><a href="/live">Watch Live</a></li>
+              <li><a href="/sunday-service">Watch Live</a></li>
+              <li><a href="/midweek">Midweek Service</a></li>
               <li><a href="/ministrymobileapp">Ministry App</a></li>
               <li><a href="#" onClick={(e) => { e.preventDefault(); askJoy(''); }}>Ask Joy</a></li>
-              <li><a href="/login">Member Login</a></li>
-              <li><a href="/signup">Create an Account</a></li>
+              {viewer ? (
+                <>
+                  <li><a href="/giving/my">My Giving</a></li>
+                  <li><a href={isGuestOnly(viewer) ? '#my-home' : '/dashboard'}>My Account</a></li>
+                </>
+              ) : (
+                <>
+                  <li><a href="/login">Member Login</a></li>
+                  <li><a href="/signup">Create an Account</a></li>
+                </>
+              )}
             </ul>
           </div>
 

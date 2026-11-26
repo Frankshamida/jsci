@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import './login.css';
 import { useBranding } from '@/components/BrandingProvider';
 import GoogleSignInButton from '@/components/GoogleSignInButton';
+import { homeFor, isGuestOnly, peekReturn, readViewer, rememberReturn, takeReturn } from '@/lib/viewer';
 
 const LOGIN_VERSES = [
   { verse: 'The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you.', reference: 'Numbers 6:24-25' },
@@ -39,6 +40,8 @@ function LoginContent() {
   const [showLoginSplash, setShowLoginSplash] = useState(false);
   const [splashVerse, setSplashVerse] = useState(LOGIN_VERSES[0]);
   const [splashName, setSplashName] = useState('');
+  // Going back to the page that asked for a sign-in (see viewer.js).
+  const [returning, setReturning] = useState(false);
 
   const searchParams = useSearchParams();
 
@@ -58,10 +61,17 @@ function LoginContent() {
       return;
     }
 
+    // Sent here from a page that needs an account (the live page sends
+    // ?next=/live): go back there after signing in, not to the dashboard.
+    const next = searchParams.get('next');
+    if (next) rememberReturn(next);
+    setReturning(!!peekReturn());
+
     // Redirect if already logged in
     const userData = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
     if (userData.firstname) {
-      router.replace('/dashboard');
+      // A Guest's home is the landing page; everyone else's, the dashboard.
+      router.replace(takeReturn(homeFor(userData)));
       return;
     }
     // Load saved credentials (Remember me) — survives logout so the fields
@@ -135,7 +145,7 @@ function LoginContent() {
     if (leavingRef.current) return;
     leavingRef.current = true;
     if (splashTimer.current) clearTimeout(splashTimer.current);
-    router.push('/dashboard');
+    router.push(takeReturn(homeFor(readViewer())));
   }, [router]);
 
   // A timer that outlives the page would push a route onto a component that is
@@ -232,7 +242,7 @@ function LoginContent() {
             <div className="login-splash-loader">
               <div className="login-splash-loader-bar" />
             </div>
-            <p className="login-splash-redirect">Entering your dashboard...</p>
+            <p className="login-splash-redirect">{returning ? 'Taking you back...' : isGuestOnly(readViewer()) ? 'Taking you home...' : 'Entering your dashboard...'}</p>
           </div>
         </div>
       )}

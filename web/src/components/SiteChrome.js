@@ -7,13 +7,27 @@
 //
 // The links are grouped so the bar holds five things instead of eight:
 //   About ▾ (Who We Are, Our Pastors, Location)   Plan a Visit
-//   Get Involved ▾ (Ministries, Events, ISOM, Watch Live)   News   Give
+//   Get Involved ▾ (Ministries, Events, ISOM, Sunday Service, Midweek Service)   News
+//   Give ▾ (Tithes & Offering - on the Sunday Service page - and Donate)
 // On a computer a group opens on hover or click; on a phone the menu lists
 // every group under its name. Section links point at the home page
 // (/#plan-visit); ON the home page, `onSection` scrolls there smoothly instead.
+//
+// Signed in, "Log In" gives way to the account: the person's photo (or
+// initials) with a green dot, their first name, and a small menu - who they
+// are signed in as, Sunday Service, Midweek Service, My giving, their account,
+// Dark mode, Log out. It shows on a phone too, beside the menu button, so it
+// is always clear who is signed in. A Guest has no dashboard: their home is the
+// landing page, and My profile opens over the page they are on.
+//
+// Dark mode lives with the account: in its menu when signed in, and as a
+// quiet moon beside "Log In" when not (a row of its own in a phone's menu) -
+// never a gold disc competing with the links.
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBranding } from '@/components/BrandingProvider';
+import ProfileModal from '@/components/account/ProfileModal';
+import { initialsOf, isGuestOnly, signOutViewer, useViewer } from '@/lib/viewer';
 
 const FACEBOOK_URL = 'https://www.facebook.com/CebuCityJoyfulSound';
 const MESSENGER_URL = 'https://m.me/CebuCityJoyfulSound';
@@ -37,26 +51,167 @@ const NAV = [
       { href: '/#ministries', section: 'ministries', label: 'Ministries', hint: 'Find your place to serve' },
       { href: '/#news', section: 'news', label: 'Events', hint: 'What is coming up' },
       { href: '/#isom', section: 'isom', label: 'ISOM', hint: 'International School of Ministries' },
-      { href: '/live', label: 'Watch Live', hint: 'Join a service online' },
+      { href: '/sunday-service', label: 'Sunday Service', hint: 'Watch it live, or one you missed' },
+      { href: '/midweek', label: 'Midweek Service', hint: 'Our online midweek services' },
     ],
   },
   { href: '/news', label: 'News', page: 'news' },
-  { href: '/#give', section: 'give', label: 'Give' },
+  {
+    label: 'Give',
+    items: [
+      { href: '/sunday-service#give', label: 'Tithes & Offering', hint: 'Give online, on the Sunday Service page' },
+      { href: '/donation', label: 'Donate', hint: 'Help fill the jar for a cause' },
+    ],
+  },
 ];
 
-export function SiteNavbar({ current = null, onSection = null, live: liveProp }) {
+// The site's light and dark mode: kept in the browser, on <body> and <html>.
+function useDarkMode() {
+  const [dark, setDark] = useState(false);
+  useEffect(() => { setDark(document.body.classList.contains('dark-mode')); }, []);
+  const toggle = useCallback(() => {
+    const next = !document.body.classList.contains('dark-mode');
+    setDark(next);
+    try { localStorage.setItem('darkModeEnabled', next); } catch { /* not saved */ }
+    document.body.classList.toggle('dark-mode', next);
+    document.documentElement.classList.toggle('dark-mode', next);
+  }, []);
+  return [dark, toggle];
+}
+
+function Avatar({ viewer, large = false }) {
+  return (
+    <span className={`hp-acct-avatar ${large ? 'lg' : ''}`}>
+      {viewer.profile_picture
+        ? <img src={viewer.profile_picture} alt="" referrerPolicy="no-referrer" />
+        : initialsOf(viewer)}
+      {!large && <i className="hp-acct-dot" aria-hidden="true"></i>}
+    </span>
+  );
+}
+
+// The signed-in account: a chip in the bar and its menu.
+function AccountMenu({ viewer, live, onOpen, dark, onToggleDark }) {
+  const [open, setOpen] = useState(false);
+  const [profile, setProfile] = useState(false);
+  const ref = useRef(null);
+  const name = [viewer.firstname, viewer.lastname].filter(Boolean).join(' ');
+  const role = viewer.role || 'Guest';
+  const isGuest = isGuestOnly(viewer);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const toggle = () => {
+    setOpen((v) => {
+      if (!v) onOpen?.();
+      return !v;
+    });
+  };
+
+  const logOut = () => {
+    setOpen(false);
+    signOutViewer();
+  };
+
+  return (
+    <div ref={ref} className={`hp-acct ${open ? 'open' : ''}`}>
+      <button
+        type="button"
+        className="hp-acct-btn"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={`Signed in as ${name}. Open your account menu`}
+        onClick={toggle}
+      >
+        <Avatar viewer={viewer} />
+        <span className="hp-acct-name">{viewer.firstname}</span>
+        <i className="fas fa-chevron-down hp-acct-chev" aria-hidden="true"></i>
+      </button>
+
+      <div className="hp-acct-menu" role="menu">
+        <div className="hp-acct-head">
+          <Avatar viewer={viewer} large />
+          <div>
+            <strong>{name}</strong>
+            <span className="hp-acct-role">{role}</span>
+          </div>
+        </div>
+        <p className="hp-acct-status"><i className="fas fa-circle-check" aria-hidden="true"></i> You are signed in</p>
+
+        <a href="/sunday-service" role="menuitem" className={live ? 'is-live' : undefined}>
+          <i className="fas fa-tower-broadcast" aria-hidden="true"></i>
+          <span>
+            <strong>Sunday Service</strong>
+            <small>{live ? 'We are live right now' : 'Watch it live, or one you missed'}</small>
+          </span>
+          {live && <span className="hp-live-dot" aria-hidden="true"></span>}
+        </a>
+        <a href="/midweek" role="menuitem">
+          <i className="fas fa-circle-play" aria-hidden="true"></i>
+          <span><strong>Midweek Service</strong><small>Our online midweek services</small></span>
+        </a>
+        <a href="/giving/my" role="menuitem">
+          <i className="fas fa-hand-holding-heart" aria-hidden="true"></i>
+          <span><strong>My giving</strong><small>Your gifts and their receipts</small></span>
+        </a>
+        {isGuest ? (
+          <>
+            <a href="/#my-home" role="menuitem">
+              <i className="fas fa-house-user" aria-hidden="true"></i>
+              <span><strong>My home</strong><small>Your giving, events and services</small></span>
+            </a>
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); setProfile(true); }}>
+              <i className="fas fa-user" aria-hidden="true"></i>
+              <span><strong>My profile</strong><small>Your details and password</small></span>
+            </button>
+          </>
+        ) : (
+          <>
+            <a href="/dashboard#my-profile" role="menuitem">
+              <i className="fas fa-user" aria-hidden="true"></i>
+              <span><strong>My profile</strong><small>Your details and password</small></span>
+            </a>
+            <a href="/dashboard" role="menuitem">
+              <i className="fas fa-gauge" aria-hidden="true"></i>
+              <span><strong>Dashboard</strong><small>Your church dashboard</small></span>
+            </a>
+          </>
+        )}
+
+        <button type="button" role="menuitemcheckbox" aria-checked={dark} className="hp-acct-theme" onClick={onToggleDark}>
+          <i className={`fas ${dark ? 'fa-sun' : 'fa-moon'}`} aria-hidden="true"></i>
+          <span><strong>Dark mode</strong></span>
+          <span className="hp-switch" aria-hidden="true"></span>
+        </button>
+
+        <button type="button" role="menuitem" className="hp-acct-out" onClick={logOut}>
+          <i className="fas fa-arrow-right-from-bracket" aria-hidden="true"></i>
+          <span><strong>Log out</strong></span>
+        </button>
+      </div>
+      {profile && <ProfileModal viewer={viewer} onClose={() => setProfile(false)} />}
+    </div>
+  );
+}
+
+// `loginHref`: where "Log In" goes - with ?next= on a page worth coming back to.
+export function SiteNavbar({ current = null, onSection = null, live: liveProp, loginHref = '/login' }) {
   const brand = useBranding();
+  const { viewer, ready } = useViewer();
   const [open, setOpen] = useState(false);
   const [group, setGroup] = useState(null); // the dropdown that is open
-  const [dark, setDark] = useState(false);
+  const [dark, toggleDark] = useDarkMode();
   const [liveFetched, setLiveFetched] = useState(false);
   const live = liveProp ?? liveFetched;
   const navRef = useRef(null);
   const closeTimer = useRef(null);
-
-  useEffect(() => {
-    setDark(document.body.classList.contains('dark-mode'));
-  }, []);
 
   // "Live" appears in the bar while a service is streaming. The home page
   // already knows and says so through `live`; other pages ask.
@@ -86,14 +241,6 @@ export function SiteNavbar({ current = null, onSection = null, live: liveProp })
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [group]);
 
-  const toggleDark = () => {
-    const next = !dark;
-    setDark(next);
-    try { localStorage.setItem('darkModeEnabled', next); } catch { /* not saved */ }
-    document.body.classList.toggle('dark-mode', next);
-    document.documentElement.classList.toggle('dark-mode', next);
-  };
-
   const go = (e, item) => {
     setOpen(false);
     setGroup(null);
@@ -105,7 +252,15 @@ export function SiteNavbar({ current = null, onSection = null, live: liveProp })
 
   // Hover opens a group on a computer; a short delay on leaving lets the
   // pointer cross the gap into the dropdown.
-  const enter = (label) => { clearTimeout(closeTimer.current); setGroup(label); };
+  // A click right after the hover opened it (the pointer arriving, then the
+  // click) keeps it open instead of closing it again at once.
+  const hoveredAt = useRef(0);
+  const enter = (label) => {
+    clearTimeout(closeTimer.current);
+    if (group !== label) hoveredAt.current = Date.now();
+    setGroup(label);
+  };
+  const clickGroup = (label) => setGroup((g) => (g === label && Date.now() - hoveredAt.current > 400 ? null : label));
   const leave = () => { clearTimeout(closeTimer.current); closeTimer.current = setTimeout(() => setGroup(null), 180); };
   const isCurrent = (item) => item.page && item.page === current;
 
@@ -138,7 +293,7 @@ export function SiteNavbar({ current = null, onSection = null, live: liveProp })
               className="hp-nav-group-btn"
               aria-expanded={group === n.label}
               aria-haspopup="true"
-              onClick={() => setGroup((g) => (g === n.label ? null : n.label))}
+              onClick={() => clickGroup(n.label)}
             >
               {n.label}
               <i className="fas fa-chevron-down" aria-hidden="true"></i>
@@ -165,15 +320,29 @@ export function SiteNavbar({ current = null, onSection = null, live: liveProp })
           </a>
         )))}
         {live && (
-          <a href="/live" className="hp-btn-live"><span className="hp-live-dot" aria-hidden="true"></span> Live</a>
+          <a href="/sunday-service" className="hp-btn-live"><span className="hp-live-dot" aria-hidden="true"></span> Live</a>
         )}
-        <a href="/login" className="hp-btn-login">Log In</a>
+        {/* Held invisible until the browser says nobody is signed in, so a
+            signed-in visitor never sees "Log In" (or the moon) flash. Signed
+            in, Dark mode is in the account's menu instead. */}
+        {!viewer && (
+          <button
+            type="button"
+            className={`hp-theme-btn ${ready ? '' : 'is-pending'}`}
+            onClick={toggleDark}
+            aria-pressed={dark}
+            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            <i className={`fas ${dark ? 'fa-sun' : 'fa-moon'}`} aria-hidden="true"></i>
+            <span className="hp-theme-label">Dark mode</span>
+            <span className="hp-switch" aria-hidden="true"></span>
+          </button>
+        )}
+        {!viewer && <a href={loginHref} className={`hp-btn-login ${ready ? '' : 'is-pending'}`}>Log In</a>}
       </div>
 
       <div className="hp-navbar-actions">
-        <button className="dark-mode-toggle" onClick={toggleDark} title="Toggle Dark Mode" aria-label="Toggle dark mode">
-          <i className={`fas ${dark ? 'fa-sun' : 'fa-moon'}`}></i>
-        </button>
+        {viewer && <AccountMenu viewer={viewer} live={live} dark={dark} onToggleDark={toggleDark} onOpen={() => { setOpen(false); setGroup(null); }} />}
         <button className="hp-nav-toggle" onClick={() => setOpen((v) => !v)} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}>
           <i className={`fas ${open ? 'fa-times' : 'fa-bars'}`}></i>
         </button>
@@ -184,6 +353,7 @@ export function SiteNavbar({ current = null, onSection = null, live: liveProp })
 
 export function SiteFooter() {
   const brand = useBranding();
+  const { viewer } = useViewer();
   return (
     <footer className="hp-footer">
       <div className="hp-footer-grid">
@@ -214,7 +384,7 @@ export function SiteFooter() {
             <li><a href="/#ministries">Ministries</a></li>
             <li><a href="/#news">Events</a></li>
             <li><a href="/#isom">ISOM</a></li>
-            <li><a href="/#give">Give</a></li>
+            <li><a href="/donation">Donate</a></li>
             <li><a href="/news">News</a></li>
           </ul>
         </div>
@@ -222,11 +392,22 @@ export function SiteFooter() {
         <div className="hp-footer-col">
           <h4>Online</h4>
           <ul>
-            <li><a href="/live">Watch Live</a></li>
+            <li><a href="/sunday-service">Sunday Service</a></li>
+            <li><a href="/sunday-service#give">Tithes &amp; Offering</a></li>
+            <li><a href="/midweek">Midweek Service</a></li>
             <li><a href="/ministrymobileapp">Ministry App</a></li>
             <li><a href="/">Ask Joy</a></li>
-            <li><a href="/login">Member Login</a></li>
-            <li><a href="/signup">Create an Account</a></li>
+            {viewer ? (
+              <>
+                <li><a href="/giving/my">My Giving</a></li>
+                <li><a href={isGuestOnly(viewer) ? '/#my-home' : '/dashboard'}>My Account</a></li>
+              </>
+            ) : (
+              <>
+                <li><a href="/login">Member Login</a></li>
+                <li><a href="/signup">Create an Account</a></li>
+              </>
+            )}
           </ul>
         </div>
 

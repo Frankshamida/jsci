@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-// GET - Fetch all live streams (active ones, sorted by newest)
+// GET - the live streams, newest first (the Community Hub's live player).
+// ?active=false includes hidden ones; ?live=true only the ones live now.
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -51,84 +52,6 @@ export async function GET(request) {
   }
 }
 
-// POST - Create a new live stream (Admin/SuperAdmin only)
-export async function POST(request) {
-  try {
-    const body = await request.json();
-    const { iframe_url, caption, title, posted_by, posted_by_name } = body;
-
-    if (!iframe_url) {
-      return NextResponse.json({ error: 'iframe_url is required' }, { status: 400 });
-    }
-
-    const { data, error } = await supabase
-      .from('live_streams')
-      .insert([{
-        iframe_url,
-        caption: caption || 'Sunday Service Live',
-        title: title || 'Sunday Service Live',
-        posted_by,
-        posted_by_name,
-        is_active: true,
-        is_live: true,
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    return NextResponse.json(data, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
-
-// PUT - Update a live stream (toggle live/active, update caption)
-export async function PUT(request) {
-  try {
-    const body = await request.json();
-    const { id, ...updates } = body;
-
-    if (!id) {
-      return NextResponse.json({ error: 'Stream id is required' }, { status: 400 });
-    }
-
-    const updateData = { ...updates, updated_at: new Date().toISOString() };
-
-    const { data, error } = await supabase
-      .from('live_streams')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
-
-// DELETE - Remove a live stream
-export async function DELETE(request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json({ error: 'Stream id is required' }, { status: 400 });
-    }
-
-    const { error } = await supabase
-      .from('live_streams')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
+// Posting, editing, putting live and deleting a stream is Dashboard > Social
+// Media > Sunday Service, through /api/live-streams/manage - Admin and Super
+// Admin only, checked on the server.

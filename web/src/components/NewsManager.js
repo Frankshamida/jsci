@@ -1,7 +1,7 @@
 'use client';
 
 // Dashboard > News (Admin and Super Admin). Every article, drafts included:
-// open one in the editor, publish or unpublish it, make it the top story, make
+// open one in the editor, publish or unpublish it, feature it, make
 // a poster of it, or delete it. Writing happens in the full-screen editor at
 // /news-studio, posters at /news-management/poster/<id>.
 
@@ -53,7 +53,7 @@ export default function NewsManager({ actorId }) {
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.message || 'Could not do that.');
-      const words = { publish: 'published', unpublish: 'moved to drafts', feature: 'is now the top story', unfeature: 'is no longer the top story' };
+      const words = { publish: 'published', unpublish: 'moved to drafts', feature: 'is now in the Featured row on the News page', unfeature: 'is no longer featured' };
       setNotice({ type: 'ok', text: `"${article.title}" ${words[action]}.` });
       load();
     } catch (err) {
@@ -157,7 +157,7 @@ export default function NewsManager({ actorId }) {
                 <div className="nm-main">
                   <div className="nm-badges">
                     <span className={`nm-status ${live ? 'live' : ''}`}>{live ? 'Published' : 'Draft'}</span>
-                    {a.is_featured && <span className="nm-star">Top story</span>}
+                    {a.is_featured && <span className="nm-star">Featured</span>}
                     <span className="nm-cat">{a.category}</span>
                   </div>
                   <a href={`/news-studio/${a.id}`} className="nm-title">{a.title}</a>
@@ -174,7 +174,7 @@ export default function NewsManager({ actorId }) {
                   {live && <a href={articlePath(a.slug)} target="_blank" rel="noopener noreferrer" className="nm-btn">View</a>}
                   <a href={`/news-management/poster/${a.id}`} className="nm-btn" title="Make a Facebook poster from this article"><i className="fas fa-image"></i> Poster</a>
                   {live
-                    ? <button type="button" className="nm-btn" disabled={busyId === a.id} onClick={() => act(a, a.is_featured ? 'unfeature' : 'feature')}>{a.is_featured ? 'Unfeature' : 'Make top story'}</button>
+                    ? <button type="button" className="nm-btn" disabled={busyId === a.id} onClick={() => act(a, a.is_featured ? 'unfeature' : 'feature')}>{a.is_featured ? 'Unfeature' : 'Feature'}</button>
                     : <button type="button" className="nm-btn" disabled={busyId === a.id} onClick={() => act(a, 'publish')}>Publish</button>}
                   {live && <button type="button" className="nm-btn" disabled={busyId === a.id} onClick={() => act(a, 'unpublish')}>Unpublish</button>}
                   <button type="button" className="nm-btn danger" disabled={busyId === a.id} onClick={() => remove(a)}>Delete</button>

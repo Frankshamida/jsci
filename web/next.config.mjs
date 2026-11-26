@@ -19,8 +19,9 @@ const DASHBOARD_SECTIONS = [
   'daily-quote',
   'events',
   'events-management',
+  // Dashboard > Giving. /giving itself is the public giving page.
+  'giving-management',
   'isom-management',
-  'live-stream-management',
   'messages',
   'ministry-management',
   'ministry-meetings',
@@ -34,6 +35,7 @@ const DASHBOARD_SECTIONS = [
   'recordings',
   'reports',
   'roles-permissions',
+  'social-media',
   'spiritual-assistant',
   'system-config',
   'terms-conditions',
@@ -53,10 +55,17 @@ const nextConfig = {
   images: {
     domains: ['img.youtube.com', 'i.ytimg.com', 'res.cloudinary.com'],
   },
+  // Addresses that moved. Old links - shared, bookmarked - keep working.
+  async redirects() {
+    return [
+      // Dashboard > Live & Videos is Dashboard > Social Media.
+      { source: '/live-stream-management', destination: '/social-media', permanent: true },
+    ];
+  },
   async rewrites() {
     return {
       // afterFiles: only apply when no real page/file matches the path,
-      // so /login, /signup, /live, /dashboard, etc. keep working.
+      // so /login, /signup, /sunday-service, /dashboard, etc. keep working.
       afterFiles: [
         ...DASHBOARD_SECTIONS.map((section) => ({
           source: `/${section}`,

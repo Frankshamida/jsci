@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Midweek Service">
+<defs><style>@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&amp;display=swap');</style>
+<linearGradient id="ca-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD43B"/><stop offset="1" stop-color="#F5B800"/></linearGradient>
+<pattern id="ca-lines" width="22" height="22" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="22" fill="#14151F" opacity="0.07"/></pattern>
+<linearGradient id="ca-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B1D2B"/><stop offset="1" stop-color="#0A0A0F"/></linearGradient></defs>
+
+<rect width="1280" height="720" fill="url(#ca-bg)"/>
+<circle cx="1280" cy="0" r="340" fill="#FFD43B" opacity="0.05"/>
+<path d="M0 0 H420 L380 720 H0 Z" fill="url(#ca-gold)"/>
+<path d="M0 0 H420 L380 720 H0 Z" fill="url(#ca-lines)"/>
+<text x="200" y="230" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="700" font-size="40" letter-spacing="6" text-anchor="middle" fill="#14151F">WEDNESDAY</text>
+<text x="200" y="430" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="800" font-size="220" letter-spacing="-6" text-anchor="middle" fill="#14151F">25</text>
+<rect x="150" y="468" width="100" height="5" rx="2.5" fill="#14151F"/>
+<text x="200" y="530" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="700" font-size="32" letter-spacing="3" text-anchor="middle" fill="#14151F">NOVEMBER 2026</text>
+<text x="500" y="140" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="600" font-size="30" letter-spacing="0" text-anchor="start" fill="#FFD43B">Midweek Service</text>
+<text font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="800" font-size="140" letter-spacing="-1.40" text-anchor="start" fill="#FFFFFF" ><tspan x="500" y="299.7">Midweek</tspan><tspan x="500" y="439.7">Service</tspan></text>
+<rect x="500" y="473.7" width="120" height="8" rx="4" fill="#FFD43B"/>
+
+<text x="500" y="664" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="600" font-size="24" letter-spacing="0" text-anchor="start" fill="#FFFFFF" opacity="0.55">Joyful Sound Church International</text>
+<circle cx="1172" cy="654" r="34" fill="#FFD43B"/><path d="M1162.48 639.72 L1187.64 654 L1162.48 668.28 Z" fill="#14151F" stroke="#14151F" stroke-width="2.72" stroke-linejoin="round"/>
+</svg>

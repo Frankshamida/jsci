@@ -1,0 +1,123 @@
+/* ==========================================================================
+   DASHBOARD > GIVING - what the Gifts and Appeals tabs add to the Social
+   Media pieces (components/social/social.css). The same tokens, so dark mode
+   only re-colours, and each colour eases across.
+   ========================================================================== */
+
+.gvm-tab-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--sm-on-accent);
+  background: var(--sm-accent);
+  box-sizing: border-box;
+}
+
+.sm-status.warn { color: var(--sm-warn); background: var(--sm-warn-bg); }
+.sm-status.bad { color: var(--sm-red-ink); background: var(--sm-red-bg); }
+
+/* A gift: its amount where a service has its thumbnail. */
+.gvm-row { grid-template-columns: 136px minmax(0, 1fr) auto; }
+.gvm-amount {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  align-self: stretch;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--sm-soft);
+  box-shadow: 0 0 0 1px var(--sm-line);
+  min-width: 0;
+}
+.gvm-amount strong { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.01em; color: var(--sm-ink); overflow-wrap: anywhere; }
+.gvm-amount span { font-size: 0.76rem; line-height: 1.35; color: var(--sm-muted); overflow-wrap: anywhere; }
+.gvm-row.is-off .gvm-amount strong { color: var(--sm-muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+.gvm-when { font-size: 0.78rem; color: var(--sm-muted); }
+.gvm-tag { font-size: 0.72rem; font-weight: 600; color: var(--sm-gold); }
+.gvm-email { font-weight: 500; color: var(--sm-muted); }
+.gvm-msg {
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--sm-ink);
+  background: var(--sm-tint);
+  overflow-wrap: anywhere;
+}
+
+/* "Confirm this gift?" - what is being confirmed, at a glance. */
+.gvm-ask { display: flex; flex-direction: column; gap: 14px; }
+.gvm-facts { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--sm-soft); border: 1px solid var(--sm-line); }
+.gvm-facts > div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.86rem; }
+.gvm-facts dt { color: var(--sm-muted); }
+.gvm-facts dd { margin: 0; font-weight: 700; color: var(--sm-ink); text-align: right; overflow-wrap: anywhere; }
+
+.gvm-form { max-width: 620px; }
+
+/* An appeal's thumbnail: its picture, or the jar. */
+.gvm-thumb { display: block; aspect-ratio: 16 / 10; overflow: hidden; background: var(--sm-soft); }
+.gvm-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.gvm-thumb img.is-jar { width: auto; height: 90%; margin: 5% auto 0; object-fit: contain; }
+.sm-row.is-off .gvm-thumb img { opacity: 0.55; filter: grayscale(0.5); }
+
+/* A drive's photos: the cover first, then the rest, then "+ Add photos". */
+.gvm-photos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.gvm-photo {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--sm-soft);
+  box-shadow: 0 0 0 1px var(--sm-line);
+}
+.gvm-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.gvm-cover {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  color: var(--sm-on-accent);
+  background: var(--sm-accent);
+}
+.gvm-photo-btn {
+  position: absolute;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(10, 10, 20, 0.62);
+}
+.gvm-photo-btn.is-x { top: 5px; right: 5px; width: 24px; height: 24px; border-radius: 50%; font-size: 1rem; line-height: 1; }
+.gvm-photo-btn.is-cover { left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 999px; font-size: 0.66rem; font-weight: 700; opacity: 0; transition: opacity 0.15s ease; }
+.gvm-photo:hover .gvm-photo-btn.is-cover, .gvm-photo-btn.is-cover:focus-visible { opacity: 1; }
+.gvm-photo-btn:focus-visible { outline: 3px solid var(--sm-focus); outline-offset: 1px; }
+.gvm-add {
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed var(--sm-line-strong);
+  box-shadow: none;
+  background: var(--sm-tint);
+  color: var(--sm-gold);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.gvm-add input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.gvm-add:focus-within { outline: 3px solid var(--sm-focus); outline-offset: 2px; }
+@media (hover: none) { .gvm-photo-btn.is-cover { opacity: 1; } }
+.gvm-card-preview { max-width: 300px; }
+
+@media (max-width: 720px) {
+  .gvm-row { grid-template-columns: 112px minmax(0, 1fr); }
+}

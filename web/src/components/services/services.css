@@ -1,0 +1,469 @@
+/* ==========================================================================
+   THE SERVICE PAGES - /sunday-service and /midweek (and each service's own
+   page under them), one design for both (components/services/ServiceClient).
+   The landing page's navbar and footer (components/SiteChrome, styled by
+   home.css) around a dark band the player rises out of, and the list of
+   services beside it.
+
+   Light and dark mode differ in colour only: the same elements, the same
+   sizes, and every colour eases from one to the other.
+   ========================================================================== */
+
+.wt-page {
+  --wt-ink: #1f1f2b;
+  --wt-muted: #6b6b76;
+  --wt-line: rgba(26, 26, 46, 0.1);
+  --wt-soft: #faf7f0;
+  --wt-card: #ffffff;
+  --wt-gold-ink: #926c15;
+  --wt-ease: 0.35s ease;
+  min-height: 100vh;
+  background-color: #f6f4ef;
+  color: var(--wt-ink);
+  font-family: var(--font-body);
+  transition: background-color var(--wt-ease), color var(--wt-ease);
+}
+/* Everything that changes colour with the mode eases into it. */
+.wt-page :where(.wt-list, .wt-list-head h3, .wt-list-head span, .wt-chips button, .wt-item, .wt-item-main strong,
+  .wt-item-main small, .wt-item-meta, .wt-thumb, .wt-info h2, .wt-speaker, .wt-desc, .wt-tags, .wt-cat, .wt-fb-note,
+  .wt-btn, .wt-empty, .wt-empty h2, .wt-empty p, .wt-watched) {
+  transition: background-color var(--wt-ease), color var(--wt-ease), border-color var(--wt-ease), box-shadow var(--wt-ease);
+}
+.wt-wrap { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 24px; box-sizing: border-box; }
+.wt-main { padding-bottom: 56px; }
+
+/* ---- The dark band under the navbar ---- */
+.wt-head {
+  position: relative;
+  padding: 118px 0 132px;
+  color: #fff;
+  background:
+    radial-gradient(ellipse at 85% 0%, rgba(255, 195, 0, 0.16) 0%, transparent 55%),
+    radial-gradient(ellipse at 0% 100%, rgba(146, 108, 21, 0.22) 0%, transparent 50%),
+    #12121c;
+}
+.wt-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.wt-eyebrow.is-live { color: #ff6b6b; }
+.wt-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 0 currentColor;
+  animation: wt-pulse 1.6s ease-out infinite;
+}
+@keyframes wt-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.6); }
+  100% { box-shadow: 0 0 0 7px rgba(255, 107, 107, 0); }
+}
+.wt-head h1 {
+  margin: 10px 0 0;
+  font-size: clamp(2rem, 4.6vw, 3.3rem);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  background: linear-gradient(135deg, var(--secondary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.wt-head p { max-width: 620px; margin: 12px 0 0; font-size: clamp(0.95rem, 1.5vw, 1.08rem); line-height: 1.6; color: rgba(255, 255, 255, 0.78); }
+
+/* ---- The player beside the list; both rise into the band ---- */
+.wt-layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 370px;
+  align-items: start;
+  gap: 28px;
+  margin-top: -100px;
+}
+.wt-primary { min-width: 0; }
+
+.wt-frame-wait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  font-size: 0.92rem;
+  color: rgba(255, 255, 255, 0.7);
+  background: radial-gradient(circle at 50% 45%, #1d1d2c 0%, #050508 75%);
+  box-shadow: 0 18px 44px rgba(10, 10, 20, 0.28);
+}
+.wt-frame-wait.is-note { flex-direction: row; gap: 10px; padding: 24px; text-align: center; }
+.wt-frame-wait.is-note i { color: var(--accent); }
+
+.wt-spinner {
+  display: inline-block;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  animation: wt-spin 0.9s linear infinite;
+}
+.wt-spinner.is-dark { width: 26px; height: 26px; border-color: rgba(26, 26, 46, 0.2); border-top-color: #1a1a2e; }
+@keyframes wt-spin { to { transform: rotate(360deg); } }
+
+/* The video, for a signed-in viewer: its thumbnail template, opening it on
+   Facebook. Nothing darkens the thumbnail at rest; the big play button comes
+   with a light dim on hover and keyboard focus only, as every template puts
+   the title across the middle. "Watch on Facebook" sits bottom-right, clear of
+   the church name and the date, while the picture is wide enough; narrower,
+   it is a bar under the picture. */
+.wt-poster {
+  position: relative;
+  display: block;
+  border-radius: 16px;
+  overflow: hidden;
+  text-decoration: none;
+  color: #fff !important;
+  background: #14151f;
+  box-shadow: 0 18px 44px rgba(10, 10, 20, 0.28);
+  isolation: isolate;
+  container-type: inline-size;
+}
+.wt-poster-frame { position: relative; display: block; aspect-ratio: 16 / 9; }
+.wt-poster-art { position: absolute; inset: 0; }
+.wt-poster-art .mwt { height: 100%; }
+.wt-poster-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 18, 0);
+  transition: background 0.2s ease;
+  pointer-events: none;
+}
+.wt-poster-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  font-size: 1.8rem;
+  color: #1a1a2e;
+  background: var(--accent);
+  box-shadow: 0 0 0 10px rgba(255, 195, 0, 0.22), 0 12px 30px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.85);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+.wt-poster-play .fa-play { margin-left: 5px; }
+@media (hover: hover) {
+  a.wt-poster:hover .wt-poster-frame::after { background: rgba(10, 10, 18, 0.38); }
+  a.wt-poster:hover .wt-poster-play { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+a.wt-poster:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+a.wt-poster:focus-visible .wt-poster-frame::after { background: rgba(10, 10, 18, 0.38); }
+a.wt-poster:focus-visible .wt-poster-play { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+/* Still getting the link: the spinner shows where the play button goes. */
+.wt-poster.is-wait { cursor: progress; }
+.wt-poster.is-wait .wt-poster-play { opacity: 1; transform: translate(-50%, -50%) scale(0.7); }
+.wt-poster.is-wait .wt-poster-cta { background: rgba(24, 119, 242, 0.6); }
+.wt-poster-cta {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #fff;
+  background: #1877f2;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+.wt-poster-out { font-size: 0.72em; opacity: 0.85; }
+@container (max-width: 760px) {
+  .wt-poster-cta {
+    position: static;
+    display: flex;
+    justify-content: center;
+    padding: 12px 16px;
+    border-radius: 0;
+    font-size: 0.92rem;
+    box-shadow: none;
+  }
+  .wt-poster-play { width: 64px; height: 64px; font-size: 1.4rem; box-shadow: 0 0 0 7px rgba(255, 195, 0, 0.22), 0 10px 24px rgba(0, 0, 0, 0.4); }
+}
+
+/* A Sunday Service, playing here: Facebook's player, 16:9. */
+.wt-player {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 18px 44px rgba(10, 10, 20, 0.28);
+}
+.wt-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+/* Where the video goes, for somebody who is not signed in. */
+.wt-gate {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  min-height: 330px;
+  padding: 28px 22px;
+  border-radius: 16px;
+  overflow: hidden;
+  text-align: center;
+  color: #fff;
+  background: radial-gradient(circle at 50% 40%, #232336 0%, #0b0b12 78%);
+  box-shadow: 0 18px 44px rgba(10, 10, 20, 0.28);
+  box-sizing: border-box;
+}
+/* The service's thumbnail, faint, behind the card. */
+.wt-gate-bg { position: absolute; inset: 0; display: flex; align-items: center; opacity: 0.22; filter: blur(2px); transform: scale(1.04); pointer-events: none; }
+.wt-gate-bg .mwt { background: transparent; }
+.wt-gate-inner { position: relative; max-width: 470px; }
+.wt-gate-lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  font-size: 1.3rem;
+  color: #1a1a2e;
+  background: var(--accent);
+  box-shadow: 0 0 0 8px rgba(255, 195, 0, 0.14);
+}
+.wt-gate h2 { margin: 0; font-size: clamp(1.2rem, 2.6vw, 1.6rem); font-weight: 800; line-height: 1.25; color: #fff; }
+.wt-gate h2 span { color: var(--accent); }
+.wt-gate p { margin: 10px 0 0; font-size: 0.95rem; line-height: 1.6; color: rgba(255, 255, 255, 0.78); }
+.wt-gate-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 20px; }
+.wt-gate-login,
+.wt-gate-signup {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.wt-gate-login { color: #1a1a2e !important; background: var(--accent); }
+.wt-gate-login:hover { background: var(--light-yellow); transform: translateY(-1px); }
+.wt-gate-signup { color: #fff !important; border: 1px solid rgba(255, 255, 255, 0.45); }
+.wt-gate-signup:hover { background: rgba(255, 255, 255, 0.1); }
+.wt-gate small { display: block; margin-top: 14px; font-size: 0.8rem; color: rgba(255, 255, 255, 0.55); }
+
+/* ---- About the video ---- */
+.wt-info { padding: 22px 4px 0; }
+.wt-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 0.84rem; color: var(--wt-muted); }
+.wt-cat {
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wt-gold-ink);
+  background: rgba(255, 195, 0, 0.18);
+}
+.wt-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: #dc2626;
+}
+.wt-live .wt-dot { width: 7px; height: 7px; }
+.wt-live.is-small { gap: 5px; padding: 1px 7px; font-size: 0.64rem; }
+.wt-live.is-small .wt-dot { width: 5px; height: 5px; animation: none; }
+.wt-info h2 { margin: 12px 0 0; font-size: clamp(1.4rem, 2.6vw, 1.9rem); font-weight: 800; line-height: 1.2; color: var(--wt-ink); }
+.wt-speaker { margin: 8px 0 0; font-size: 1rem; font-weight: 600; color: var(--wt-ink); }
+.wt-desc { margin: 12px 0 0; max-width: 760px; font-size: 0.98rem; line-height: 1.7; white-space: pre-line; color: var(--wt-muted); }
+.wt-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+
+.wt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: #1a1a2e !important;
+  background: var(--accent);
+  cursor: pointer;
+}
+.wt-btn:hover { background: var(--light-yellow); }
+.wt-btn.is-soft { color: var(--wt-ink) !important; background: var(--wt-card); border-color: var(--wt-line); }
+.wt-btn.is-soft:hover { border-color: var(--secondary); color: var(--wt-gold-ink) !important; }
+.wt-btn i { font-size: 0.9em; }
+
+.wt-btn.is-fb { color: #fff !important; background: #1877f2; }
+.wt-btn.is-fb:hover { background: #0f63d6; }
+.wt-fb-note { margin: 14px 0 0; font-size: 0.82rem; line-height: 1.5; color: var(--wt-muted); }
+
+/* ---- The list of services ---- */
+.wt-list {
+  position: sticky;
+  top: 92px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 110px);
+  padding: 18px 14px 10px;
+  border-radius: 16px;
+  border: 1px solid var(--wt-line);
+  background: var(--wt-card);
+  box-shadow: 0 18px 44px rgba(10, 10, 20, 0.12);
+  box-sizing: border-box;
+}
+.wt-list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 6px 12px; }
+.wt-list-head h3 { margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--wt-ink); }
+.wt-list-head span { font-size: 0.8rem; color: var(--wt-muted); }
+
+.wt-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 6px 12px; }
+.wt-chips button {
+  padding: 6px 12px;
+  border: 1px solid var(--wt-line);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--wt-ink);
+  background: transparent;
+  cursor: pointer;
+}
+.wt-chips button.on { color: #1a1a2e; background: var(--accent); border-color: var(--accent); }
+
+.wt-items { list-style: none; margin: 0; padding: 0 2px 4px; overflow-y: auto; overscroll-behavior: contain; }
+.wt-items li + li { margin-top: 4px; }
+.wt-item {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font: inherit;
+  text-align: left;
+  color: inherit !important;
+  text-decoration: none;
+  background: transparent;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.wt-item:hover { background: var(--wt-soft); }
+.wt-item.is-current { background: rgba(255, 195, 0, 0.12); border-color: rgba(201, 152, 11, 0.45); }
+.wt-item:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+
+/* The service's thumbnail. */
+.wt-thumb { display: block; border-radius: 8px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06); }
+.wt-item.is-current .wt-thumb { box-shadow: 0 0 0 2px var(--accent); }
+.wt-now { padding: 1px 7px; border-radius: 999px; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #1a1a2e; background: var(--accent); }
+
+.wt-item-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wt-item-main strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--wt-ink);
+}
+.wt-item-main small { font-size: 0.76rem; color: var(--wt-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-item-meta { display: flex; align-items: center; gap: 8px; min-height: 16px; font-size: 0.74rem; font-weight: 600; color: var(--wt-muted); }
+.wt-watched { color: #15803d; }
+.wt-item-lock { margin-left: auto; font-size: 0.72rem; color: var(--wt-muted); }
+
+/* ---- No videos yet ---- */
+.wt-empty {
+  position: relative;
+  margin-top: -100px;
+  padding: 48px 24px;
+  border-radius: 16px;
+  text-align: center;
+  background: var(--wt-card);
+  border: 1px solid var(--wt-line);
+  box-shadow: 0 18px 44px rgba(10, 10, 20, 0.12);
+}
+.wt-empty h2 { margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--wt-ink); }
+.wt-empty p { max-width: 520px; margin: 10px auto 0; line-height: 1.6; color: var(--wt-muted); }
+.wt-empty-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 22px; }
+
+/* ---- Narrower screens: the list goes under the video ---- */
+@media (max-width: 980px) {
+  .wt-layout { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .wt-list { position: static; max-height: none; }
+  .wt-items { overflow: visible; }
+}
+@media (max-width: 600px) {
+  .wt-wrap { padding: 0 14px; }
+  .wt-head { padding: 96px 0 92px; }
+  .wt-layout, .wt-empty { margin-top: -70px; }
+  .wt-player { border-radius: 12px; }
+  .wt-gate { aspect-ratio: auto; min-height: 0; padding: 30px 18px; border-radius: 12px; }
+  .wt-poster { border-radius: 12px; }
+  .wt-item { grid-template-columns: 96px minmax(0, 1fr); }
+  .wt-gate-btns { flex-direction: column; align-items: stretch; }
+  .wt-gate-login, .wt-gate-signup { justify-content: center; }
+  .wt-frame-wait { border-radius: 12px; }
+  .wt-info { padding-top: 18px; }
+  .wt-list { padding: 14px 8px 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wt-spinner, .wt-dot { animation: none; }
+  .wt-page, .wt-page * { transition: none !important; }
+  .wt-poster-play, .wt-poster-frame::after { transition: none; }
+}
+
+/* ---- Dark mode (the visitor's own setting, saved by the main site) ---- */
+body.dark-mode .wt-page {
+  --wt-ink: #ececf2;
+  --wt-muted: #a9a9b6;
+  --wt-line: rgba(255, 255, 255, 0.1);
+  --wt-soft: #23232f;
+  --wt-card: #1b1b26;
+  --wt-gold-ink: var(--accent);
+  background-color: #13131b;
+}
+body.dark-mode .wt-watched { color: #4ade80; }
+body.dark-mode .wt-btn.is-soft:hover { color: var(--accent) !important; }
+
+/* Tithes & Offering under an empty Sunday Service page (components/giving/TithesCard). */
+.wt-empty-give { max-width: 640px; margin: 0 auto; }

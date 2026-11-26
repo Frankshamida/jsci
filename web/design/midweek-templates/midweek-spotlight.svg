@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Midweek Service">
+<defs><style>@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&amp;display=swap');</style>
+<linearGradient id="sp-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1D1E2C"/><stop offset="1" stop-color="#0A0A0F"/></linearGradient>
+<radialGradient id="sp-glow" cx="0.78" cy="0.35" r="0.55"><stop offset="0" stop-color="#F5B800" stop-opacity="0.38"/><stop offset="1" stop-color="#F5B800" stop-opacity="0"/></radialGradient>
+<linearGradient id="sp-title" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE27A"/><stop offset="1" stop-color="#F5B800"/></linearGradient>
+<linearGradient id="sp-fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0.35" stop-color="#0A0A0F" stop-opacity="0.85"/><stop offset="1" stop-color="#0A0A0F" stop-opacity="0"/></linearGradient></defs>
+
+<rect width="1280" height="720" fill="url(#sp-bg)"/>
+<rect width="1280" height="720" fill="url(#sp-glow)"/>
+<circle cx="1010" cy="300" r="170" fill="none" stroke="#FFD43B" stroke-opacity="0.22" stroke-width="3"/><circle cx="1010" cy="300" r="240" fill="none" stroke="#FFD43B" stroke-opacity="0.175" stroke-width="1.5"/><circle cx="1010" cy="300" r="310" fill="none" stroke="#FFD43B" stroke-opacity="0.13" stroke-width="1.5"/><circle cx="1010" cy="300" r="380" fill="none" stroke="#FFD43B" stroke-opacity="0.08499999999999999" stroke-width="1.5"/>
+<g opacity="0.16" fill="#FFD43B"><rect x="996" y="160" width="28" height="280" rx="6"/><rect x="920" y="230" width="180" height="28" rx="6"/></g>
+<rect width="760" height="720" fill="url(#sp-fade)"/>
+<rect x="88" y="104" width="56" height="5" rx="2.5" fill="#FFD43B"/>
+<text x="160" y="112" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="700" font-size="24" letter-spacing="4" text-anchor="start" fill="#FFD43B">MIDWEEK SERVICE</text>
+<text font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="800" font-size="150" letter-spacing="-1.50" text-anchor="start" fill="url(#sp-title)" ><tspan x="88" y="312.8">Midweek</tspan><tspan x="88" y="459.8">Service</tspan></text>
+<text x="88" y="521.75" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="500" font-size="34" letter-spacing="0" text-anchor="start" fill="#FFFFFF" opacity="0.78">Wednesday, November 25, 2026</text>
+
+<line x1="88" y1="630" x2="1192" y2="630" stroke="#FFFFFF" stroke-opacity="0.12"/>
+<text x="88" y="676" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="600" font-size="24" letter-spacing="0" text-anchor="start" fill="#FFFFFF" opacity="0.65">Joyful Sound Church International</text>
+<circle cx="1160" cy="666" r="26" fill="#FFD43B"/><path d="M1152.72 655.08 L1171.96 666 L1152.72 676.92 Z" fill="#14151F" stroke="#14151F" stroke-width="2.08" stroke-linejoin="round"/>
+<text x="1118" y="675" font-family="'Outfit','Segoe UI',Arial,sans-serif" font-weight="600" font-size="24" letter-spacing="0" text-anchor="end" fill="#FFFFFF" opacity="0.8">Watch the service</text>
+</svg>

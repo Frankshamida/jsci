@@ -7,20 +7,22 @@ import { categoryCounts, publishedArticle, publishedList, safely } from '@/lib/n
 import { supabaseAdmin } from '@/lib/supabase';
 import { brandFor } from '@/lib/branding';
 import { readBranding } from '@/lib/brandingServer';
-import { DEFAULT_CARD_IMAGE, OG_HEIGHT, OG_WIDTH, absoluteUrl, siteOrigin, socialCardImage } from '@/lib/socialCard';
+import { DEFAULT_CARD_IMAGE, OG_HEIGHT, OG_WIDTH, absoluteUrl, newsCardImage, siteOrigin } from '@/lib/socialCard';
 import { evtDate } from '@/lib/eventWhen';
 import { SiteFooter, SiteNavbar } from '@/components/SiteChrome';
 import { MoreNews, ReadingProgress, ViewPing } from '@/components/news/NewsClient';
 import Story from '@/components/news/Story';
+import GivingCard from '@/components/giving/GivingCard';
+import { featuredCampaigns } from '@/lib/givingServer';
 
 // /news/<slug> - one article, laid out to be read (see components/news/Story
 // for the article itself, in English, Tagalog or Bisaya).
 //
 // Drawn on the server, so a link shared on Facebook, Messenger or Viber shows
-// the article's picture, headline and summary: the picture is reshaped to the
-// 1200x630 card those apps expect, without cropping a poster's words off
-// (lib/socialCard). Cached for a minute and refreshed at once when the
-// article is saved.
+// the article's picture, headline and summary: the picture fills the whole
+// 1200x630 card those apps expect, cropped around its subject
+// (lib/socialCard newsCardImage). Cached for a minute and refreshed at once
+// when the article is saved.
 
 export const revalidate = 60;
 
@@ -34,10 +36,10 @@ export async function generateMetadata({ params }) {
 
   const origin = siteOrigin();
   const url = `${origin}${articlePath(article.slug)}`;
-  const card = article.featured_image_url ? socialCardImage(article.featured_image_url, origin) : '';
+  const card = article.featured_image_url ? newsCardImage(article.featured_image_url, origin) : '';
   const image = card || absoluteUrl(DEFAULT_CARD_IMAGE, origin);
   // Only promise 1200x630 when the image really is that shape: a Cloudinary
-  // upload reshaped by socialCardImage, or the default card.
+  // upload filled to the card by newsCardImage, or the default card.
   const sized = !card || card !== absoluteUrl(article.featured_image_url, origin);
   const description = article.summary || `News from ${brand.church}.`;
 
@@ -120,12 +122,15 @@ export default async function ArticlePage({ params }) {
   const article = await safely(() => publishedArticle(params.slug), null);
   if (!article) notFound();
 
-  const [{ articles: latestAll }, { articles: sameTopic }, counts, events] = await Promise.all([
+  const [{ articles: latestAll }, { articles: sameTopic }, counts, events, appeals] = await Promise.all([
     safely(() => publishedList({ limit: 13 }), { articles: [] }),
     safely(() => publishedList({ limit: 8, category: article.category }), { articles: [] }),
     safely(() => categoryCounts(), {}),
     safely(() => linkedEvents(article.content), {}),
+    // A featured giving appeal, shown beside the story like a quiet advertisement.
+    safely(() => featuredCampaigns(), []),
   ]);
+  const appeal = appeals[0] || null;
   const others = (list) => list.filter((a) => a.id !== article.id);
   const suggested = suggestionsFor(article, [...sameTopic, ...latestAll]);
   const latest = others(latestAll).slice(0, 6);
@@ -165,19 +170,18 @@ export default async function ArticlePage({ params }) {
           src: newsImage(coverUrl, 1200),
           srcSet: [760, 1200, 1600].map((w) => `${newsImage(coverUrl, w)} ${w}w`).join(', '),
         } : null}
+        aside={appeal ? <GivingCard campaign={appeal} variant="rail" /> : null}
+        asideInline={appeal ? <GivingCard campaign={appeal} variant="inline" /> : null}
         labels={{
           initials: initials(author),
           // Worked out here, once, so the page and the browser agree on them.
           dateLine: `${newsDate(article.published_at, { month: 'long' })}${edited ? ` · Updated ${timeAgo(article.updated_at)}` : ''} · ${views.toLocaleString()} ${views === 1 ? 'view' : 'views'}`,
-          published: newsDate(article.published_at, { month: 'long' }),
-          updated: edited ? `Updated ${newsDate(article.updated_at, { month: 'long' })}` : '',
         }}
       />
 
       {/* ---- More news: suggestions, the latest, or any topic ---- */}
       <MoreNews
         currentId={article.id}
-        category={article.category}
         suggested={suggested}
         latest={latest}
         counts={otherCounts}
@@ -194,7 +198,7 @@ export default async function ArticlePage({ params }) {
           </div>
           <div className="nw-invite-actions">
             <Link href="/#plan-visit" className="nw-btn">Plan your visit</Link>
-            <Link href="/live" className="nw-btn-ghost">Watch live</Link>
+            <Link href="/sunday-service" className="nw-btn-ghost">Watch live</Link>
           </div>
         </div>
       </section>

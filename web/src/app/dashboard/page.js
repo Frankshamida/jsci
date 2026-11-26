@@ -57,6 +57,10 @@ import { eventDayForToday, eventTodayKey, guessDoorCheckIn, localDateKey } from 
 import { isImageProof, isPdfProof, proofFileName } from '@/lib/proofFile';
 import JoyKnowledgeManager from '@/components/JoyKnowledgeManager';
 import NewsManager from '@/components/NewsManager';
+import SocialMedia from '@/components/social/SocialMedia';
+import GivingAdmin from '@/components/giving/admin/GivingAdmin';
+import FeaturedGiving from '@/components/giving/FeaturedGiving';
+import { isGuestOnly } from '@/lib/viewer';
 import {
   PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
   channelHasAccount, channelNeedsProof, channelNameLabel, channelNamePlaceholder,
@@ -289,7 +293,7 @@ const VALID_SECTIONS = new Set([
   'accommodation',
   'home', 'announcements', 'announcements-management', 'attendance-management', 'audit-logs',
   'bible-reader', 'cloudinary-usage', 'community-events', 'community-hub', 'create-lineup',
-  'daily-quote', 'events', 'events-management', 'isom-management', 'live-stream-management',
+  'daily-quote', 'events', 'events-management', 'giving-management', 'isom-management', 'social-media',
   'messages', 'ministry-management', 'ministry-meetings', 'ministry-oversight', 'my-created-events', 'news-management',
   'my-profile', 'permissions-control', 'praise-worship', 'recordings', 'reports', 'roles-permissions',
   'spiritual-assistant', 'system-config', 'terms-conditions', 'user-events-oversight',
@@ -300,12 +304,16 @@ const VALID_SECTIONS = new Set([
 // Accommodation section the desk works in lives at /accommodation-desk.
 const SECTION_PATHS = { accommodation: 'accommodation-desk' };
 const PATH_SECTIONS = Object.fromEntries(Object.entries(SECTION_PATHS).map(([section, path]) => [path, section]));
+// A section's earlier name, from an old link or bookmark: Live & Videos
+// (/live-stream-management) is Social Media (/social-media) now.
+const OLD_SECTIONS = { 'live-stream-management': 'social-media' };
 const resolveSectionFromPath = () => {
   if (typeof window === 'undefined') return 'home';
   const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
-  const slug = PATH_SECTIONS[path] || path;
+  const slug = PATH_SECTIONS[path] || OLD_SECTIONS[path] || path;
   if (slug && slug !== 'dashboard' && VALID_SECTIONS.has(slug)) return slug;
-  const hash = window.location.hash.replace('#', '');
+  const raw = window.location.hash.replace('#', '');
+  const hash = OLD_SECTIONS[raw] || raw;
   return (hash && VALID_SECTIONS.has(hash)) ? hash : 'home';
 };
 
@@ -2793,10 +2801,6 @@ export default function DashboardPage() {
 
   // Facebook Live Streams
   const [liveStreams, setLiveStreams] = useState([]);
-  const [liveStreamForm, setLiveStreamForm] = useState({ iframe_url: '', caption: 'Sunday Service Live', title: 'Sunday Service Live' });
-  const [showLiveStreamForm, setShowLiveStreamForm] = useState(false);
-  const [editingLiveStream, setEditingLiveStream] = useState(null);
-  const [liveStreamLoading, setLiveStreamLoading] = useState(false);
   const [activeLiveStream, setActiveLiveStream] = useState(null); // currently viewed live in community
   const [liveStreamComments, setLiveStreamComments] = useState([]);
   const [liveStreamCommentInput, setLiveStreamCommentInput] = useState('');
@@ -3054,6 +3058,15 @@ export default function DashboardPage() {
     const stored = JSON.parse(sessionStorage.getItem('userData') || localStorage.getItem('userData') || '{}');
     if (!stored || !stored.firstname) {
       router.replace('/login');
+      return;
+    }
+    // Guests have no dashboard: their home is the landing page (its "Your
+    // home" panel, components/guest/GuestHome). Not while a sign-up is on its
+    // way to an event's registration form, which still opens here.
+    let pendingEvent = false;
+    try { pendingEvent = !!localStorage.getItem('pendingEventRegistration'); } catch { /* none */ }
+    if (isGuestOnly(stored) && !pendingEvent) {
+      router.replace('/#my-home');
       return;
     }
     setUserData(stored);
@@ -3548,7 +3561,6 @@ export default function DashboardPage() {
     if (sectionId === 'ministry-meetings') loadMeetings();
     if (sectionId === 'community-hub' && canOpenCommunityHub) loadCommunityPosts();
     if (sectionId === 'community-hub' && canOpenCommunityHub) loadLiveStreams();
-    if (sectionId === 'live-stream-management') loadLiveStreams();
     if (sectionId === 'recordings') { loadRecordings(); loadPracticeRecordingsListing(); }
     if (sectionId === 'messages') loadMessages();
     if (sectionId === 'attendance-management') { loadAttendance(); loadAdminUsers(); }
@@ -3941,57 +3953,6 @@ export default function DashboardPage() {
     } catch { /* silent */ }
   };
 
-  const handleCreateLiveStream = async () => {
-    if (!liveStreamForm.iframe_url.trim()) { showToast('Please enter the Facebook iframe embed code', 'warning'); return; }
-    setLiveStreamLoading(true);
-    try {
-      const res = await fetch('/api/live-streams', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          iframe_url: liveStreamForm.iframe_url,
-          caption: liveStreamForm.caption || 'Sunday Service Live',
-          title: liveStreamForm.title || 'Sunday Service Live',
-          posted_by: userData?.id,
-          posted_by_name: `${userData?.firstname} ${userData?.lastname}`,
-        }),
-      });
-      const data = await res.json();
-      if (data.id) {
-        showToast('🎥 Live stream posted successfully!', 'success');
-        setLiveStreamForm({ iframe_url: '', caption: 'Sunday Service Live', title: 'Sunday Service Live' });
-        setShowLiveStreamForm(false);
-        loadLiveStreams();
-      } else { showToast(data.error || 'Failed to post live stream', 'danger'); }
-    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
-    setLiveStreamLoading(false);
-  };
-
-  const handleUpdateLiveStream = async (id, updates) => {
-    try {
-      const res = await fetch('/api/live-streams', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, ...updates }),
-      });
-      const data = await res.json();
-      if (data.id) {
-        showToast('Live stream updated', 'success');
-        loadLiveStreams();
-      }
-    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
-  };
-
-  const handleDeleteLiveStream = async (id) => {
-    askConfirm('Are you sure you want to delete this live stream?', async () => {
-      try {
-        await fetch(`/api/live-streams?id=${id}`, { method: 'DELETE' });
-        showToast('Live stream removed', 'success');
-        loadLiveStreams();
-      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
-    });
-  };
-
   const loadLiveStreamComments = async (streamId) => {
     try {
       const res = await fetch(`/api/live-streams/comments?stream_id=${streamId}&user_id=${userData?.id}`);
@@ -4101,7 +4062,7 @@ export default function DashboardPage() {
   };
 
   // Live Stream Share helpers
-  const liveShareUrl = 'https://jsci.vercel.app/live';
+  const liveShareUrl = typeof window !== 'undefined' ? `${window.location.origin}/sunday-service` : '/sunday-service';
 
   const handleLiveShareCopyLink = async () => {
     try {
@@ -10531,8 +10492,8 @@ export default function DashboardPage() {
     try {
       const method = editingAnnouncement ? 'PUT' : 'POST';
       const body = editingAnnouncement
-        ? { id: editingAnnouncement.id, ...announcementForm }
-        : { ...announcementForm, author: userData?.id, authorName: `${userData?.firstname} ${userData?.lastname}` };
+        ? { id: editingAnnouncement.id, ...announcementForm, actorId: userData?.id }
+        : { ...announcementForm, actorId: userData?.id };
       const res = await fetch('/api/announcements', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
       if (data.success) {
@@ -10549,7 +10510,7 @@ export default function DashboardPage() {
 
   const handleDeleteAnnouncement = async (id) => {
     askConfirm('Delete this announcement?', async () => {
-      const res = await fetch(`/api/announcements?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/announcements?id=${id}&actorId=${encodeURIComponent(userData?.id || '')}`, { method: 'DELETE' });
       const data = await res.json();
       showToast(data.message, data.success ? 'success' : 'danger');
       if (data.success) loadAnnouncements();
@@ -34777,7 +34738,7 @@ ${row('Change', rc.change, 'change')}
                       <div className="live-share-preview-info">
                         <span className="live-share-preview-badge"><i className="fas fa-circle"></i> LIVE</span>
                         <strong>{activeLiveStream?.caption || 'Sunday Service Live'}</strong>
-                        <span>jsci.vercel.app/live</span>
+                        <span>{liveShareUrl.replace(/^https?:\/\//, '')}</span>
                       </div>
                     </div>
                     <div className="live-share-buttons-grid">
@@ -35087,6 +35048,9 @@ ${row('Change', rc.change, 'change')}
 
               {/* Sidebar cards */}
               <div className="community-sidebar">
+                {/* Giving: the featured appeal, else "Support the ministry" */}
+                <FeaturedGiving variant="hub" className="community-giving" />
+
                 {/* Verse of the Hour */}
                 <div className="community-card verse-card">
                   <div className="community-card-header">
@@ -35419,90 +35383,16 @@ ${row('Change', rc.change, 'change')}
             {/* Photo Viewer Modal (disabled in favor of dedicated route) */}
           </section>
 
-          {/* ========== LIVE STREAM MANAGEMENT (Admin/SuperAdmin) ========== */}
-          <section className={`content-section ${activeSection === 'live-stream-management' ? 'active' : ''}`}>
-            <h2 className="section-title">Live Stream Management</h2>
+          {/* ========== SOCIAL MEDIA (Admin/SuperAdmin): the Sunday Service (Facebook Live, on /sunday-service) and the Midweek Service (Facebook videos, on /midweek) ========== */}
+          <section className={`content-section ${activeSection === 'social-media' ? 'active' : ''}`}>
+            <h2 className="section-title">Social Media</h2>
+            {activeSection === 'social-media' && userData?.id && <SocialMedia actorId={userData.id} />}
+          </section>
 
-            <button className="btn-primary" style={{ marginBottom: 20, borderRadius: 22, padding: '10px 24px' }} onClick={() => { setShowLiveStreamForm(true); setEditingLiveStream(null); setLiveStreamForm({ iframe_url: '', caption: 'Sunday Service Live', title: 'Sunday Service Live' }); }}>
-              <i className="fas fa-plus"></i> Post New Live Stream
-            </button>
-
-            {showLiveStreamForm && (
-              <div className="live-admin-form-card">
-                <div className="live-admin-form-header">
-                  <div className="live-admin-form-icon">🎥</div>
-                  <h3>{editingLiveStream ? 'Edit Live Stream' : 'Post Facebook Live to Community'}</h3>
-                  <p>Paste the Facebook Live iframe embed code below</p>
-                </div>
-                <div className="live-admin-form-body">
-                  <div className="form-group">
-                    <label><i className="fas fa-code"></i> Facebook Iframe Embed Code *</label>
-                    <textarea className="form-control live-admin-iframe-input" rows={4} placeholder='Paste iframe code from Facebook... e.g. <iframe src="https://www.facebook.com/plugins/video.php?..." ...></iframe>' value={liveStreamForm.iframe_url} onChange={(e) => setLiveStreamForm({ ...liveStreamForm, iframe_url: e.target.value })} />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                    <div className="form-group">
-                      <label><i className="fas fa-heading"></i> Title / Caption</label>
-                      <input className="form-control" style={{ padding: '10px 15px' }} value={liveStreamForm.caption} onChange={(e) => setLiveStreamForm({ ...liveStreamForm, caption: e.target.value, title: e.target.value })} placeholder="Sunday Service Live" />
-                    </div>
-                    <div className="form-group">
-                      <label><i className="fas fa-tag"></i> Custom Title</label>
-                      <input className="form-control" style={{ padding: '10px 15px' }} value={liveStreamForm.title} onChange={(e) => setLiveStreamForm({ ...liveStreamForm, title: e.target.value })} placeholder="Sunday Service Live" />
-                    </div>
-                  </div>
-                  {liveStreamForm.iframe_url && (
-                    <div className="live-admin-preview">
-                      <label><i className="fas fa-eye"></i> Preview</label>
-                      <div className="live-admin-preview-frame">
-                        <iframe src={extractIframeSrc(liveStreamForm.iframe_url)} style={{ width: '100%', height: 300, border: 'none', borderRadius: 12 }} allowFullScreen allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="live-admin-form-footer">
-                  <button className="btn-secondary" onClick={() => { setShowLiveStreamForm(false); setEditingLiveStream(null); }}>Cancel</button>
-                  <button className="btn-primary" onClick={editingLiveStream ? () => handleUpdateLiveStream(editingLiveStream.id, { iframe_url: liveStreamForm.iframe_url, caption: liveStreamForm.caption, title: liveStreamForm.title }) : handleCreateLiveStream} disabled={liveStreamLoading}>
-                    {liveStreamLoading ? <><i className="fas fa-spinner fa-spin"></i> Posting...</> : <><i className="fas fa-paper-plane"></i> {editingLiveStream ? 'Update' : 'Post to Community'}</>}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Live Streams Listing */}
-            <div className="live-admin-list">
-              <h3 style={{ marginBottom: 16, color: 'var(--text-primary)' }}><i className="fas fa-list"></i> All Live Streams ({liveStreams.length})</h3>
-              {liveStreams.length === 0 && <p style={{ color: '#adb5bd', textAlign: 'center', padding: 40 }}>No live streams posted yet.</p>}
-              {liveStreams.map((stream) => (
-                <div key={stream.id} className={`live-admin-item${stream.is_live ? ' is-live' : ''}${!stream.is_active ? ' inactive' : ''}`}>
-                  <div className="live-admin-item-header">
-                    <div className="live-admin-item-status">
-                      {stream.is_live ? <span className="live-badge-pulse"><i className="fas fa-circle"></i> LIVE</span> : <span className="live-badge-ended">Ended</span>}
-                    </div>
-                    <div className="live-admin-item-info">
-                      <h4>{stream.caption || stream.title || 'Sunday Service Live'}</h4>
-                      <span className="live-admin-item-meta">Posted by {stream.posted_by_name} • {formatDateTime(stream.created_at)}</span>
-                    </div>
-                    <div className="live-admin-item-stats">
-                      <span><i className="fas fa-heart" style={{ color: '#e74c3c' }}></i> {stream.reactionCount || 0}</span>
-                      <span><i className="fas fa-comment" style={{ color: 'var(--primary)' }}></i> {stream.commentCount || 0}</span>
-                    </div>
-                  </div>
-                  <div className="live-admin-item-actions">
-                    <button className={`btn-small ${stream.is_live ? 'btn-danger' : 'btn-success'}`} onClick={() => handleUpdateLiveStream(stream.id, { is_live: !stream.is_live })}>
-                      <i className={`fas fa-${stream.is_live ? 'stop' : 'play'}`}></i> {stream.is_live ? 'End Live' : 'Set Live'}
-                    </button>
-                    <button className="btn-small btn-primary" onClick={() => { setEditingLiveStream(stream); setLiveStreamForm({ iframe_url: stream.iframe_url, caption: stream.caption, title: stream.title }); setShowLiveStreamForm(true); }}>
-                      <i className="fas fa-edit"></i> Edit
-                    </button>
-                    <button className={`btn-small ${stream.is_active ? 'btn-warning' : 'btn-success'}`} onClick={() => handleUpdateLiveStream(stream.id, { is_active: !stream.is_active })}>
-                      <i className={`fas fa-${stream.is_active ? 'eye-slash' : 'eye'}`}></i> {stream.is_active ? 'Hide' : 'Show'}
-                    </button>
-                    <button className="btn-small btn-danger" onClick={() => handleDeleteLiveStream(stream.id)}>
-                      <i className="fas fa-trash"></i>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+          {/* ========== GIVING (Admin/SuperAdmin): the gifts sent through /giving, to confirm, and the appeals shown beside the News and in the Community Hub ========== */}
+          <section className={`content-section ${activeSection === 'giving-management' ? 'active' : ''}`}>
+            <h2 className="section-title">Giving</h2>
+            {activeSection === 'giving-management' && userData?.id && <GivingAdmin actorId={userData.id} />}
           </section>
 
           {/* ========== RECORDINGS (Cloudinary) ========== */}
