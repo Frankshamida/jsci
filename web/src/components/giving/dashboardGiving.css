@@ -1,0 +1,114 @@
+/* ============================================
+   GIVE inside the dashboard (components/giving/DashboardGiving.jsx).
+   The giving tokens (.gv-theme, giving.css) colour it, dark mode included.
+   ============================================ */
+/* The full width of the page, like every other dashboard page. */
+.dg { display: flex; flex-direction: column; gap: 18px; }
+.dg h3, .dg p { margin: 0; }
+/* The dashboard's page title keeps its look; 32px to what follows. */
+.dg > .section-title { margin-bottom: 14px; }
+.dg-sub { font-size: 15px; line-height: 1.55; color: var(--gv-ink); }
+
+.dg-tabs { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 16px; background: var(--gv-gray-bg); align-self: flex-start; }
+.dg-tab {
+  min-height: 44px; display: inline-flex; align-items: center; gap: 8px;
+  padding: 0 16px; border: 0; border-radius: 12px; background: transparent;
+  color: var(--gv-muted); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.dg-tab.is-on { background: var(--gv-card); color: var(--gv-head); box-shadow: 0 2px 8px rgba(16, 16, 32, 0.1); }
+.dg-tab.is-on i { color: var(--gv-gold); }
+.dg-tab:focus-visible { outline: 3px solid var(--gv-focus); outline-offset: 2px; }
+
+/* ---- Tithes ---- */
+.dg-tithes {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 22px;
+  padding: 26px 28px;
+}
+.dg-tithes-heart { width: 84px; height: 84px; object-fit: contain; }
+.dg-tithes-text { display: flex; flex-direction: column; gap: 8px; }
+.dg-tithes-text h3 { font-size: 22px; font-weight: 800; color: var(--gv-head); }
+.dg-tithes-text p { font-size: 15px; line-height: 1.55; color: var(--gv-muted); }
+.dg-verse { margin: 6px 0 0; padding: 10px 14px; border-radius: 12px; background: var(--gv-tint); font-size: 14px; font-style: italic; line-height: 1.5; color: var(--gv-ink); }
+.dg-verse cite { display: block; margin-top: 4px; font-style: normal; font-weight: 700; font-size: 12.5px; color: var(--gv-gold); }
+.dg-give-btn { min-height: 48px; padding: 0 22px; white-space: nowrap; }
+
+/* ---- Donations ---- */
+/* The drives share the whole row (auto-fit), however many there are. */
+.dg-drives { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); gap: 20px; }
+.dg-drive { display: flex; flex-direction: column; overflow: hidden; padding: 0 !important; }
+.dg-drive-cover { width: 100%; height: 220px; object-fit: cover; display: block; }
+.dg-drive-text { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px 4px; }
+.dg-drive-text h3 { font-size: 18px; font-weight: 800; line-height: 1.3; color: var(--gv-head); }
+.dg-drive-sum { font-size: 14px; line-height: 1.5; color: var(--gv-muted); }
+.dg-drive-text .gv-meter { margin-top: 4px; height: 8px; }
+.dg-drive-amount { font-size: 14px; color: var(--gv-muted); }
+.dg-drive-amount b { color: var(--gv-head); }
+.dg-drive-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 20px 20px; margin-top: auto; }
+.dg-drive-actions .gv-btn i { margin-right: 4px; }
+
+/* ---- A drive's story: a window, its jar filling as it opens ---- */
+.dg-story-root {
+  position: fixed; inset: 0; z-index: 2500;   /* under the giving window (3000) */
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(8, 8, 16, 0.62);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dg-story-root { animation: dgFade 0.2s ease-out; }
+  .dg-story { animation: dgRise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+}
+@keyframes dgFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dgRise { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+.dg-story {
+  position: relative;
+  width: min(940px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; overscroll-behavior: contain;
+  display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; align-items: start;
+  padding: 30px 32px; border-radius: 22px;
+  background: var(--gv-card); color: var(--gv-ink); border: 1px solid var(--gv-line);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+}
+/* The window is drawn on <body>, outside .dg: its own spacing. */
+.dg-story h3, .dg-story p { margin: 0; }
+.dg-story-jar { position: sticky; top: 0; padding-top: 8px; }
+.dg-story-jar .gj { --gj-w: 280px; }
+.dg-story-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding-right: 28px; }
+.dg-story-body h3 { font-size: 24px; font-weight: 800; line-height: 1.25; color: var(--gv-head); }
+.dg-story-amount { font-size: 15px; color: var(--gv-muted); }
+.dg-story-amount b { font-size: 22px; color: var(--gv-head); margin-right: 2px; }
+.dg-story-meter { height: 10px; }
+.dg-story-sum { font-size: 15.5px; line-height: 1.55; font-weight: 600; color: var(--gv-ink); }
+.dg-story-photos { display: flex; flex-direction: column; gap: 8px; }
+.dg-story-photo { width: 100%; max-height: 340px; object-fit: cover; border-radius: 14px; display: block; }
+.dg-story-thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
+.dg-thumb { width: 60px; height: 60px; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: none; cursor: pointer; opacity: 0.75; }
+.dg-thumb.is-on { border-color: var(--gv-accent); opacity: 1; }
+.dg-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dg-thumb:focus-visible { outline: 3px solid var(--gv-focus); outline-offset: 2px; }
+.dg-story-text { font-size: 15px; line-height: 1.65; color: var(--gv-ink); white-space: pre-line; }
+.dg-story-actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 6px; }
+.dg-story-actions .gv-btn { min-height: 46px; padding: 0 22px; }
+
+.dg-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px; text-align: center; }
+.dg-empty h3 { font-size: 18px; color: var(--gv-head); }
+.dg-empty p { color: var(--gv-muted); }
+.dg-loading { display: grid; place-items: center; padding: 40px; }
+.dg-error { color: var(--gv-warn); font-weight: 600; }
+
+/* My giving: its own cards and table, given room. */
+.dg-my { display: flex; flex-direction: column; gap: 16px; }
+.dg-my .gv-table { width: 100%; }
+.dg-my .gv-list { overflow-x: auto; }
+
+@media (max-width: 760px) {
+  .dg-story { grid-template-columns: minmax(0, 1fr); padding: 22px 18px; gap: 16px; }
+  .dg-story-jar { position: static; }
+  .dg-story-jar .gj { --gj-w: 210px; }
+  .dg-story-body { padding-right: 0; }
+  .dg-story-body h3 { font-size: 20px; }
+  .dg-story-actions .gv-btn { flex: 1 1 auto; }
+  .dg-tithes { grid-template-columns: minmax(0, 1fr); text-align: left; padding: 20px; }
+  .dg-tithes-heart { width: 64px; height: 64px; }
+  .dg-give-btn { width: 100%; }
+  .dg-tabs { display: flex; align-self: stretch; }
+  .dg-tab { flex: 1 1 0; justify-content: center; padding: 0 8px; font-size: 13.5px; white-space: nowrap; }
+  .dg-tab i { display: none; }
+}

@@ -487,73 +487,7 @@ body.dark-mode .dashboard-loading-text {
   cursor: not-allowed;
 }
 
-/* ---- Collapsible category groups ---- */
-.menu-group {
-  margin-bottom: 2px;
-}
-
-.menu-group-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 11px 16px;
-  border: none;
-  background: transparent;
-  border-radius: 12px;
-  cursor: pointer;
-  color: var(--sidebar-text-muted);
-  font-size: 0.82rem;
-  font-weight: 600;
-  font-family: inherit;
-  white-space: nowrap;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.menu-group-header:hover {
-  background: var(--sidebar-hover);
-  color: var(--sidebar-text);
-}
-
-.menu-group.open > .menu-group-header {
-  color: var(--primary);
-  background: var(--sidebar-hover);
-}
-
-.menu-group-header .menu-label {
-  text-align: left;
-}
-
-.menu-group-chevron {
-  font-size: 0.7rem;
-  opacity: 0.6;
-  transition: transform 0.3s ease;
-  flex-shrink: 0;
-}
-
-.menu-group-chevron.rot {
-  transform: rotate(180deg);
-}
-
-.menu-group-items {
-  overflow: hidden;
-  transition: max-height 0.32s cubic-bezier(0.4, 0, 0.2, 1);
-  padding-left: 12px;
-}
-
-/* nested items: reset the entrance animation + tighten */
-.menu-group-items .menu-item {
-  animation: none;
-  padding: 9px 14px;
-  font-size: 0.8rem;
-  position: relative;
-}
-
-/* subtle guide line for nested items */
-.menu-group-items {
-  border-left: 2px solid var(--sidebar-hover);
-  margin-left: 20px;
-}
+/* Dropdowns: components/sidebar/sidebarNav.css */
 
 .menu-icon {
   width: 22px;
@@ -1022,6 +956,15 @@ body.dark-mode .sidebar-lock-tooltip {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
+
+/* My Profile is open: the card is how you got there (it is not in the menu). */
+.sidebar-user-card.active {
+  background: rgba(146,108,21,0.1);
+  border-color: var(--secondary);
+  box-shadow: 0 0 0 1px var(--secondary) inset;
+}
+.sidebar-user-card:focus-visible { outline: 3px solid #2a5bd8; outline-offset: 2px; }
+body.dark-mode .sidebar-user-card:focus-visible { outline-color: #FFC300; }
 
 .sidebar.collapsed .sidebar-user-card {
   justify-content: center;
@@ -2136,6 +2079,22 @@ body.dark-mode .sidebar-lock-tooltip {
   background: var(--accent);
   margin: 4px auto 0;
 }
+
+/* A lineup and a meeting on one day: the dots side by side. */
+.calendar-dots { display: flex; justify-content: center; gap: 4px; }
+.calendar-dots .event-dot { margin: 4px 0 0; }
+.event-dot.meeting-dot { background: #1d8a4e; }
+.calendar-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 12px 4px 0;
+  font-size: 0.8rem; color: #6c757d;
+}
+.calendar-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.calendar-legend .event-dot { display: inline-block; margin: 0; }
+.upcoming-schedule-card.meeting { border-left-color: #1d8a4e; }
+.upcoming-schedule-card.meeting .schedule-card-songs i { margin-right: 4px; }
+body.dark-mode .event-dot.meeting-dot { background: #3ecf86; }
+body.dark-mode .upcoming-schedule-card.meeting { border-left-color: #3ecf86; }
+body.dark-mode .calendar-legend { color: #a9a9bd; }
 
 /* Schedule Cards */
 .schedule-cards {
@@ -12864,19 +12823,77 @@ body.dark-mode .sched-rec-timer { color: #f1f5f9; }
   top: 20px;
   right: 20px;
   z-index: 5000;
-  padding: 14px 24px;
-  border-radius: 12px;
-  color: #fff;
+  /* A white card with a coloured edge and icon: readable in any theme. */
+  --toast-tone: #2a5bd8;
+  --toast-tint: #e3ebff;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 14px 14px 14px 16px;
+  border-radius: 14px;
+  background: #fff;
+  color: #1a1a2e;
+  border: 1px solid rgba(26, 26, 46, 0.08);
+  border-left: 5px solid var(--toast-tone);
   font-weight: 600;
-  font-size: 0.9rem;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-  animation: toastIn 0.3s ease, toastOut 0.3s ease 3.5s forwards;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  box-shadow: 0 2px 6px rgba(26, 26, 46, 0.08), 0 18px 40px -12px rgba(26, 26, 46, 0.35);
+  animation: toastIn 0.3s ease, toastOut 0.3s ease calc(var(--toast-ms, 4000ms) - 400ms) forwards;
 }
+.toast-notification .toast-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--toast-tint);
+  color: var(--toast-tone);
+  font-size: 15px;
+}
+.toast-notification .toast-text { flex: 1; min-width: 0; padding-top: 4px; overflow-wrap: anywhere; }
+.toast-notification .toast-close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #8b8b98;
+  cursor: pointer;
+  font-size: 14px;
+}
+.toast-notification .toast-close:hover { background: rgba(26, 26, 46, 0.06); color: #1a1a2e; }
+.toast-notification .toast-close:focus-visible { outline: 3px solid #2a5bd8; outline-offset: 1px; }
 
-.toast-success { background: var(--success); }
-.toast-danger { background: var(--danger); }
-.toast-warning { background: #e0a800; color: #333; }
-.toast-info { background: var(--info); }
+.toast-success { --toast-tone: #1d8a4e; --toast-tint: #e3f4ea; }
+.toast-danger { --toast-tone: #c0392b; --toast-tint: #fde8e6; }
+.toast-warning { --toast-tone: #c98a00; --toast-tint: #fff3c4; }
+.toast-info { --toast-tone: #2a5bd8; --toast-tint: #e3ebff; }
+
+body.dark-mode .toast-notification {
+  background: #2a2a45;
+  color: #ececf3;
+  border-color: #3a3a5c;
+  border-left-color: var(--toast-tone);
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.7);
+}
+body.dark-mode .toast-success { --toast-tone: #3ecf86; --toast-tint: #1d3b2c; }
+body.dark-mode .toast-danger { --toast-tone: #ff8a80; --toast-tint: #4a2424; }
+body.dark-mode .toast-warning { --toast-tone: #ffc94d; --toast-tint: #43361a; }
+body.dark-mode .toast-info { --toast-tone: #7fa4ff; --toast-tint: #22305a; }
+body.dark-mode .toast-notification .toast-close { color: #a9a9bd; }
+body.dark-mode .toast-notification .toast-close:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+
+@media (max-width: 600px) {
+  .toast-notification { top: 68px; right: 16px; left: 16px; width: auto; max-width: none; }
+}
 
 @keyframes toastIn {
   from { opacity: 0; transform: translateX(50px); }

@@ -3,6 +3,9 @@ import { NEWS_CATEGORIES } from '@/lib/news';
 import { NEWS_SORTS, featuredList, newsTableMissing, publishedList } from '@/lib/newsServer';
 
 export const dynamic = 'force-dynamic';
+// Every read fresh. On its own, force-dynamic does not stop Next 14 from
+// keeping the database reads of a GET-only route in its data cache for good.
+export const revalidate = 0;
 
 // GET /api/news?limit=&offset=&category=&q=&sort=
 // GET /api/news?limit=&featured=1   the featured stories first, then the

@@ -11,6 +11,9 @@ import {
 // nothing at all past the Cloudinary budget line (see songPlaylist.js).
 
 export const dynamic = 'force-dynamic';
+// Every read fresh. On its own, force-dynamic does not stop Next 14 from
+// keeping the database reads of a GET-only route in its data cache for good.
+export const revalidate = 0;
 
 const COLUMNS = 'id, title, artist, artist_id, cover_url, audio_url, duration_seconds, created_at, song_artists(name, cover_url)';
 

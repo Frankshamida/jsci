@@ -34,6 +34,16 @@ export const POLL_MS = {
   cloudinaryUsage: 300000,
   // Public pages: Realtime already covers these, so this is a fallback only.
   liveStreams: 120000,
+  // The Pastor's Home (one read of several tables), while Home is open.
+  pastorOverview: 300000,
+  // The bell, and the signed-in account itself (a role or verification an
+  // Admin changed, or the account deleted). Both used to arrive over Realtime
+  // with the public key; the tables are closed to it now, so they are asked
+  // for through the server instead.
+  notifications: 60000,
+  ownAccount: 120000,
+  // Ministry Meetings while the page is open: who has answered since.
+  meetings: 60000,
 };
 
 // Treat the user as idle after this long with no interaction; idle tabs stop polling.

@@ -14,7 +14,8 @@
 // No hooks: drawn on the server for News, in the browser for the others.
 
 import GivingJar from './GivingJar';
-import { campaignEnds, campaignPath, campaignProgress, jarProps, peso, DONATION_PATH } from '@/lib/giving';
+import GivingFill from './GivingFill';
+import { campaignEnds, campaignPath, DONATION_PATH } from '@/lib/giving';
 import './givingCard.css';
 
 export default function GivingCard({ campaign = null, variant = 'rail', preview = false }) {
@@ -36,7 +37,6 @@ export default function GivingCard({ campaign = null, variant = 'rail', preview 
     );
   }
 
-  const { raised, goal, percent, gifts } = campaignProgress(campaign);
   const ends = campaignEnds(campaign);
   const image = campaign.image_url;
   return (
@@ -50,24 +50,8 @@ export default function GivingCard({ campaign = null, variant = 'rail', preview 
         <span className="gvc-eyebrow">Donate{ends ? <span className="gvc-ends"> · {ends}</span> : null}</span>
         <strong className="gvc-title">{campaign.title}</strong>
         {campaign.summary && <span className="gvc-text">{campaign.summary}</span>}
-        <div className="gvc-fill">
-          <div className="gvc-stage">
-            <GivingJar {...jarProps(campaign)} shape="square" backdrop animateOnLoad lazy label="" />
-          </div>
-          <div className="gvc-fill-info">
-            {percent != null ? (
-              <span className="gvc-progress">
-                <span className="gvc-bar" aria-hidden="true"><span style={{ width: `${Math.max(percent, raised > 0 ? 3 : 0)}%` }}></span></span>
-                <span className="gvc-raised"><strong>{peso(raised)}</strong> raised of {peso(goal)}</span>
-              </span>
-            ) : gifts > 0 ? (
-              <span className="gvc-raised"><strong>{peso(raised)}</strong> from {gifts} {gifts === 1 ? 'donation' : 'donations'}</span>
-            ) : (
-              <span className="gvc-raised">Be the first to give</span>
-            )}
-            <span className="gvc-cta">Donate</span>
-          </div>
-        </div>
+        {/* The jar and its gold bar, filling together (in the browser). */}
+        <GivingFill campaign={campaign} />
       </div>
     </Tag>
   );

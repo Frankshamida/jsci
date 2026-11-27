@@ -42,6 +42,11 @@ const DASHBOARD_SECTIONS = [
   'user-events-oversight',
   'user-management',
   'weekly-schedule',
+  // Dashboard > Sermons, Joyful Cares (Pastors) and Give: tithes and
+  // offerings, donations and My giving, inside the dashboard.
+  'sermons',
+  'joyful-cares',
+  'give',
 ];
 
 const nextConfig = {

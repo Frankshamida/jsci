@@ -4,6 +4,9 @@ import { streamFromGoogleDrive } from '@/lib/googleDrive';
 import { isCloudinaryUrl, buildCloudinaryAudioUrl, buildCloudinaryImageUrl, cloudinaryDefaults } from '@/lib/cloudinary';
 
 export const dynamic = 'force-dynamic';
+// Every read fresh. On its own, force-dynamic does not stop Next 14 from
+// keeping the database reads of a GET-only route in its data cache for good.
+export const revalidate = 0;
 
 // Safely extract error message from anything
 function safeErrorMessage(error) {

@@ -4,6 +4,9 @@ import { publicVideo, publishedVideos, videosTableMissing } from '@/lib/serviceV
 // Asked each time (the list is kept 20 s in lib/serviceVideosServer and at the
 // CDN), not drawn once when the site is built.
 export const dynamic = 'force-dynamic';
+// Every read fresh. On its own, force-dynamic does not stop Next 14 from
+// keeping the database reads of a GET-only route in its data cache for good.
+export const revalidate = 0;
 
 // GET - the service videos on /midweek, for anyone: titles, dates, speakers,
 // slugs and thumbnail templates. Never the video itself; that is

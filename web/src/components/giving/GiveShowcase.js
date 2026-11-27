@@ -11,6 +11,7 @@
 
 import { useRef } from 'react';
 import GivingJar, { replayJar } from './GivingJar';
+import { useJarMeter } from './useJarMeter';
 import { GiveButton } from './GiveModal';
 import { useFeaturedCampaigns } from '@/lib/givingClient';
 import { campaignEnds, campaignPath, campaignProgress, jarProps, peso } from '@/lib/giving';
@@ -23,9 +24,13 @@ export default function GiveShowcase() {
   const jarEl = useRef(null);
   const box = useRef(null);
   const drive = campaigns?.[0] || null;
+  // The gold bar fills with the jar's hearts and stops with them. (Asked for
+  // before the early return below: a hook is never skipped.)
+  const progress = drive ? campaignProgress(drive) : null;
+  const meter = useJarMeter(progress?.percent != null ? Math.min(100, Math.max(progress.percent, progress.raised > 0 ? 2 : 0)) : 0);
   if (!drive) return null;
 
-  const { raised, goal, percent, gifts } = campaignProgress(drive);
+  const { raised, goal, gifts } = progress;
   const ends = campaignEnds(drive);
   const all = drive.images?.length ? drive.images : drive.image_url ? [drive.image_url] : [];
   const photos = all.slice(0, MAX_PHOTOS);
@@ -44,7 +49,7 @@ export default function GiveShowcase() {
     <section id="give" className="hp-section hp-give gvs" aria-labelledby="gvs-title">
       <div ref={box} className={`gvs-card ${photos.length ? '' : 'no-photos'}`}>
         <div className="gvs-jar">
-          <GivingJar {...jarProps(drive)} backdrop animateOnLoad lazy label={label} onReady={(j) => { jarEl.current = j; }} />
+          <GivingJar {...jarProps(drive)} backdrop animateOnLoad lazy label={label} onReady={(j) => { jarEl.current = j; meter.onJarReady(j); }} />
         </div>
 
         <div className="gvs-details">
@@ -60,8 +65,8 @@ export default function GiveShowcase() {
             </span>
           </div>
           {goal > 0 && (
-            <div className="gvs-meter" aria-hidden="true">
-              <span style={{ width: `${Math.min(100, Math.max(percent, raised > 0 ? 2 : 0))}%` }}></span>
+            <div className="gvs-meter" aria-hidden="true" ref={meter.barRef}>
+              <span style={meter.fillStyle}></span>
             </div>
           )}
           {reached && <p className="gvs-reached">Goal reached - thank you!</p>}

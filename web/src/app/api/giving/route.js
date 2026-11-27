@@ -3,6 +3,9 @@ import { campaignNow, featuredCampaigns, givingMethods, openCampaigns, safely } 
 import { isUuid } from '@/lib/watchAccess';
 
 export const dynamic = 'force-dynamic';
+// Every read fresh. On its own, force-dynamic does not stop Next 14 from
+// keeping the database reads of a GET-only route in its data cache for good.
+export const revalidate = 0;
 
 // GET /api/giving             -> { campaigns, methods }: the open donation
 //                                drives, and the accounts to send a gift to

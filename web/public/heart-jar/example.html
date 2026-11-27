@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Heart jar example</title></head>
+<body>
+  <!-- Drive page: goal set, hearts fall in when the page opens -->
+  <heart-jar id="jar" amount="30750" goal="50000" animate-on-load></heart-jar>
+
+  <!-- List page: small, no movement, spill stays the same size -->
+  <heart-jar amount="12500" goal="10000" static keep-size style="width:76px"></heart-jar>
+
+  <!-- No goal: amount = number of successful donations -->
+  <heart-jar amount="8" soft-scale="30" static style="width:76px"></heart-jar>
+
+  <script src="heart-jar-assets.js"></script>
+  <script src="heart-jar.js"></script>
+  <script>
+    const jar = document.getElementById('jar');
+    // Confirmed-donation email link: render with the total BEFORE this gift,
+    // then move to the total AFTER it. Only the new hearts fall in.
+    //   <heart-jar amount="totalBefore" goal="...">  then  jar.setAmount(totalAfter)
+    jar.addEventListener('heartjar:settled', () => console.log('all hearts landed'));
+    jar.addEventListener('heartjar:goalreached', e => console.log('goal reached!', e.detail));
+  </script>
+</body>
+</html>

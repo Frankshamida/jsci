@@ -6,7 +6,9 @@
 // and not again on the next Giving page the visitor opens.
 
 const ASSETS_SRC = '/heart-jar/heart-jar-assets.js';
-const ELEMENT_SRC = '/heart-jar/heart-jar.js';
+// ?v=: change it when heart-jar.js changes, so browsers take the new one.
+// v2 - says how long its hearts take (heartjar:filling), for the gold bars.
+const ELEMENT_SRC = '/heart-jar/heart-jar.js?v=2';
 
 let loading = null;
 

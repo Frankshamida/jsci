@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { liveStreamsNow, withoutVideo } from '@/lib/liveStreams';
 
 export const dynamic = 'force-dynamic';
+// Every read fresh. On its own, force-dynamic does not stop Next 14 from
+// keeping the database reads of a GET-only route in its data cache for good.
+export const revalidate = 0;
 
 // Everyone asks for the same list at the same moment. The CDN answers repeats
 // for 10 s, and liveStreamsNow() collapses the misses that get through into

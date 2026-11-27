@@ -26,6 +26,7 @@ import { useEffect, useRef, useState } from 'react';
 import GivingJar, { heartsShown, refillFrom, replayJar, setJarAmount } from './GivingJar';
 import { GiveButton } from './GiveModal';
 import { loadHeartJar } from './heartJarLoader';
+import { useJarMeter } from './useJarMeter';
 import { campaignEnds, campaignOpen, jarProps, peso, receiptPath, verseFor } from '@/lib/giving';
 
 const REFRESH_MS = 60_000;
@@ -137,6 +138,8 @@ export default function DonationJar({ campaign }) {
   const first = String(gift?.donor_name || '').trim().split(/\s+/)[0];
   const verse = gift ? verseFor(gift.receipt_no) : null;
   const label = live.raised ? `The donation jar: ${peso(live.raised)}${goal ? ` of ${peso(goal)}` : ''}` : 'The donation jar, empty so far';
+  // The gold bar fills with the jar's hearts, and stops with them.
+  const meter = useJarMeter(goal ? Math.min(100, Math.max(percent, live.raised > 0 ? 2 : 0)) : 0);
 
   return (
     <div ref={card} className="gv-card gv-jarcard">
@@ -169,7 +172,7 @@ export default function DonationJar({ campaign }) {
           softScale={shown.softScale}
           animateOnLoad={phase === 'public'}
           backdrop
-          onReady={onReady}
+          onReady={(j) => { onReady(j); meter.onJarReady(j); }}
           onSettled={onSettled}
           label={label}
         />
@@ -196,7 +199,7 @@ export default function DonationJar({ campaign }) {
         )}
       </div>
       {goal > 0 && (
-        <div className="gv-meter" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(percent, live.raised > 0 ? 2 : 0))}%` }}></span></div>
+        <div className="gv-meter" aria-hidden="true" ref={meter.barRef}><span style={meter.fillStyle}></span></div>
       )}
       {reached && <p className="gv-reached">Goal reached - thank you!</p>}
 

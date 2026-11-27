@@ -3,6 +3,9 @@ import { getCloudinaryConfig } from '@/lib/cloudinary';
 import { cached } from '@/lib/serverCache';
 
 export const dynamic = 'force-dynamic';
+// Every read fresh. On its own, force-dynamic does not stop Next 14 from
+// keeping the database reads of a GET-only route in its data cache for good.
+export const revalidate = 0;
 
 // Cloudinary's Admin API is limited to ~500 calls/hour on the free plan, and usage
 // figures only move slowly. Serve every caller from one cached read so N open admin

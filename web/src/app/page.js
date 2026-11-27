@@ -26,6 +26,7 @@ import { OTHER_CHURCH, isPlaceholderChurch, normalizeChurchName } from '@/lib/ev
 import AgeGroupPicker from '@/components/AgeGroupPicker';
 import GuardianPicker from '@/components/GuardianPicker';
 import PastorInput from '@/components/PastorInput';
+import { usePastors } from '@/lib/usePastors';
 import {
   addonFeeFor, addonShortLabel, baseAmountFor, defaultTier, eventFeeLabel, eventTiers,
   findTier, hasPriceTiers, isNameOnlyTier, nameOnlyTiers, representativeTiers,
@@ -437,6 +438,9 @@ export default function HomePage() {
   // Whose name the page wears - the church's, or SanctuaryHub's. Chosen by a
   // Super Admin under System Configuration; see lib/branding.js.
   const brand = useBranding();
+  // Our Pastors: the Pastor accounts marked for the website (/api/pastors),
+  // this page's own list until that is set up.
+  const pastors = usePastors(PASTORS);
   const [heroIndex, setHeroIndex] = useState(0);
   // Which hero slides have an <img> in the DOM. All five used to, and because
   // they are stacked absolutely they are all "in the viewport" - so the browser
@@ -2928,22 +2932,27 @@ ${eventsDigest}`;
           </div>
         </div>
 
+        {/* Only the pastors with an account marked for the website. */}
         <div id="pastors" className="hp-leaders">
-          <div className="hp-subhead hp-animate">
-            <h3>Our Pastors</h3>
-            <p>The leaders shepherding our church family</p>
-          </div>
-          <div className="hp-pastors-grid hp-animate">
-            {PASTORS.map((p) => (
-              <div className="hp-pastor-card" key={p.name}>
-                <div className="hp-pastor-photo-wrapper">
-                  <img src={p.photo} alt={p.name} loading="lazy" decoding="async" />
-                </div>
-                <h4>{p.name}</h4>
-                <div className="hp-pastor-role">{p.title}</div>
+          {pastors.length > 0 && (
+            <>
+              <div className="hp-subhead hp-animate">
+                <h3>Our Pastors</h3>
+                <p>The leaders shepherding our church family</p>
               </div>
-            ))}
-          </div>
+              <div className="hp-pastors-grid hp-animate">
+                {pastors.map((p) => (
+                  <div className="hp-pastor-card" key={p.id || p.name}>
+                    <div className="hp-pastor-photo-wrapper">
+                      <img src={p.photo || '/assets/LOGO.png'} alt={p.name} loading="lazy" decoding="async" />
+                    </div>
+                    <h4>{p.name}</h4>
+                    <div className="hp-pastor-role">{p.title}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </section>
 

@@ -358,6 +358,9 @@ export const ROLE_PERMISSIONS = {
     // User Events oversight
     MODULES.VIEW_ALL_USER_EVENTS, MODULES.VIEW_USER_EVENT_RSVPS,
     MODULES.EDIT_USER_EVENTS, MODULES.DELETE_USER_EVENTS,
+    // Ministry Meetings: see every ministry's, schedule and run them
+    MODULES.VIEW_MINISTRY_MEETINGS, MODULES.RSVP_MEETING,
+    MODULES.CREATE_MINISTRY_MEETING, MODULES.UPDATE_MINISTRY_MEETING,
   ],
 
   [ROLES.ADMIN]: [
@@ -389,6 +392,9 @@ export const ROLE_PERMISSIONS = {
     MODULES.SEND_BROADCASTS, MODULES.VIEW_MESSAGES, MODULES.SEND_MESSAGES,
     MODULES.VIEW_PROFILE, MODULES.UPDATE_PROFILE, MODULES.LOGOUT,
     MODULES.VIEW_SCHEDULE,
+    // Ministry Meetings: see every ministry's, schedule and run them
+    MODULES.VIEW_MINISTRY_MEETINGS, MODULES.RSVP_MEETING,
+    MODULES.CREATE_MINISTRY_MEETING, MODULES.UPDATE_MINISTRY_MEETING,
   ],
 
   [ROLES.SUPER_ADMIN]: [
@@ -457,6 +463,7 @@ export function getSidebarMenu(role) {
   if (getDashboardType(role) === 'super-admin') {
     return [
       { id: 'home', icon: 'fas fa-tachometer-alt', label: 'Dashboard', section: 'home' },
+      { id: 'joyful-cares', icon: 'fas fa-hands-holding-circle', label: 'Joyful Cares', section: 'joyful-cares' },
       { id: 'users', icon: 'fas fa-users-cog', label: 'User Management', section: 'user-management' },
       { id: 'roles', icon: 'fas fa-shield-alt', label: 'Roles & Permissions', section: 'roles-permissions' },
       { id: 'ministries', icon: 'fas fa-church', label: 'Ministry Management', section: 'ministry-management' },
@@ -468,6 +475,7 @@ export function getSidebarMenu(role) {
       { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events-management' },
       { id: 'community-events', icon: 'fas fa-calendar-day', label: 'Community Events', section: 'community-events' },
       { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements-management' },
+      { id: 'sermons', icon: 'fas fa-book-bible', label: 'Sermons', section: 'sermons' },
       { id: 'news', icon: 'fas fa-newspaper', label: 'News', section: 'news-management' },
       { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },
       { id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' },
@@ -499,6 +507,7 @@ export function getSidebarMenu(role) {
   // ============================================
   return [
     { id: 'home', icon: 'fas fa-home', label: 'Home', section: 'home' },
+    { id: 'joyful-cares', icon: 'fas fa-hands-holding-circle', label: 'Joyful Cares', section: 'joyful-cares' },
     { id: 'schedule', icon: 'fas fa-calendar-week', label: 'Weekly Schedule', section: 'weekly-schedule' },
     { id: 'praise-worship', icon: 'fas fa-hands-praying', label: 'Praise & Worship', section: 'praise-worship' },
     { id: 'song-playlist', icon: 'fas fa-compact-disc', label: 'Song Playlist', section: 'song-playlist' },
@@ -507,6 +516,7 @@ export function getSidebarMenu(role) {
     { id: 'events', icon: 'fas fa-calendar-alt', label: 'Events', section: 'events' },
     { id: 'community-events', icon: 'fas fa-calendar-day', label: 'Community Events', section: 'community-events' },
     { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements' },
+    { id: 'sermons', icon: 'fas fa-book-bible', label: 'Sermons', section: 'sermons' },
     { id: 'news', icon: 'fas fa-newspaper', label: 'News', section: 'news-management' },
     { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
     { id: 'live-stream-mgmt', icon: 'fas fa-share-nodes', label: 'Social Media', section: 'social-media' },
@@ -560,6 +570,8 @@ export const SECTION_ACCESS = {
   'weekly-schedule': { roles: MEMBERS_AND_UP },
   // Ministry work: Ministry Members (Praise & Worship / Media for the PAW screens)
   'ministry-meetings': { roles: [ROLES.MINISTRY_MEMBER, ROLES.PASTOR, ROLES.ADMIN] },
+  // Pastors upload; every member reads (lib/sermons.js, /api/sermons).
+  'sermons': { roles: MEMBERS_AND_UP },
   'praise-worship': { roles: [ROLES.PASTOR, ROLES.ADMIN], ministries: PAW_MINISTRIES },
   'song-playlist': { roles: [ROLES.PASTOR, ROLES.ADMIN], ministries: PAW_MINISTRIES },
   // Song Leaders add songs there; Schedule Plotters plot the month there.
@@ -567,6 +579,10 @@ export const SECTION_ACCESS = {
   'my-created-events': { eventTypes: true },
   // Pastoral oversight
   'user-events-oversight': { roles: [ROLES.PASTOR] },
+  // The Pastors' care desk (lib/joyfulCares.js, /api/cares).
+  'joyful-cares': { roles: [ROLES.PASTOR] },
+  // Dashboard > Give: tithes and offerings, donations, My giving (everyone).
+  'give': { roles: EVERYONE },
   'isom-inquiries': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
   'payment-methods': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
   'events-management': { roles: [ROLES.PASTOR, ROLES.ADMIN] },

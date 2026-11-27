@@ -35,6 +35,8 @@ import { amountInWords } from '@/lib/amountInWords';
 import EventAttendanceTab from '@/components/eventDesk/EventAttendanceTab';
 import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
 import PastorInput from '@/components/PastorInput';
+import Toast from '@/components/Toast';
+import { friendlyMessage, toastDuration } from '@/lib/friendlyMessage';
 import AgeGroupPicker from '@/components/AgeGroupPicker';
 import { addonFeeFor, baseAmountFor, defaultTier, eventFeeLabel, findTier, hasPriceTiers } from '@/lib/eventPricing';
 
@@ -405,10 +407,18 @@ export default function CommitteeDashboardPage() {
   // The main dashboard's generic confirm modal, same shape.
   const [confirmModal, setConfirmModal] = useState({ open: false, onConfirm: null });
 
+  // Every message on screen goes through friendlyMessage (lib/friendlyMessage):
+  // a technical error is replaced with words a member can act on, and a long
+  // message stays up long enough to read. A new message replaces the last one.
+  const toastTimer = useRef(null);
   const showToast = useCallback((message, type = 'info') => {
-    setToastMessage({ message, type });
-    setTimeout(() => setToastMessage(null), 3500);
+    const text = friendlyMessage(message);
+    const ms = toastDuration(text);
+    clearTimeout(toastTimer.current);
+    setToastMessage({ message: text, type, ms, id: Date.now() });
+    toastTimer.current = setTimeout(() => setToastMessage(null), ms);
   }, []);
+  const closeToast = useCallback(() => { clearTimeout(toastTimer.current); setToastMessage(null); }, []);
 
   const askConfirm = (message, onConfirm, opts = {}) => setConfirmModal({
     open: true,
@@ -2797,7 +2807,7 @@ export default function CommitteeDashboardPage() {
 
   return (
     <div className="dashboard-wrapper">
-      {toastMessage && <div className={`toast-notification toast-${toastMessage.type}`}>{toastMessage.message}</div>}
+      <Toast toast={toastMessage} onClose={closeToast} />
 
       {/* Logout confirmation */}
       {showLogoutModal && (

@@ -21,7 +21,14 @@ function Gate() {
   );
 }
 
-export default function MyGiving() {
+// A way to give: a link to the public page, or - inside the dashboard, which
+// passes onGive - a button that opens its own Give tab instead.
+function GiveLink({ kind, onGive, className, children }) {
+  if (onGive) return <button type="button" className={className} onClick={() => onGive(kind)}>{children}</button>;
+  return <a href={kind === 'donation' ? DONATION_PATH : TITHES_PATH} className={className}>{children}</a>;
+}
+
+export default function MyGiving({ onGive } = {}) {
   const { viewer, ready } = useViewer();
   const { gifts, loading, error, reload } = useMyGifts(ready ? viewer : null);
   const year = phYear();
@@ -42,8 +49,8 @@ export default function MyGiving() {
         <div className="gv-list-head">
           <h2 id="gv-my-title">Your gifts</h2>
           <span className="gv-list-btns">
-            <a href={TITHES_PATH} className="gv-btn is-small">Tithes &amp; offering</a>
-            <a href={DONATION_PATH} className="gv-btn is-primary is-small">Donate</a>
+            <GiveLink kind="tithes" onGive={onGive} className="gv-btn is-small">Tithes &amp; offering</GiveLink>
+            <GiveLink kind="donation" onGive={onGive} className="gv-btn is-primary is-small">Donate</GiveLink>
           </span>
         </div>
         {loading ? (
@@ -58,7 +65,7 @@ export default function MyGiving() {
           <div className="gv-empty">
             <strong>No gifts yet</strong>
             Gifts you send while signed in, or with this account&apos;s email, show here.
-            <div><a href={TITHES_PATH} className="gv-btn is-primary">Give</a></div>
+            <div><GiveLink kind="tithes" onGive={onGive} className="gv-btn is-primary">Give</GiveLink></div>
           </div>
         ) : (
           <table className="gv-table">
@@ -82,7 +89,8 @@ export default function MyGiving() {
                   <td>{methodLabel(g)}</td>
                   <td><span className={`gv-status ${STATUSES[g.status]?.tone || 'warn'}`}>{statusLabel(g.status)}</span></td>
                   <td className="gv-mono">{g.reference_no || '—'}<small>{g.receipt_no}</small></td>
-                  <td><a href={receiptPath(g.token)}>View receipt</a></td>
+                  {/* Inside the dashboard (onGive), the receipt opens beside it. */}
+                  <td><a href={receiptPath(g.token)} {...(onGive ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>View receipt</a></td>
                 </tr>
               ))}
             </tbody>

@@ -41,6 +41,19 @@ import { useBranding, useSetBranding } from '@/components/BrandingProvider';
 import ProofDrop from '@/components/ProofDrop';
 import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
 import PastorInput from '@/components/PastorInput';
+import PastorOverview from '@/components/pastor/PastorOverview';
+import SermonsSection from '@/components/sermons/SermonsSection';
+import SidebarNav from '@/components/sidebar/SidebarNav';
+import BrandLockup from '@/components/sidebar/BrandLockup';
+import { buildSidebar, sidebarLayoutKey, isItemActive } from '@/lib/sidebarLayout';
+import { usePastors } from '@/lib/usePastors';
+import JoyfulCares from '@/components/cares/JoyfulCares';
+import DashboardGiving from '@/components/giving/DashboardGiving';
+import MinistryMeetings from '@/components/meetings/MinistryMeetings';
+import MyIdCard, { IdCardSide, buildIdFill } from '@/components/profile/MyIdCard';
+import Toast from '@/components/Toast';
+import { friendlyMessage, toastDuration } from '@/lib/friendlyMessage';
+import { manilaDay as meetingDayOf, whenLabel as meetingWhen } from '@/lib/meetings';
 import { flipListUp } from '@/lib/dropUp';
 import AttendeeIdModal from '@/components/eventDesk/AttendeeIdModal';
 import PickList from '@/components/eventDesk/PickList';
@@ -297,7 +310,7 @@ const VALID_SECTIONS = new Set([
   'messages', 'ministry-management', 'ministry-meetings', 'ministry-oversight', 'my-created-events', 'news-management',
   'my-profile', 'permissions-control', 'praise-worship', 'recordings', 'reports', 'roles-permissions',
   'spiritual-assistant', 'system-config', 'terms-conditions', 'user-events-oversight',
-  'user-management', 'weekly-schedule',
+  'user-management', 'weekly-schedule', 'sermons', 'joyful-cares', 'give',
 ]);
 // A section whose clean URL is not its own name. /accommodation is the
 // attendees' own Find your room page (src/app/accommodation), so the
@@ -464,6 +477,15 @@ const USER_EVENT_TYPES = ['Event', 'Meeting', 'Bible Study', 'Prayer Meeting', '
 const EMPTY_USER_FORM = { firstname: '', lastname: '', email: '', password: '', role: ROLES.GUEST, ministryCards: [], plotter: false, pastorTitles: [] };
 
 // Bible version options
+// My Profile's tabs, in order. My ID opens first.
+const PROFILE_TABS = [
+  ['id', 'My ID', 'fa-id-card'],
+  ['personal', 'About me', 'fa-user'],
+  ['ministry', 'My ministry', 'fa-church'],
+  ['password', 'Sign-in & security', 'fa-lock'],
+  ['preferences', 'Preferences', 'fa-sliders'],
+];
+
 const BIBLE_VERSIONS = [
   { value: 'NIV', label: 'NIV', fullName: 'New International Version' },
   { value: 'NKJV', label: 'NKJV', fullName: 'New King James Version' },
@@ -1420,6 +1442,10 @@ export default function DashboardPage() {
 
   // Pastors carousel
   const [pastorCarouselIndex, setPastorCarouselIndex] = useState(0);
+  // Our Pastors: the Pastor accounts marked for the website (/api/pastors);
+  // this page's own list until that is set up.
+  const pastorsList = usePastors(PASTORS);
+  const pastorShown = pastorsList.length ? pastorsList[pastorCarouselIndex % pastorsList.length] : null;
 
   // Bible verse
   const [dailyVerse, setDailyVerse] = useState({ verse: 'Loading verse of the day...', reference: 'Loading...', explanation: '' });
@@ -1492,7 +1518,12 @@ export default function DashboardPage() {
   const [pawActionModal, setPawActionModal] = useState(null); // { date, roleType } — the date-action picker modal
 
   // Profile
-  const [profileTab, setProfileTab] = useState('personal');
+  const [profileTab, setProfileTab] = useState('id');
+  // My Profile > My ID (components/profile/MyIdCard) and the emergency contact printed on it.
+  const [idCard, setIdCard] = useState(null); // /api/profile/id-card's answer, or { error }
+  const [idCardLoading, setIdCardLoading] = useState(false);
+  const [emergencyForm, setEmergencyForm] = useState({ name: '', phone: '' });
+  const [savingAbout, setSavingAbout] = useState(false);
   const [profileForm, setProfileForm] = useState({ firstname: '', lastname: '', birthdate: '', life_verse: '' });
   // Edit-mode toggles: fields are read-only until the user clicks Edit
   const [editingProfile, setEditingProfile] = useState(false);
@@ -2177,10 +2208,6 @@ export default function DashboardPage() {
   const initialEventFormRef = useRef(null); // snapshot taken when the editor opens, for the dirty-check
   const [showEventLeaveConfirm, setShowEventLeaveConfirm] = useState(false); // Save Draft / Discard / Keep Editing
   const [eventFieldErrors, setEventFieldErrors] = useState({}); // { title, description, image, eventDate } -> true when invalid
-  // Sidebar collapsible category groups (accordion: one open at a time)
-  // null = follow the active section's group; '' = all closed; else the open group key
-  const [openSidebarGroup, setOpenSidebarGroup] = useState(null);
-
   // User-Created Events (enabled by admin)
   const [userEvents, setUserEvents] = useState([]);
   const [userEventForm, setUserEventForm] = useState({ title: '', description: '', eventType: 'Event', eventDate: '', endDate: '', location: '' });
@@ -2221,9 +2248,6 @@ export default function DashboardPage() {
 
   // Meetings
   const [meetings, setMeetings] = useState([]);
-  const [meetingForm, setMeetingForm] = useState({ title: '', description: '', meetingDate: '', location: '', ministry: '' });
-  const [showMeetingForm, setShowMeetingForm] = useState(false);
-  const [editingMeeting, setEditingMeeting] = useState(null);
 
   // Community Hub
   const [communityPosts, setCommunityPosts] = useState([]);
@@ -3321,73 +3345,73 @@ export default function DashboardPage() {
   }, [chatMessages, chatMemoryLoaded, userData]);
 
   // ============================================
-  // REAL-TIME USER RECORD SYNC
-  // Detects admin changes (role, ministry, verification, etc.)
-  // and account deletion — all in real-time, no refresh needed
+  // KEEPING UP WITH THE ACCOUNT ITSELF
+  // An Admin may change this account's role, ministry or verification, or
+  // delete it, while it is signed in. That used to arrive over Supabase
+  // Realtime with the public key, but the users table is closed to that key
+  // now (security_rls_lockdown.sql): Realtime refused the subscription, with
+  // "invalid column for filter id" in the Postgres log on every visit. So the
+  // dashboard asks the server (/api/profile/me) every couple of minutes while
+  // the tab is in use, and acts only on what changed.
   // ============================================
-  useEffect(() => {
-    if (!userData?.id || !supabase) return;
-    const userId = userData.id;
+  const OWN_ACCOUNT_FIELDS = ['firstname', 'lastname', 'role', 'additional_roles', 'status', 'is_active', 'ministry', 'sub_role', 'birthdate', 'life_verse', 'profile_picture'];
+  const syncOwnAccount = async () => {
+    if (!userData?.id || accountDeleted) return;
+    const res = await fetch(`/api/profile/me?userId=${encodeURIComponent(userData.id)}`, { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!data.success) throw new Error(data.message || 'The account could not be checked.');
+    if (!data.exists) {
+      // Account was deleted by admin
+      setAccountDeleted(true);
+      sessionStorage.removeItem('userData');
+      localStorage.removeItem('userData');
+      return;
+    }
+    // No roles is no roles, whether it is kept as [] or as nothing.
+    const same = (k, a, b) => (k === 'additional_roles'
+      ? JSON.stringify(Array.isArray(a) ? a : []) === JSON.stringify(Array.isArray(b) ? b : [])
+      : JSON.stringify(a ?? null) === JSON.stringify(b ?? null));
+    const updated = {};
+    OWN_ACCOUNT_FIELDS.forEach((k) => {
+      if (k in data.user && !same(k, data.user[k], userData[k])) updated[k] = data.user[k];
+    });
+    if (Object.keys(updated).length === 0) return;
 
-    const userChannel = supabase
-      .channel(`user-record-${userId}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'users',
-        filter: `id=eq.${userId}`,
-      }, (payload) => {
-        const updated = payload.new;
-        if (!updated) return;
+    // Build merged userData object
+    setUserData((prev) => {
+      const merged = { ...prev, ...updated };
+      // Persist to storage so page refresh also picks up changes
+      sessionStorage.setItem('userData', JSON.stringify(merged));
+      localStorage.setItem('userData', JSON.stringify(merged));
+      return merged;
+    });
 
-        // Build merged userData object
-        setUserData((prev) => {
-          const merged = { ...prev, ...updated };
-          // Persist to storage so page refresh also picks up changes
-          sessionStorage.setItem('userData', JSON.stringify(merged));
-          localStorage.setItem('userData', JSON.stringify(merged));
-          return merged;
-        });
-
-        // Sync derived state that the dashboard relies on
-        if (updated.role !== undefined || updated.additional_roles !== undefined) {
-          const effective = getEffectiveRole(updated);
-          setUserRole(effective);
-          // Re-check admin access password if promoted to admin
-          if (['Admin', 'Super Admin'].includes(effective)) {
-            checkAdminAccessPassword();
-          }
+    // Sync derived state that the dashboard relies on
+    if (updated.role !== undefined || updated.additional_roles !== undefined) {
+      // The whole account: only what changed is in `updated`.
+      const effective = getEffectiveRole({ ...userData, ...updated });
+      if (effective !== userRole) {
+        setUserRole(effective);
+        // Re-check admin access password if promoted to admin
+        if (['Admin', 'Super Admin'].includes(effective)) {
+          checkAdminAccessPassword();
         }
-        if (updated.status !== undefined) {
-          setIsVerified(updated.status === 'Verified');
-        }
-        if (updated.firstname !== undefined || updated.lastname !== undefined || updated.birthdate !== undefined || updated.life_verse !== undefined) {
-          setProfileForm((prev) => ({
-            ...prev,
-            ...(updated.firstname !== undefined && { firstname: updated.firstname }),
-            ...(updated.lastname !== undefined && { lastname: updated.lastname }),
-            ...(updated.birthdate !== undefined && { birthdate: updated.birthdate || '' }),
-            ...(updated.life_verse !== undefined && { life_verse: updated.life_verse || '' }),
-          }));
-        }
-      })
-      .on('postgres_changes', {
-        event: 'DELETE',
-        schema: 'public',
-        table: 'users',
-        filter: `id=eq.${userId}`,
-      }, () => {
-        // Account was deleted by admin
-        setAccountDeleted(true);
-        sessionStorage.removeItem('userData');
-        localStorage.removeItem('userData');
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(userChannel);
-    };
-  }, [userData?.id]);
+      }
+    }
+    if (updated.status !== undefined) {
+      setIsVerified(updated.status === 'Verified');
+    }
+    if (updated.firstname !== undefined || updated.lastname !== undefined || updated.birthdate !== undefined || updated.life_verse !== undefined) {
+      setProfileForm((prev) => ({
+        ...prev,
+        ...(updated.firstname !== undefined && { firstname: updated.firstname }),
+        ...(updated.lastname !== undefined && { lastname: updated.lastname }),
+        ...(updated.birthdate !== undefined && { birthdate: updated.birthdate || '' }),
+        ...(updated.life_verse !== undefined && { life_verse: updated.life_verse || '' }),
+      }));
+    }
+  };
+  useSmartPoll(syncOwnAccount, POLL_MS.ownAccount, { enabled: !!userData?.id && !accountDeleted, immediate: false });
 
   // ============================================
   // REAL-TIME: SUBSTITUTE REQUESTS, NOTIFICATIONS, EXCUSES
@@ -3442,25 +3466,10 @@ export default function DashboardPage() {
       })
       .subscribe();
 
-    // --- Real-time: notifications ---
-    const notifsChannel = supabase
-      .channel(`notifications-realtime-${userId}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${userId}`,
-      }, (payload) => {
-        const notif = payload.new;
-        // Re-fetch to update the bell count + PAW Notifications tab
-        loadNotifications(userId);
-        loadPawNotifications();
-        // Show a toast with the notification title
-        if (notif && notif.title) {
-          showToast(notif.title, notif.type || 'info');
-        }
-      })
-      .subscribe();
+    // Notifications are no longer heard here: the table is closed to the
+    // public key, and Realtime refused the subscription ("invalid column for
+    // filter user_id"). loadNotifications is asked every minute instead
+    // (POLL_MS.notifications) and shows the toast for anything new.
 
     // --- Real-time: lineup_excuses ---
     const excusesChannel = supabase
@@ -3488,7 +3497,6 @@ export default function DashboardPage() {
 
     return () => {
       supabase.removeChannel(subsChannel);
-      supabase.removeChannel(notifsChannel);
       supabase.removeChannel(excusesChannel);
     };
   }, [userData?.id]);
@@ -3496,10 +3504,18 @@ export default function DashboardPage() {
   // ============================================
   // TOAST
   // ============================================
+  // Every message on screen goes through friendlyMessage (lib/friendlyMessage):
+  // a technical error is replaced with words a member can act on, and a long
+  // message stays up long enough to read. A new message replaces the last one.
+  const toastTimer = useRef(null);
   const showToast = useCallback((message, type = 'info') => {
-    setToastMessage({ message, type });
-    setTimeout(() => setToastMessage(null), 4000);
+    const text = friendlyMessage(message);
+    const ms = toastDuration(text);
+    clearTimeout(toastTimer.current);
+    setToastMessage({ message: text, type, ms, id: Date.now() });
+    toastTimer.current = setTimeout(() => setToastMessage(null), ms);
   }, []);
+  const closeToast = useCallback(() => { clearTimeout(toastTimer.current); setToastMessage(null); }, []);
 
   // ============================================
   // DARK MODE
@@ -3517,7 +3533,8 @@ export default function DashboardPage() {
   // ============================================
   const showSection = (sectionId) => {
     const isGuestRole = userRole === 'Guest';
-    if (!isVerified && !isGuestRole && sectionId !== 'home') {
+    // Giving needs no verified account (the public pages never asked for one).
+    if (!isVerified && !isGuestRole && sectionId !== 'home' && sectionId !== 'give') {
       showToast('🔒 Please wait for account verification to access this feature', 'warning');
       return;
     }
@@ -3558,7 +3575,6 @@ export default function DashboardPage() {
     if (sectionId === 'daily-quote') fetchDailyQuote();
     if (sectionId === 'events' || sectionId === 'events-management') { loadEvents(); loadMyRegistrations(); }
     if (sectionId === 'announcements' || sectionId === 'announcements-management') loadAnnouncements();
-    if (sectionId === 'ministry-meetings') loadMeetings();
     if (sectionId === 'community-hub' && canOpenCommunityHub) loadCommunityPosts();
     if (sectionId === 'community-hub' && canOpenCommunityHub) loadLiveStreams();
     if (sectionId === 'recordings') { loadRecordings(); loadPracticeRecordingsListing(); }
@@ -3594,6 +3610,45 @@ export default function DashboardPage() {
     if (sectionId === 'spiritual-assistant' && chatMessages.length === 0) {
       setChatMessages([{ role: 'assistant', content: `Hello ${getAssistantUserName()}! 🙏 I'm your Spiritual AI Assistant. How can I help you today?\n\n⚠️ Disclaimer: While I can provide biblical guidance and encouragement, it is important that you also maintain your personal communication with God through prayer and His Word to receive true wisdom. I am just your AI Assistant — the Holy Spirit is your ultimate Counselor and Guide.` }]);
     }
+  };
+
+  // A section link that will open: the account's roles own it and it is not
+  // switched off. The Pastor's Home shows only these.
+  const canGoTo = (sectionId) => !!userData && canOpenSection(userData, sectionId)
+    && (sectionId === 'home' || userRole === ROLES.SUPER_ADMIN || isSidebarItemEnabled(userRole, sectionId, permissionOverrides));
+
+  // Chat with one person, from the Pastor's Home care list. The person is
+  // picked first and Chat opened on the next render: showSection loads Chat
+  // with the conversation it sees, and in this render's closure that is still
+  // the old one (or none, which would pick the first in the list).
+  const [chatOpenRequested, setChatOpenRequested] = useState(false);
+  // Dashboard > Give, on one of its tabs (from the sidebar's Give).
+  const [giveTab, setGiveTab] = useState('tithes');
+  const openGive = (tab) => { setGiveTab(tab); showSection('give'); };
+
+  // A draft (from Joyful Cares) waits in the message box, to edit and send.
+  const openChatWith = (targetUserId, draft) => {
+    if (!targetUserId) return;
+    setMessageTab('private');
+    setSelectedChatUserId(targetUserId);
+    if (draft) setChatMessageInput(draft);
+    setChatOpenRequested(true);
+  };
+  useEffect(() => {
+    if (!chatOpenRequested) return;
+    setChatOpenRequested(false);
+    showSection('messages');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatOpenRequested]);
+
+  // Export one event's registrations, from the Pastor's Home. The export
+  // dialog lives in the Events section, so that opens first.
+  const exportEventFromHome = async (eventId) => {
+    const section = canGoTo('events-management') ? 'events-management' : 'events';
+    showSection(section);
+    const evt = (await loadEvents()).find((e) => e.id === eventId);
+    if (evt) openExportModal(evt);
+    else showToast('That event could not be found in the events list.', 'warning');
   };
 
   // ============================================
@@ -3733,16 +3788,30 @@ export default function DashboardPage() {
     } catch { /* silent */ }
   };
 
+  // The notifications already shown, so a new one is told apart and gets its
+  // toast once. null until the first load, which toasts nothing.
+  const seenNotifIdsRef = useRef(null);
   const loadNotifications = async (userId) => {
     try {
-      const res = await fetch(`/api/notifications?userId=${userId}`);
+      const res = await fetch(`/api/notifications?userId=${userId}`, { cache: 'no-store' });
       const data = await res.json();
       if (data.success) {
-        setNotifications(data.data);
-        setUnreadCount(data.data.filter((n) => !n.is_read).length);
+        const list = data.data || [];
+        setNotifications(list);
+        setUnreadCount(list.filter((n) => !n.is_read).length);
+        const seen = seenNotifIdsRef.current;
+        const fresh = seen ? list.filter((n) => !seen.has(n.id) && !n.is_read) : [];
+        seenNotifIdsRef.current = new Set(list.map((n) => n.id));
+        if (fresh.length) {
+          // The PAW Notifications tab, and a toast for the newest one.
+          loadPawNotifications();
+          const newest = fresh[0];
+          if (newest?.title) showToast(fresh.length > 1 ? `${newest.title} (and ${fresh.length - 1} more)` : newest.title, newest.type || 'info');
+        }
       }
     } catch { /* silent */ }
   };
+  useSmartPoll(() => loadNotifications(userData?.id), POLL_MS.notifications, { enabled: !!userData?.id, immediate: false });
 
   const handleNotificationClick = async (notif) => {
     if (!notif.is_read) {
@@ -3874,11 +3943,15 @@ export default function DashboardPage() {
     } catch { /* silent */ }
   };
 
+  // The meetings this account sees, with its own answer. The Weekly Schedule
+  // puts the ones it is going to (or might go to) on its calendar. The
+  // Ministry Meetings page loads its own copy (components/meetings).
   const loadMeetings = async () => {
+    if (!userData?.id) return;
     try {
-      const res = await fetch(`/api/meetings?upcoming=true&ministry=${userData?.ministry || ''}&role=${userRole || ''}`);
+      const res = await fetch(`/api/meetings?actorId=${encodeURIComponent(userData.id)}&view=upcoming`, { cache: 'no-store' });
       const data = await res.json();
-      if (data.success) setMeetings(data.data);
+      if (data.success) setMeetings(data.data || []);
     } catch { /* silent */ }
   };
 
@@ -3920,9 +3993,7 @@ export default function DashboardPage() {
     if (activeSection === 'community-hub' && canOpenCommunityHub && userData?.id) {
       loadCommunityPosts();
     }
-    if (activeSection === 'ministry-meetings' || activeSection === 'user-management' || activeSection === 'ministry-oversight' || activeSection === 'ministry-management') {
-      loadMeetings();
-    }
+    if (activeSection === 'weekly-schedule') loadMeetings();
     loadMinistries();
   }, [activeSection, userData?.id]);
 
@@ -10635,52 +10706,6 @@ export default function DashboardPage() {
     setCommunityBdayCommentInput(prev => ({ ...prev, [celebrantName]: '' }));
   };
 
-  // -- Meetings --
-  const handleMeetingSubmit = async () => {
-    try {
-      const isEditing = !!editingMeeting;
-      const method = isEditing ? 'PUT' : 'POST';
-      const body = { 
-        ...meetingForm, 
-        id: isEditing ? editingMeeting.id : undefined,
-        ministry: meetingForm.ministry, // Now comes from form selection
-        createdBy: userData?.id, 
-        createdByName: `${userData?.firstname} ${userData?.lastname}` 
-      };
-      
-      const res = await fetch('/api/meetings', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const data = await res.json();
-      if (data.success) { 
-        showToast(data.message, 'success'); 
-        setShowMeetingForm(false); 
-        setEditingMeeting(null);
-        setMeetingForm({ title: '', description: '', meetingDate: '', location: '', ministry: userData?.ministry || '' }); 
-        loadMeetings(); 
-      } else {
-        showToast(data.message, 'danger');
-      }
-    } catch (e) { showToast('Error: ' + e.message, 'danger'); }
-  };
-
-  const handleDeleteMeeting = async (id) => {
-    askConfirm('Are you sure you want to cancel this meeting?', async () => {
-      try {
-        const res = await fetch(`/api/meetings?id=${id}`, { method: 'DELETE' });
-        const data = await res.json();
-        if (data.success) {
-          showToast(data.message, 'success');
-          loadMeetings();
-        }
-      } catch (e) { showToast('Error: ' + e.message, 'danger'); }
-    }, { confirmLabel: 'Cancel Meeting', icon: 'fa-calendar-times' });
-  };
-
-  const handleMeetingRSVP = async (meetingId, status) => {
-    const res = await fetch('/api/meetings/rsvp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId, userId: userData?.id, status }) });
-    const data = await res.json();
-    if (data.success) showToast(`RSVP: ${status}`, 'success');
-  };
-
   // -- User-Created Events --
   const handleUserEventSubmit = async () => {
     try {
@@ -13324,6 +13349,75 @@ Examples:
     } catch (e) { showToast('Error: ' + e.message, 'danger'); } finally { setProfileLoading(false); }
   };
 
+  // ---- My Profile: the ID card, About me's single Save, unsaved changes ----
+  const loadIdCard = async () => {
+    if (!userData?.id) return;
+    setIdCardLoading(true);
+    try {
+      const res = await fetch(`/api/profile/id-card?actorId=${encodeURIComponent(userData.id)}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.message || 'Your ID could not be loaded just now.');
+      setIdCard(data);
+      setEmergencyForm({ name: data.card?.emergency_name || '', phone: data.card?.emergency_phone || '' });
+    } catch (e) {
+      setIdCard({ error: friendlyMessage(e.message) });
+    } finally {
+      setIdCardLoading(false);
+    }
+  };
+  // The card is loaded whenever My Profile opens (and again if the account is verified meanwhile).
+  useEffect(() => {
+    if (activeSection === 'my-profile' && userData?.id) loadIdCard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, userData?.id, userData?.status]);
+
+  const aboutChanges = () => {
+    const same = (a, b) => (a || '') === (b || '');
+    const profileChanged = !!userData && !(same(profileForm.firstname, userData.firstname) && same(profileForm.lastname, userData.lastname)
+      && same(profileForm.birthdate, userData.birthdate) && same(profileForm.life_verse, userData.life_verse));
+    const card = idCard?.card;
+    const contactChanged = !!card && !!idCard?.ready && !(same(emergencyForm.name, card.emergency_name) && same(emergencyForm.phone, card.emergency_phone));
+    return { profileChanged, contactChanged };
+  };
+  const discardAbout = () => {
+    setProfileForm({ firstname: userData.firstname || '', lastname: userData.lastname || '', birthdate: userData.birthdate || '', life_verse: userData.life_verse || '' });
+    setEmergencyForm({ name: idCard?.card?.emergency_name || '', phone: idCard?.card?.emergency_phone || '' });
+  };
+  const saveAbout = async () => {
+    const { profileChanged, contactChanged } = aboutChanges();
+    setSavingAbout(true);
+    try {
+      if (profileChanged) await saveProfile();
+      if (contactChanged) {
+        const res = await fetch('/api/profile/id-card', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actorId: userData.id, action: 'contact', emergency_name: emergencyForm.name, emergency_phone: emergencyForm.phone }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) { showToast(data.message || 'Your emergency contact could not be saved.', 'danger'); return; }
+        setIdCard(data);
+        setEmergencyForm({ name: data.card?.emergency_name || '', phone: data.card?.emergency_phone || '' });
+        if (!profileChanged) showToast(data.message, 'success');
+      }
+      // The name on the card follows the saved name.
+      if (profileChanged) loadIdCard();
+    } finally {
+      setSavingAbout(false);
+    }
+  };
+  // Leaving About me with unsaved changes asks first.
+  const goProfileTab = (next) => {
+    if (next === profileTab) return;
+    const { profileChanged, contactChanged } = aboutChanges();
+    if (profileTab === 'personal' && featureOn('profile.update') && (profileChanged || contactChanged)) {
+      askConfirm('You have changes in About me that are not saved yet. Leave without saving them?', () => { discardAbout(); setProfileTab(next); }, {
+        title: 'Unsaved changes', confirmLabel: 'Leave without saving', icon: 'fa-triangle-exclamation', confirmIcon: 'fa-arrow-right',
+      });
+      return;
+    }
+    setProfileTab(next);
+  };
+
   const changePassword = async () => {
     if (passwordForm.newPassword !== passwordForm.confirmPassword) { showToast('Passwords do not match', 'warning'); return; }
     if (passwordForm.newPassword.length < 8) { showToast('Password must be at least 8 characters', 'warning'); return; }
@@ -13515,6 +13609,9 @@ Examples:
   };
 
   const getScheduleForDate = (dateStr) => scheduleData.find((s) => s.scheduleDate === dateStr);
+  // Meetings this account answered Going or Maybe to: on the Weekly Schedule.
+  const myMeetings = meetings.filter((m) => (m.myStatus === 'Going' || m.myStatus === 'Maybe') && m.status !== 'Cancelled');
+  const meetingsOn = (dateStr) => myMeetings.filter((m) => meetingDayOf(m.startsAt) === dateStr);
   const formatDate = (dateStr) => { if (!dateStr) return ''; return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); };
   // Event datetimes are WALL-CLOCK, not instants: the stepper posts what the
   // admin typed ("2026-09-08T10:00") and Postgres stamps it +00:00, so Supabase
@@ -22717,6 +22814,9 @@ ${row('Change', rc.change, 'change')}
 
   const initials = `${userData.firstname?.[0] || ''}${userData.lastname?.[0] || ''}`.toUpperCase();
   const dashboardType = getDashboardType(userRole);
+  // Anyone who holds the Pastor role gets the Pastor's Home (a Pastor who is
+  // also an Admin too); a Super Admin keeps theirs.
+  const pastorHome = dashboardType !== 'super-admin' && getUserRoles(userData).includes(ROLES.PASTOR);
   const rawSidebarMenu = getSidebarMenu(userRole);
   // Strict, by role first: only sections a role the account holds owns
   // (SECTION_ACCESS - an account with several roles gets all of theirs).
@@ -22725,37 +22825,15 @@ ${row('Change', rc.change, 'change')}
   const sidebarMenu = rawSidebarMenu.filter((item) => canOpenSection(userData, item.section)
     && isSidebarItemEnabled(userRole, item.section, permissionOverrides));
 
-  // ---- Group sidebar items into collapsible categories ----
-  // 'home' stays pinned at top, 'profile' pinned at bottom; everything else groups.
-  const SIDEBAR_GROUPS = [
-    { key: 'people',    label: 'People & Roles',    icon: 'fas fa-users-cog',      ids: ['users', 'roles', 'ministries', 'attendance'] },
-    { key: 'worship',   label: 'Worship & Schedule', icon: 'fas fa-hands-praying',  ids: ['schedule', 'praise-worship', 'song-playlist', 'lineup', 'meetings'] },
-    // 'rfid' sits with Events on purpose: the screen is a list of events and
-    // the cards handed out at each one, so it is found by looking for the
-    // event rather than by looking for the hardware.
-    { key: 'content',   label: 'Events & Content',   icon: 'fas fa-calendar-alt',   ids: ['events', 'rfid', 'accommodation', 'community-events', 'announcements', 'community', 'my-created-events', 'user-events-oversight', 'isom-inquiries'] },
-    { key: 'media',     label: 'Media & Messages',   icon: 'fas fa-photo-film',     ids: ['live-stream-mgmt', 'recordings', 'messages'] },
-    { key: 'insights',  label: 'Insights',           icon: 'fas fa-chart-bar',      ids: ['reports', 'audit'] },
-    { key: 'system',    label: 'System',             icon: 'fas fa-cogs',           ids: ['permissions-control', 'system', 'terms-conditions', 'cloudinary-usage'] },
-    { key: 'resources', label: 'Resources',          icon: 'fas fa-book-open',      ids: ['bible', 'assistant'] },
-  ];
+  // ---- The sidebar for this role (lib/sidebarLayout.js) ----
+  // Pinned pages under Home, then dropdowns in the order the role uses them.
+  // My Profile is not in it: the account card at the bottom opens it.
   const fullMenu = userRole === ROLES.SUPER_ADMIN
     ? [...sidebarMenu, { id: 'cloudinary-usage', section: 'cloudinary-usage', label: 'Cloudinary Usage', icon: 'fas fa-cloud' }]
     : sidebarMenu;
-  const homeItem = fullMenu.find((m) => m.id === 'home');
-  const profileItem = fullMenu.find((m) => m.id === 'profile');
-  const groupedSidebar = SIDEBAR_GROUPS
-    .map((g) => ({ ...g, items: fullMenu.filter((m) => g.ids.includes(m.id)) }))
-    .filter((g) => g.items.length > 0);
-  // Any item not pinned and not in a defined group falls into a catch-all "More"
-  const groupedIds = new Set(['home', 'profile', ...SIDEBAR_GROUPS.flatMap((g) => g.ids)]);
-  const ungrouped = fullMenu.filter((m) => !groupedIds.has(m.id));
-  if (ungrouped.length > 0) groupedSidebar.push({ key: 'more', label: 'More', icon: 'fas fa-ellipsis', items: ungrouped });
-  const activeGroupKey = groupedSidebar.find((g) => g.items.some((it) => it.section === activeSection))?.key;
-  // Accordion: only one group open at a time. Default follows the active section.
-  const effectiveOpenGroup = openSidebarGroup === null ? activeGroupKey : openSidebarGroup;
-  const isGroupOpen = (key) => effectiveOpenGroup === key;
-  const toggleSidebarGroup = (key) => setOpenSidebarGroup(effectiveOpenGroup === key ? '' : key);
+  const sidebarEntries = buildSidebar(sidebarLayoutKey(userData, userRole), fullMenu);
+  // Counts a closed dropdown still shows on its heading.
+  const sidebarBadges = { messages: unreadCount, events: eventsBellCount };
 
   // Any role the account holds will do (a Pastor who is also a Song Leader
   // still runs the lineup).
@@ -23014,7 +23092,7 @@ ${row('Change', rc.change, 'change')}
   return (
     <div className="dashboard-wrapper">
       {/* Toast */}
-      {toastMessage && <div className={`toast-notification toast-${toastMessage.type}`}>{toastMessage.message}</div>}
+      <Toast toast={toastMessage} onClose={closeToast} />
 
       {/* Account Deleted Overlay */}
       {accountDeleted && (
@@ -23255,10 +23333,7 @@ ${row('Change', rc.change, 'change')}
               <div className="logo">
                 <img src="/assets/LOGO.png" alt={`${siteBrand.full} logo`} />
               </div>
-              <div className="brand-text">
-                <span className="brand-name">{siteBrand.name}</span>
-                <span className="brand-sub">{siteBrand.navSub}</span>
-              </div>
+              <BrandLockup name={siteBrand.name} sub={siteBrand.navSub} />
             </div>
             <button
               className="sidebar-collapse-arrow"
@@ -23271,15 +23346,22 @@ ${row('Change', rc.change, 'change')}
           </div>
 
           {/* Menu */}
-          <nav className="sidebar-menu">
+          <nav className="sidebar-menu" aria-label="Dashboard">
             {(() => {
               const isGuestRole = userRole === 'Guest';
               const renderItem = (item) => {
-                const isLocked = !isVerified && !isGuestRole && item.section !== 'home';
+                // Give is open before verification, like Home (see showSection).
+                const isLocked = !isVerified && !isGuestRole && item.section !== 'home' && item.section !== 'give';
+                const active = isItemActive(item, activeSection, giveTab);
+                const open = () => (item.giveTab ? openGive(item.giveTab) : showSection(item.section));
                 return (
                   <a key={item.id}
-                    className={`menu-item ${activeSection === item.section ? 'active' : ''} ${isLocked ? 'disabled' : ''}`}
-                    onClick={() => showSection(item.section)}
+                    className={`menu-item ${active ? 'active' : ''} ${isLocked ? 'disabled' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={open}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
                     title={sidebarCollapsed ? item.label : (isLocked ? '🔒 Account verification needed' : '')}
                     onMouseEnter={(e) => {
                       if (isLocked) {
@@ -23311,44 +23393,15 @@ ${row('Change', rc.change, 'change')}
                   </a>
                 );
               };
-
-              // Collapsed rail OR Guest (few items): show a simple flat list, no groups
-              if (sidebarCollapsed || isGuestRole) {
-                return (
-                  <>
-                    <div className="menu-section-label">Menu</div>
-                    {fullMenu.map(renderItem)}
-                  </>
-                );
-              }
-
-              // Expanded: pinned Home, collapsible category groups, pinned Profile
               return (
-                <>
-                  {homeItem && renderItem(homeItem)}
-                  {groupedSidebar.map((group) => {
-                    const open = isGroupOpen(group.key);
-                    const hasActive = group.items.some((it) => it.section === activeSection);
-                    return (
-                      <div key={group.key} className={`menu-group ${open ? 'open' : ''}`}>
-                        <button
-                          type="button"
-                          className={`menu-group-header ${hasActive ? 'has-active' : ''}`}
-                          onClick={() => toggleSidebarGroup(group.key)}
-                          aria-expanded={open}
-                        >
-                          <span className="menu-icon"><i className={group.icon}></i></span>
-                          <span className="menu-label">{group.label}</span>
-                          <i className={`fas fa-chevron-down menu-group-chevron ${open ? 'rot' : ''}`}></i>
-                        </button>
-                        <div className="menu-group-items" style={{ maxHeight: open ? `${group.items.length * 52 + 8}px` : '0px' }}>
-                          {group.items.map(renderItem)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {profileItem && renderItem(profileItem)}
-                </>
+                <SidebarNav
+                  entries={sidebarEntries}
+                  activeSection={activeSection}
+                  giveTab={giveTab}
+                  collapsed={sidebarCollapsed}
+                  renderItem={renderItem}
+                  badges={sidebarBadges}
+                />
               );
             })()}
           </nav>
@@ -23462,7 +23515,13 @@ ${row('Change', rc.change, 'change')}
               document.body,
             )}
 
-            <div className={`sidebar-user-card ${(!isVerified && userRole !== 'Guest') ? 'locked' : ''}`}
+            {/* The account card is the way to My Profile. */}
+            <div className={`sidebar-user-card ${(!isVerified && userRole !== 'Guest') ? 'locked' : ''} ${activeSection === 'my-profile' ? 'active' : ''}`}
+              role="button"
+              tabIndex={0}
+              aria-label="Open my profile"
+              aria-current={activeSection === 'my-profile' ? 'page' : undefined}
+              title={sidebarCollapsed ? 'My Profile' : undefined}
               onClick={() => {
                 if (!isVerified && userRole !== 'Guest') {
                   showToast('🔒 Your account needs to be verified before you can access your profile', 'warning');
@@ -23470,6 +23529,7 @@ ${row('Change', rc.change, 'change')}
                 }
                 showSection('my-profile');
               }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } }}
               onMouseEnter={(e) => {
                 if (!isVerified && userRole !== 'Guest') {
                   const tip = e.currentTarget.querySelector('.sidebar-lock-tooltip');
@@ -23542,9 +23602,24 @@ ${row('Change', rc.change, 'change')}
 
           {/* ========== HOME SECTION ========== */}
           <section className={`content-section ${activeSection === 'home' ? 'active' : ''}`}>
-            <h2 className="section-title">Home</h2>
+            {!(pastorHome && isVerified) && <h2 className="section-title">Home</h2>}
             {isVerified ? (
               <>
+                {/* A Pastor's Home: Sunday readiness, the care list and what is
+                    coming up (components/pastor/PastorOverview). It takes the
+                    welcome card's place. */}
+                {pastorHome ? (
+                  <PastorOverview
+                    userId={userData?.id}
+                    firstname={userData?.firstname}
+                    fullName={[userData?.firstname, userData?.lastname].filter(Boolean).join(' ')}
+                    active={activeSection === 'home'}
+                    canOpen={canGoTo}
+                    go={showSection}
+                    onMessage={openChatWith}
+                    onExportEvent={exportEventFromHome}
+                  />
+                ) : (
                 <div className="welcome-card">
                   <div className="welcome-card-glow"></div>
                   <div className="welcome-card-abstract">
@@ -23587,9 +23662,10 @@ ${row('Change', rc.change, 'change')}
                     })()}</h2>
                   </div>
                 </div>
+                )}
 
-                {/* Dashboard Stats */}
-                {(dashboardType === 'admin' || dashboardType === 'super-admin' || dashboardType === 'pastor') && (
+                {/* Dashboard Stats (a Pastor's are in the overview above) */}
+                {(dashboardType === 'admin' || dashboardType === 'super-admin' || (dashboardType === 'pastor' && !pastorHome)) && (
                   <div className="stats-container">
                     {/* Strict, by role: no card for a page the role cannot open. */}
                     {canOpenSection(userData, 'user-management') && (
@@ -23601,16 +23677,19 @@ ${row('Change', rc.change, 'change')}
                   </div>
                 )}
 
-                {/* Bible Verse */}
+                {/* Bible Verse (a Pastor's Home is the overview alone) */}
+                {!pastorHome && (
                 <div className="bible-verse-container">
                   <div className="verse-of-the-day">&ldquo;{dailyVerse.verse}&rdquo;</div>
                   <div className="verse-reference">— {dailyVerse.reference}</div>
                   {dailyVerse.explanation && <div className="verse-explanation">{dailyVerse.explanation}</div>}
                 </div>
+                )}
 
-                {/* Pastors & Church Family Gatherings */}
-                {(dashboardType !== 'super-admin') && (
+                {/* Pastors & Church Family Gatherings (not on a Pastor's Home) */}
+                {(dashboardType !== 'super-admin' && !pastorHome) && (
                   <>
+                    {pastorShown && (
                     <div className="pastors-section">
                       <div className="pastors-big-title">OUR PASTORS</div>
                       <div className="pastors-carousel">
@@ -23714,12 +23793,12 @@ ${row('Change', rc.change, 'change')}
                           </svg>
                         </div>
                         <div className="pastors-carousel-track">
-                          {PASTORS.map((p, i) => {
-                            const offset = (i - pastorCarouselIndex + PASTORS.length) % PASTORS.length;
+                          {pastorsList.map((p, i) => {
+                            const offset = (i - (pastorCarouselIndex % pastorsList.length) + pastorsList.length) % pastorsList.length;
                             const isCenter = offset === 0;
-                            const isLeft1 = offset === PASTORS.length - 1;
+                            const isLeft1 = offset === pastorsList.length - 1;
                             const isRight1 = offset === 1;
-                            const isLeft2 = offset === PASTORS.length - 2;
+                            const isLeft2 = offset === pastorsList.length - 2;
                             const isRight2 = offset === 2;
                             let posClass = 'pastors-card-hidden';
                             if (isCenter) posClass = 'pastors-card-center';
@@ -23728,29 +23807,30 @@ ${row('Change', rc.change, 'change')}
                             else if (isLeft2) posClass = 'pastors-card-left-2';
                             else if (isRight2) posClass = 'pastors-card-right-2';
                             return (
-                              <div key={i} className={`pastors-carousel-card ${posClass}`} onClick={() => setPastorCarouselIndex(i)}>
-                                <div className="pastors-carousel-img" style={{ backgroundImage: `url('${p.photo}')` }}></div>
+                              <div key={p.id || p.name} className={`pastors-carousel-card ${posClass}`} onClick={() => setPastorCarouselIndex(i)}>
+                                <div className="pastors-carousel-img" style={{ backgroundImage: `url('${p.photo || '/assets/LOGO.png'}')` }}></div>
                               </div>
                             );
                           })}
                         </div>
                       </div>
                       <div className="pastors-carousel-dots">
-                        {PASTORS.map((_, i) => (<span key={i} className={`pastors-dot ${i === pastorCarouselIndex ? 'active' : ''}`} onClick={() => setPastorCarouselIndex(i)}></span>))}
+                        {pastorsList.map((_, i) => (<span key={i} className={`pastors-dot ${i === pastorCarouselIndex % pastorsList.length ? 'active' : ''}`} onClick={() => setPastorCarouselIndex(i)}></span>))}
                       </div>
                       <div className="pastors-carousel-info">
                         <div className="pastors-carousel-name">
                           <span className="pastors-name-line"></span>
-                          <span>{PASTORS[pastorCarouselIndex].name}</span>
+                          <span>{pastorShown.name}</span>
                           <span className="pastors-name-line"></span>
                         </div>
                         <div className="pastors-carousel-role">
                           <span className="pastors-role-arrow">&#9664;</span>
-                          <span>{PASTORS[pastorCarouselIndex].title}</span>
+                          <span>{pastorShown.title}</span>
                           <span className="pastors-role-arrow">&#9654;</span>
                         </div>
                       </div>
                     </div>
+                    )}
                     <div className="church-family-section">
                       <h2>Our Church Family Gatherings</h2>
                       <p style={{ color: '#6c757d', marginBottom: 20 }}>Celebrating fellowship and community</p>
@@ -23938,12 +24018,33 @@ ${row('Change', rc.change, 'change')}
                   <tr key={wi}>{week.map((day, di) => {
                     const dateStr = day ? `${calendarDate.getFullYear()}-${String(calendarDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : '';
                     const hasEvent = hasSchedule(day);
+                    const dayMeetings = day ? meetingsOn(dateStr) : [];
                     const isToday = day && new Date().toDateString() === new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day).toDateString();
-                    return (<td key={di} className={`calendar-day ${!day ? 'empty' : ''} ${hasEvent ? 'has-event' : ''} ${isToday ? 'today' : ''}`} onClick={() => { if (hasEvent) { const s = getScheduleForDate(dateStr); if (s) setSelectedSchedule(s); } }}>{day && <span className="day-number">{day}</span>}{hasEvent && <span className="event-dot"></span>}</td>);
+                    return (<td key={di} className={`calendar-day ${!day ? 'empty' : ''} ${hasEvent || dayMeetings.length ? 'has-event' : ''} ${isToday ? 'today' : ''}`} title={dayMeetings.length ? dayMeetings.map((m) => `Meeting: ${m.title}`).join(', ') : undefined} onClick={() => { if (hasEvent) { const s = getScheduleForDate(dateStr); if (s) setSelectedSchedule(s); } else if (dayMeetings.length) showSection('ministry-meetings'); }}>{day && <span className="day-number">{day}</span>}{(hasEvent || dayMeetings.length > 0) && <span className="calendar-dots">{hasEvent && <span className="event-dot"></span>}{dayMeetings.length > 0 && <span className="event-dot meeting-dot"></span>}</span>}</td>);
                   })}</tr>
                 ))}</tbody>
               </table>
+              {myMeetings.length > 0 && (
+                <div className="calendar-legend">
+                  <span><span className="event-dot"></span> Service lineup</span>
+                  <span><span className="event-dot meeting-dot"></span> Meeting you&apos;re going to</span>
+                </div>
+              )}
             </div>
+            {myMeetings.length > 0 && (
+              <>
+                <h3 style={{ margin: '20px 0 10px', color: 'var(--primary)' }}><i className="fas fa-handshake"></i> Your Meetings</h3>
+                <div className="schedule-cards">
+                  {myMeetings.slice(0, 6).map((m) => (
+                    <div key={m.id} className="upcoming-schedule-card meeting" role="button" tabIndex={0} onClick={() => showSection('ministry-meetings')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showSection('ministry-meetings'); } }}>
+                      <div className="schedule-card-date">{meetingWhen(m.startsAt)}</div>
+                      <div className="schedule-card-leader"><i className="fas fa-handshake"></i> {m.title}</div>
+                      <div className="schedule-card-songs"><i className="fas fa-location-dot"></i> {m.location || 'Place to be announced'} • {m.myStatus === 'Going' ? "You're going" : 'Maybe'}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             <h3 style={{ margin: '20px 0 10px', color: 'var(--primary)' }}><i className="fas fa-clock"></i> Upcoming Services</h3>
             <div className="schedule-cards">
               {scheduleData.filter((s) => new Date(s.scheduleDate) >= new Date()).sort((a, b) => new Date(a.scheduleDate) - new Date(b.scheduleDate)).slice(0, 6).map((s, i) => (
@@ -34273,195 +34374,7 @@ ${row('Change', rc.change, 'change')}
 
           {/* ========== MINISTRY MEETINGS ========== */}
           <section className={`content-section ${activeSection === 'ministry-meetings' ? 'active' : ''}`}>
-            <div className="section-header-row" style={{ marginBottom: 25 }}>
-              <h2 className="section-title">Ministry Meetings</h2>
-              {canManage(MODULES.CREATE_MINISTRY_MEETING) && (
-                <button className="btn-primary" onClick={() => { 
-                  setEditingMeeting(null);
-                  setMeetingForm({ title: '', description: '', meetingDate: '', location: '', ministry: userData?.ministry || '' });
-                  setShowMeetingForm(true); 
-                }}>
-                  <i className="fas fa-plus"></i> Schedule Meeting
-                </button>
-              )}
-            </div>
-
-            {showMeetingForm && (
-              <div className="modernized-form" style={{ marginTop: 25, marginBottom: 40 }}>
-                <div className="form-header">
-                  <h3><i className="fas fa-calendar-plus" style={{ marginRight: 10, color: 'var(--secondary)' }}></i> {editingMeeting ? 'Edit Meeting' : 'Schedule New Meeting'}</h3>
-                  <button className="close-form-btn" onClick={() => setShowMeetingForm(false)} title="Close"><i className="fas fa-times"></i></button>
-                </div>
-                <div className="form-body">
-                  <div className="form-group">
-                    <label>Meeting Title *</label>
-                    <input className="form-control" placeholder="Enter meeting purpose..." value={meetingForm.title} onChange={(e) => setMeetingForm({ ...meetingForm, title: e.target.value })} />
-                  </div>
-                  <div className="form-group">
-                    <label>Description</label>
-                    <textarea className="form-control" rows={3} placeholder="What is this meeting about?" value={meetingForm.description} onChange={(e) => setMeetingForm({ ...meetingForm, description: e.target.value })} />
-                  </div>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Date & Time *</label>
-                      <input type="datetime-local" className="form-control" value={meetingForm.meetingDate} onChange={(e) => setMeetingForm({ ...meetingForm, meetingDate: e.target.value })} />
-                    </div>
-                    <div className="form-group">
-                      <label>Location</label>
-                      <input className="form-control" placeholder="e.g. Main Hall, Zoom" value={meetingForm.location} onChange={(e) => setMeetingForm({ ...meetingForm, location: e.target.value })} />
-                    </div>
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Target Ministries *</label>
-                    <div className="ministry-chips">
-                      {(meetingForm.ministry || '').split(',').filter(m => m.trim()).map((m, idx) => (
-                        <span key={idx} className="ministry-chip">
-                          {m.trim()}
-                          <i className="fas fa-times remove-chip" onClick={() => {
-                            const current = (meetingForm.ministry || '').split(',').map(s => s.trim()).filter(s => s);
-                            const updated = current.filter(s => s !== m.trim());
-                            setMeetingForm({ ...meetingForm, ministry: updated.join(', ') });
-                          }}></i>
-                        </span>
-                      ))}
-                      {(!meetingForm.ministry || meetingForm.ministry.trim() === '') && <span style={{ color: '#999', fontSize: '0.9rem' }}>No ministries selected</span>}
-                    </div>
-                    <div className="ministry-options">
-                      {/* Select All Toggle */}
-                      <div 
-                        className={`ministry-option select-all ${((meetingForm.ministry || '').split(',').filter(m => m.trim()).length === ministriesList.length && ministriesList.length > 0) ? 'selected' : ''}`}
-                        onClick={() => {
-                          const allNames = ministriesList.map(m => typeof m === 'string' ? m : m.name);
-                          const current = (meetingForm.ministry || '').split(',').map(s => s.trim()).filter(s => s);
-                          if (current.length === allNames.length) {
-                            setMeetingForm({ ...meetingForm, ministry: '' });
-                          } else {
-                            setMeetingForm({ ...meetingForm, ministry: allNames.join(', ') });
-                          }
-                        }}
-                      >
-                        <i className={`fas ${((meetingForm.ministry || '').split(',').filter(m => m.trim()).length === ministriesList.length && ministriesList.length > 0) ? 'fa-check-square' : 'fa-square'}`}></i> All Ministries
-                      </div>
-
-                      {ministriesList.map((min) => {
-                        const mname = typeof min === 'string' ? min : min.name;
-                        const isSelected = (meetingForm.ministry || '').split(',').map(s => s.trim()).includes(mname);
-                        return (
-                          <div 
-                            key={mname} 
-                            className={`ministry-option ${isSelected ? 'selected' : ''}`}
-                            onClick={() => {
-                              const current = (meetingForm.ministry || '').split(',').map(s => s.trim()).filter(s => s);
-                              let updated;
-                              if (isSelected) {
-                                updated = current.filter(s => s !== mname);
-                              } else {
-                                updated = [...current, mname];
-                              }
-                              setMeetingForm({ ...meetingForm, ministry: updated.join(', ') });
-                            }}
-                          >
-                            <i className={`fas ${isSelected ? 'fa-check-square' : 'fa-square'}`}></i> {mname}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-                <div className="form-footer">
-                  <button className="btn-primary" onClick={handleMeetingSubmit} disabled={!meetingForm.title || !meetingForm.meetingDate || !meetingForm.ministry}>
-                    <i className={editingMeeting ? 'fas fa-save' : 'fas fa-check'}></i> {editingMeeting ? 'Update Meeting' : 'Schedule Meeting'}
-                  </button>
-                  <button className="btn-secondary" onClick={() => setShowMeetingForm(false)}>Cancel</button>
-                </div>
-              </div>
-            )}
-
-            <div className="meetings-list">
-              {meetings.map((mtg) => {
-                const mtgDate = new Date(mtg.meeting_date);
-                const day = mtgDate.getDate();
-                const month = mtgDate.toLocaleString('en-US', { month: 'short' });
-                const time = mtgDate.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-                
-                return (
-                  <div key={mtg.id} className="mtg-card">
-                    <div className="mtg-date-strip">
-                      <span className="mtg-month">{month}</span>
-                      <span className="mtg-day">{day}</span>
-                      <span className="mtg-time">{time}</span>
-                    </div>
-                    <div className="mtg-main-content">
-                      <div className="mtg-header-row">
-                        <h3 className="mtg-title">{mtg.title}</h3>
-                        <span className={`mtg-status-badge mtg-status-${mtg.status.toLowerCase()}`}>
-                          {mtg.status}
-                        </span>
-                      </div>
-                      
-                      <p className="mtg-desc">{mtg.description || 'No description provided.'}</p>
-                      
-                      <div className="mtg-footer-meta">
-                        <div className="mtg-meta-item">
-                          <i className="fas fa-map-marker-alt"></i>
-                          <span>{mtg.location || 'No location set'}</span>
-                        </div>
-                        <div className="mtg-meta-item">
-                          <i className="fas fa-users"></i>
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {mtg.ministry.split(',').map((m, i) => (
-                              <span key={i} className="mtg-ministry-tag">{m.trim()}</span>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="mtg-meta-item">
-                          <i className="fas fa-user-edit"></i>
-                          <span>{mtg.created_by_name}</span>
-                        </div>
-                      </div>
-
-                      <div className="mtg-actions-row">
-                        <div className="mtg-rsvp-group">
-                          <button className="mtg-rsvp-btn mtg-rsvp-going" onClick={() => handleMeetingRSVP(mtg.id, 'Going')}>Going</button>
-                          <button className="mtg-rsvp-btn mtg-rsvp-maybe" onClick={() => handleMeetingRSVP(mtg.id, 'Maybe')}>Maybe</button>
-                          <button className="mtg-rsvp-btn mtg-rsvp-not" onClick={() => handleMeetingRSVP(mtg.id, 'Not Going')}>Not Going</button>
-                        </div>
-                        
-                        {(userData?.id === mtg.created_by || userRole === 'Admin' || userRole === 'Super Admin') && (
-                          <div className="mtg-manage-actions">
-                            <button className="mtg-manage-btn" title="Edit Meeting" onClick={() => {
-                              setEditingMeeting(mtg);
-                              setMeetingForm({
-                                title: mtg.title,
-                                description: mtg.description || '',
-                                meetingDate: mtg.meeting_date.substring(0, 16),
-                                location: mtg.location || '',
-                                ministry: mtg.ministry
-                              });
-                              setShowMeetingForm(true);
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }}>
-                              <i className="fas fa-edit"></i>
-                            </button>
-                            <button className="mtg-manage-btn delete" title="Cancel Meeting" onClick={() => handleDeleteMeeting(mtg.id)}>
-                              <i className="fas fa-trash-alt"></i>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              
-              {meetings.length === 0 && (
-                <div className="empty-state" style={{ padding: '40px 20px', textAlign: 'center', background: 'var(--bg-card)', borderRadius: 16 }}>
-                  <i className="fas fa-calendar-times" style={{ fontSize: '3rem', color: '#cbd5e1', marginBottom: 15 }}></i>
-                  <p style={{ color: '#94a3b8', fontSize: '1.1rem' }}>No upcoming meetings found for your ministries.</p>
-                </div>
-              )}
-            </div>
+            <MinistryMeetings userData={userData} active={activeSection === 'ministry-meetings'} onToast={showToast} onConfirm={askConfirm} />
           </section>
 
           {/* ========== COMMUNITY HUB ========== */}
@@ -36979,6 +36892,20 @@ ${row('Change', rc.change, 'change')}
           </section>
 
           {/* ========== MINISTRY OVERSIGHT (Pastor) ========== */}
+          <section className={`content-section ${activeSection === 'sermons' ? 'active' : ''}`}>
+            <SermonsSection userData={userData} active={activeSection === 'sermons'} />
+          </section>
+
+          <section className={`content-section ${activeSection === 'give' ? 'active' : ''}`}>
+            {activeSection === 'give' && <DashboardGiving tab={giveTab} onTab={setGiveTab} />}
+          </section>
+
+          <section className={`content-section ${activeSection === 'joyful-cares' ? 'active' : ''}`}>
+            {canGoTo('joyful-cares') && (
+              <JoyfulCares userData={userData} active={activeSection === 'joyful-cares'} canOpen={canGoTo} onMessage={openChatWith} />
+            )}
+          </section>
+
           <section className={`content-section ${activeSection === 'ministry-oversight' ? 'active' : ''}`}>
             <h2 className="section-title">Ministry Oversight</h2>
             {ministriesList.map((min) => (
@@ -39897,208 +39824,248 @@ ${row('Change', rc.change, 'change')}
               </div>
             )}
 
-            {/* Profile Header Card - LinkedIn Modern */}
-            <div className="profile-card-v3">
-              <div className="profile-banner-v3">
-                {/* Life Verse on Banner */}
-                {userData.life_verse && (
-                  <div className="profile-banner-verse">
-                    {lifeVerseLoading ? (
-                      <div className="profile-banner-verse-loading">
-                        <i className="fas fa-spinner fa-spin"></i>
-                      </div>
-                    ) : (
-                      <>
-                        <i className="fas fa-quote-left profile-banner-verse-quote"></i>
-                        <p className="profile-banner-verse-text">
-                          {lifeVerseFullText || userData.life_verse}
-                        </p>
-                        {lifeVerseRef && (
-                          <span className="profile-banner-verse-ref">— {lifeVerseRef}</span>
+            {/* My Profile: who you are and the tabs on the left, one tab at a time on the right.
+                My ID opens first. Styles: components/profile/profile.css. */}
+            <div className="pf">
+              <div className="pf-grid">
+                <aside className="pf-side" aria-label="Your profile">
+                  <div className="pf-id">
+                    <div className="profile-avatar-wrapper-v3 pf-avatar" ref={avatarWrapperRef}>
+                      <div className="profile-avatar-v3" onClick={() => setShowAvatarMenu(!showAvatarMenu)} title="Profile photo options">
+                        {userData.profile_picture ? (
+                          <img src={userData.profile_picture} alt="Profile" referrerPolicy="no-referrer" />
+                        ) : (
+                          <span className="profile-avatar-initials-v3">{initials}</span>
                         )}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="profile-abstract-decor" aria-hidden="true"></div>
-              <div className="profile-avatar-section-v3">
-                <div className="profile-avatar-wrapper-v3" ref={avatarWrapperRef}>
-                  <div className="profile-avatar-v3" onClick={() => setShowAvatarMenu(!showAvatarMenu)} title="Profile photo options">
-                    {userData.profile_picture ? (
-                      <img src={userData.profile_picture} alt="Profile" referrerPolicy="no-referrer" />
-                    ) : (
-                      <span className="profile-avatar-initials-v3">{initials}</span>
-                    )}
-                    <div className="profile-avatar-overlay-v3">
-                      <i className="fas fa-camera"></i>
-                    </div>
-                  </div>
-                  <div className={`profile-avatar-badge-v3 ${isVerified ? 'verified' : 'unverified'}`}>
-                    <i className={`fas fa-${isVerified ? 'check' : 'clock'}`}></i>
-                  </div>
-                  {showAvatarMenu && (
-                    <div className="profile-avatar-menu" ref={avatarMenuRef} onClick={(e) => e.stopPropagation()}>
-                      {userData.profile_picture && (
-                        <button className="profile-avatar-menu-item" onClick={() => { setViewProfilePic(true); setShowAvatarMenu(false); }}>
-                          <i className="fas fa-eye"></i> View Photo
-                        </button>
-                      )}
-                      {featureOn('profile.upload_picture') && (
-                        <button className="profile-avatar-menu-item" onClick={() => { profilePicInputRef.current?.click(); setShowAvatarMenu(false); }}>
-                          <i className="fas fa-upload"></i> Upload Photo
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <input ref={profilePicInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={handleProfilePicSelect} />
-                </div>
-              </div>
-              <div className="profile-details-v3">
-                <div className="profile-name-row-v3">
-                  <h2 className="profile-name-v3">{userData.firstname} {userData.lastname}</h2>
-                  <span className={`profile-verified-pill-v3 ${isVerified ? 'verified' : 'unverified'}`}>
-                    <i className={`fas fa-${isVerified ? 'check-circle' : 'clock'}`}></i> {isVerified ? 'Verified' : 'Pending'}
-                  </span>
-                </div>
-                <div className="profile-meta-row-v3">
-                  {getUserRoles(userData).map((r) => (
-                    <span key={r} className="profile-role-chip-v3"><i className="fas fa-shield-alt"></i> {r}</span>
-                  ))}
-                  {(() => {
-                    const ministries = describeRoleDetails(userData).filter((g) => g.key !== 'pastor');
-                    if (ministries.length === 0) return userData.ministry ? <span className="profile-ministry-chip-v3"><i className="fas fa-church"></i> {userData.ministry}</span> : null;
-                    return ministries.map((g, i) => (
-                      <span key={`${g.label}-${i}`} className="profile-ministry-chip-v3"><i className={`fas ${g.icon || 'fa-church'}`}></i> {g.label}</span>
-                    ));
-                  })()}
-                </div>
-              </div>
-            </div>
-
-            {/* What they do in each ministry: every position, not just the ministry name. */}
-            {(() => {
-              const groups = describeRoleDetails(userData);
-              if (groups.length === 0) return null;
-              return (
-                <div className="profile-ministry-panel">
-                  <div className="profile-ministry-panel-title"><i className="fas fa-church"></i> My Ministry Roles</div>
-                  <div className="profile-ministry-panel-grid">
-                    {groups.map((g, i) => (
-                      <div key={`${g.label}-${i}`} className="profile-ministry-tile">
-                        <div className="profile-ministry-tile-head">
-                          <span className="profile-ministry-tile-icon"><i className={`fas ${g.icon || 'fa-church'}`}></i></span>
-                          <span className="profile-ministry-tile-name">
-                            <strong>{g.label}</strong>
-                            <small>{g.key === 'pastor' ? 'Pastoral titles' : g.key === 'plotter' ? 'Praise and Worship lineup' : getMinistryRole(g.key)?.group || 'Ministry'}</small>
-                          </span>
-                        </div>
-                        <div className="profile-ministry-tile-chips">
-                          {g.chips.length > 0
-                            ? g.chips.map((c, ci) => <span key={`${c}-${ci}`} className="profile-ministry-tile-chip">{c}</span>)
-                            : <span className="profile-ministry-tile-empty">No positions yet</span>}
+                        <div className="profile-avatar-overlay-v3">
+                          <i className="fas fa-camera"></i>
                         </div>
                       </div>
+                      {showAvatarMenu && (
+                        <div className="profile-avatar-menu" ref={avatarMenuRef} onClick={(e) => e.stopPropagation()}>
+                          {userData.profile_picture && (
+                            <button className="profile-avatar-menu-item" onClick={() => { setViewProfilePic(true); setShowAvatarMenu(false); }}>
+                              <i className="fas fa-eye"></i> View Photo
+                            </button>
+                          )}
+                          {featureOn('profile.upload_picture') && (
+                            <button className="profile-avatar-menu-item" onClick={() => { profilePicInputRef.current?.click(); setShowAvatarMenu(false); }}>
+                              <i className="fas fa-upload"></i> Upload Photo
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      <input ref={profilePicInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={handleProfilePicSelect} />
+                    </div>
+                    <div>
+                      <p className="pf-name">
+                        <span>{userData.firstname} {userData.lastname}</span>
+                        {isVerified ? <i className="fas fa-circle-check" title="Verified" aria-label="Verified"></i> : <span className="pf-pending">Pending</span>}
+                      </p>
+                      <p className="pf-role">{(getUserRoles(userData).length ? getUserRoles(userData) : [userRole]).join(' · ')}</p>
+                    </div>
+                  </div>
+                  <nav className="pf-nav" role="tablist" aria-label="Profile">
+                    {PROFILE_TABS.map(([key, label, icon]) => (
+                      <button key={key} type="button" role="tab" aria-selected={profileTab === key} onClick={() => goProfileTab(key)}>
+                        <i className={`fas ${icon}`}></i> {label}
+                      </button>
+                    ))}
+                  </nav>
+                  {userData.life_verse && (
+                    <p className="pf-verse">
+                      {lifeVerseLoading ? <i className="fas fa-spinner fa-spin"></i> : (lifeVerseFullText || userData.life_verse)}
+                      {lifeVerseRef && <b>{lifeVerseRef}</b>}
+                    </p>
+                  )}
+                </aside>
+
+                <div className="pf-right">
+                  <div className="pf-mobtabs" role="tablist" aria-label="Profile">
+                    {PROFILE_TABS.map(([key, label, icon]) => (
+                      <button key={key} type="button" role="tab" aria-selected={profileTab === key} onClick={() => goProfileTab(key)}>
+                        <i className={`fas ${icon}`}></i> {label}
+                      </button>
                     ))}
                   </div>
-                </div>
+                  <section className="pf-pane" aria-live="polite">
+
+            {profileTab === 'id' && (
+              <MyIdCard
+                userData={userData}
+                darkMode={darkMode}
+                state={idCard}
+                loading={idCardLoading}
+                onReload={loadIdCard}
+                onChange={setIdCard}
+                verseText={lifeVerseFullText}
+                verseRef={lifeVerseRef}
+                onEditAbout={() => goProfileTab('personal')}
+                onToast={showToast}
+                onConfirm={askConfirm}
+                isAdmin={userRole === 'Admin' || userRole === 'Super Admin'}
+              />
+            )}
+
+            {profileTab === 'personal' && (() => {
+              const canEdit = featureOn('profile.update');
+              const { profileChanged, contactChanged } = aboutChanges();
+              const dirty = canEdit && (profileChanged || contactChanged);
+              const idInfo = idCard?.eligible ? idCard : null;
+              return (
+                <>
+                  <div className="pf-head"><h3>About me</h3><span className="pf-head-note">{canEdit ? 'Change anything, then Save' : 'Your church office keeps these details'}</span></div>
+                  <div className="pf-fields">
+                    <div className="pf-field">
+                      <label htmlFor="pf-first">First name</label>
+                      <input id="pf-first" className="form-control" autoComplete="given-name" value={profileForm.firstname || ''} onChange={(e) => setProfileForm({ ...profileForm, firstname: e.target.value })} disabled={!canEdit} />
+                    </div>
+                    <div className="pf-field">
+                      <label htmlFor="pf-last">Last name</label>
+                      <input id="pf-last" className="form-control" autoComplete="family-name" value={profileForm.lastname || ''} onChange={(e) => setProfileForm({ ...profileForm, lastname: e.target.value })} disabled={!canEdit} />
+                    </div>
+                    <div className="pf-field">
+                      <label htmlFor="pf-birth">Birthday</label>
+                      <input id="pf-birth" type="date" className="form-control" value={profileForm.birthdate || ''} onChange={(e) => setProfileForm({ ...profileForm, birthdate: e.target.value })} disabled={!canEdit} />
+                      <small>Members see the day and month only. Never printed on your ID.</small>
+                    </div>
+                    <div className="pf-field">
+                      <label htmlFor="pf-verse">Life verse</label>
+                      <div className="life-verse-input-row">
+                        <select
+                          className="life-verse-version-select"
+                          aria-label="Bible version"
+                          disabled={!canEdit}
+                          value={lifeVerseVersion}
+                          onChange={(e) => {
+                            setLifeVerseVersion(e.target.value);
+                            localStorage.setItem('lifeVerseVersionPref', e.target.value);
+                            if (profileForm.life_verse) {
+                              setLifeVerseFullText('');
+                              fetchLifeVerse(profileForm.life_verse, e.target.value);
+                            }
+                          }}
+                        >
+                          {BIBLE_VERSIONS.map((v) => (
+                            <option key={v.value} value={v.value}>{v.label}</option>
+                          ))}
+                        </select>
+                        <input id="pf-verse" className="form-control" style={{ flex: 1 }} placeholder="e.g. Jeremiah 29:11" value={profileForm.life_verse || ''} onChange={(e) => setProfileForm({ ...profileForm, life_verse: e.target.value })} disabled={!canEdit} />
+                      </div>
+                      <small>A reference like &quot;Jeremiah 29:11&quot; is enough; we fill in the words.{idInfo?.card?.kind === 'member' ? ' Printed on the back of your ID.' : ''}</small>
+                    </div>
+                  </div>
+
+                  {idInfo && (
+                    <div className="pf-sect">
+                      <h4>Emergency contact</h4>
+                      <p className="pf-sub">{idInfo.ready ? 'Printed on the back of your ID. Only you and the church office see it here.' : 'Coming soon: the church office is switching this on.'}</p>
+                      <div className="pf-emgrid">
+                        <div className="pf-fields">
+                          <div className="pf-field">
+                            <label htmlFor="pf-em-name">Name</label>
+                            <input id="pf-em-name" className="form-control" maxLength={80} autoComplete="off" value={emergencyForm.name} onChange={(e) => setEmergencyForm({ ...emergencyForm, name: e.target.value })} disabled={!canEdit || !idInfo.ready} />
+                          </div>
+                          <div className="pf-field">
+                            <label htmlFor="pf-em-phone">Mobile number</label>
+                            <input id="pf-em-phone" className="form-control" inputMode="tel" maxLength={20} placeholder="0917 555 0142" autoComplete="off" value={emergencyForm.phone} onChange={(e) => setEmergencyForm({ ...emergencyForm, phone: e.target.value })} disabled={!canEdit || !idInfo.ready} />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="pf-mini">
+                            <IdCardSide
+                              kind={idInfo.card.kind}
+                              side="back"
+                              prefix="idm"
+                              fill={buildIdFill({
+                                card: idInfo.card,
+                                theme: darkMode ? 'dark' : 'light',
+                                photo: userData.profile_picture,
+                                verseText: lifeVerseFullText,
+                                verseRef: lifeVerseRef,
+                                overrides: { emergency_name: emergencyForm.name, emergency_phone: emergencyForm.phone },
+                              })}
+                            />
+                          </div>
+                          <p className="pf-mini-cap">Back of your ID</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pf-ro">
+                    <div className="pf-ro-h"><i className="fas fa-lock"></i> Kept by your church office. Ask an admin to change these.</div>
+                    <dl>
+                      <div><dt>Email</dt><dd>{userData.email || '—'}</dd></div>
+                      <div><dt>Member ID</dt><dd>{userData.memberId || idInfo?.card?.id_no || '—'}</dd></div>
+                      {userRole !== 'Guest' && (
+                        <>
+                          <div><dt>Role</dt><dd>{(getUserRoles(userData).length ? getUserRoles(userData) : [userRole]).join(', ')}</dd></div>
+                          <div><dt>Account</dt><dd>{userData.status || '—'}</dd></div>
+                        </>
+                      )}
+                    </dl>
+                  </div>
+
+                  {dirty && (
+                    <div className="pf-save" role="status">
+                      <span><i className="fas fa-circle-exclamation"></i> You have unsaved changes</span>
+                      <div>
+                        <button type="button" className="pf-discard" onClick={discardAbout} disabled={savingAbout || profileLoading}>Discard</button>
+                        <button type="button" className="pf-savebtn" onClick={saveAbout} disabled={savingAbout || profileLoading}>
+                          {savingAbout ? <><i className="fas fa-spinner fa-spin"></i> Saving…</> : <><i className="fas fa-check"></i> Save</>}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               );
             })()}
 
-            <div className="profile-tabs">
-              <button className={`profile-tab ${profileTab === 'personal' ? 'active' : ''}`} onClick={() => setProfileTab('personal')}><i className="fas fa-user"></i> Personal Info</button>
-              <button className={`profile-tab ${profileTab === 'password' ? 'active' : ''}`} onClick={() => setProfileTab('password')}><i className="fas fa-lock"></i> Change Password</button>
-              {(userRole === 'Admin' || userRole === 'Super Admin') && (
-                <button className={`profile-tab ${profileTab === 'security' ? 'active' : ''}`} onClick={() => setProfileTab('security')}><i className="fas fa-shield-alt"></i> Security</button>
-              )}
-              <button className={`profile-tab ${profileTab === 'preferences' ? 'active' : ''}`} onClick={() => setProfileTab('preferences')}><i className="fas fa-cog"></i> Preferences</button>
-            </div>
-
-            {profileTab === 'personal' && (
-              <div className="profile-form profile-form-v2">
-                <div className="profile-form-section-title"><i className="fas fa-edit"></i> Editable Information</div>
-                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-                  <div className="form-group profile-field-editable">
-                    <label>First Name</label>
-                    <input className="form-control" style={{ padding: '12px 16px' }} value={profileForm.firstname} onChange={(e) => setProfileForm({ ...profileForm, firstname: e.target.value })} disabled={!editingProfile} />
-                  </div>
-                  <div className="form-group profile-field-editable">
-                    <label>Last Name</label>
-                    <input className="form-control" style={{ padding: '12px 16px' }} value={profileForm.lastname} onChange={(e) => setProfileForm({ ...profileForm, lastname: e.target.value })} disabled={!editingProfile} />
-                  </div>
-                </div>
-                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-                  <div className="form-group profile-field-editable">
-                    <label><i className="fas fa-birthday-cake" style={{ marginRight: 6, color: 'var(--primary)' }}></i>Birthdate</label>
-                    <input type="date" className="form-control" style={{ padding: '12px 16px' }} value={profileForm.birthdate || ''} onChange={(e) => setProfileForm({ ...profileForm, birthdate: e.target.value })} disabled={!editingProfile} />
-                  </div>
-                  <div className="form-group profile-field-editable">
-                    <label><i className="fas fa-bible" style={{ marginRight: 6, color: 'var(--primary)' }}></i>Life Verse</label>
-                    <div className="life-verse-input-row">
-                    <select
-                      className="life-verse-version-select"
-                      disabled={!editingProfile}
-                      value={lifeVerseVersion}
-                      onChange={(e) => {
-                        setLifeVerseVersion(e.target.value);
-                        localStorage.setItem('lifeVerseVersionPref', e.target.value);
-                        if (profileForm.life_verse) {
-                          // Clear cache and re-fetch with new version
-                          setLifeVerseFullText('');
-                          fetchLifeVerse(profileForm.life_verse, e.target.value);
-                        }
-                      }}
-                    >
-                      {BIBLE_VERSIONS.map((v) => (
-                        <option key={v.value} value={v.value}>{v.label}</option>
+            {profileTab === 'ministry' && (() => {
+              const groups = describeRoleDetails(userData);
+              return (
+                <>
+                  <div className="pf-head"><h3>My ministry</h3><span className="pf-head-note">Ask your ministry head or the church office to change these</span></div>
+                  {groups.length ? (
+                    <div className="pf-tiles">
+                      {groups.map((g, i) => (
+                        <div key={`${g.label}-${i}`} className="profile-ministry-tile">
+                          <div className="profile-ministry-tile-head">
+                            <span className="profile-ministry-tile-icon"><i className={`fas ${g.icon || 'fa-church'}`}></i></span>
+                            <span className="profile-ministry-tile-name">
+                              <strong>{g.label}</strong>
+                              <small>{g.key === 'pastor' ? 'Pastoral titles' : g.key === 'plotter' ? 'Praise and Worship lineup' : getMinistryRole(g.key)?.group || 'Ministry'}</small>
+                            </span>
+                          </div>
+                          <div className="profile-ministry-tile-chips">
+                            {g.chips.length > 0
+                              ? g.chips.map((c, ci) => <span key={`${c}-${ci}`} className="profile-ministry-tile-chip">{c}</span>)
+                              : <span className="profile-ministry-tile-empty">No positions yet</span>}
+                          </div>
+                        </div>
                       ))}
-                    </select>
-                    <input className="form-control" style={{ padding: '12px 16px', flex: 1 }} placeholder='e.g. Ephesians 6:1 or Jeremiah 29:11 - For I know the plans...' value={profileForm.life_verse || ''} onChange={(e) => setProfileForm({ ...profileForm, life_verse: e.target.value })} disabled={!editingProfile} />
-                  </div>
-                    <small style={{ color: '#6c757d', fontSize: '0.78rem', marginTop: 4, display: 'block' }}>Enter a reference like &quot;Ephesians 6:1&quot; or include the text with &quot;Jeremiah 29:11 - For I know the plans...&quot;</small>
-                  </div>
-                </div>
-
-                <div className="profile-form-section-title" style={{ marginTop: 28 }}><i className="fas fa-lock"></i> Account Information <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#999' }}>(Read only)</span></div>
-                <div className="form-group profile-field-readonly">
-                  <label>Email Address</label>
-                  <input className="form-control profile-input-disabled" style={{ padding: '12px 16px' }} value={userData.email || ''} readOnly />
-                </div>
-                {userRole !== 'Guest' && (
-                  <>
-                    <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-                      <div className="form-group profile-field-readonly">
-                        <label>Ministry</label>
-                        <input className="form-control profile-input-disabled" style={{ padding: '12px 16px' }} value={userData.ministry || 'Not Assigned'} readOnly />
-                      </div>
-                      <div className="form-group profile-field-readonly">
-                        <label>Role</label>
-                        <input className="form-control profile-input-disabled" style={{ padding: '12px 16px' }} value={userRole} readOnly />
-                      </div>
-                    </div>
-                    <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-                      <div className="form-group profile-field-readonly">
-                        <label>Status</label>
-                        <input className="form-control profile-input-disabled" style={{ padding: '12px 16px' }} value={userData.status || ''} readOnly />
-                      </div>
-                      <div className="form-group profile-field-readonly">
-                        <label>Member ID</label>
-                        <input className="form-control profile-input-disabled" style={{ padding: '12px 16px' }} value={userData.memberId || 'N/A'} readOnly />
-                      </div>
-                    </div>
-                  </>
-                )}
-                {featureOn('profile.update') && (
-                  editingProfile ? (
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      <button className="btn-primary profile-save-btn" onClick={async () => { await saveProfile(); setEditingProfile(false); }} disabled={profileLoading}>{profileLoading ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : <><i className="fas fa-save"></i> Save Changes</>}</button>
-                      <button className="btn-secondary profile-save-btn" onClick={() => { setEditingProfile(false); setProfileForm({ firstname: userData.firstname || '', lastname: userData.lastname || '', birthdate: userData.birthdate || '', life_verse: userData.life_verse || '' }); }} disabled={profileLoading}>Cancel</button>
                     </div>
                   ) : (
-                    <button className="btn-primary profile-save-btn" onClick={() => setEditingProfile(true)}><i className="fas fa-edit"></i> Edit Profile</button>
-                  )
-                )}
-              </div>
+                    <div className="pf-empty">
+                      <i className="fas fa-church"></i>
+                      <b>You are not serving in a ministry yet</b>
+                      Would you like to? Talk to a pastor, or message the church office from Chat.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            {profileTab === 'password' && (
+              <>
+                <div className="pf-head"><h3>Sign-in &amp; security</h3></div>
+                <div className="pf-signin">
+                  {(!userData.isGoogleUser || hasLocalPassword) && <span className="pf-chip"><i className="fas fa-key"></i> Email &amp; password</span>}
+                  {userData.isGoogleUser && <span className="pf-chip"><i className="fab fa-google"></i> Google</span>}
+                </div>
+                <h4 className="pf-h4">{userData.isGoogleUser && !hasLocalPassword ? 'Set a password' : 'Change password'}</h4>
+              </>
             )}
 
             {profileTab === 'password' && (
@@ -40149,8 +40116,8 @@ ${row('Change', rc.change, 'change')}
                     <div className="form-group">
                       <label>Current Password</label>
                       <div className="password-input-wrapper">
-                        <input type={showCurrentPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder={editingPassword ? 'Enter current password' : 'Click "Change Password" to edit'} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} disabled={!editingPassword} />
-                        <button type="button" className="password-eye-btn" onClick={() => setShowCurrentPassword(!showCurrentPassword)} tabIndex={-1} disabled={!editingPassword}>
+                        <input type={showCurrentPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder="Enter your current password" autoComplete="current-password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} />
+                        <button type="button" className="password-eye-btn" onClick={() => setShowCurrentPassword(!showCurrentPassword)} tabIndex={-1}>
                           <i className={`fas fa-eye${showCurrentPassword ? '-slash' : ''}`}></i>
                         </button>
                       </div>
@@ -40158,8 +40125,8 @@ ${row('Change', rc.change, 'change')}
                     <div className="form-group">
                       <label>New Password</label>
                       <div className="password-input-wrapper">
-                        <input type={showNewPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder={passwordForm.currentPassword ? 'At least 8 characters' : 'Enter current password first'} value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} disabled={!editingPassword || !passwordForm.currentPassword} />
-                        <button type="button" className="password-eye-btn" onClick={() => setShowNewPassword(!showNewPassword)} tabIndex={-1} disabled={!editingPassword || !passwordForm.currentPassword}>
+                        <input type={showNewPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder={passwordForm.currentPassword ? 'At least 8 characters' : 'Enter current password first'} value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} disabled={!passwordForm.currentPassword} />
+                        <button type="button" className="password-eye-btn" onClick={() => setShowNewPassword(!showNewPassword)} tabIndex={-1} disabled={!passwordForm.currentPassword}>
                           <i className={`fas fa-eye${showNewPassword ? '-slash' : ''}`}></i>
                         </button>
                       </div>
@@ -40175,27 +40142,25 @@ ${row('Change', rc.change, 'change')}
                     <div className="form-group">
                       <label>Confirm New Password</label>
                       <div className="password-input-wrapper">
-                        <input type={showConfirmPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder={passwordForm.currentPassword ? 'Re-enter new password' : 'Enter current password first'} value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} disabled={!editingPassword || !passwordForm.currentPassword} />
-                        <button type="button" className="password-eye-btn" onClick={() => setShowConfirmPassword(!showConfirmPassword)} tabIndex={-1} disabled={!editingPassword || !passwordForm.currentPassword}>
+                        <input type={showConfirmPassword ? 'text' : 'password'} className="form-control" style={{ padding: '12px 16px', paddingRight: 45 }} placeholder={passwordForm.currentPassword ? 'Re-enter new password' : 'Enter current password first'} value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} disabled={!passwordForm.currentPassword} />
+                        <button type="button" className="password-eye-btn" onClick={() => setShowConfirmPassword(!showConfirmPassword)} tabIndex={-1} disabled={!passwordForm.currentPassword}>
                           <i className={`fas fa-eye${showConfirmPassword ? '-slash' : ''}`}></i>
                         </button>
                       </div>
                     </div>
                     {passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword && <p className="password-mismatch-msg"><i className="fas fa-exclamation-circle"></i> Passwords do not match</p>}
-                    {editingPassword ? (
-                      <div style={{ display: 'flex', gap: 10 }}>
-                        <button className="btn-primary profile-save-btn" onClick={async () => { await changePassword(); }} disabled={profileLoading}>{profileLoading ? <><i className="fas fa-spinner fa-spin"></i> Updating...</> : <><i className="fas fa-key"></i> Update Password</>}</button>
-                        <button className="btn-secondary profile-save-btn" onClick={() => { setEditingPassword(false); setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); }} disabled={profileLoading}>Cancel</button>
-                      </div>
-                    ) : (
-                      <button className="btn-primary profile-save-btn" onClick={() => setEditingPassword(true)}><i className="fas fa-edit"></i> Change Password</button>
-                    )}
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <button className="btn-primary profile-save-btn" onClick={async () => { await changePassword(); }} disabled={profileLoading || !passwordForm.currentPassword || !passwordForm.newPassword || passwordForm.newPassword !== passwordForm.confirmPassword}>{profileLoading ? <><i className="fas fa-spinner fa-spin"></i> Updating...</> : <><i className="fas fa-key"></i> Update Password</>}</button>
+                      {(passwordForm.currentPassword || passwordForm.newPassword || passwordForm.confirmPassword) && (
+                        <button className="btn-secondary profile-save-btn" onClick={() => setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })} disabled={profileLoading}>Clear</button>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
             )}
 
-            {profileTab === 'security' && (userRole === 'Admin' || userRole === 'Super Admin') && (
+            {profileTab === 'password' && (userRole === 'Admin' || userRole === 'Super Admin') && (
               <div className="profile-form profile-form-v2">
                 <div className="profile-form-section-title"><i className="fas fa-shield-alt"></i> Admin Access Password</div>
                 <div style={{ padding: '16px 20px', background: 'rgba(146,108,21,0.08)', borderRadius: 12, marginBottom: 20, border: '1px solid rgba(146,108,21,0.2)' }}>
@@ -40253,6 +40218,7 @@ ${row('Change', rc.change, 'change')}
               </div>
             )}
 
+            {profileTab === 'preferences' && <div className="pf-head"><h3>Preferences</h3></div>}
             {profileTab === 'preferences' && (
               <div className="profile-form profile-form-v2">
                 <div className="theme-pref-card">
@@ -40311,6 +40277,10 @@ ${row('Change', rc.change, 'change')}
                 )}
               </div>
             )}
+                  </section>
+                </div>
+              </div>
+            </div>
           </section>
 
           {/* ========== COMMUNITY EVENTS (All users can browse & RSVP) ========== */}

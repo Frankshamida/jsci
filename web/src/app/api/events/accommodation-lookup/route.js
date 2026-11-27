@@ -21,6 +21,9 @@ import { loadHolds, loadKids, holdName } from '@/lib/roomList/data';
 // the room with them and needs to find them - nobody outside it is listed.
 
 export const dynamic = 'force-dynamic';
+// Every read fresh. On its own, force-dynamic does not stop Next 14 from
+// keeping the database reads of a GET-only route in its data cache for good.
+export const revalidate = 0;
 
 const fail = (message, status = 400) => NextResponse.json({ success: false, message }, { status });
 const ok = (body) => NextResponse.json({ success: true, ...body }, { headers: { 'Cache-Control': 'no-store' } });

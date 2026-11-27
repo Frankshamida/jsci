@@ -21,6 +21,9 @@
  *   jar.reset()             empties the jar
  *
  * Events (bubble, composed)
+ *   heartjar:filling    detail { from, to, duration, startedAt, amount, goal, percent }
+ *                       hearts start to fall: fill goes from -> to over duration ms
+ *                       (also kept as jar.lastFilling)
  *   heartjar:progress   detail { amount, goal, percent, fill }
  *   heartjar:goalreached detail { amount, goal }
  *   heartjar:settled     detail { amount, goal, percent }   every falling heart has landed
@@ -182,6 +185,7 @@
       }
 
       // filling up
+      const from = this._fill;
       const toShow = this._revealOrder.filter(it => !it.shown && it.d.t <= target + 1e-6);
       this._fill = Math.max(this._fill, target);
       let endTime = 0;
@@ -190,6 +194,16 @@
         const n = toShow.length;
         const gap = n ? Math.min(55, 2600 / n) : 0;
         toShow.forEach((it, i) => { endTime = Math.max(endTime, i * gap + this._drop(it, i * gap)); });
+      }
+      // How long the hearts take, so a progress bar can fill alongside and
+      // stop with the last one. Kept on the element too (jar.lastFilling) for
+      // a listener that arrives a moment late, and sent after this task, once
+      // the page has had the chance to listen.
+      if (!instant && toShow.length) {
+        const detail = { from, to: this._fill, duration: Math.round(endTime), startedAt: performance.now(),
+          amount: this.amount, goal: this.goal || null, percent: this.percent };
+        this.lastFilling = detail;
+        setTimeout(() => this.dispatchEvent(new CustomEvent('heartjar:filling', { bubbles: true, composed: true, detail })), 0);
       }
 
       if (reached && !this._overflow) {
