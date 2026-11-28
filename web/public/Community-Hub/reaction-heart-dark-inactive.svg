@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Love"><title>Love</title><defs>
+<radialGradient id="hb-off-heart-dark-active" cx="22" cy="19" r="46" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE169"/><stop offset=".3" stop-color="#FFD235"/><stop offset=".6" stop-color="#FFC300"/><stop offset=".85" stop-color="#C9980B"/><stop offset="1" stop-color="#926C15"/></radialGradient>
+<linearGradient id="hs-off-heart-dark-active" x1="0" y1="0" x2="0" y2="1"><stop offset=".45" stop-color="#6B4F0E" stop-opacity="0"/><stop offset="1" stop-color="#6B4F0E" stop-opacity=".45"/></linearGradient>
+<radialGradient id="fo-off-heart-dark-active" cx="32" cy="50" r="40" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFD235"/><stop offset=".45" stop-color="#FFC300"/><stop offset=".78" stop-color="#C9980B"/><stop offset="1" stop-color="#926C15"/></radialGradient>
+<radialGradient id="fm-off-heart-dark-active" cx="32" cy="50" r="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE169"/><stop offset=".55" stop-color="#FFD235"/><stop offset="1" stop-color="#FFC300"/></radialGradient>
+<radialGradient id="fc-off-heart-dark-active" cx="32" cy="51" r="11" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFF6CF"/><stop offset=".6" stop-color="#FFF6CF" stop-opacity=".95"/><stop offset="1" stop-color="#FFE169"/></radialGradient>
+<linearGradient id="fg-off-heart-dark-active" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#926C15"/><stop offset=".3" stop-color="#FFC300"/><stop offset=".55" stop-color="#FFE169"/><stop offset=".85" stop-color="#FFC300"/><stop offset="1" stop-color="#C9980B"/></linearGradient>
+<radialGradient id="pa-off-heart-dark-active" cx="13" cy="38" r="16" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE169"/><stop offset=".55" stop-color="#FFC300"/><stop offset="1" stop-color="#C9980B"/></radialGradient>
+<linearGradient id="cf-off-heart-dark-active" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9980B"/><stop offset=".35" stop-color="#926C15"/><stop offset="1" stop-color="#6B4F0E"/></linearGradient>
+<radialGradient id="sk-off-heart-dark-active"><stop offset="0" stop-color="#FFF6CF"/><stop offset=".6" stop-color="#FFE169"/><stop offset="1" stop-color="#FFC300"/></radialGradient>
+<filter id="b1-off-heart-dark-active" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.1"/></filter>
+<filter id="b2-off-heart-dark-active" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2"/></filter>
+<clipPath id="hc-off-heart-dark-active"><path d="M32 55C14 43 6 33 6 22 6 14 12 8 19.5 8 25 8 29.5 11 32 15 34.5 11 39 8 44.5 8 52 8 58 14 58 22 58 33 50 43 32 55Z"/></clipPath>
+<clipPath id="fcl-off-heart-dark-active"><path d="M32 4C34 14 44 18 47 28 49.5 23 49 18.5 47 15 54 21 56 30 55.5 37 54.5 49 44.5 59 32 59 19.5 59 9.5 50 9 39 8.5 31 12 25 16.5 21 16.5 25 17.5 28 20.5 30.5 19 21 24 13 32 4Z"/></clipPath><filter id="rx-mute" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB"><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncR type="linear" slope="0.5" intercept="0.26"/><feFuncG type="linear" slope="0.5" intercept="0.26"/><feFuncB type="linear" slope="0.5" intercept="0.26"/><feFuncA type="linear" slope="0.85"/></feComponentTransfer></filter></defs><g filter="url(#rx-mute)"><ellipse  cx="32" cy="60" rx="15" ry="2.6" fill="#926C15" opacity="0.28" filter="url(#b1-off-heart-dark-active)"/><g >
+<path d="M32 55C14 43 6 33 6 22 6 14 12 8 19.5 8 25 8 29.5 11 32 15 34.5 11 39 8 44.5 8 52 8 58 14 58 22 58 33 50 43 32 55Z" fill="url(#hb-off-heart-dark-active)"/>
+<g clip-path="url(#hc-off-heart-dark-active)">
+ <path d="M32 55C14 43 6 33 6 22 6 14 12 8 19.5 8 25 8 29.5 11 32 15 34.5 11 39 8 44.5 8 52 8 58 14 58 22 58 33 50 43 32 55Z" fill="url(#hs-off-heart-dark-active)"/>
+ <ellipse cx="44" cy="44" rx="9" ry="5" fill="#FFD235" opacity=".35" filter="url(#b2-off-heart-dark-active)"/>
+ <path d="M32 55C14 43 6 33 6 22 6 14 12 8 19.5 8 25 8 29.5 11 32 15 34.5 11 39 8 44.5 8 52 8 58 14 58 22 58 33 50 43 32 55Z" fill="none" stroke="#6B4F0E" stroke-width="2.5" opacity=".35" filter="url(#b1-off-heart-dark-active)"/>
+ <ellipse cx="18.5" cy="17" rx="7.5" ry="4" transform="rotate(-35 18.5 17)" fill="#FFF6CF" opacity=".85" filter="url(#b1-off-heart-dark-active)"/>
+ <ellipse cx="16.5" cy="16" rx="2.6" ry="1.4" transform="rotate(-35 16.5 16)" fill="#fff" opacity=".9"/>
+ <ellipse cx="44" cy="14.5" rx="3.2" ry="1.8" transform="rotate(20 44 14.5)" fill="#FFF6CF" opacity=".6" filter="url(#b1-off-heart-dark-active)"/>
+</g></g></g></svg>

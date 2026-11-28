@@ -113,6 +113,99 @@ body.dark-mode .gv-theme {
 .gv-crumb:hover { color: var(--accent, #ffc300) !important; }
 .gv-rise { position: relative; margin-top: -84px; }
 
+/* ---- /donation: the outreach panorama behind the title ----
+   A golden crowd under an empty sky (2172 x 724): cream by day, night in
+   dark mode. It spans the whole width (never under 1100px, so a phone sees
+   its middle: the gift box, the child with the bear) and stands on the
+   header's floor at its own shape, softened so it stays a backdrop. The
+   header is the colour of that sky, so the picture has no edge to show. The
+   title is centred in the sky, and the bottom padding (46% of the picture's
+   height) ends the text just above the people's heads at any width. */
+.gv-head.is-outreach {
+  --gv-pano-w: max(100vw, 1100px);
+  --gv-pano-h: calc(var(--gv-pano-w) / 3);
+  --gv-sky: #fefbf7;
+  --gv-sky-0: rgba(254, 251, 247, 0);
+  --gv-pano: url('/giving-assets/web/outreach-light.webp');
+  --gv-pano-opacity: 0.6;
+  overflow: hidden;
+  isolation: isolate;
+  padding-bottom: calc(var(--gv-pano-h) * 0.46 + 8px);
+  background: var(--gv-sky);
+  color: #2b2617;
+  text-align: center;
+}
+body.dark-mode .gv-head.is-outreach {
+  --gv-sky: #060605;
+  --gv-sky-0: rgba(6, 6, 5, 0);
+  --gv-pano: url('/giving-assets/web/outreach-dark.webp');
+  --gv-pano-opacity: 0.5;
+  color: #fff;
+}
+.gv-head.is-outreach::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  bottom: 0;
+  width: var(--gv-pano-w);
+  height: var(--gv-pano-h);
+  transform: translateX(-50%);
+  opacity: var(--gv-pano-opacity);
+  /* Its top edge melts into the sky, so a swirl cut by the edge never shows. */
+  background:
+    linear-gradient(to bottom, var(--gv-sky) 0%, var(--gv-sky-0) 28%),
+    var(--gv-pano) center / 100% 100% no-repeat;
+}
+/* A soft pool of sky behind the words, warmed at its heart, so they stay
+   crisp wherever the picture's gold runs behind them. */
+.gv-head.is-outreach::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  top: 70px;
+  width: min(1300px, 120%);
+  height: calc(100% - var(--gv-pano-h) * 0.46 + 40px);
+  transform: translateX(-50%);
+  background:
+    radial-gradient(ellipse closest-side at center, rgba(255, 195, 0, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse closest-side at center,
+      color-mix(in srgb, var(--gv-sky) 80%, transparent) 0%,
+      color-mix(in srgb, var(--gv-sky) 62%, transparent) 50%,
+      transparent 100%);
+  pointer-events: none;
+}
+.gv-head.is-outreach h1,
+.gv-head.is-outreach p { margin-left: auto; margin-right: auto; }
+.gv-head.is-outreach h1 {
+  margin-top: 8px;
+  font-size: clamp(1.9rem, 3.8vw, 2.75rem);
+}
+.gv-head.is-outreach p { margin-top: 10px; }
+/* By day: deep gold and warm ink, which read on cream (the bright gold of
+   the night version would not). */
+.gv-head.is-outreach .gv-eyebrow { color: #926c15; }
+.gv-head.is-outreach h1 {
+  background-image: linear-gradient(135deg, #7a5608, #b07f0c);
+  filter: drop-shadow(0 1px 10px rgba(255, 255, 255, 0.85));
+}
+.gv-head.is-outreach p { color: #4a4232; }
+.gv-head.is-outreach .gv-crumb { color: rgba(43, 38, 23, 0.7) !important; }
+.gv-head.is-outreach .gv-crumb:hover { color: #926c15 !important; }
+/* By night: the gold and white the dark band always had. */
+body.dark-mode .gv-head.is-outreach .gv-eyebrow { color: var(--accent, #ffc300); }
+body.dark-mode .gv-head.is-outreach h1 {
+  background-image: linear-gradient(135deg, var(--secondary, #c9980b), var(--accent, #ffc300));
+  filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.55));
+}
+body.dark-mode .gv-head.is-outreach p { color: rgba(255, 255, 255, 0.84); }
+body.dark-mode .gv-head.is-outreach .gv-crumb { color: rgba(255, 255, 255, 0.72) !important; }
+body.dark-mode .gv-head.is-outreach .gv-crumb:hover { color: var(--accent, #ffc300) !important; }
+/* The cards rise only over the golden waves, not over the people's feet. */
+.gv-head.is-outreach + .gv-main .gv-rise,
+.gv-head.is-outreach + .gv-main .gv-drive-layout { margin-top: -40px; }
+
 .gv-card {
   border-radius: 20px;
   border: 1px solid var(--gv-line);

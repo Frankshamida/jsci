@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import './login.css';
 import { useBranding } from '@/components/BrandingProvider';
 import GoogleSignInButton from '@/components/GoogleSignInButton';
-import { homeFor, isGuestOnly, peekReturn, readViewer, rememberReturn, takeReturn } from '@/lib/viewer';
+import { homeFor, peekReturn, readViewer, rememberReturn, takeReturn } from '@/lib/viewer';
 
 const LOGIN_VERSES = [
   { verse: 'The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you.', reference: 'Numbers 6:24-25' },
@@ -242,7 +242,7 @@ function LoginContent() {
             <div className="login-splash-loader">
               <div className="login-splash-loader-bar" />
             </div>
-            <p className="login-splash-redirect">{returning ? 'Taking you back...' : isGuestOnly(readViewer()) ? 'Taking you home...' : 'Entering your dashboard...'}</p>
+            <p className="login-splash-redirect">{returning ? 'Taking you back...' : 'Entering your dashboard...'}</p>
           </div>
         </div>
       )}

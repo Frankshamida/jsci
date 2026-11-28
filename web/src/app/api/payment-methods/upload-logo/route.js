@@ -3,7 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-const MANAGER_ROLES = ['Admin', 'Super Admin', 'Pastor'];
+// The same as /api/payment-methods: Admin and Super Admin only.
+const MANAGER_ROLES = ['Admin', 'Super Admin'];
 
 // Logos live alongside avatars in the existing public `profile` bucket, so no
 // extra Supabase bucket has to be provisioned.

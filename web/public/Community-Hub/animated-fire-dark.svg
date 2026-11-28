@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Fire"><title>Fire</title><style>
+.a{transform-box:view-box;animation-duration:1s;animation-timing-function:cubic-bezier(.3,.7,.4,1);animation-fill-mode:both;animation-iteration-count:1}
+.hrt{transform-origin:32px 34px;animation-name:rx-heart}
+.shd{transform-origin:32px 60px;animation-name:rx-shadow}
+.flo{transform-origin:32px 58px;animation-name:rx-fire}
+.flm{transform-origin:32px 57px;animation-name:rx-fire-mid}
+.flc{transform-origin:32px 56px;animation-name:rx-fire-core}
+.lhd{transform-origin:16px 58px;animation-name:rx-hand-l}
+.rhd{transform-origin:48px 58px;animation-name:rx-hand-r}
+.spk{transform-box:fill-box;transform-origin:center;animation-name:rx-spark}
+.k2{animation-delay:.12s}.k3{animation-delay:.2s}
+@keyframes rx-heart{0%{transform:scale(.3);opacity:0}22%{transform:scale(1.22);opacity:1}38%{transform:scale(.9)}54%{transform:scale(1.12)}70%{transform:scale(.97)}100%{transform:scale(1)}}
+@keyframes rx-shadow{0%{transform:scaleX(.3);opacity:0}25%{transform:scaleX(.8)}100%{transform:scaleX(1)}}
+@keyframes rx-fire{0%{transform:scale(.5,.1);opacity:0}28%{transform:scale(1.04,1.18);opacity:1}45%{transform:scale(.97,.93) skewX(-4deg)}62%{transform:scale(1.02,1.06) skewX(3deg)}80%{transform:scale(.99,.98) skewX(-1deg)}100%{transform:none}}
+@keyframes rx-fire-mid{0%,15%{transform:scale(.3)}45%{transform:scale(1.08,1.15)}70%{transform:scale(.96,.95)}100%{transform:none}}
+@keyframes rx-fire-core{0%,25%{transform:scale(.2)}55%{transform:scale(1.15,1.25)}80%{transform:scale(.95)}100%{transform:none}}
+@keyframes rx-hand-l{0%{transform:translateY(16px) rotate(10deg);opacity:0}32%{transform:translateY(-5px) rotate(-6deg);opacity:1}52%{transform:translateY(0) rotate(3deg)}74%{transform:translateY(-1.5px) rotate(-1deg)}100%{transform:none}}
+@keyframes rx-hand-r{0%{transform:translateY(16px) rotate(-10deg);opacity:0}32%{transform:translateY(-5px) rotate(6deg);opacity:1}52%{transform:translateY(0) rotate(-3deg)}74%{transform:translateY(-1.5px) rotate(1deg)}100%{transform:none}}
+@keyframes rx-spark{0%,30%{transform:scale(0) rotate(-45deg);opacity:0}60%{transform:scale(1.4) rotate(15deg);opacity:1}100%{transform:scale(1) rotate(0);opacity:1}}
+@media (prefers-reduced-motion:reduce){.a{animation:none!important}}
+</style><defs>
+<radialGradient id="hb-anim-fire-dark-active" cx="22" cy="19" r="46" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE169"/><stop offset=".3" stop-color="#FFD235"/><stop offset=".6" stop-color="#FFC300"/><stop offset=".85" stop-color="#C9980B"/><stop offset="1" stop-color="#926C15"/></radialGradient>
+<linearGradient id="hs-anim-fire-dark-active" x1="0" y1="0" x2="0" y2="1"><stop offset=".45" stop-color="#6B4F0E" stop-opacity="0"/><stop offset="1" stop-color="#6B4F0E" stop-opacity=".45"/></linearGradient>
+<radialGradient id="fo-anim-fire-dark-active" cx="32" cy="50" r="40" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFD235"/><stop offset=".45" stop-color="#FFC300"/><stop offset=".78" stop-color="#C9980B"/><stop offset="1" stop-color="#926C15"/></radialGradient>
+<radialGradient id="fm-anim-fire-dark-active" cx="32" cy="50" r="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE169"/><stop offset=".55" stop-color="#FFD235"/><stop offset="1" stop-color="#FFC300"/></radialGradient>
+<radialGradient id="fc-anim-fire-dark-active" cx="32" cy="51" r="11" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFF6CF"/><stop offset=".6" stop-color="#FFF6CF" stop-opacity=".95"/><stop offset="1" stop-color="#FFE169"/></radialGradient>
+<linearGradient id="fg-anim-fire-dark-active" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#926C15"/><stop offset=".3" stop-color="#FFC300"/><stop offset=".55" stop-color="#FFE169"/><stop offset=".85" stop-color="#FFC300"/><stop offset="1" stop-color="#C9980B"/></linearGradient>
+<radialGradient id="pa-anim-fire-dark-active" cx="13" cy="38" r="16" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE169"/><stop offset=".55" stop-color="#FFC300"/><stop offset="1" stop-color="#C9980B"/></radialGradient>
+<linearGradient id="cf-anim-fire-dark-active" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9980B"/><stop offset=".35" stop-color="#926C15"/><stop offset="1" stop-color="#6B4F0E"/></linearGradient>
+<radialGradient id="sk-anim-fire-dark-active"><stop offset="0" stop-color="#FFF6CF"/><stop offset=".6" stop-color="#FFE169"/><stop offset="1" stop-color="#FFC300"/></radialGradient>
+<filter id="b1-anim-fire-dark-active" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.1"/></filter>
+<filter id="b2-anim-fire-dark-active" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2"/></filter>
+<clipPath id="hc-anim-fire-dark-active"><path d="M32 55C14 43 6 33 6 22 6 14 12 8 19.5 8 25 8 29.5 11 32 15 34.5 11 39 8 44.5 8 52 8 58 14 58 22 58 33 50 43 32 55Z"/></clipPath>
+<clipPath id="fcl-anim-fire-dark-active"><path d="M32 4C34 14 44 18 47 28 49.5 23 49 18.5 47 15 54 21 56 30 55.5 37 54.5 49 44.5 59 32 59 19.5 59 9.5 50 9 39 8.5 31 12 25 16.5 21 16.5 25 17.5 28 20.5 30.5 19 21 24 13 32 4Z"/></clipPath></defs><ellipse class="a shd" cx="32" cy="60" rx="15" ry="2.6" fill="#926C15" opacity="0.28" filter="url(#b1-anim-fire-dark-active)"/><g class="a flo">
+<path d="M32 4C34 14 44 18 47 28 49.5 23 49 18.5 47 15 54 21 56 30 55.5 37 54.5 49 44.5 59 32 59 19.5 59 9.5 50 9 39 8.5 31 12 25 16.5 21 16.5 25 17.5 28 20.5 30.5 19 21 24 13 32 4Z" fill="url(#fo-anim-fire-dark-active)"/>
+<g clip-path="url(#fcl-anim-fire-dark-active)">
+ <path d="M32 4C34 14 44 18 47 28 49.5 23 49 18.5 47 15 54 21 56 30 55.5 37 54.5 49 44.5 59 32 59 19.5 59 9.5 50 9 39 8.5 31 12 25 16.5 21 16.5 25 17.5 28 20.5 30.5 19 21 24 13 32 4Z" fill="none" stroke="#6B4F0E" stroke-width="3" opacity=".3" filter="url(#b1-anim-fire-dark-active)"/>
+ <path d="M14 34C13 40 15 46 19 50" fill="none" stroke="#FFE169" stroke-width="2.4" stroke-linecap="round" opacity=".7" filter="url(#b1-anim-fire-dark-active)"/>
+</g>
+<g class="a flm"><path d="M32 19C34.5 27 42.5 31.5 43.5 41 44.5 50 39 56.5 32 56.5 25 56.5 20 51 20 44 20 37 25 34 27.5 28 28.5 32 29.5 34 31 35.5 31 30 30.5 25 32 19Z" fill="url(#fm-anim-fire-dark-active)"/>
+<g class="a flc"><path d="M32 34C34 40 39.5 43 39.5 48.5 39.5 53.5 36 56.5 32 56.5 28 56.5 24.5 53.5 24.5 48.5 24.5 43 30 40 32 34Z" fill="url(#fc-anim-fire-dark-active)"/>
+ <ellipse cx="29.5" cy="46" rx="1.6" ry="3" fill="#fff" opacity=".7" filter="url(#b1-anim-fire-dark-active)"/></g></g>
+</g></svg>

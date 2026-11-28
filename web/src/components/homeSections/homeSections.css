@@ -1,0 +1,48 @@
+/* ============================================
+   SYSTEM CONFIGURATION > HOMEPAGE SECTIONS (HomeSectionsCard.jsx)
+   Inside the dashboard's .hero-cfg card; a row and a switch per section.
+   ============================================ */
+.hs-count { background: rgba(146, 108, 21, 0.10); color: var(--primary); }
+body.dark-mode .hs-count { background: rgba(255, 195, 0, 0.12); color: var(--accent); }
+
+.hs-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.hs-list li {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+}
+.hs-list li.is-off { background: rgba(0, 0, 0, 0.025); }
+.hs-list li.is-off .hs-ic, .hs-list li.is-off .hs-text { opacity: 0.55; }
+.hs-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(146, 108, 21, 0.10); color: var(--primary); }
+.hs-text { display: flex; flex-direction: column; min-width: 0; }
+.hs-text b { font-size: 0.92rem; font-weight: 700; }
+.hs-text small { font-size: 0.76rem; color: #6c757d; line-height: 1.4; }
+
+.hs-switch { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; padding: 6px 4px; cursor: pointer; color: #6c757d; font: inherit; font-size: 0.8rem; font-weight: 600; }
+.hs-switch span { position: relative; width: 38px; height: 22px; border-radius: 99px; background: rgba(0, 0, 0, 0.18); transition: background 0.2s ease; flex-shrink: 0; }
+.hs-switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); transition: transform 0.2s ease; }
+.hs-switch[aria-checked='true'] span { background: linear-gradient(135deg, #926C15, #C9980B); }
+.hs-switch[aria-checked='true'] span::after { transform: translateX(16px); }
+.hs-switch em { font-style: normal; min-width: 3.6em; text-align: left; }
+.hs-switch:focus-visible { outline: 3px solid #FFC300; outline-offset: 2px; border-radius: 8px; }
+
+.hs-note { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; font-size: 0.78rem; color: #6c757d; }
+.hs-undo { border: 0; background: none; padding: 0; color: var(--primary); font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer; text-decoration: underline; }
+
+.hs-loading { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.hs-loading span { height: 58px; border-radius: 12px; background: rgba(0, 0, 0, 0.05); animation: hsPulse 1.4s ease-in-out infinite; }
+@keyframes hsPulse { 50% { opacity: 0.5; } }
+
+body.dark-mode .hs-list li { border-color: rgba(255, 255, 255, 0.12); }
+body.dark-mode .hs-list li.is-off { background: rgba(255, 255, 255, 0.03); }
+body.dark-mode .hs-ic { background: rgba(255, 195, 0, 0.12); color: var(--accent); }
+body.dark-mode .hs-text small, body.dark-mode .hs-note, body.dark-mode .hs-switch { color: #a8a8a8; }
+body.dark-mode .hs-switch[aria-checked='false'] span { background: rgba(255, 255, 255, 0.2); }
+body.dark-mode .hs-undo { color: var(--accent); }
+body.dark-mode .hs-loading span { background: rgba(255, 255, 255, 0.06); }
+
+@media (prefers-reduced-motion: reduce) { .hs-loading span { animation: none; } }
+@media (max-width: 720px) {
+  .hs-list, .hs-loading { grid-template-columns: minmax(0, 1fr); }
+  .hs-cfg .hero-cfg-foot { flex-wrap: wrap; }
+}

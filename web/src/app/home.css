@@ -5897,3 +5897,549 @@ body.dark-mode .hp-newsfeat-thumb { background: #23232f; }
 @media (prefers-reduced-motion: reduce) {
   .hp-switch, .hp-switch::after { transition: none; }
 }
+
+/* ---- UPCOMING EVENTS: the next one large, the rest beside it ----
+   Replaces the grid of tall posters (.hp-invite-*), which ran to one and a
+   half screens - most of it empty tiles, since most events have no poster.
+   The lead card keeps a poster's 4:5 shape on its left; an event without one
+   shows its date there on the church's gold (.hp-evx-datecard). */
+.hp-evx-grid {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: stretch;
+}
+.hp-evx-grid.solo { grid-template-columns: minmax(0, 1fr); max-width: 760px; }
+.hp-evx-lead,
+.hp-evx-side {
+  background: #fff;
+  border: 1px solid rgba(26, 26, 46, 0.08);
+  border-radius: 22px;
+  box-shadow: 0 4px 10px rgba(20, 35, 58, 0.05), 0 16px 34px rgba(20, 35, 58, 0.08);
+  text-align: left;
+}
+.hp-evx-lead { display: grid; grid-template-columns: 220px minmax(0, 1fr); overflow: hidden; }
+.hp-evx-art {
+  position: relative;
+  display: block;
+  min-height: 275px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  cursor: pointer;
+  background: linear-gradient(150deg, #221a0d, #0d0a05);
+}
+.hp-evx-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s ease; }
+.hp-evx-art:hover img { transform: scale(1.04); }
+.hp-evx-datecard {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+  color: #fff;
+  font-family: var(--font-body);
+  background:
+    radial-gradient(120% 80% at 80% 0%, #c9980b 0%, transparent 60%),
+    linear-gradient(160deg, #5b430b, #241a05);
+}
+.hp-evx-datecard::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border: 1px solid rgba(255, 214, 102, 0.35);
+  border-radius: 12px;
+  pointer-events: none;
+}
+.hp-evx-datecard b { font-size: 4.2rem; font-weight: 800; line-height: 0.95; color: #ffd35a; }
+.hp-evx-datecard small { margin-top: 8px; font-size: 0.92rem; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; }
+.hp-evx-datecard em { margin-top: 4px; font-style: normal; font-size: 0.85rem; opacity: 0.8; }
+.hp-evx-body { display: flex; flex-direction: column; gap: 8px; padding: 26px 28px; }
+.hp-evx-eye { font-size: 0.76rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--primary); }
+.hp-evx-body h3 { margin: 0; font-family: var(--font-body); font-size: 1.6rem; font-weight: 800; line-height: 1.15; color: #14233a; }
+.hp-evx-when,
+.hp-evx-where { margin: 0; font-size: 0.95rem; line-height: 1.45; color: #5f6b78; }
+.hp-evx-when b { font-weight: 700; color: #14233a; }
+.hp-evx-fee {
+  align-self: flex-start;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+.hp-evx-fee.paid { background: rgba(255, 195, 0, 0.2); color: #7a5608; }
+.hp-evx-acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; padding-top: 10px; }
+.hp-evx-btn {
+  padding: 11px 22px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  font-weight: 700;
+  background: var(--accent);
+  color: #1a1a2e;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+.hp-evx-btn:hover { background: #ffd235; transform: translateY(-1px); }
+.hp-evx-btn.is-ghost { background: transparent; border-color: rgba(26, 26, 46, 0.18); color: #14233a; }
+.hp-evx-btn.is-ghost:hover { border-color: var(--primary); color: var(--primary); }
+.hp-evx-side { display: flex; flex-direction: column; padding: 20px 22px 16px; }
+.hp-evx-side h3 { margin: 0 0 6px; font-family: var(--font-body); font-size: 1rem; font-weight: 800; color: #14233a; }
+.hp-evx-side ul { margin: 0; padding: 0; list-style: none; }
+.hp-evx-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  padding: 11px 0;
+  border: 0;
+  border-top: 1px solid rgba(26, 26, 46, 0.08);
+  background: none;
+  font-family: var(--font-body);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hp-evx-side li:first-child .hp-evx-item { border-top: 0; }
+.hp-evx-tile {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  width: 54px;
+  height: 56px;
+  border-radius: 13px;
+  line-height: 1;
+  background: #fbf6e9;
+  color: var(--primary);
+}
+.hp-evx-tile b { font-size: 1.35rem; font-weight: 800; }
+.hp-evx-tile small { margin-top: 3px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; }
+.hp-evx-item-text strong { display: block; font-size: 1rem; font-weight: 700; line-height: 1.25; color: #14233a; transition: color 0.2s ease; }
+.hp-evx-item-text span { display: block; margin-top: 2px; font-size: 0.86rem; color: #6b7480; }
+.hp-evx-item:hover strong { color: var(--primary); }
+.hp-evx-all {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 10px 0 2px;
+  border: 0;
+  background: none;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--primary);
+  cursor: pointer;
+}
+.hp-evx-all:hover { text-decoration: underline; text-underline-offset: 4px; }
+.hp-evx-art:focus-visible,
+.hp-evx-btn:focus-visible,
+.hp-evx-item:focus-visible,
+.hp-evx-all:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 12px; }
+
+body.dark-mode .hp-evx-lead,
+body.dark-mode .hp-evx-side { background: #1c1c2a; border-color: rgba(255, 255, 255, 0.08); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 18px 40px rgba(0, 0, 0, 0.35); }
+body.dark-mode .hp-evx-eye,
+body.dark-mode .hp-evx-all { color: var(--accent); }
+body.dark-mode .hp-evx-body h3,
+body.dark-mode .hp-evx-when b,
+body.dark-mode .hp-evx-side h3,
+body.dark-mode .hp-evx-item-text strong { color: #f3f3f7; }
+body.dark-mode .hp-evx-when,
+body.dark-mode .hp-evx-where,
+body.dark-mode .hp-evx-item-text span { color: #a9a9b6; }
+body.dark-mode .hp-evx-item { border-top-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .hp-evx-item:hover strong { color: var(--accent); }
+body.dark-mode .hp-evx-tile { background: #2a2516; color: var(--accent); }
+body.dark-mode .hp-evx-fee { background: rgba(74, 222, 128, 0.14); color: #4ade80; }
+body.dark-mode .hp-evx-fee.paid { background: rgba(255, 195, 0, 0.16); color: #ffd35a; }
+body.dark-mode .hp-evx-btn.is-ghost { border-color: rgba(255, 255, 255, 0.2); color: #f3f3f7; }
+body.dark-mode .hp-evx-btn.is-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+@media (max-width: 900px) {
+  .hp-evx-grid { grid-template-columns: minmax(0, 1fr); max-width: 680px; }
+}
+@media (max-width: 560px) {
+  .hp-evx-lead { grid-template-columns: 116px minmax(0, 1fr); }
+  .hp-evx-art { min-height: 0; }
+  .hp-evx-datecard b { font-size: 2.6rem; }
+  .hp-evx-datecard small { font-size: 0.7rem; letter-spacing: 0.16em; }
+  .hp-evx-datecard em { font-size: 0.72rem; }
+  .hp-evx-datecard::after { inset: 8px; border-radius: 9px; }
+  .hp-evx-body { gap: 6px; padding: 16px; }
+  .hp-evx-body h3 { font-size: 1.2rem; }
+  .hp-evx-when,
+  .hp-evx-where { font-size: 0.86rem; }
+  .hp-evx-btn { padding: 9px 16px; font-size: 0.88rem; }
+  .hp-evx-side { padding: 16px 16px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-evx-art img,
+  .hp-evx-btn { transition: none; }
+  .hp-evx-art:hover img,
+  .hp-evx-btn:hover { transform: none; }
+}
+
+/* This Week's Next Event card: its details, and the way down to the list. */
+.hp-week-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: auto; padding-top: 12px; }
+.hp-week-card .hp-week-links .hp-week-link { margin-top: 0; padding-top: 0; }
+@media (max-width: 640px) {
+  .hp-week-links { padding-top: 8px; }
+}
+
+/* ---- WHAT'S ON: the backdrop from the hero's edge to Plan Your Visit ----
+   One band behind This Week, a guest's home, Church News and Upcoming
+   Events: warm cream from the hero's edge, ending in Plan Your Visit's cream
+   (#f8f5ef), so it has no edge of its own. Over it, soft gold light drifting,
+   ribbons like the outreach pictures' (a glint travels along them), dot
+   patterns, a halo and a few sparkles - all decoration (aria-hidden,
+   pointer-events: none), behind the content; only transform and opacity move.
+
+   The band itself must NOT clip (no overflow: hidden): a clipping box is one
+   the browser can scroll, and "All upcoming events" (scrollIntoView) would
+   scroll the band's insides - sliding Church News up under This Week. The art
+   layer clips instead; it holds no content, so nothing scrolls it.
+   flow-root keeps This Week's -64px (its overlap with the hero) inside the
+   band instead of dragging the band's cream up over the hero, and z-index 6
+   (what This Week had) keeps that overlap above the hero's own layers. */
+.hp-whatson {
+  position: relative;
+  z-index: 6;
+  display: flow-root;
+  isolation: isolate;
+  background: linear-gradient(180deg, #fdf5e2 0%, #fffaf1 14%, #fcf5e5 62%, #f8f5ef 100%);
+}
+body.dark-mode .hp-whatson { background: linear-gradient(180deg, #1d1b2c 0%, #1b1a2b 30%, #1c1a26 65%, #1a1a1a 100%); }
+.hp-whatson > :not(.hp-whatson-art) { position: relative; z-index: 1; }
+/* "All upcoming events", the navbar's Events and Joy jump here: a little room
+   so the heading's gold rule is not tucked under the fixed navbar. */
+#news.hp-evx { scroll-margin-top: 30px; }
+.hp-whatson-art { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+
+.hp-orb {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, var(--orb) 0%, transparent 68%);
+  animation: hpOrbDrift 26s ease-in-out infinite alternate;
+}
+.hp-orb.o1 { --orb: rgba(255, 195, 0, 0.22); width: 560px; height: 560px; top: -140px; left: -170px; }
+.hp-orb.o2 { --orb: rgba(201, 152, 11, 0.17); width: 700px; height: 700px; top: 30%; right: -260px; animation-duration: 32s; animation-delay: -9s; }
+.hp-orb.o3 { --orb: rgba(255, 214, 102, 0.2); width: 640px; height: 640px; bottom: -220px; left: 14%; animation-duration: 29s; animation-delay: -15s; }
+body.dark-mode .hp-orb.o1 { --orb: rgba(255, 195, 0, 0.1); }
+body.dark-mode .hp-orb.o2 { --orb: rgba(201, 152, 11, 0.09); }
+body.dark-mode .hp-orb.o3 { --orb: rgba(255, 214, 102, 0.07); }
+@keyframes hpOrbDrift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(40px, 26px, 0) scale(1.06); }
+  100% { transform: translate3d(-24px, 44px, 0) scale(0.97); }
+}
+
+.hp-ring { position: absolute; border-radius: 50%; border: 1px solid rgba(201, 152, 11, 0.22); }
+.hp-ring::after { content: ''; position: absolute; inset: 26px; border-radius: 50%; border: 1px dashed rgba(201, 152, 11, 0.18); }
+.hp-ring.r1 { width: 440px; height: 440px; top: 46%; right: -150px; animation: hpRingTurn 90s linear infinite; }
+.hp-ring.r2 { width: 260px; height: 260px; top: 70px; left: -110px; animation: hpRingTurn 70s linear infinite reverse; }
+body.dark-mode .hp-ring { border-color: rgba(255, 195, 0, 0.12); }
+body.dark-mode .hp-ring::after { border-color: rgba(255, 195, 0, 0.09); }
+@keyframes hpRingTurn { to { transform: rotate(360deg); } }
+
+.hp-dots {
+  position: absolute;
+  width: 280px;
+  height: 210px;
+  background-image: radial-gradient(rgba(146, 108, 21, 0.3) 1.2px, transparent 1.7px);
+  background-size: 18px 18px;
+  -webkit-mask-image: radial-gradient(closest-side, #000 30%, transparent);
+          mask-image: radial-gradient(closest-side, #000 30%, transparent);
+}
+.hp-dots.d1 { top: 70px; right: 5%; }
+.hp-dots.d2 { bottom: 110px; left: 3%; }
+body.dark-mode .hp-dots { background-image: radial-gradient(rgba(255, 195, 0, 0.18) 1.2px, transparent 1.7px); }
+
+.hp-ribbons { position: absolute; left: 0; width: 100%; overflow: visible; }
+/* The first set sweeps out from behind This Week and across the gap above
+   Church News; the second crosses the open space between Church News and
+   Upcoming Events, where the cards do not cover it. */
+.hp-ribbons.top { top: 60px; height: 300px; }
+.hp-ribbons.bottom { top: 60%; height: 340px; transform: translateY(-50%); }
+.hp-rb-line { fill: none; stroke-width: 1.6; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: 0.7; }
+.hp-rb-line.thin { stroke-width: 1; opacity: 0.45; }
+.hp-rb-glint {
+  fill: none;
+  stroke: #ffe28a;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 90 2600;
+  stroke-dashoffset: 2690;
+  opacity: 0.9;
+  animation: hpGlint 9s ease-in-out infinite;
+}
+.hp-rb-glint.late { animation-delay: -4.5s; }
+@keyframes hpGlint {
+  0% { stroke-dashoffset: 2690; opacity: 0; }
+  12% { opacity: 0.9; }
+  70% { opacity: 0.9; }
+  85%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+body.dark-mode .hp-ribbons { opacity: 0.7; }
+
+.hp-sparkle {
+  position: absolute;
+  width: var(--sz, 14px);
+  height: var(--sz, 14px);
+  background: linear-gradient(135deg, #ffe28a, #c9980b);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  opacity: 0.75;
+  animation: hpTwinkle 4.6s ease-in-out infinite;
+}
+.hp-sparkle.s1 { top: 9%; left: 4%; --sz: 16px; }
+.hp-sparkle.s2 { top: 24%; right: 3%; --sz: 12px; animation-delay: -1.2s; }
+.hp-sparkle.s3 { top: 41%; left: 2.5%; --sz: 10px; animation-delay: -2.6s; }
+.hp-sparkle.s4 { top: 60.5%; left: 27%; --sz: 14px; animation-delay: -0.6s; }
+.hp-sparkle.s5 { top: 62.5%; right: 24%; --sz: 10px; animation-delay: -3.1s; }
+.hp-sparkle.s6 { top: 74%; right: 4%; --sz: 16px; animation-delay: -1.9s; }
+.hp-sparkle.s7 { top: 90%; left: 7%; --sz: 12px; animation-delay: -3.8s; }
+@keyframes hpTwinkle {
+  0%, 100% { transform: scale(0.55) rotate(0deg); opacity: 0.25; }
+  50% { transform: scale(1) rotate(45deg); opacity: 0.85; }
+}
+
+@media (max-width: 760px) {
+  .hp-orb.o1 { width: 380px; height: 380px; }
+  .hp-orb.o2 { width: 460px; height: 460px; right: -220px; }
+  .hp-orb.o3 { width: 420px; height: 420px; }
+  .hp-ring.r1 { width: 300px; height: 300px; right: -160px; }
+  .hp-ring.r2 { display: none; }
+  .hp-dots { width: 180px; height: 150px; }
+  .hp-ribbons.top { height: 220px; }
+  .hp-ribbons.bottom { top: 63%; height: 240px; }
+  .hp-sparkle.s3, .hp-sparkle.s4, .hp-sparkle.s5 { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-orb, .hp-ring.r1, .hp-ring.r2, .hp-sparkle { animation: none; }
+  .hp-rb-glint { display: none; }
+}
+
+/* ---- COMMUNITY HUB: the invitation (components/community/HubInvite) ----
+   "A peek inside": what members do in the hub on the left, a soft view of it
+   on the right - placeholder lines and gold shapes, never anyone's posts -
+   locked at the bottom. The band runs from Welcome Home's white into Find
+   Your Place's cream (#f8f5ef), so it has no edge of its own. */
+.hp-hub {
+  position: relative;
+  overflow: clip;
+  padding: 96px 40px;
+  background:
+    radial-gradient(55% 70% at 84% 48%, rgba(255, 195, 0, 0.14), transparent 70%),
+    linear-gradient(180deg, #ffffff 0%, #fdf9ef 60%, #f8f5ef 100%);
+}
+body.dark-mode .hp-hub {
+  background:
+    radial-gradient(55% 70% at 84% 48%, rgba(255, 195, 0, 0.08), transparent 70%),
+    linear-gradient(180deg, #1a1a2e 0%, #1b1a28 55%, #1a1a1a 100%);
+}
+.hp-hub-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 56px;
+  align-items: center;
+}
+.hp-hub-eye {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+.hp-hub-eye::before { content: ''; width: 28px; height: 2px; background: var(--primary); }
+.hp-hub-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 195, 0, 0.16);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.hp-hub-lock i { font-size: 0.66rem; }
+.hp-hub h2 {
+  margin: 14px 0 12px;
+  font-family: var(--font-body);
+  font-size: clamp(1.9rem, 3.4vw, 2.6rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: #1f1f2b;
+}
+.hp-hub h2 em { font-style: normal; color: var(--primary); }
+.hp-hub-sub { margin: 0; max-width: 52ch; font-size: 1.02rem; line-height: 1.65; color: #6b6b76; }
+.hp-hub-feats { list-style: none; margin: 26px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+.hp-hub-feats li { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; align-items: start; }
+.hp-hub-ic { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: #fbf3dc; color: var(--primary); font-size: 1rem; }
+.hp-hub-feats strong { display: block; font-size: 0.98rem; font-weight: 700; color: #1f1f2b; }
+.hp-hub-feats li > span:last-child > span { display: block; margin-top: 2px; font-size: 0.86rem; line-height: 1.45; color: #6b6b76; }
+.hp-hub-ctas { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 30px; }
+.hp-hub-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 13px 26px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: none;
+  background: var(--accent);
+  color: #1a1a2e;
+  box-shadow: 0 8px 20px rgba(201, 152, 11, 0.28);
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.hp-hub-btn:hover { transform: translateY(-2px); background: var(--light-yellow); color: #1a1a2e; }
+.hp-hub-btn.is-ghost { background: transparent; box-shadow: none; border-color: rgba(26, 26, 46, 0.18); color: #1f1f2b; }
+.hp-hub-btn.is-ghost:hover { background: transparent; border-color: var(--primary); color: var(--primary); }
+.hp-hub-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.hp-hub-note { flex-basis: 100%; font-size: 0.84rem; line-height: 1.5; color: #6b6b76; }
+.hp-hub-note b { font-weight: 600; color: #1f1f2b; }
+
+/* The view of the hub. */
+.hp-hub-window {
+  position: relative;
+  overflow: hidden;
+  border-radius: 26px;
+  padding: 16px;
+  background: linear-gradient(160deg, #fff3c8 0%, #ffffff 42%);
+  border: 1px solid rgba(26, 26, 46, 0.08);
+  box-shadow: 0 30px 70px rgba(60, 44, 6, 0.16);
+}
+.hp-hub-bar { display: flex; align-items: center; gap: 8px; padding: 2px 4px 12px; font-size: 0.82rem; font-weight: 700; color: #1f1f2b; }
+.hp-hub-bar i { width: 9px; height: 9px; border-radius: 50%; background: rgba(26, 26, 46, 0.12); }
+.hp-hub-bar b { margin-left: 6px; }
+.hp-hub-card { margin-top: 10px; padding: 12px 14px; border-radius: 16px; background: #fff; border: 1px solid rgba(26, 26, 46, 0.08); }
+.hp-hub-compose { display: flex; align-items: center; gap: 10px; font-size: 0.84rem; color: #6b6b76; }
+.hp-hub-ph { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-hub-tools { display: flex; gap: 6px; flex: none; }
+.hp-hub-tools b, .hp-hub-pin { font-size: 0.7rem; font-weight: 700; padding: 4px 9px; border-radius: 999px; background: #fbf3dc; color: var(--primary); }
+.hp-hub-av { display: block; flex: none; width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #e9d8a6, #c9980b); }
+.hp-hub-av.b { background: linear-gradient(135deg, #cfd8e8, #7d8fb3); }
+.hp-hub-av.c { background: linear-gradient(135deg, #f2c6c2, #c97b6e); }
+.hp-hub-av.is-church { display: grid; place-items: center; overflow: hidden; background: #1f1f2b; }
+.hp-hub-av.is-church img { width: 24px; height: 24px; object-fit: contain; }
+.hp-hub-head { display: flex; align-items: center; gap: 10px; }
+.hp-hub-who { min-width: 0; }
+.hp-hub-who strong { display: block; font-size: 0.86rem; color: #1f1f2b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-hub-who small { display: block; font-size: 0.74rem; color: #6b6b76; }
+.hp-hub-pin { margin-left: auto; flex: none; }
+.hp-hub-gl { display: block; height: 9px; margin-top: 9px; border-radius: 6px; background: rgba(26, 26, 46, 0.08); }
+.hp-hub-gl.w1 { width: 92%; }
+.hp-hub-gl.w2 { width: 74%; }
+.hp-hub-gl.w3 { width: 56%; }
+.hp-hub-head .hp-hub-gl { width: 120px; margin-top: 0; }
+.hp-hub-coll { display: grid; grid-template-columns: 1.4fr 1fr; grid-template-rows: 58px 58px; gap: 5px; margin-top: 11px; }
+.hp-hub-coll i { border-radius: 10px; background: linear-gradient(135deg, #f3d27a, #b98612); }
+.hp-hub-coll i:first-child { grid-row: span 2; background: linear-gradient(135deg, #f6e2a8, #c9980b 70%, #7a5608); }
+.hp-hub-coll i:last-child { background: linear-gradient(135deg, #e8c56a, #8a6410); }
+.hp-hub-react { display: flex; align-items: center; gap: 10px; margin-top: 11px; padding-top: 9px; border-top: 1px solid rgba(26, 26, 46, 0.08); font-size: 0.8rem; color: #6b6b76; }
+/* The three reactions: the hub's own 3D icons, animating in turn. */
+.hp-hub-rx { display: inline-flex; }
+.hp-hub-rx-i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-left: -8px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid rgba(26, 26, 46, 0.08);
+  box-shadow: 0 2px 6px rgba(60, 44, 6, 0.08);
+}
+.hp-hub-rx-i:first-child { margin-left: 0; }
+.hp-hub-rx .rx-ico { display: block; width: 24px; height: 24px; pointer-events: none; user-select: none; }
+.hp-hub-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.hp-hub-bday { display: flex; flex-direction: column; gap: 8px; border: 0; background: linear-gradient(140deg, #fff3cf, #ffe39a); color: #3a2a05; }
+.hp-hub-bday strong { font-size: 0.84rem; }
+.hp-hub-bday strong i { margin-right: 4px; }
+.hp-hub-bday small { font-size: 0.74rem; }
+.hp-hub-avs { display: flex; }
+.hp-hub-avs .hp-hub-av { width: 26px; height: 26px; margin-left: -7px; border: 2px solid #fff3cf; }
+.hp-hub-avs .hp-hub-av:first-child { margin-left: 0; }
+.hp-hub-verse small { font-size: 0.64rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--primary); }
+.hp-hub-verse q { display: block; margin-top: 5px; font-size: 0.78rem; line-height: 1.45; color: #1f1f2b; }
+.hp-hub-verse cite { display: block; margin-top: 4px; font-size: 0.72rem; font-style: normal; color: #6b6b76; }
+.hp-hub-lockbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 18px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.94) 55%);
+  pointer-events: none;
+}
+.hp-hub-lockbar span { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 999px; font-size: 0.84rem; font-weight: 700; background: #1f1f2b; color: var(--accent); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); }
+
+body.dark-mode .hp-hub h2,
+body.dark-mode .hp-hub-feats strong,
+body.dark-mode .hp-hub-note b,
+body.dark-mode .hp-hub-bar,
+body.dark-mode .hp-hub-who strong,
+body.dark-mode .hp-hub-verse q { color: #f3f3f7; }
+body.dark-mode .hp-hub-sub,
+body.dark-mode .hp-hub-feats li > span:last-child > span,
+body.dark-mode .hp-hub-note,
+body.dark-mode .hp-hub-compose,
+body.dark-mode .hp-hub-who small,
+body.dark-mode .hp-hub-react,
+body.dark-mode .hp-hub-verse cite { color: #a9a9b8; }
+body.dark-mode .hp-hub-eye,
+body.dark-mode .hp-hub h2 em,
+body.dark-mode .hp-hub-verse small { color: var(--accent); }
+body.dark-mode .hp-hub-eye::before { background: var(--accent); }
+body.dark-mode .hp-hub-lock { background: rgba(255, 195, 0, 0.14); }
+body.dark-mode .hp-hub-ic,
+body.dark-mode .hp-hub-tools b,
+body.dark-mode .hp-hub-pin { background: #2b2616; color: var(--accent); }
+body.dark-mode .hp-hub-btn.is-ghost { border-color: rgba(255, 255, 255, 0.22); color: #f3f3f7; }
+body.dark-mode .hp-hub-btn.is-ghost:hover { border-color: var(--accent); color: var(--accent); }
+body.dark-mode .hp-hub-window { background: linear-gradient(160deg, #3a3014 0%, #1f1e2c 42%); border-color: rgba(255, 255, 255, 0.08); box-shadow: 0 30px 70px rgba(0, 0, 0, 0.45); }
+body.dark-mode .hp-hub-bar i { background: rgba(255, 255, 255, 0.14); }
+body.dark-mode .hp-hub-card { background: #1f1e2c; border-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .hp-hub-gl { background: rgba(255, 255, 255, 0.1); }
+body.dark-mode .hp-hub-react { border-top-color: rgba(255, 255, 255, 0.08); }
+body.dark-mode .hp-hub-rx-i { background: #1f1e2c; border-color: rgba(255, 255, 255, 0.1); }
+body.dark-mode .hp-hub-bday { background: linear-gradient(140deg, #3a3014, #2a2310); color: #ffe7a6; }
+body.dark-mode .hp-hub-avs .hp-hub-av { border-color: #3a3014; }
+body.dark-mode .hp-hub-lockbar { background: linear-gradient(to bottom, rgba(31, 30, 44, 0), rgba(31, 30, 44, 0.94) 55%); }
+body.dark-mode .hp-hub-lockbar span { background: var(--accent); color: #1a1a2e; }
+
+@media (max-width: 960px) {
+  .hp-hub-inner { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .hp-hub-window { width: 100%; max-width: 560px; margin: 0 auto; }
+}
+@media (max-width: 640px) {
+  .hp-hub { padding: 64px 16px; }
+  .hp-hub-feats, .hp-hub-two { grid-template-columns: minmax(0, 1fr); }
+  .hp-hub-tools { display: none; }
+  .hp-hub-btn { flex: 1 1 auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-hub-btn { transition: none; }
+  .hp-hub-btn:hover { transform: none; }
+}

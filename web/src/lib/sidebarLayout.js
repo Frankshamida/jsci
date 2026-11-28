@@ -3,7 +3,9 @@
 //
 // A layout only ARRANGES pages. Which pages an account has is still decided by
 // SECTION_ACCESS and Permissions Control (lib/permissions.js); ids here are
-// getSidebarMenu() item ids, plus the three Give choices ('give:tithes', ...).
+// getSidebarMenu() item ids, plus the three Give choices ('give:tithes', ...)
+// and the two Giving pages ('giving:gifts', 'giving:drives'), which take the
+// place of getSidebarMenu's one 'giving' item.
 //
 // Rules (agreed with the church in the "Sidebar by Role" preview):
 //  - Home first, for everyone; then that role's pinned pages.
@@ -21,12 +23,29 @@ export const GIVE_ITEMS = GIVE_TABS.map((t) => ({
 }));
 const GIVE_IDS = GIVE_ITEMS.map((i) => i.id);
 
+// Dashboard > Giving is two pages in the menu, one section (giving-management)
+// that shows the one the menu chose.
+export const GIVING_ITEMS = [
+  { id: 'giving:gifts', section: 'giving-management', givingTab: 'gifts', label: 'Gifts', icon: 'fas fa-receipt' },
+  { id: 'giving:drives', section: 'giving-management', givingTab: 'drives', label: 'Donation drives', icon: 'fas fa-hand-holding-heart' },
+];
+const GIVING_IDS = GIVING_ITEMS.map((i) => i.id);
+
+// A Guest's extras, which are not dashboard sections: the two service pages
+// (links out of the dashboard, `href`), and the Community Hub shown locked
+// (`memberOnly`) - a Guest cannot open it, but should know it is there and
+// how it opens. Only a layout that lists them shows them.
+export const GUEST_ITEMS = [
+  { id: 'watch:sunday', href: '/sunday-service', label: 'Sunday Service', icon: 'fas fa-tv' },
+  { id: 'watch:midweek', href: '/midweek', label: 'Midweek Service', icon: 'fas fa-circle-play' },
+  { id: 'hub:members', memberOnly: true, label: 'Community Hub', icon: 'fas fa-comments' },
+];
+
 // Reached another way, so never in the menu.
 const NOT_IN_MENU = new Set(['profile']);
 
-// Sidebar names that differ from getSidebarMenu's. Confirming gifts and
-// making drives is not the same as giving, which sits right beside it.
-const MENU_LABELS = { giving: 'Gifts & Drives' };
+// Sidebar names that differ from getSidebarMenu's.
+const MENU_LABELS = { 'payment-methods': 'Payment methods' };
 
 // Every group a layout can have, with its usual look. A layout may rename one.
 const GROUPS = {
@@ -41,6 +60,7 @@ const GROUPS = {
   reports: { label: 'Reports & Logs', icon: 'fas fa-chart-bar' },
   system: { label: 'System Settings', icon: 'fas fa-cogs' },
   resources: { label: 'Resources', icon: 'fas fa-book-open' },
+  watch: { label: 'Watch', icon: 'fas fa-circle-play' },
 };
 const g = (key, ids, extra = {}) => ({ key, ...GROUPS[key], ...extra, ids });
 
@@ -51,8 +71,8 @@ export const SIDEBAR_LAYOUTS = {
       g('people', ['users', 'ministries', 'attendance', 'joyful-cares']),
       g('worship', ['schedule', 'lineup', 'praise-worship', 'song-playlist', 'meetings', 'recordings']),
       g('events', ['events', 'community-events', 'rfid', 'accommodation', 'my-created-events', 'user-events-oversight']),
-      g('giving', ['giving', 'payment-methods', ...GIVE_IDS]),
-      g('publishing', ['announcements', 'news', 'sermons', 'live-stream-mgmt']),
+      g('giving', [...GIVING_IDS, 'payment-methods', ...GIVE_IDS]),
+      g('publishing', ['announcements', 'news', 'sermons', 'live-stream-mgmt', 'developers']),
       g('community', ['community', 'messages']),
       g('isom', ['isom', 'isom-inquiries']),
       g('reports', ['reports', 'audit', 'cloudinary-usage']),
@@ -65,8 +85,8 @@ export const SIDEBAR_LAYOUTS = {
     groups: [
       g('people', ['users', 'ministries', 'attendance', 'isom-inquiries']),
       g('events', ['events', 'community-events', 'rfid', 'accommodation', 'my-created-events', 'user-events-oversight']),
-      g('giving', ['giving', 'payment-methods', ...GIVE_IDS]),
-      g('publishing', ['announcements', 'news', 'sermons', 'live-stream-mgmt']),
+      g('giving', [...GIVING_IDS, 'payment-methods', ...GIVE_IDS]),
+      g('publishing', ['announcements', 'news', 'sermons', 'live-stream-mgmt', 'developers']),
       g('worship', ['schedule', 'lineup', 'praise-worship', 'song-playlist', 'meetings', 'recordings']),
       g('community', ['community', 'messages']),
       g('reports', ['reports'], { label: 'Reports' }),
@@ -80,8 +100,9 @@ export const SIDEBAR_LAYOUTS = {
         { label: 'Preaching & Worship', icon: 'fas fa-book-bible' }),
       g('church', ['announcements', 'events', 'community-events', 'user-events-oversight', 'my-created-events']),
       g('community', ['community', 'messages']),
-      g('giving', [...GIVE_IDS, 'payment-methods']),
+      g('giving', GIVE_IDS),
       g('isom', ['isom-inquiries'], { label: 'ISOM' }),
+      g('resources', ['bible']),
       g('reports', ['reports'], { label: 'Reports' }),
     ],
   },
@@ -92,6 +113,7 @@ export const SIDEBAR_LAYOUTS = {
       g('church', ['announcements', 'events', 'community-events', 'sermons', 'my-created-events']),
       g('community', ['community', 'messages']),
       g('giving', GIVE_IDS, { label: 'Give' }),
+      g('resources', ['bible']),
       g('reports', ['reports'], { label: 'Reports' }),
     ],
   },
@@ -101,13 +123,19 @@ export const SIDEBAR_LAYOUTS = {
       g('church', ['announcements', 'events', 'community-events', 'sermons', 'schedule', 'recordings', 'my-created-events']),
       g('community', ['community', 'messages']),
       g('giving', GIVE_IDS, { label: 'Give' }),
+      g('resources', ['bible']),
       g('reports', ['reports'], { label: 'Reports' }),
     ],
   },
+  // A Guest: what they may open, the services to watch, and the Community Hub
+  // shown locked until the church welcomes them as a member.
   guest: {
     pinned: ['home', 'events', 'announcements'],
     groups: [
       g('giving', GIVE_IDS, { label: 'Give' }),
+      g('watch', ['watch:sunday', 'watch:midweek']),
+      g('community', ['hub:members']),
+      g('resources', ['bible']),
     ],
   },
 };
@@ -121,10 +149,10 @@ const USUAL_GROUPS = {
   'song-playlist': ['worship', 'church'], meetings: ['worship', 'church'], recordings: ['worship', 'church'],
   events: ['events', 'church'], 'community-events': ['events', 'church'], rfid: ['events', 'church'],
   accommodation: ['events', 'church'], 'my-created-events': ['events', 'church'], 'user-events-oversight': ['events', 'church'],
-  announcements: ['publishing', 'church'], news: ['publishing', 'church'], sermons: ['publishing', 'worship', 'church'],
+  announcements: ['publishing', 'church'], news: ['publishing', 'church'], developers: ['publishing'], sermons: ['publishing', 'worship', 'church'],
   'live-stream-mgmt': ['publishing', 'community'],
   community: ['community'], messages: ['community'],
-  giving: ['giving'], 'payment-methods': ['giving'],
+  'giving:gifts': ['giving'], 'giving:drives': ['giving'], 'payment-methods': ['giving'],
   isom: ['isom', 'people'], 'isom-inquiries': ['isom', 'people'],
   reports: ['reports'], audit: ['reports', 'system'], 'cloudinary-usage': ['reports', 'system'],
   'permissions-control': ['system'], system: ['system'], 'terms-conditions': ['system'],
@@ -149,8 +177,10 @@ export function sidebarLayoutKey(user, effectiveRole) {
  */
 export function buildSidebar(layoutKey, menu) {
   const layout = SIDEBAR_LAYOUTS[layoutKey] || SIDEBAR_LAYOUTS.member;
-  menu = menu.map((m) => (MENU_LABELS[m.id] ? { ...m, label: MENU_LABELS[m.id] } : m));
-  const byId = new Map([...menu, ...GIVE_ITEMS].filter((m) => !NOT_IN_MENU.has(m.id)).map((m) => [m.id, m]));
+  menu = menu
+    .flatMap((m) => (m.id === 'giving' ? GIVING_ITEMS : [m]))
+    .map((m) => (MENU_LABELS[m.id] ? { ...m, label: MENU_LABELS[m.id] } : m));
+  const byId = new Map([...menu, ...GIVE_ITEMS, ...GUEST_ITEMS].filter((m) => !NOT_IN_MENU.has(m.id)).map((m) => [m.id, m]));
   const used = new Set();
   const take = (id) => {
     const item = byId.get(id);
@@ -177,6 +207,19 @@ export function buildSidebar(layoutKey, menu) {
     groups.push({ key, ...(GROUPS[key] || { label: m.label, icon: m.icon }), items: [m] });
   });
 
+  // Giving holds the office's pages and the giver's: a small label over each
+  // part when it has both.
+  groups.filter((grp) => grp.key === 'giving').forEach((grp) => {
+    const manage = grp.items.filter((it) => !it.giveTab);
+    const give = grp.items.filter((it) => it.giveTab);
+    if (!manage.length || !give.length) return;
+    grp.items = grp.items.map((it) => {
+      if (it === manage[0]) return { ...it, heading: 'Manage' };
+      if (it === give[0]) return { ...it, heading: 'Your giving' };
+      return it;
+    });
+  });
+
   const out = pinned.map((item) => ({ type: 'item', item }));
   const rest = groups.filter((grp) => grp.items.length > 0).map((grp) => (grp.items.length === 1
     ? { type: 'item', item: grp.items[0] } // one page: a plain button
@@ -185,7 +228,14 @@ export function buildSidebar(layoutKey, menu) {
   return [...out, ...rest];
 }
 
-/** Is this menu item the page on screen? */
-export const isItemActive = (item, activeSection, giveTab) => (item.giveTab
-  ? activeSection === 'give' && giveTab === item.giveTab
-  : activeSection === item.section);
+/**
+ * Is this menu item the page on screen? `tabs` says which Give choice and
+ * which Giving page are showing: { give, giving } (or, as before, the Give
+ * choice alone).
+ */
+export const isItemActive = (item, activeSection, tabs = {}) => {
+  const t = typeof tabs === 'string' ? { give: tabs } : (tabs || {});
+  if (item.giveTab) return activeSection === 'give' && t.give === item.giveTab;
+  if (item.givingTab) return activeSection === 'giving-management' && (t.giving || 'gifts') === item.givingTab;
+  return activeSection === item.section;
+};

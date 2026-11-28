@@ -4,6 +4,9 @@ import { DEFAULT_CARD_IMAGE, OG_HEIGHT, OG_WIDTH, SITE_TAGLINE, siteOrigin } fro
 import { brandFor } from '@/lib/branding';
 import { readBranding } from '@/lib/brandingServer';
 import BrandingProvider from '@/components/BrandingProvider';
+import DeveloperWelcomeHost from '@/components/developers/DeveloperWelcomeHost';
+import HomeSectionsProvider from '@/components/HomeSectionsProvider';
+import { readHomeSections } from '@/lib/homeSectionsServer';
 
 // Outfit is a variable font (100-900) — Next.js self-hosts it, so every
 // existing font-weight in the app maps to a real weight with no extra requests.
@@ -62,7 +65,9 @@ export async function generateMetadata() {
 }
 
 export default async function RootLayout({ children }) {
-  const branding = await readBranding();
+  // The name the site wears, and the homepage sections a Super Admin hid:
+  // both read here so the first HTML is already right.
+  const [branding, homeSections] = await Promise.all([readBranding(), readHomeSections()]);
   return (
     <html lang="en" className={outfit.variable}>
       <head>
@@ -101,7 +106,14 @@ export default async function RootLayout({ children }) {
             __html: `(function(){try{if(localStorage.getItem('darkModeEnabled')==='true'){document.documentElement.classList.add('dark-mode');document.body.classList.add('dark-mode');}}catch(e){}})();`,
           }}
         />
-        <BrandingProvider initial={branding}>{children}</BrandingProvider>
+        <BrandingProvider initial={branding}>
+          <HomeSectionsProvider initial={homeSections}>
+          {children}
+          {/* "Meet the Developers": one window for every page, opened by the
+              homepage once a session and by the footers' button. */}
+          <DeveloperWelcomeHost />
+          </HomeSectionsProvider>
+        </BrandingProvider>
       </body>
     </html>
   )

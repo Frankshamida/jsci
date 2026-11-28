@@ -1,0 +1,21 @@
+/* SanctuaryHub reactions: add class "play" to the button or svg wrapper on click; remove it after ~1.2s. */
+
+.a{transform-box:view-box;animation-duration:1s;animation-timing-function:cubic-bezier(.3,.7,.4,1);animation-fill-mode:both;animation-iteration-count:1}
+.play .hrt{transform-origin:32px 34px;animation-name:rx-heart}
+.play .shd{transform-origin:32px 60px;animation-name:rx-shadow}
+.play .flo{transform-origin:32px 58px;animation-name:rx-fire}
+.play .flm{transform-origin:32px 57px;animation-name:rx-fire-mid}
+.play .flc{transform-origin:32px 56px;animation-name:rx-fire-core}
+.play .lhd{transform-origin:16px 58px;animation-name:rx-hand-l}
+.play .rhd{transform-origin:48px 58px;animation-name:rx-hand-r}
+.play .spk{transform-box:fill-box;transform-origin:center;animation-name:rx-spark}
+.play .k2{animation-delay:.12s}.play .k3{animation-delay:.2s}
+@keyframes rx-heart{0%{transform:scale(.3);opacity:0}22%{transform:scale(1.22);opacity:1}38%{transform:scale(.9)}54%{transform:scale(1.12)}70%{transform:scale(.97)}100%{transform:scale(1)}}
+@keyframes rx-shadow{0%{transform:scaleX(.3);opacity:0}25%{transform:scaleX(.8)}100%{transform:scaleX(1)}}
+@keyframes rx-fire{0%{transform:scale(.5,.1);opacity:0}28%{transform:scale(1.04,1.18);opacity:1}45%{transform:scale(.97,.93) skewX(-4deg)}62%{transform:scale(1.02,1.06) skewX(3deg)}80%{transform:scale(.99,.98) skewX(-1deg)}100%{transform:none}}
+@keyframes rx-fire-mid{0%,15%{transform:scale(.3)}45%{transform:scale(1.08,1.15)}70%{transform:scale(.96,.95)}100%{transform:none}}
+@keyframes rx-fire-core{0%,25%{transform:scale(.2)}55%{transform:scale(1.15,1.25)}80%{transform:scale(.95)}100%{transform:none}}
+@keyframes rx-hand-l{0%{transform:translateY(16px) rotate(10deg);opacity:0}32%{transform:translateY(-5px) rotate(-6deg);opacity:1}52%{transform:translateY(0) rotate(3deg)}74%{transform:translateY(-1.5px) rotate(-1deg)}100%{transform:none}}
+@keyframes rx-hand-r{0%{transform:translateY(16px) rotate(-10deg);opacity:0}32%{transform:translateY(-5px) rotate(6deg);opacity:1}52%{transform:translateY(0) rotate(-3deg)}74%{transform:translateY(-1.5px) rotate(1deg)}100%{transform:none}}
+@keyframes rx-spark{0%,30%{transform:scale(0) rotate(-45deg);opacity:0}60%{transform:scale(1.4) rotate(15deg);opacity:1}100%{transform:scale(1) rotate(0);opacity:1}}
+@media (prefers-reduced-motion:reduce){.a{animation:none!important}}

@@ -17,6 +17,8 @@ const DASHBOARD_SECTIONS = [
   'community-hub',
   'create-lineup',
   'daily-quote',
+  // The website's "Meet the Developers" window (Admin, Super Admin).
+  'developers',
   'events',
   'events-management',
   // Dashboard > Giving. /giving itself is the public giving page.

@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import '@/app/dashboard/dashboard.css';
+import { ReactionIcon } from '@/components/community/ReactionIcon';
+
+// The page is always dark (#05060a), so it always shows the dark icons.
+const COUNT_TYPES = [['heart', 'Love'], ['fire', 'Fire'], ['praise', 'Praise']];
 
 function formatDateTime(value) {
   try {
@@ -141,9 +145,11 @@ export default function ImageViewerPage({ params }) {
               )}
 
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10, color: '#cfd5e2' }}>
-                <span>❤️ {post.reactionCounts?.heart || 0}</span>
-                <span>🔥 {post.reactionCounts?.fire || 0}</span>
-                <span>🙌 {post.reactionCounts?.praise || 0}</span>
+                {COUNT_TYPES.map(([type, label]) => (
+                  <span key={type} className="rx-count" aria-label={`${label} ${post.reactionCounts?.[type] || 0}`}>
+                    <ReactionIcon type={type} dark active size={18} /> {post.reactionCounts?.[type] || 0}
+                  </span>
+                ))}
                 <span style={{ marginLeft: 'auto', color: '#9aa0b5' }}>Comments: {post.commentCount || 0}</span>
               </div>
 

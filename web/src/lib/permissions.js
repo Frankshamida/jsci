@@ -477,6 +477,7 @@ export function getSidebarMenu(role) {
       { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements-management' },
       { id: 'sermons', icon: 'fas fa-book-bible', label: 'Sermons', section: 'sermons' },
       { id: 'news', icon: 'fas fa-newspaper', label: 'News', section: 'news-management' },
+      { id: 'developers', icon: 'fas fa-code', label: 'Developers', section: 'developers' },
       { id: 'attendance', icon: 'fas fa-clipboard-check', label: 'Attendance', section: 'attendance-management' },
       { id: 'rfid', icon: 'fas fa-id-card', label: 'Events RFID', section: 'rfid-reader' },
       { id: 'accommodation', icon: 'fas fa-bed', label: 'Accommodation', section: 'accommodation' },
@@ -518,6 +519,7 @@ export function getSidebarMenu(role) {
     { id: 'announcements', icon: 'fas fa-bullhorn', label: 'Announcements', section: 'announcements' },
     { id: 'sermons', icon: 'fas fa-book-bible', label: 'Sermons', section: 'sermons' },
     { id: 'news', icon: 'fas fa-newspaper', label: 'News', section: 'news-management' },
+    { id: 'developers', icon: 'fas fa-code', label: 'Developers', section: 'developers' },
     { id: 'community', icon: 'fas fa-comments', label: 'Community Hub', section: 'community-hub' },
     { id: 'live-stream-mgmt', icon: 'fas fa-share-nodes', label: 'Social Media', section: 'social-media' },
     { id: 'recordings', icon: 'fas fa-microphone-alt', label: 'Recordings', section: 'recordings' },
@@ -584,17 +586,23 @@ export const SECTION_ACCESS = {
   // Dashboard > Give: tithes and offerings, donations, My giving (everyone).
   'give': { roles: EVERYONE },
   'isom-inquiries': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
-  'payment-methods': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
+  // Giving > Payment methods: the church's accounts - Admin (and Super Admin)
+  // only. Everyone else just sees the ones switched on, where they pay.
+  'payment-methods': { roles: [ROLES.ADMIN] },
   'events-management': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
   'announcements-management': { roles: [ROLES.PASTOR, ROLES.ADMIN] },
   // Writing and publishing the public News page - Admin (and Super Admin)
   'news-management': { roles: [ROLES.ADMIN] },
+  // The website's "Meet the Developers" window: its developers and words
+  // (components/developers/DevelopersManager, /api/developers) - Admin (and Super Admin)
+  'developers': { roles: [ROLES.ADMIN] },
   // People & Roles - Admin only
   'attendance-management': { roles: [ROLES.ADMIN] },
   'user-management': { roles: [ROLES.ADMIN] },
   'ministry-management': { roles: [ROLES.ADMIN] },
-  // Resources - Admin only
-  'bible-reader': { roles: [ROLES.ADMIN] },
+  // Resources. The Bible Reader is for everyone, Guests too (Table 29, B3:
+  // "Use Bible Reader" for all six roles); the Spiritual Assistant is Admin's.
+  'bible-reader': { roles: EVERYONE },
   'spiritual-assistant': { roles: [ROLES.ADMIN] },
   // Running an event - Admin only
   'social-media': { roles: [ROLES.ADMIN] },

@@ -25,7 +25,7 @@ export default async function DonationPage() {
   const drives = await safely(openCampaigns, []);
   return (
     <GivingShell path="/donation">
-      <header className="gv-head">
+      <header className="gv-head is-outreach">
         <div className="gv-wrap">
           <span className="gv-eyebrow">Donate</span>
           <h1>Help fill the jar</h1>

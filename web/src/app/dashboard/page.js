@@ -4,7 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useState, useRef, useCallback, us
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ROLES, ASSIGNABLE_ROLES, MODULES, hasPermission, hasAnyPermission, getUserRoles, getEffectiveRole, splitSubRole, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
+import { ROLES, LEGACY_ROLES, ASSIGNABLE_ROLES, MODULES, hasPermission, hasAnyPermission, getUserRoles, getEffectiveRole, splitSubRole, getSidebarMenu, getDashboardType, FEATURE_CONTROLS, getFeaturesByCategory, getFeatureCategories, isFeatureEnabled, SIDEBAR_FEATURE_MAP, SIDEBAR_ACTION_FEATURES, isSidebarItemEnabled } from '@/lib/permissions';
 import { ROLE_DESCRIPTIONS, MINISTRY_ROLES, PASTOR_TITLES, getMinistryRole, parseMinistryCards, buildMinistryCards, ministryCardsError, ministriesOf, hasMinistryRole, parsePastorTitles, describeRoleDetails, getRoleChangeEffects, getRoleRemovalEffects, getAddableRoles, arrangeRoles, rolesNeedingSetup, canHoldEventPermissions, isLegacyRole, canOpenSection, getUserDashboards, MAIN_DASHBOARD, COMMITTEE_DASHBOARD } from '@/lib/userRoles';
 import { BED_TYPES, MAX_PAX, ROOM_OCCUPANCY, ROOM_QUEUE_STATUSES, bedsSleep, bedsToText, compareRoomNumbers, occupancyLabel, parseRoomNumbers, reservedLabel, roomEntitlement, roomHold, roomTypeName, accommodationAddons } from '@/lib/rooms';
 import { supabase } from '@/lib/supabase';
@@ -42,7 +42,13 @@ import ProofDrop from '@/components/ProofDrop';
 import PayStatusPicker from '@/components/eventDesk/PayStatusPicker';
 import PastorInput from '@/components/PastorInput';
 import PastorOverview from '@/components/pastor/PastorOverview';
+import AdminOverview from '@/components/admin/AdminOverview';
+import GuestOverview from '@/components/guest/GuestOverview';
+import MinistryOverview from '@/components/home/MinistryOverview';
+import MemberOverview from '@/components/home/MemberOverview';
 import SermonsSection from '@/components/sermons/SermonsSection';
+import DevelopersManager from '@/components/developers/DevelopersManager';
+import HomeSectionsCard from '@/components/homeSections/HomeSectionsCard';
 import SidebarNav from '@/components/sidebar/SidebarNav';
 import BrandLockup from '@/components/sidebar/BrandLockup';
 import { buildSidebar, sidebarLayoutKey, isItemActive } from '@/lib/sidebarLayout';
@@ -72,8 +78,9 @@ import JoyKnowledgeManager from '@/components/JoyKnowledgeManager';
 import NewsManager from '@/components/NewsManager';
 import SocialMedia from '@/components/social/SocialMedia';
 import GivingAdmin from '@/components/giving/admin/GivingAdmin';
+import { DeskHead, Tabs as DeskTabs } from '@/components/giving/desk';
 import FeaturedGiving from '@/components/giving/FeaturedGiving';
-import { isGuestOnly } from '@/lib/viewer';
+import { ReactionIcon, ReactionBurst, REACTION_PLAY_MS, preloadReactionIcons, prefersReducedMotion, reactionPlaySrc } from '@/components/community/ReactionIcon';
 import {
   PAYMENT_CATEGORIES, isCashChannel, isCashPayment, channelTypeLabel, channelTypeIcon,
   channelHasAccount, channelNeedsProof, channelNameLabel, channelNamePlaceholder,
@@ -306,7 +313,7 @@ const VALID_SECTIONS = new Set([
   'accommodation',
   'home', 'announcements', 'announcements-management', 'attendance-management', 'audit-logs',
   'bible-reader', 'cloudinary-usage', 'community-events', 'community-hub', 'create-lineup',
-  'daily-quote', 'events', 'events-management', 'giving-management', 'isom-management', 'social-media',
+  'daily-quote', 'developers', 'events', 'events-management', 'giving-management', 'isom-management', 'social-media',
   'messages', 'ministry-management', 'ministry-meetings', 'ministry-oversight', 'my-created-events', 'news-management',
   'my-profile', 'permissions-control', 'praise-worship', 'recordings', 'reports', 'roles-permissions',
   'spiritual-assistant', 'system-config', 'terms-conditions', 'user-events-oversight',
@@ -3084,15 +3091,8 @@ export default function DashboardPage() {
       router.replace('/login');
       return;
     }
-    // Guests have no dashboard: their home is the landing page (its "Your
-    // home" panel, components/guest/GuestHome). Not while a sign-up is on its
-    // way to an event's registration form, which still opens here.
-    let pendingEvent = false;
-    try { pendingEvent = !!localStorage.getItem('pendingEventRegistration'); } catch { /* none */ }
-    if (isGuestOnly(stored) && !pendingEvent) {
-      router.replace('/#my-home');
-      return;
-    }
+    // A Guest has a dashboard like every other role (their Home is
+    // components/guest/GuestOverview), with the pages a Guest may open.
     setUserData(stored);
     setUserRole(getEffectiveRole(stored));
     setIsVerified(stored.status === 'Verified');
@@ -3625,6 +3625,28 @@ export default function DashboardPage() {
   // Dashboard > Give, on one of its tabs (from the sidebar's Give).
   const [giveTab, setGiveTab] = useState('tithes');
   const openGive = (tab) => { setGiveTab(tab); showSection('give'); };
+  // A Home card's link to a page on one of its tabs: the Lyrics library in
+  // Praise & Worship, the Monthly Planner or Approvals in Assign Lineup. The tab
+  // is set after showSection, which picks its own default tab.
+  const openHomeLink = (sectionId, tab = {}) => {
+    showSection(sectionId);
+    if (tab.pawTab) setPawTab(tab.pawTab);
+    if (tab.lineupTab) setLineupTab(tab.lineupTab);
+  };
+  // Dashboard > Giving is two pages in the sidebar, Gifts and Donation drives,
+  // shown in the one giving-management section.
+  const [givingTab, setGivingTab] = useState('gifts');
+  const openGiving = (tab) => { setGivingTab(tab); showSection('giving-management'); };
+  // Gifts waiting to be confirmed: the badge on Gifts in the sidebar. Gifts
+  // itself updates it the moment one is confirmed.
+  const [givingPending, setGivingPending] = useState(0);
+  const canSeeGifts = !!userData?.id && canGoTo('giving-management');
+  useSmartPoll(async () => {
+    const res = await fetch(`/api/giving/manage/gifts?actorId=${encodeURIComponent(userData.id)}&count=pending`, { cache: 'no-store' });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success) throw new Error(json.message || 'Pending gifts could not be counted.');
+    setGivingPending(Number(json.pending) || 0);
+  }, POLL_MS.givingPending, { enabled: canSeeGifts });
 
   // A draft (from Joyful Cares) waits in the message box, to edit and send.
   const openChatWith = (targetUserId, draft) => {
@@ -10810,6 +10832,53 @@ export default function DashboardPage() {
 
   // -- Community Hub --
   const [likeAnimating, setLikeAnimating] = useState({});
+  // The reaction icon playing its animation, per post: { [postId]: { type, src } }.
+  // The ref keeps each play's timer and its blob: URL, to free them.
+  const [rxPlay, setRxPlay] = useState({});
+  const rxPlayRef = useRef({});
+  const stopReactionPlay = (postId) => {
+    const old = rxPlayRef.current[postId];
+    if (!old) return;
+    clearTimeout(old.timer);
+    old.release();
+    delete rxPlayRef.current[postId];
+    setRxPlay((prev) => { const next = { ...prev }; delete next[postId]; return next; });
+  };
+  // Picking a reaction plays its animated icon once (light or dark set, as
+  // the page is), then the static active icon comes back.
+  const playReaction = (postId, type) => {
+    const old = rxPlayRef.current[postId];
+    if (old) { clearTimeout(old.timer); old.release(); }
+    const play = reactionPlaySrc(type, darkMode);
+    const entry = { src: play.src, release: play.release };
+    entry.timer = setTimeout(() => {
+      if (rxPlayRef.current[postId] !== entry) return;
+      delete rxPlayRef.current[postId];
+      setRxPlay((prev) => { const next = { ...prev }; delete next[postId]; return next; });
+      entry.release();
+    }, REACTION_PLAY_MS);
+    rxPlayRef.current[postId] = entry;
+    setRxPlay((prev) => ({ ...prev, [postId]: { type, src: play.src } }));
+  };
+  // The reaction picker on a computer: resting on the React button opens it
+  // (after a short pause, so passing over does nothing), and leaving closes it
+  // after a grace period long enough to cross into the picker. Phones and
+  // tablets, which cannot hover, keep the long press.
+  const pickerHoverTimer = useRef(null);
+  const canHover = () => typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches;
+  const openPickerOnHover = (key) => {
+    if (!canHover()) return;
+    clearTimeout(pickerHoverTimer.current);
+    pickerHoverTimer.current = setTimeout(() => setReactionPickerOpen(key), 450);
+  };
+  const closePickerOnLeave = (key) => {
+    if (!canHover()) return;
+    clearTimeout(pickerHoverTimer.current);
+    pickerHoverTimer.current = setTimeout(() => setReactionPickerOpen((cur) => (cur === key ? null : cur)), 350);
+  };
+  // The animated icons are fetched (and the active ones warmed) when the hub
+  // first opens, so the first click has nothing to wait for.
+  useEffect(() => { if (activeSection === 'community-hub') preloadReactionIcons(); }, [activeSection]);
   const [deletingPost, setDeletingPost] = useState(null);
   // Reactions (heart, fire, praise)
   const [reactionPickerOpen, setReactionPickerOpen] = useState(null);
@@ -11026,10 +11095,10 @@ export default function DashboardPage() {
     setPostUploading(false);
   };
 
-  const REACTION_EMOJIS = { heart: '❤️', fire: '🔥', praise: '🙌' };
   const REACTION_LABELS = { heart: 'Love', fire: 'Fire', praise: 'Praise' };
 
   const handleReactPost = async (postId, reactionType = 'heart') => {
+    clearTimeout(pickerHoverTimer.current);
     setReactionPickerOpen(null);
     const post = communityPosts.find(p => p.id === postId);
     if (!post) return;
@@ -11045,6 +11114,10 @@ export default function DashboardPage() {
     }));
     setLikeAnimating(prev => ({ ...prev, [postId]: reactionType }));
     setTimeout(() => setLikeAnimating(prev => ({ ...prev, [postId]: false })), 700);
+    // The icon: removing a reaction goes straight back to the inactive icon;
+    // picking one plays it (unless reduced motion is asked for).
+    if (wasSameReaction) stopReactionPlay(postId);
+    else if (!prefersReducedMotion()) playReaction(postId, reactionType);
 
     try {
       const res = await fetch('/api/community/like', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ postId, userId: userData?.id, reactionType }) });
@@ -21166,7 +21239,7 @@ ${row('Change', rc.change, 'change')}
 
             {!cash && dp.menuOpen && (
               <div className="evt-desk-methods" role="listbox">
-                {deskOnlineMethods.length === 0 && <p className="evt-muted">No online payment is set up yet. Add one under Mode of Payment.</p>}
+                {deskOnlineMethods.length === 0 && <p className="evt-muted">No online payment is set up yet. {canGoTo('payment-methods') ? 'Add one under Giving › Payment methods.' : 'Ask an Admin to add one under Giving › Payment methods.'}</p>}
                 {deskOnlineMethods.map((m) => (
                   <button key={m.id} type="button" role="option" aria-selected={m.id === dp.methodId} className={m.id === dp.methodId ? 'on' : ''} onClick={() => pickMethod(m)}>
                     {logo(m)}
@@ -22817,6 +22890,20 @@ ${row('Change', rc.change, 'change')}
   // Anyone who holds the Pastor role gets the Pastor's Home (a Pastor who is
   // also an Admin too); a Super Admin keeps theirs.
   const pastorHome = dashboardType !== 'super-admin' && getUserRoles(userData).includes(ROLES.PASTOR);
+  // An Admin's or Super Admin's Home: the office dashboard with its charts
+  // (components/admin/AdminOverview).
+  const adminHome = !pastorHome && (dashboardType === 'admin' || dashboardType === 'super-admin');
+  // A Guest's Home: their account, the next service, their events and
+  // giving, what is coming up (components/guest/GuestOverview). Shown before
+  // the church office has checked the account too, saying so.
+  const guestHome = dashboardType === 'guest';
+  // A Ministry Member's Home: their next lineup and Sundays, and the cards of
+  // what they lead (components/home/MinistryOverview). A Church Member's: their
+  // week at church, events, giving and sermons (components/home/MemberOverview).
+  // Both are the Admin Home's layout.
+  const ministryHome = !pastorHome && !adminHome && !guestHome
+    && getUserRoles(userData).some((r) => [ROLES.MINISTRY_MEMBER, LEGACY_ROLES.SONG_LEADER, LEGACY_ROLES.LEADER].includes(r));
+  const memberHome = !pastorHome && !adminHome && !guestHome && !ministryHome;
   const rawSidebarMenu = getSidebarMenu(userRole);
   // Strict, by role first: only sections a role the account holds owns
   // (SECTION_ACCESS - an account with several roles gets all of theirs).
@@ -22833,7 +22920,7 @@ ${row('Change', rc.change, 'change')}
     : sidebarMenu;
   const sidebarEntries = buildSidebar(sidebarLayoutKey(userData, userRole), fullMenu);
   // Counts a closed dropdown still shows on its heading.
-  const sidebarBadges = { messages: unreadCount, events: eventsBellCount };
+  const sidebarBadges = { messages: unreadCount, events: eventsBellCount, 'giving:gifts': givingPending };
 
   // Any role the account holds will do (a Pastor who is also a Song Leader
   // still runs the lineup).
@@ -23352,12 +23439,18 @@ ${row('Change', rc.change, 'change')}
               const renderItem = (item) => {
                 // Give is open before verification, like Home (see showSection).
                 const isLocked = !isVerified && !isGuestRole && item.section !== 'home' && item.section !== 'give';
-                const active = isItemActive(item, activeSection, giveTab);
-                const open = () => (item.giveTab ? openGive(item.giveTab) : showSection(item.section));
+                const active = isItemActive(item, activeSection, { give: giveTab, giving: givingTab });
+                // A Guest's extras: a page outside the dashboard (href), or
+                // the Community Hub, shown locked until they are a member.
+                const open = () => (item.href ? router.push(item.href)
+                  : item.memberOnly ? showToast('🔒 The Community Hub is for members. The church office will welcome you as a member.', 'warning')
+                    : item.giveTab ? openGive(item.giveTab)
+                      : item.givingTab ? openGiving(item.givingTab)
+                        : showSection(item.section));
                 return (
                   <a key={item.id}
-                    className={`menu-item ${active ? 'active' : ''} ${isLocked ? 'disabled' : ''}`}
-                    role="button"
+                    className={`menu-item ${active ? 'active' : ''} ${isLocked ? 'disabled' : ''} ${item.memberOnly ? 'is-members' : ''}`}
+                    role={item.href ? 'link' : 'button'}
                     tabIndex={0}
                     aria-current={active ? 'page' : undefined}
                     onClick={open}
@@ -23376,8 +23469,12 @@ ${row('Change', rc.change, 'change')}
                   >
                     <span className="menu-icon"><i className={item.icon}></i></span>
                     <span className="menu-label">{item.label}</span>
+                    {item.memberOnly && <span className="menu-members"><i className="fas fa-lock" aria-hidden="true"></i> Members</span>}
                     {item.section === 'messages' && unreadCount > 0 && (
                       <span className="notification-badge">{unreadCount}</span>
+                    )}
+                    {item.id === 'giving:gifts' && givingPending > 0 && (
+                      <span className="notification-badge" title="Gifts waiting to be confirmed">{givingPending > 99 ? '99+' : givingPending}</span>
                     )}
                     {item.id === 'events' && eventsBellCount > 0 && (
                       <span className="notification-badge menu-bell-badge" title={unseenRegAlerts.length > 0 ? 'New registrations / payments awaiting verification' : 'Events need your attention'}>
@@ -23397,7 +23494,7 @@ ${row('Change', rc.change, 'change')}
                 <SidebarNav
                   entries={sidebarEntries}
                   activeSection={activeSection}
-                  giveTab={giveTab}
+                  tabs={{ give: giveTab, giving: givingTab }}
                   collapsed={sidebarCollapsed}
                   renderItem={renderItem}
                   badges={sidebarBadges}
@@ -23602,13 +23699,51 @@ ${row('Change', rc.change, 'change')}
 
           {/* ========== HOME SECTION ========== */}
           <section className={`content-section ${activeSection === 'home' ? 'active' : ''}`}>
-            {!(pastorHome && isVerified) && <h2 className="section-title">Home</h2>}
-            {isVerified ? (
+            {!(isVerified || guestHome) && <h2 className="section-title">Home</h2>}
+            {guestHome ? (
+              <GuestOverview
+                viewer={userData}
+                verified={isVerified}
+                go={showSection}
+                openGive={openGive}
+                verse={dailyVerse.reference && dailyVerse.reference !== 'Loading...' ? dailyVerse : null}
+              />
+            ) : isVerified ? (
               <>
                 {/* A Pastor's Home: Sunday readiness, the care list and what is
-                    coming up (components/pastor/PastorOverview). It takes the
-                    welcome card's place. */}
-                {pastorHome ? (
+                    coming up (components/pastor/PastorOverview). An Admin's:
+                    what needs doing, then the church's numbers in charts
+                    (components/admin/AdminOverview). Each takes the welcome
+                    card's place. */}
+                {adminHome ? (
+                  <AdminOverview
+                    userId={userData?.id}
+                    firstname={userData?.firstname}
+                    isSuper={dashboardType === 'super-admin'}
+                    active={activeSection === 'home'}
+                    canOpen={canGoTo}
+                    go={showSection}
+                  />
+                ) : ministryHome ? (
+                  <MinistryOverview
+                    userId={userData?.id}
+                    firstname={userData?.firstname}
+                    active={activeSection === 'home'}
+                    canOpen={canGoTo}
+                    go={showSection}
+                    openTab={openHomeLink}
+                    verse={dailyVerse.reference && dailyVerse.reference !== 'Loading...' ? dailyVerse : null}
+                  />
+                ) : memberHome ? (
+                  <MemberOverview
+                    viewer={userData}
+                    canOpen={canGoTo}
+                    go={showSection}
+                    openGive={openGive}
+                    unreadChat={unreadCount}
+                    verse={dailyVerse.reference && dailyVerse.reference !== 'Loading...' ? dailyVerse : null}
+                  />
+                ) : pastorHome ? (
                   <PastorOverview
                     userId={userData?.id}
                     firstname={userData?.firstname}
@@ -23664,8 +23799,8 @@ ${row('Change', rc.change, 'change')}
                 </div>
                 )}
 
-                {/* Dashboard Stats (a Pastor's are in the overview above) */}
-                {(dashboardType === 'admin' || dashboardType === 'super-admin' || (dashboardType === 'pastor' && !pastorHome)) && (
+                {/* Dashboard Stats (a Pastor's and an Admin's are in their overview above) */}
+                {(dashboardType === 'pastor' && !pastorHome) && (
                   <div className="stats-container">
                     {/* Strict, by role: no card for a page the role cannot open. */}
                     {canOpenSection(userData, 'user-management') && (
@@ -23677,8 +23812,9 @@ ${row('Change', rc.change, 'change')}
                   </div>
                 )}
 
-                {/* Bible Verse (a Pastor's Home is the overview alone) */}
-                {!pastorHome && (
+                {/* Bible Verse (every role's Home has its own now; this is the
+                    old Home's, for an account none of them fits) */}
+                {!pastorHome && !adminHome && !ministryHome && !memberHome && (
                 <div className="bible-verse-container">
                   <div className="verse-of-the-day">&ldquo;{dailyVerse.verse}&rdquo;</div>
                   <div className="verse-reference">— {dailyVerse.reference}</div>
@@ -23687,7 +23823,7 @@ ${row('Change', rc.change, 'change')}
                 )}
 
                 {/* Pastors & Church Family Gatherings (not on a Pastor's Home) */}
-                {(dashboardType !== 'super-admin' && !pastorHome) && (
+                {(dashboardType !== 'super-admin' && !pastorHome && !adminHome && !ministryHome && !memberHome) && (
                   <>
                     {pastorShown && (
                     <div className="pastors-section">
@@ -28498,7 +28634,11 @@ ${row('Change', rc.change, 'change')}
                             {activePaymentMethods.length === 0 ? (
                               <div className="evt-pick-empty">
                                 <i className="fas fa-money-check-dollar"></i>
-                                <span>No visible payment channels yet. Add them in <strong>More &rsaquo; Mode of Payment</strong> and switch on &ldquo;Visible to payers&rdquo;.</span>
+                                {canGoTo('payment-methods') ? (
+                                  <span>No visible payment channels yet. Add them in <strong>Giving &rsaquo; Payment methods</strong> and switch them to &ldquo;Shown&rdquo;.</span>
+                                ) : (
+                                  <span>No visible payment channels yet. Ask an Admin to add them in <strong>Giving &rsaquo; Payment methods</strong>.</span>
+                                )}
                               </div>
                             ) : (
                               <div className="evt-pick-grid">
@@ -34861,9 +35001,9 @@ ${row('Change', rc.change, 'change')}
                     {post.reactionCounts && post.reactionCounts.total > 0 && (
                       <div className="community-reaction-summary" onClick={() => handleViewReactions(post.id)}>
                         <div className="community-reaction-badges">
-                          {post.reactionCounts.heart > 0 && <span className="reaction-badge heart">❤️</span>}
-                          {post.reactionCounts.fire > 0 && <span className="reaction-badge fire">🔥</span>}
-                          {post.reactionCounts.praise > 0 && <span className="reaction-badge praise">🙌</span>}
+                          {post.reactionCounts.heart > 0 && <span className="reaction-badge heart"><ReactionIcon type="heart" dark={darkMode} active size={15} /></span>}
+                          {post.reactionCounts.fire > 0 && <span className="reaction-badge fire"><ReactionIcon type="fire" dark={darkMode} active size={15} /></span>}
+                          {post.reactionCounts.praise > 0 && <span className="reaction-badge praise"><ReactionIcon type="praise" dark={darkMode} active size={15} /></span>}
                         </div>
                         <span className="community-reaction-count">{post.reactionCounts.total}</span>
                       </div>
@@ -34871,12 +35011,16 @@ ${row('Change', rc.change, 'change')}
 
                     <div className="community-post-footer">
                       {featureOn('community.like_comment') && (
-                        <div className="community-react-wrapper">
+                        <div className="community-react-wrapper" onMouseEnter={() => openPickerOnHover(post.id)} onMouseLeave={() => closePickerOnLeave(post.id)}>
                           {reactionPickerOpen === post.id && (
-                            <div className="community-reaction-picker" onMouseLeave={() => setReactionPickerOpen(null)}>
+                            <div className="community-reaction-picker">
                               {['heart', 'fire', 'praise'].map(rType => (
-                                <button key={rType} className={`reaction-picker-item${post.myReaction === rType ? ' active' : ''}`} onClick={() => handleReactPost(post.id, rType)} title={REACTION_LABELS[rType]}>
-                                  <span className="reaction-picker-emoji">{REACTION_EMOJIS[rType]}</span>
+                                <button key={rType} className={`reaction-picker-item${post.myReaction === rType ? ' active' : ''}`} onClick={() => handleReactPost(post.id, rType)} title={REACTION_LABELS[rType]} aria-label={REACTION_LABELS[rType]} aria-pressed={post.myReaction === rType}>
+                                  <span className="reaction-picker-emoji rx-swap">
+                                    <ReactionIcon type={rType} dark={darkMode} size={28} className="rx-off" />
+                                    <ReactionIcon type={rType} dark={darkMode} active size={28} className="rx-on" src={rxPlay[post.id]?.type === rType ? rxPlay[post.id].src : undefined} />
+                                    {rxPlay[post.id]?.type === rType && <ReactionBurst />}
+                                  </span>
                                 </button>
                               ))}
                             </div>
@@ -34884,14 +35028,14 @@ ${row('Change', rc.change, 'change')}
                           <button
                             className={`community-react-btn${post.liked ? ` liked ${post.myReaction || 'heart'}` : ''}${likeAnimating[post.id] ? ' animating' : ''}`}
                             onClick={() => handleReactPost(post.id, post.myReaction || 'heart')}
-                            onMouseDown={() => handleReactionLongPressStart(post.id)}
-                            onMouseUp={() => { if (reactionLongPressTimer) { clearTimeout(reactionLongPressTimer); setReactionLongPressTimer(null); } }}
-                            onMouseLeave={() => { if (reactionLongPressTimer) { clearTimeout(reactionLongPressTimer); setReactionLongPressTimer(null); } }}
                             onTouchStart={() => handleReactionLongPressStart(post.id)}
                             onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); if (reactionLongPressTimer) { clearTimeout(reactionLongPressTimer); setReactionLongPressTimer(null); } if (!reactionPickerOpen) handleReactPost(post.id, post.myReaction || 'heart'); }}
                             onContextMenu={(e) => { e.preventDefault(); setReactionPickerOpen(post.id); }}
                           >
-                            <span className="react-btn-emoji">{post.myReaction ? REACTION_EMOJIS[post.myReaction] : '🤍'}</span>
+                            <span className="react-btn-emoji rx-holder">
+                              <ReactionIcon type={post.myReaction || 'heart'} dark={darkMode} active={!!post.myReaction} size={22} src={post.myReaction && rxPlay[post.id]?.type === post.myReaction ? rxPlay[post.id].src : undefined} />
+                              {post.myReaction && rxPlay[post.id]?.type === post.myReaction && <ReactionBurst />}
+                            </span>
                             <span>{post.myReaction ? REACTION_LABELS[post.myReaction] : 'React'}</span>
                           </button>
                         </div>
@@ -35061,9 +35205,9 @@ ${row('Change', rc.change, 'change')}
                         {rc.total > 0 && (
                           <div className="community-reaction-summary" onClick={() => handleViewReactions(vp.id)} style={{ marginTop: 4 }}>
                             <div className="community-reaction-badges">
-                              {rc.heart > 0 && <span className="reaction-badge heart">❤️</span>}
-                              {rc.fire > 0 && <span className="reaction-badge fire">🔥</span>}
-                              {rc.praise > 0 && <span className="reaction-badge praise">🙌</span>}
+                              {rc.heart > 0 && <span className="reaction-badge heart"><ReactionIcon type="heart" dark={darkMode} active size={15} /></span>}
+                              {rc.fire > 0 && <span className="reaction-badge fire"><ReactionIcon type="fire" dark={darkMode} active size={15} /></span>}
+                              {rc.praise > 0 && <span className="reaction-badge praise"><ReactionIcon type="praise" dark={darkMode} active size={15} /></span>}
                             </div>
                             <span className="community-reaction-count">{rc.total}</span>
                           </div>
@@ -35071,12 +35215,16 @@ ${row('Change', rc.change, 'change')}
 
                         {featureOn('community.like_comment') && (
                           <div className="cimg-actions">
-                            <div className="cimg-react-wrap">
+                            <div className="cimg-react-wrap" onMouseEnter={() => openPickerOnHover(`modal-${vp.id}`)} onMouseLeave={() => closePickerOnLeave(`modal-${vp.id}`)}>
                               {reactionPickerOpen === `modal-${vp.id}` && (
-                                <div className="community-reaction-picker cimg-picker" onMouseLeave={() => setReactionPickerOpen(null)}>
+                                <div className="community-reaction-picker cimg-picker">
                                   {['heart', 'fire', 'praise'].map(rType => (
-                                    <button key={rType} className={`reaction-picker-item${vp.myReaction === rType ? ' active' : ''}`} onClick={() => { handleReactPost(vp.id, rType); setReactionPickerOpen(null); }} title={REACTION_LABELS[rType]}>
-                                      <span className="reaction-picker-emoji">{REACTION_EMOJIS[rType]}</span>
+                                    <button key={rType} className={`reaction-picker-item${vp.myReaction === rType ? ' active' : ''}`} onClick={() => { handleReactPost(vp.id, rType); setReactionPickerOpen(null); }} title={REACTION_LABELS[rType]} aria-label={REACTION_LABELS[rType]} aria-pressed={vp.myReaction === rType}>
+                                      <span className="reaction-picker-emoji rx-swap">
+                                        <ReactionIcon type={rType} dark={darkMode} size={28} className="rx-off" />
+                                        <ReactionIcon type={rType} dark={darkMode} active size={28} className="rx-on" src={rxPlay[vp.id]?.type === rType ? rxPlay[vp.id].src : undefined} />
+                                        {rxPlay[vp.id]?.type === rType && <ReactionBurst />}
+                                      </span>
                                     </button>
                                   ))}
                                 </div>
@@ -35086,7 +35234,10 @@ ${row('Change', rc.change, 'change')}
                                 onClick={() => handleReactPost(vp.id, vp.myReaction || 'heart')}
                                 onContextMenu={(e) => { e.preventDefault(); setReactionPickerOpen(`modal-${vp.id}`); }}
                               >
-                                <span className="react-btn-emoji">{vp.myReaction ? REACTION_EMOJIS[vp.myReaction] : '🤍'}</span>
+                                <span className="react-btn-emoji rx-holder">
+                                  <ReactionIcon type={vp.myReaction || 'heart'} dark={darkMode} active={!!vp.myReaction} size={22} src={vp.myReaction && rxPlay[vp.id]?.type === vp.myReaction ? rxPlay[vp.id].src : undefined} />
+                                  {vp.myReaction && rxPlay[vp.id]?.type === vp.myReaction && <ReactionBurst />}
+                                </span>
                                 <span>{vp.myReaction ? REACTION_LABELS[vp.myReaction] : 'React'}</span>
                               </button>
                             </div>
@@ -35248,18 +35399,18 @@ ${row('Change', rc.change, 'change')}
                       All {(reactionViewerCounts.heart || 0) + (reactionViewerCounts.fire || 0) + (reactionViewerCounts.praise || 0)}
                     </button>
                     {(reactionViewerCounts.heart || 0) > 0 && (
-                      <button className={`reaction-viewer-tab${reactionViewerFilter === 'heart' ? ' active' : ''}`} onClick={() => setReactionViewerFilter('heart')}>
-                        ❤️ {reactionViewerCounts.heart}
+                      <button className={`reaction-viewer-tab${reactionViewerFilter === 'heart' ? ' active' : ''}`} onClick={() => setReactionViewerFilter('heart')} aria-label={`${REACTION_LABELS.heart} ${reactionViewerCounts.heart}`}>
+                        <ReactionIcon type="heart" dark={darkMode} active size={18} /> {reactionViewerCounts.heart}
                       </button>
                     )}
                     {(reactionViewerCounts.fire || 0) > 0 && (
-                      <button className={`reaction-viewer-tab${reactionViewerFilter === 'fire' ? ' active' : ''}`} onClick={() => setReactionViewerFilter('fire')}>
-                        🔥 {reactionViewerCounts.fire}
+                      <button className={`reaction-viewer-tab${reactionViewerFilter === 'fire' ? ' active' : ''}`} onClick={() => setReactionViewerFilter('fire')} aria-label={`${REACTION_LABELS.fire} ${reactionViewerCounts.fire}`}>
+                        <ReactionIcon type="fire" dark={darkMode} active size={18} /> {reactionViewerCounts.fire}
                       </button>
                     )}
                     {(reactionViewerCounts.praise || 0) > 0 && (
-                      <button className={`reaction-viewer-tab${reactionViewerFilter === 'praise' ? ' active' : ''}`} onClick={() => setReactionViewerFilter('praise')}>
-                        🙌 {reactionViewerCounts.praise}
+                      <button className={`reaction-viewer-tab${reactionViewerFilter === 'praise' ? ' active' : ''}`} onClick={() => setReactionViewerFilter('praise')} aria-label={`${REACTION_LABELS.praise} ${reactionViewerCounts.praise}`}>
+                        <ReactionIcon type="praise" dark={darkMode} active size={18} /> {reactionViewerCounts.praise}
                       </button>
                     )}
                   </div>
@@ -35281,7 +35432,9 @@ ${row('Change', rc.change, 'change')}
                             <div className="reaction-viewer-info">
                               <span className="reaction-viewer-name">{r.name}</span>
                             </div>
-                            <span className="reaction-viewer-emoji">{REACTION_EMOJIS[r.reactionType] || '❤️'}</span>
+                            <span className="reaction-viewer-emoji" role="img" aria-label={REACTION_LABELS[r.reactionType] || REACTION_LABELS.heart}>
+                              <ReactionIcon type={r.reactionType || 'heart'} dark={darkMode} active size={22} />
+                            </span>
                           </div>
                         ))
                     )}
@@ -35304,8 +35457,10 @@ ${row('Change', rc.change, 'change')}
 
           {/* ========== GIVING (Admin/SuperAdmin): the gifts sent through /giving, to confirm, and the appeals shown beside the News and in the Community Hub ========== */}
           <section className={`content-section ${activeSection === 'giving-management' ? 'active' : ''}`}>
-            <h2 className="section-title">Giving</h2>
-            {activeSection === 'giving-management' && userData?.id && <GivingAdmin actorId={userData.id} />}
+            {/* No section title: Gifts and Donation drives each have their own. */}
+            {activeSection === 'giving-management' && userData?.id && (
+              <GivingAdmin actorId={userData.id} tab={givingTab} onTab={setGivingTab} onPending={setGivingPending} />
+            )}
           </section>
 
           {/* ========== RECORDINGS (Cloudinary) ========== */}
@@ -36900,6 +37055,13 @@ ${row('Change', rc.change, 'change')}
             {activeSection === 'give' && <DashboardGiving tab={giveTab} onTab={setGiveTab} />}
           </section>
 
+          {/* The website's "Meet the Developers" window (Admin, Super Admin) */}
+          <section className={`content-section ${activeSection === 'developers' ? 'active' : ''}`}>
+            {activeSection === 'developers' && canGoTo('developers') && (
+              <DevelopersManager actorId={userData?.id} active={activeSection === 'developers'} showToast={showToast} />
+            )}
+          </section>
+
           <section className={`content-section ${activeSection === 'joyful-cares' ? 'active' : ''}`}>
             {canGoTo('joyful-cares') && (
               <JoyfulCares userData={userData} active={activeSection === 'joyful-cares'} canOpen={canGoTo} onMessage={openChatWith} />
@@ -37997,6 +38159,11 @@ ${row('Change', rc.change, 'change')}
                   </a>
                 </div>
               </div>
+            )}
+
+            {/* ---- Which sections the public home page shows (Super Admin only) ---- */}
+            {isSuperAdmin && activeSection === 'system-config' && userData?.id && (
+              <HomeSectionsCard actorId={userData.id} showToast={showToast} />
             )}
 
             {/* ---- Documents Joy answers from (Super Admin only) ---- */}
@@ -39273,34 +39440,21 @@ ${row('Change', rc.change, 'change')}
 
           {/* ========== MODE OF PAYMENT ========== */}
           <section className={`content-section ${activeSection === 'payment-methods' ? 'active' : ''}`}>
-            <div className="pm-head">
-              <h2 className="section-title">Mode of Payment</h2>
-              <button className="pm-add-btn" onClick={() => openPaymentMethodForm(null)}>
-                <i className="fas fa-plus"></i> Add Payment Method
-              </button>
+            <div className="gd">
+            <DeskHead title="Payment methods" sub="Where givers and event guests send money. Only methods switched on are offered to them.">
+              <button type="button" className="gd-btn is-primary" onClick={() => openPaymentMethodForm(null)}>Add a method</button>
+            </DeskHead>
+            <div className="gd-tools-bar is-flat">
+              <DeskTabs
+                label="Kind"
+                value={paymentMethodFilter}
+                onChange={setPaymentMethodFilter}
+                items={[
+                  { key: 'all', label: 'All', count: paymentMethods.length },
+                  ...PAYMENT_CATEGORIES.map((c) => ({ key: c.key, label: c.plural, count: paymentMethods.filter((m) => m.category === c.key).length })),
+                ]}
+              />
             </div>
-            <p className="pm-subtitle">
-              Set up the online payment channels and bank transfer accounts members use when settling
-              event fees, tithes and offerings. Each entry shows a circle logo with the bank name,
-              account number and account name.
-            </p>
-
-            <div className="evt-tabs pm-tabs">
-              {[
-                { key: 'all', label: 'All', icon: 'fas fa-list' },
-                ...PAYMENT_CATEGORIES.map((c) => ({ key: c.key, label: c.plural, icon: c.icon })),
-              ].map((t) => (
-                <button
-                  key={t.key}
-                  className={`evt-tab ${paymentMethodFilter === t.key ? 'active' : ''}`}
-                  onClick={() => setPaymentMethodFilter(t.key)}
-                >
-                  <i className={t.icon}></i> {t.label}
-                  <span className="pm-tab-count">
-                    {t.key === 'all' ? paymentMethods.length : paymentMethods.filter((m) => m.category === t.key).length}
-                  </span>
-                </button>
-              ))}
             </div>
 
             {paymentMethodShowForm && (
@@ -39534,8 +39688,9 @@ ${row('Change', rc.change, 'change')}
               </div>
             )}
 
+            <div className="gd gd-page">
             {paymentMethodsLoading ? (
-              <div className="terms-editor-loading"><i className="fas fa-spinner fa-spin"></i> Loading payment methods...</div>
+              <div className="gd-card gd-empty">Loading payment methods…</div>
             ) : (() => {
               const visible = paymentMethodFilter === 'all'
                 ? paymentMethods
@@ -39543,139 +39698,107 @@ ${row('Change', rc.change, 'change')}
 
               if (visible.length === 0) {
                 return (
-                  <div className="pm-empty">
-                    <i className="fas fa-money-check-dollar"></i>
-                    <p>No payment methods yet.</p>
-                    <button className="pm-add-btn" onClick={() => openPaymentMethodForm(null)}>
-                      <i className="fas fa-plus"></i> Add your first one
-                    </button>
+                  <div className="gd-card gd-empty">
+                    <strong>{paymentMethods.length ? 'None of this kind' : 'No payment methods yet'}</strong>
+                    Add the church&rsquo;s bank account, e-wallet or cash option.
+                    <div><button type="button" className="gd-btn is-primary" onClick={() => openPaymentMethodForm(null)}>Add a method</button></div>
                   </div>
                 );
               }
 
               return (
-                <div className="pm-grid">
-                  {visible.map((m) => (
-                    <div key={m.id} className={`pm-card ${m.is_active === false ? 'inactive' : ''}`}>
-                      <span className={`pm-status ${m.is_active === false ? 'off' : 'on'}`}>
-                        <i className={m.is_active === false ? 'fas fa-eye-slash' : 'fas fa-eye'}></i>
-                        {m.is_active === false ? 'Hidden' : 'Visible'}
-                      </span>
-
-                      <div className="pm-card-top">
-                        <div className={`pm-logo ${isCashChannel(m) && !m.logo_url ? 'pm-logo-cash' : ''}`} style={{ background: m.logo_url ? 'transparent' : (m.logo_color || '#1e3a8a') }}>
-                          {m.logo_url
-                            ? <img src={m.logo_url} alt={m.name} />
-                            : isCashChannel(m)
-                              ? <span><i className="fas fa-money-bill-wave"></i></span>
-                              : <span>{getPaymentInitials(m.name)}</span>}
-                        </div>
-                        <div className="pm-card-title">
-                          <h3>{m.name}</h3>
-                          <span className={`pm-badge ${m.category}`}>
-                            <i className={channelTypeIcon(m)}></i>
-                            {channelTypeLabel(m)}
+                <div className="gd-methods">
+                  {visible.map((m) => {
+                    const used = m.used_by_events || [];
+                    const shownTo = m.is_active !== false;
+                    const usageOpen = paymentUsageOpen === m.id;
+                    return (
+                      <article key={m.id} className={`gd-card gd-pm ${shownTo ? '' : 'is-off'}`}>
+                        <div className="gd-pm-top">
+                          <span className="gd-logo" style={{ background: m.logo_url ? '#fff' : (m.logo_color || '#1e3a8a') }} aria-hidden="true">
+                            {m.logo_url ? <img src={m.logo_url} alt="" /> : isCashChannel(m) ? '₱' : getPaymentInitials(m.name)}
                           </span>
+                          <div className="gd-pm-name">
+                            <strong>{m.name}</strong>
+                            <small>{channelTypeLabel(m)}</small>
+                          </div>
+                          <button
+                            type="button"
+                            className="gd-switch"
+                            role="switch"
+                            aria-checked={shownTo}
+                            aria-label={`${m.name}: ${shownTo ? 'shown to givers and guests' : 'hidden from givers and guests'}`}
+                            onClick={() => togglePaymentMethodActive(m)}
+                          >
+                            {shownTo ? 'Shown' : 'Hidden'}<i></i>
+                          </button>
                         </div>
-                      </div>
 
-                      {/* Cash has no account, so the two rows that would both read
-                          "—" are left out and the instructions carry the card. */}
-                      {channelHasAccount(m) ? (
-                        <dl className="pm-card-details">
-                          <div className="pm-detail">
-                            <dt>Account Number</dt>
-                            <dd>
-                              <span className="pm-detail-text">{m.account_number || '—'}</span>
-                              {m.account_number && (
-                                <button className="pm-icon-btn" title="Copy account number" onClick={() => copyPaymentDetail('Account number', m.account_number)}>
-                                  <i className="fas fa-copy"></i>
-                                </button>
-                              )}
-                            </dd>
-                          </div>
-                          <div className="pm-detail">
-                            <dt>Account Name</dt>
-                            <dd>
-                              <span className="pm-detail-text">{m.account_name || '—'}</span>
-                              {m.account_name && (
-                                <button className="pm-icon-btn" title="Copy account name" onClick={() => copyPaymentDetail('Account name', m.account_name)}>
-                                  <i className="fas fa-copy"></i>
-                                </button>
-                              )}
-                            </dd>
-                          </div>
-                        </dl>
-                      ) : (
-                        <p className="pm-cash-line">
-                          <i className="fas fa-hand-holding-dollar"></i>
-                          <span>Handed over in person &mdash; no account, no receipt to upload.</span>
-                        </p>
-                      )}
-
-                      {m.qr_url && (
-                        <button type="button" className="pm-qr-card" onClick={() => setQrLightbox({ url: m.qr_url, name: m.name })}>
-                          <img src={m.qr_url} alt={`${m.name} QR code`} />
-                          <span><strong>Scan to pay</strong><small>Tap to enlarge</small></span>
-                        </button>
-                      )}
-
-                      {m.notes && <p className="pm-notes"><i className="fas fa-circle-info"></i> <span>{m.notes}</span></p>}
-
-                      {/* Where this channel is in use. A used channel can be hidden
-                          but never deleted, so the count doubles as the reason. */}
-                      {(() => {
-                        const used = m.used_by_events || [];
-                        const open = paymentUsageOpen === m.id;
-                        if (used.length === 0) {
-                          return <p className="pm-usage none"><i className="fas fa-circle-check"></i> Not used by any event yet</p>;
-                        }
-                        return (
-                          <div className={`pm-usage-box ${open ? 'open' : ''}`}>
-                            <button type="button" className="pm-usage-toggle" onClick={() => setPaymentUsageOpen(open ? null : m.id)}>
-                              <i className="fas fa-link"></i>
-                              <span>Used by {used.length} event{used.length === 1 ? '' : 's'}</span>
-                              <i className={`fas ${open ? 'fa-chevron-up' : 'fa-chevron-down'} pm-usage-chev`}></i>
-                            </button>
-                            {open && (
-                              <ul className="pm-usage-list">
-                                {used.map((ev) => (
-                                  <li key={ev.id}>
-                                    <button type="button" onClick={() => openEventFromPaymentUsage(ev)}>
-                                      <i className="fas fa-calendar-day"></i>
-                                      <span className="pm-usage-title">{ev.title || 'Untitled event'}</span>
-                                      <span className="pm-usage-date">{ev.event_date ? formatEventDateTime(ev.event_date) : 'No date'}</span>
-                                      <i className="fas fa-arrow-up-right-from-square pm-usage-go"></i>
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
+                        {/* Cash has no account: its instructions carry the card. */}
+                        {channelHasAccount(m) ? (
+                          <div className="gd-pm-body">
+                            <dl className="gd-kv">
+                              <div>
+                                <dt>Account number</dt>
+                                <dd>
+                                  {m.account_number || '—'}
+                                  {m.account_number && <button type="button" className="gd-copy" onClick={() => copyPaymentDetail('Account number', m.account_number)} aria-label="Copy the account number">Copy</button>}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Account name</dt>
+                                <dd>
+                                  {m.account_name || '—'}
+                                  {m.account_name && <button type="button" className="gd-copy" onClick={() => copyPaymentDetail('Account name', m.account_name)} aria-label="Copy the account name">Copy</button>}
+                                </dd>
+                              </div>
+                            </dl>
+                            {m.qr_url && (
+                              <button type="button" className="gd-qr" onClick={() => setQrLightbox({ url: m.qr_url, name: m.name })} aria-label={`Show the ${m.name} QR code larger`}>
+                                <img src={m.qr_url} alt="" />
+                              </button>
                             )}
                           </div>
-                        );
-                      })()}
+                        ) : (
+                          <p className="gd-note">{m.notes || 'Handed over in person. No account and no receipt to upload.'}</p>
+                        )}
+                        {channelHasAccount(m) && m.notes && <p className="gd-note">{m.notes}</p>}
 
-                      <div className="pm-card-actions">
-                        <button className="pm-act" onClick={() => openPaymentMethodForm(m)}><i className="fas fa-pen"></i> Edit</button>
-                        <button className="pm-act" onClick={() => togglePaymentMethodActive(m)}>
-                          <i className={m.is_active === false ? 'fas fa-eye' : 'fas fa-eye-slash'}></i>
-                          {m.is_active === false ? ' Show' : ' Hide'}
-                        </button>
-                        <button
-                          className={`pm-act danger ${(m.used_by_events || []).length > 0 ? 'locked' : ''}`}
-                          onClick={() => deletePaymentMethod(m)}
-                          title={(m.used_by_events || []).length > 0 ? 'In use by an event — hide it instead' : 'Delete this payment method'}
-                        >
-                          <i className={`fas ${(m.used_by_events || []).length > 0 ? 'fa-lock' : 'fa-trash'}`}></i>
-                          {(m.used_by_events || []).length > 0 ? ' In use' : ' Delete'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                        {usageOpen && used.length > 0 && (
+                          <ul className="gd-usage">
+                            {used.map((ev) => (
+                              <li key={ev.id}>
+                                <button type="button" onClick={() => openEventFromPaymentUsage(ev)}>
+                                  <span>{ev.title || 'Untitled event'}</span>
+                                  <span>{ev.event_date ? formatEventDateTime(ev.event_date) : 'No date'}</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {/* A method an event uses can be hidden but not deleted, so
+                            Delete shows only on one nothing uses. */}
+                        <div className="gd-pm-foot">
+                          {used.length > 0 ? (
+                            <button type="button" className="gd-link" onClick={() => setPaymentUsageOpen(usageOpen ? null : m.id)} aria-expanded={usageOpen}>
+                              Used by {used.length} event{used.length === 1 ? '' : 's'}
+                            </button>
+                          ) : <span>Not used by any event</span>}
+                          <div className="gd-pm-foot-acts">
+                            {used.length === 0 && <button type="button" className="gd-link is-danger" onClick={() => deletePaymentMethod(m)}>Delete</button>}
+                            <button type="button" className="gd-btn is-small" onClick={() => openPaymentMethodForm(m)}>Edit</button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               );
             })()}
+            </div>
           </section>
+
 
           {/* Fullscreen QR so it can actually be scanned off the screen */}
           {qrLightbox && (

@@ -145,3 +145,15 @@ body.dark-mode .sn-head:focus-visible { outline-color: #FFC300; }
   .sn-head { min-height: 48px; font-size: 0.9rem; }
   .sn-inner .menu-item { min-height: 46px; font-size: 0.88rem; }
 }
+
+/* A small label above a part of a dropdown (Giving: Manage, Your giving). */
+.sn-sub {
+  padding: 10px 14px 3px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--sidebar-text-muted, rgba(0, 0, 0, 0.5));
+}
+.sn-inner > .sn-sub:first-child { padding-top: 6px; }
+body.dark-mode .sn-sub { color: rgba(255, 255, 255, 0.5); }
+.sn-flyout .sn-sub { padding-inline: 12px; }

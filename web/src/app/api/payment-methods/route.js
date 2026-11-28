@@ -3,8 +3,9 @@ import { supabaseAdmin as supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-// Only these roles may add / edit / remove payment channels.
-const MANAGER_ROLES = ['Admin', 'Super Admin', 'Pastor'];
+// Only these roles may add / edit / remove payment channels, or see the ones
+// switched off (Giving > Payment methods is theirs alone).
+const MANAGER_ROLES = ['Admin', 'Super Admin'];
 
 // 'bank' and 'online' are accounts you send money TO. 'cash' is money handed to
 // a person at a desk, so it carries a name and instructions and nothing else -

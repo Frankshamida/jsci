@@ -96,13 +96,22 @@ async function accountFor(email) {
 }
 
 export async function GET(request) {
-  const who = await givingAdmin(new URL(request.url).searchParams.get('actorId'));
+  const params = new URL(request.url).searchParams;
+  const who = await givingAdmin(params.get('actorId'));
   if (who.error) return denied(who);
   try {
+    // ?count=pending: just how many wait to be confirmed (the sidebar's badge).
+    if (params.get('count') === 'pending') {
+      const { count, error } = await supabaseAdmin.from(GIFTS).select('id', { count: 'exact', head: true }).eq('status', 'pending');
+      if (error) throw error;
+      return reply({ success: true, pending: count || 0 });
+    }
     const [gifts, methods, campaigns] = await Promise.all([
       supabaseAdmin.from(GIFTS).select('*').order('given_at', { ascending: false }).limit(2000),
       supabaseAdmin.from('payment_methods').select('id, name, category, is_active').order('sort_order', { ascending: true }),
-      supabaseAdmin.from(CAMPAIGNS).select('id, slug, title, ends_on, is_published').order('created_at', { ascending: false }),
+      // The photo and goal too: a donation shows its drive's photo, and a
+      // drive's gifts show what it has raised of its goal.
+      supabaseAdmin.from(CAMPAIGNS).select('id, slug, title, ends_on, is_published, image_url, images, goal_amount').order('created_at', { ascending: false }),
     ]);
     if (gifts.error) throw gifts.error;
     return reply({

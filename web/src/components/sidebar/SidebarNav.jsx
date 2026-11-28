@@ -12,7 +12,7 @@
 // its pages beside the rail. On a phone the sidebar is a full drawer even when
 // the rail is on, so there the dropdowns open in place.
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isItemActive } from '@/lib/sidebarLayout';
 import './sidebarNav.css';
@@ -43,22 +43,28 @@ function Count({ n }) {
   return <span className="sn-count" aria-label={`${n} new`}>{n > 99 ? '99+' : n}</span>;
 }
 
-export default function SidebarNav({ entries, activeSection, giveTab, collapsed: railClass, renderItem, badges = {} }) {
+// tabs: which Give choice and which Giving page are showing ({ give, giving }).
+export default function SidebarNav({ entries, activeSection, tabs = {}, collapsed: railClass, renderItem, badges = {} }) {
   const phone = usePhone();
   const rail = railClass && !phone;
-  const activeKey = entries.find((e) => e.type === 'group' && e.items.some((it) => isItemActive(it, activeSection, giveTab)))?.key || null;
+  const tabKey = `${tabs.give || ''}|${tabs.giving || ''}`;
+  const activeKey = entries.find((e) => e.type === 'group' && e.items.some((it) => isItemActive(it, activeSection, tabs)))?.key || null;
+  // A small label above a part of a dropdown (Giving: Manage, Your giving).
+  const renderItems = (items) => items.map((it) => (it.heading
+    ? <Fragment key={`h-${it.id}`}><div className="sn-sub">{it.heading}</div>{renderItem(it)}</Fragment>
+    : renderItem(it)));
 
   // null = follow the page on screen; '' = all closed; a key = that one open.
   const [chosen, setChosen] = useState(null);
   const openKey = chosen === null ? activeKey : chosen;
   // Going to another page (from anywhere) opens that page's dropdown.
-  useEffect(() => { setChosen(null); }, [activeSection, giveTab]);
+  useEffect(() => { setChosen(null); }, [activeSection, tabKey]);
 
   const [flyout, setFlyout] = useState(null); // { key, style }
   const flyRef = useRef(null);
   const buttons = useRef({});
 
-  useEffect(() => { setFlyout(null); }, [rail, activeSection, giveTab]);
+  useEffect(() => { setFlyout(null); }, [rail, activeSection, tabKey]);
   useEffect(() => {
     if (!flyout) return undefined;
     const onDown = (e) => {
@@ -117,7 +123,7 @@ export default function SidebarNav({ entries, activeSection, giveTab, collapsed:
         </button>
         {/* Closed: inert, so its pages are not in the tab order. */}
         <div className="sn-items" {...(open ? {} : { inert: '' })}>
-          <div className="sn-inner">{e.items.map((it) => renderItem(it))}</div>
+          <div className="sn-inner">{renderItems(e.items)}</div>
         </div>
       </div>
     );
@@ -136,7 +142,7 @@ export default function SidebarNav({ entries, activeSection, giveTab, collapsed:
         // A click on a page closes it (the page opens; this bubbles up here).
         <div ref={flyRef} className="sn-flyout" role="menu" aria-label={flyGroup.label} style={flyout.style} onClick={() => setFlyout(null)}>
           <div className="sn-flyout-title">{flyGroup.label}</div>
-          {flyGroup.items.map((it) => renderItem(it))}
+          {renderItems(flyGroup.items)}
         </div>,
         document.body,
       )}

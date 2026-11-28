@@ -87,14 +87,18 @@ export function takeReturn(fallback = '/dashboard') {
 }
 
 // A Guest and nothing more: no other role, and no events of their own to run.
-// A Guest's home is the landing page (their own panel there, see
-// components/guest/GuestHome); everyone else's is the dashboard.
+// The home page shows such an account one slim line (components/guest/
+// GuestHome) pointing to the dashboard, which is every role's home now - a
+// Guest's with its own Home page (components/guest/GuestOverview).
 export function isGuestOnly(user) {
   if (!user) return false;
   const roles = [user.role, ...(user.additional_roles || [])].filter(Boolean);
   return roles.every((r) => r === 'Guest') && !(user.allowed_event_types || []).length;
 }
-export const homeFor = (user) => (isGuestOnly(user) ? '/#my-home' : '/dashboard');
+// Where an account goes after signing in: the dashboard, whatever the role.
+// (`user` is kept so callers need not change if roles ever differ again.)
+// eslint-disable-next-line no-unused-vars
+export const homeFor = (user) => '/dashboard';
 
 // The signed-in account, saved where the login page keeps it, and every page
 // told (the navbar, the guest's home).

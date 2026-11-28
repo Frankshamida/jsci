@@ -44,6 +44,12 @@ export const POLL_MS = {
   ownAccount: 120000,
   // Ministry Meetings while the page is open: who has answered since.
   meetings: 60000,
+  // Gifts waiting to be confirmed: the badge on Gifts in the sidebar (a count only).
+  givingPending: 180000,
+  // The Admin and Super Admin Home (one read of several tables), while Home is open.
+  adminOverview: 300000,
+  // A Church Member's and a Ministry Member's Home (components/home), while Home is open.
+  roleHome: 300000,
 };
 
 // Treat the user as idle after this long with no interaction; idle tabs stop polling.

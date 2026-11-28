@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { Suspense } from 'react';
-import { homeFor, isGuestOnly, peekReturn, readViewer, takeReturn } from '@/lib/viewer';
+import { homeFor, peekReturn, takeReturn } from '@/lib/viewer';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -212,7 +212,7 @@ function AuthCallbackContent() {
             }}>
               <div style={{ width: '100%', height: '100%', background: 'linear-gradient(90deg, #926C15, #FFC300)', borderRadius: 3, animation: 'splashBar 2.5s 0.5s ease-in-out forwards', transformOrigin: 'left', transform: 'scaleX(0)' }} />
             </div>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', animation: 'splashFadeUp 0.6s 1.5s ease both' }}>{peekReturn() ? 'Taking you back...' : isGuestOnly(readViewer()) ? 'Taking you home...' : 'Entering your dashboard...'}</p>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', animation: 'splashFadeUp 0.6s 1.5s ease both' }}>{peekReturn() ? 'Taking you back...' : 'Entering your dashboard...'}</p>
           </div>
 
           <style>{`

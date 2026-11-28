@@ -34,7 +34,7 @@ export default async function DrivePage({ params }) {
 
   return (
     <GivingShell path={campaignPath(drive.slug)}>
-      <header className="gv-head">
+      <header className="gv-head is-outreach">
         <div className="gv-wrap">
           <a href="/donation" className="gv-crumb">Donate</a>
           <h1>{drive.title}</h1>

@@ -1,7 +1,8 @@
 'use client';
 
-// Dashboard > Giving (/giving-management; Admin and Super Admin), in two tabs
-// built from the same pieces as Social Media (components/social/kit):
+// Dashboard > Giving (/giving-management; Admin and Super Admin). The sidebar
+// lists its two pages, Gifts and Donation drives, and says which is open
+// (`tab`); there is no tab strip here.
 //
 //   Gifts      every gift sent: confirm it once it is in the church's
 //              account (the giver is emailed), mark it failed or refunded,
@@ -10,71 +11,36 @@
 //              /donation/<slug> with its photos and its jar, and, featured,
 //              beside the News, in the Community Hub and on the home page
 //
-// It opens on the tab in the address (?tab=appeals), else the one last used.
+// The two lead to each other: a drive's "Gifts" opens Gifts showing only that
+// drive's gifts. An old link with ?tab=appeals opens Donation drives.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import GiftsManager from './GiftsManager';
 import CampaignsManager from './CampaignsManager';
 import '@/components/social/social.css';
 import './givingAdmin.css';
 
-const TABS = [
-  { key: 'gifts', label: 'Gifts' },
-  { key: 'appeals', label: 'Donation drives' },
-];
-const KEY = 'givingAdminTab';
+export const GIVING_TABS = ['gifts', 'drives'];
 
-export default function GivingAdmin({ actorId }) {
-  const [tab, setTab] = useState('gifts');
-  const [pending, setPending] = useState(0);
-  const refs = useRef({});
+export default function GivingAdmin({ actorId, tab = 'gifts', onTab, onPending }) {
+  // What Gifts shows: 'all', 'Tithes', 'Offering', 'drives' or one drive's id.
+  const [fund, setFund] = useState('all');
 
   useEffect(() => {
     let t = null;
     try { t = new URLSearchParams(window.location.search).get('tab'); } catch { /* none */ }
-    if (!TABS.some((x) => x.key === t)) {
-      try { t = localStorage.getItem(KEY); } catch { /* Gifts first */ }
-    }
-    if (TABS.some((x) => x.key === t)) setTab(t);
+    if (t === 'appeals' || t === 'drives') onTab?.('drives');
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const pick = (key, focus = false) => {
-    setTab(key);
-    try { localStorage.setItem(KEY, key); } catch { /* not kept */ }
-    if (focus) refs.current[key]?.focus();
-  };
-  const onKey = (e, i) => {
-    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
-    if (step) { e.preventDefault(); pick(TABS[(i + step + TABS.length) % TABS.length].key, true); }
-  };
+  const showGifts = (which) => { setFund(which || 'all'); onTab?.('gifts'); };
 
   return (
     <div className="sm-theme sm">
-      <div className="sm-tabs" role="tablist" aria-label="Giving">
-        {TABS.map((t, i) => (
-          <button
-            key={t.key}
-            ref={(el) => { refs.current[t.key] = el; }}
-            type="button"
-            role="tab"
-            id={`gvm-tab-${t.key}`}
-            aria-selected={tab === t.key}
-            aria-controls={`gvm-panel-${t.key}`}
-            tabIndex={tab === t.key ? 0 : -1}
-            className={tab === t.key ? 'on' : ''}
-            onClick={() => pick(t.key)}
-            onKeyDown={(e) => onKey(e, i)}
-          >
-            {t.label}
-            {t.key === 'gifts' && pending > 0 && <span className="gvm-tab-count" aria-label={`${pending} waiting`}>{pending}</span>}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" id={`gvm-panel-${tab}`} aria-labelledby={`gvm-tab-${tab}`}>
-        {tab === 'gifts'
-          ? <GiftsManager actorId={actorId} onPending={setPending} />
-          : <CampaignsManager actorId={actorId} />}
-      </div>
+      {tab === 'drives'
+        ? <CampaignsManager actorId={actorId} onSeeGifts={showGifts} />
+        : <GiftsManager actorId={actorId} onPending={onPending} fund={fund} onFund={setFund} onOpenDrives={() => onTab?.('drives')} />}
     </div>
   );
 }

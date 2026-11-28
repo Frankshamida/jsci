@@ -37398,3 +37398,122 @@ body.dark-mode .nm-bar input { border-color: rgba(255, 255, 255, 0.16); }
   .nm-actions { max-width: none; justify-content: flex-start; width: 100%; }
   .nm-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* ============================================
+   COMMUNITY HUB REACTIONS: the 3D icons
+   (components/community/ReactionIcon). The emoji they replaced sat in
+   .reaction-picker-emoji / .react-btn-emoji / .reaction-badge /
+   .reaction-viewer-emoji; those keep their names and now hold an <img>.
+   ============================================ */
+.rx-ico { display: block; object-fit: contain; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.react-btn-emoji.rx-holder,
+.reaction-picker-emoji.rx-swap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0;
+  line-height: 0;
+}
+/* The animated icon is the pop now; the old emoji bounce would double it. */
+.community-react-btn.animating .react-btn-emoji.rx-holder { animation: none; }
+
+/* The picker: inactive and active pictures stacked. Hovering a reaction, or
+   the one already picked, shows the active one, and the button lifts. */
+.reaction-picker-emoji.rx-swap > .rx-ico { grid-area: 1 / 1; transition: opacity 0.15s ease; }
+.reaction-picker-emoji.rx-swap > .rx-on { opacity: 0; }
+.reaction-picker-item:hover .rx-swap > .rx-on,
+.reaction-picker-item:focus-visible .rx-swap > .rx-on,
+.reaction-picker-item.active .rx-swap > .rx-on { opacity: 1; }
+.reaction-picker-item:hover .rx-swap > .rx-off,
+.reaction-picker-item:focus-visible .rx-swap > .rx-off,
+.reaction-picker-item.active .rx-swap > .rx-off { opacity: 0; }
+.reaction-picker-item { transition: transform 0.15s ease, background 0.15s ease; }
+.reaction-picker-item:hover { transform: translateY(-4px) scale(1.15); }
+.reaction-picker-item:hover .reaction-picker-emoji { transform: none; }
+.reaction-picker-item:focus-visible { outline: 2px solid var(--accent, #FFC300); outline-offset: 2px; }
+
+/* The summary badges: gold icons on warm white (dark: deep gold). */
+.reaction-badge .rx-ico { width: 15px; height: 15px; }
+.reaction-badge.heart,
+.reaction-badge.fire,
+.reaction-badge.praise { background: #fff8e1; }
+body.dark-mode .reaction-badge.heart,
+body.dark-mode .reaction-badge.fire,
+body.dark-mode .reaction-badge.praise { background: #2b2616; }
+
+/* Who reacted: the tabs and each person's reaction. */
+.reaction-viewer-tab { display: inline-flex; align-items: center; gap: 6px; }
+.reaction-viewer-emoji { display: inline-flex; }
+
+/* The public photo page's counts. */
+.rx-count { display: inline-flex; align-items: center; gap: 5px; }
+
+/* The picked reaction's label in the brand gold, to match its gold icon
+   (it was red, orange or purple, from the emoji days). */
+.community-react-btn.liked.heart,
+.community-react-btn.liked.fire,
+.community-react-btn.liked.praise { color: #926C15; }
+body.dark-mode .community-react-btn.liked.heart,
+body.dark-mode .community-react-btn.liked.fire,
+body.dark-mode .community-react-btn.liked.praise { color: #FFC300; }
+.cimg-action-btn.liked,
+.cimg-action-btn.liked.fire,
+.cimg-action-btn.liked.praise { color: #FFC300; }
+
+/* The gold burst: ten dots fly out from the icon as a reaction is picked. */
+.rx-burst { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+.rx-burst i {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #C9980B;
+  opacity: 0;
+  animation: rxBurst 0.7s ease-out forwards;
+}
+.rx-burst i:nth-child(even) { left: -2.5px; top: -2.5px; width: 5px; height: 5px; background: #FFE169; }
+body.dark-mode .rx-burst i { background: #FFC300; }
+body.dark-mode .rx-burst i:nth-child(even) { background: #FFE169; }
+@keyframes rxBurst {
+  0% { transform: rotate(var(--rx-a)) translateY(0) scale(0.6); opacity: 1; }
+  60% { opacity: 0.95; }
+  100% { transform: rotate(var(--rx-a)) translateY(-24px) scale(0.3); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rx-burst { display: none; }
+  .reaction-picker-item,
+  .reaction-picker-emoji.rx-swap > .rx-ico { transition: none; }
+  .reaction-picker-item:hover { transform: none; }
+}
+
+/* Hover-to-open: an invisible bridge over the gap between the React button
+   and the picker above it, so crossing it never counts as leaving. */
+.community-reaction-picker::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 12px;
+}
+
+/* A Guest's sidebar: the Community Hub, shown locked until they are a member. */
+.menu-item.is-members { opacity: 0.72; }
+.menu-members {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(146, 108, 21, 0.12);
+  color: #926C15;
+  white-space: nowrap;
+}
+body.dark-mode .menu-members { background: rgba(255, 195, 0, 0.14); color: #FFC300; }
+.sidebar.collapsed .menu-members { display: none; }

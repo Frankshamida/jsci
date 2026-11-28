@@ -14,11 +14,13 @@ import HeroVideo from '@/components/HeroVideo';
 import { useBranding } from '@/components/BrandingProvider';
 import { SiteNavbar } from '@/components/SiteChrome';
 import { isGuestOnly, useViewer } from '@/lib/viewer';
+import HubInvite from '@/components/community/HubInvite';
+import { SERVICE_TIMES, nextGathering, phDayLabel, untilLabel } from '@/lib/serviceTimes';
 import GuestHome from '@/components/guest/GuestHome';
 import GiveShowcase from '@/components/giving/GiveShowcase';
 import { linkMeta } from '@/lib/linkMeta';
 import { newsDate, newsImage } from '@/lib/news';
-import { evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
+import { evtCountdown, evtDate, evtDayCount, evtMs, evtStatus, evtWhen } from '@/lib/eventWhen';
 import { buildEventsDigest, eventsMentionedIn, evtPlaceLabel } from '@/lib/eventDigest';
 import { PROOF_ACCEPT, PROOF_MAX_BYTES, PROOF_MAX_LABEL, shrinkProofImage } from '@/lib/proofFile';
 import { isCashChannel, channelTypeLabel, channelTypeIcon, eventTakesCash } from '@/lib/paymentChannels';
@@ -27,6 +29,9 @@ import AgeGroupPicker from '@/components/AgeGroupPicker';
 import GuardianPicker from '@/components/GuardianPicker';
 import PastorInput from '@/components/PastorInput';
 import { usePastors } from '@/lib/usePastors';
+import { useHomeSections } from '@/components/HomeSectionsProvider';
+import useDeveloperWelcome from '@/components/developers/useDeveloperWelcome';
+import MeetDevelopersButton from '@/components/developers/MeetDevelopersButton';
 import {
   addonFeeFor, addonShortLabel, baseAmountFor, defaultTier, eventFeeLabel, eventTiers,
   findTier, hasPriceTiers, isNameOnlyTier, nameOnlyTiers, representativeTiers,
@@ -126,43 +131,6 @@ const FACEBOOK_URL = 'https://www.facebook.com/CebuCityJoyfulSound';
 const MESSENGER_URL = 'https://m.me/CebuCityJoyfulSound';
 const YOUTUBE_URL = 'https://www.youtube.com/@JoyfulSoundChurchCebuCity';
 
-// ---- The next gathering, in church time ----
-// The services are held in Cebu, so "Sunday 9:00 AM" means 9:00 in the
-// Philippines (UTC+8, no daylight saving) wherever the visitor is reading
-// from. The wall clock is worked out in UTC+8 and turned back into an instant.
-const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
-
-const nextGathering = (nowMs) => {
-  const ph = new Date(nowMs + PH_OFFSET_MS);
-  let best = null;
-  SERVICE_TIMES.forEach((s) => {
-    for (let add = 0; add <= 7; add += 1) {
-      const wall = new Date(Date.UTC(ph.getUTCFullYear(), ph.getUTCMonth(), ph.getUTCDate() + add, s.hour, s.minute));
-      if (wall.getUTCDay() !== s.dow) continue;
-      const startMs = wall.getTime() - PH_OFFSET_MS;
-      if (startMs <= nowMs) continue;
-      if (!best || startMs < best.startMs) best = { ...s, startMs };
-      break;
-    }
-  });
-  return best;
-};
-
-// "in 2 days, 4 hrs" / "in 3 hrs 20 min" / "in 12 min"
-const untilLabel = (ms) => {
-  const mins = Math.max(1, Math.round(ms / 60000));
-  const days = Math.floor(mins / 1440);
-  const hrs = Math.floor((mins % 1440) / 60);
-  const min = mins % 60;
-  if (days > 0) return `in ${days} day${days > 1 ? 's' : ''}${hrs ? `, ${hrs} hr${hrs > 1 ? 's' : ''}` : ''}`;
-  if (hrs > 0) return `in ${hrs} hr${hrs > 1 ? 's' : ''}${min ? ` ${min} min` : ''}`;
-  return `in ${min} min`;
-};
-
-const phDayLabel = (ms) => new Date(ms).toLocaleDateString('en-US', {
-  weekday: 'long', month: 'short', day: 'numeric', timeZone: 'Asia/Manila',
-});
-
 // The verse is wrapped in curly quotes by the page, so quotes the AI (or an
 // old cached copy) put round the whole thing are taken off first, and any
 // left inside become single quotes - a quotation inside a quotation.
@@ -171,13 +139,6 @@ const cleanVerse = (text) => {
   return t.replace(/(^|[\s(—-])["“]/g, '$1‘').replace(/["”]/g, '’');
 };
 
-// `dow` (0 = Sunday) and the hour are what "Next Gathering" counts down to;
-// the rest is what the cards print.
-const SERVICE_TIMES = [
-  { icon: 'fa-sun', day: 'Sunday', time: '9:00 AM', name: 'Worship Service', dow: 0, hour: 9, minute: 0 },
-  { icon: 'fa-book-bible', day: 'Friday', time: '7:00 PM', name: 'Bible Study', dow: 5, hour: 19, minute: 0 },
-  { icon: 'fa-users', day: 'Saturday', time: '2:00 PM', name: 'Youth Fellowship', dow: 6, hour: 14, minute: 0 },
-];
 
 const ISOM_SLIDES = [
   '/assets/isom-training.jpg',
@@ -359,6 +320,46 @@ const evtShortWhen = (startStr, endStr) => {
   return `${s.toLocaleDateString('en-US', { ...md, year: 'numeric' })} – ${e.toLocaleDateString('en-US', { ...md, year: 'numeric' })}`;
 };
 
+// The events list's "when": "Sat, Dec 12" and "8:00 AM – 12:00 PM". An event
+// over several days reads "Oct 2–3, 2026" with its opening time.
+const evtCardWhen = (evt) => {
+  const s = evtDate(evt?.event_date);
+  if (!s) return { day: 'Date to be announced', time: '' };
+  const e = evtDate(evt?.end_date);
+  const time = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (e && evtDayCount(evt.event_date, evt.end_date) > 1) {
+    return { day: evtShortWhen(evt.event_date, evt.end_date), time: time(s) };
+  }
+  return {
+    day: s.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+    time: e && e.getTime() > s.getTime() ? `${time(s)} – ${time(e)}` : time(s),
+  };
+};
+
+// The small date square beside each event in the list: "12 / DEC".
+const evtTile = (evt) => {
+  const s = evtDate(evt?.event_date);
+  return (
+    <span className="hp-evx-tile" aria-hidden="true">
+      <b>{s ? s.getDate() : '?'}</b>
+      <small>{s ? s.toLocaleDateString('en-US', { month: 'short' }).toUpperCase() : 'TBA'}</small>
+    </span>
+  );
+};
+
+// What an event with no poster shows in the poster's place: its date, large,
+// on the church's gold, instead of an empty tile with a calendar icon.
+const evtDateCard = (evt) => {
+  const s = evtDate(evt?.event_date);
+  return (
+    <span className="hp-evx-datecard" aria-hidden="true">
+      <b>{s ? s.getDate() : 'TBA'}</b>
+      {s && <small>{s.toLocaleDateString('en-US', { month: 'long' })}</small>}
+      {s && <em>{s.toLocaleDateString('en-US', { weekday: 'long' })}</em>}
+    </span>
+  );
+};
+
 // The dates a visitor typed, read here rather than by the AI - which, asked to
 // turn "last month" into two dates, would sometimes ask again instead. Covers
 // what people actually write: a month ("October", "September to October
@@ -421,6 +422,62 @@ const evtBlurb = (text, max = 150) => {
   return `${t.slice(0, max).replace(/\s+\S*$/, '')}…`;
 };
 
+// ---- The backdrop behind Church News and Upcoming Events -----------------
+// Decoration only: soft gold light drifting, two sets of ribbons like the ones
+// in the outreach pictures (a glint travels along one), dot patterns, a halo
+// and a few sparkles. Static markup - the motion is CSS (home.css, .hp-whatson)
+// and stops for anyone who asks for reduced motion.
+const RIBBON_GRADIENTS = (id) => (
+  <defs>
+    <linearGradient id={`${id}-line`} x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stopColor="#c9980b" stopOpacity="0" />
+      <stop offset="0.25" stopColor="#c9980b" stopOpacity="0.9" />
+      <stop offset="0.55" stopColor="#ffc300" stopOpacity="1" />
+      <stop offset="0.85" stopColor="#c9980b" stopOpacity="0.8" />
+      <stop offset="1" stopColor="#c9980b" stopOpacity="0" />
+    </linearGradient>
+    <linearGradient id={`${id}-band`} x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stopColor="#ffc300" stopOpacity="0" />
+      <stop offset="0.4" stopColor="#ffc300" stopOpacity="0.16" />
+      <stop offset="0.7" stopColor="#c9980b" stopOpacity="0.12" />
+      <stop offset="1" stopColor="#c9980b" stopOpacity="0" />
+    </linearGradient>
+  </defs>
+);
+const SPARKLES = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
+
+function WhatsOnArt() {
+  return (
+    <div className="hp-whatson-art" aria-hidden="true">
+      <span className="hp-orb o1" />
+      <span className="hp-orb o2" />
+      <span className="hp-orb o3" />
+      <span className="hp-ring r1" />
+      <span className="hp-ring r2" />
+      <span className="hp-dots d1" />
+      <span className="hp-dots d2" />
+
+      <svg className="hp-ribbons top" viewBox="0 0 1440 300" preserveAspectRatio="none" focusable="false">
+        {RIBBON_GRADIENTS('hp-rb-a')}
+        <path d="M0,170 C240,90 420,250 720,170 C1000,95 1180,210 1440,120 L1440,165 C1180,255 1000,140 720,215 C420,292 240,138 0,218 Z" fill="url(#hp-rb-a-band)" />
+        <path className="hp-rb-line" d="M0,150 C260,60 460,240 740,150 C1010,70 1190,190 1440,95" stroke="url(#hp-rb-a-line)" />
+        <path className="hp-rb-line thin" d="M0,206 C220,140 470,282 760,196 C1040,116 1220,236 1440,150" stroke="url(#hp-rb-a-line)" />
+        <path className="hp-rb-glint" d="M0,150 C260,60 460,240 740,150 C1010,70 1190,190 1440,95" />
+      </svg>
+
+      <svg className="hp-ribbons bottom" viewBox="0 0 1440 340" preserveAspectRatio="none" focusable="false">
+        {RIBBON_GRADIENTS('hp-rb-b')}
+        <path d="M0,120 C300,220 520,60 820,150 C1080,228 1250,96 1440,170 L1440,222 C1250,150 1080,282 820,205 C520,116 300,272 0,178 Z" fill="url(#hp-rb-b-band)" />
+        <path className="hp-rb-line" d="M0,140 C300,240 520,80 820,170 C1080,248 1250,116 1440,190" stroke="url(#hp-rb-b-line)" />
+        <path className="hp-rb-line thin" d="M0,96 C280,180 560,40 860,120 C1110,186 1260,70 1440,128" stroke="url(#hp-rb-b-line)" />
+        <path className="hp-rb-glint late" d="M0,140 C300,240 520,80 820,170 C1080,248 1250,116 1440,190" />
+      </svg>
+
+      {SPARKLES.map((s) => <span key={s} className={`hp-sparkle ${s}`} />)}
+    </div>
+  );
+}
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -432,12 +489,17 @@ const sectionEl = (id) => document.getElementById(id)
 
 export default function HomePage() {
   const router = useRouter();
+  // "Meet the Developers" opens by itself here, once a session (see the hook).
+  useDeveloperWelcome();
   // Who is signed in on this browser (a Guest stays on this page; see below).
   const { viewer } = useViewer();
   const pathname = usePathname();
   // Whose name the page wears - the church's, or SanctuaryHub's. Chosen by a
   // Super Admin under System Configuration; see lib/branding.js.
   const brand = useBranding();
+  // The sections a Super Admin hid (System Configuration > Homepage Sections)
+  // are left out, with the buttons and links that lead to them.
+  const { shown: homeShown } = useHomeSections();
   // Our Pastors: the Pastor accounts marked for the website (/api/pastors),
   // this page's own list until that is set up.
   const pastors = usePastors(PASTORS);
@@ -470,6 +532,8 @@ export default function HomePage() {
     slides: ISOM_SLIDES.map((url) => ({ url })),
   });
   const [newsEvents, setNewsEvents] = useState([]);
+  // Upcoming Events shows the next four; "See all" opens up the rest.
+  const [eventsAll, setEventsAll] = useState(false);
   // The same published events as `newsEvents`, but the whole list rather than
   // the eight the News section shows. Joy answers out of this, so a visitor
   // asking about the ninth event still gets a real answer.
@@ -2557,9 +2621,11 @@ ${eventsDigest}`;
             ) : (
               <a href="/signup" className="hp-btn-primary">Join Our Family</a>
             )}
-            <a href="#plan-visit" className="hp-btn-outline" onClick={(e) => { e.preventDefault(); scrollToSection('plan-visit'); }}>
-              Plan Your Visit
-            </a>
+            {homeShown('plan-visit') && (
+              <a href="#plan-visit" className="hp-btn-outline" onClick={(e) => { e.preventDefault(); scrollToSection('plan-visit'); }}>
+                Plan Your Visit
+              </a>
+            )}
           </div>
 
           {/* Joy, in the one place every visitor looks. A question typed here
@@ -2602,10 +2668,18 @@ ${eventsDigest}`;
         )}
       </section>
 
+      {/* ---- WHAT'S ON: This Week, a guest's home, Church News and Upcoming
+          Events share one backdrop (WhatsOnArt): soft gold light, ribbons and a
+          little sparkle, from the hero's edge down to Plan Your Visit, whose
+          colour it ends in. ---- */}
+      <div className="hp-whatson">
+        <WhatsOnArt />
+
       {/* ---- THIS WEEK: the three things a visitor came to find out ---- */}
       {/* When is the next service, is anything live, and what is coming up -
           answered in the first screen below the hero instead of four sections
           further down. */}
+      {homeShown('this-week') && (
       <section id="this-week" className="hp-week" aria-label="This week">
         <div className="hp-week-inner">
           <article className="hp-week-card">
@@ -2623,9 +2697,11 @@ ${eventsDigest}`;
                 <p className="hp-week-count">&nbsp;</p>
               </>
             )}
-            <button type="button" className="hp-week-link" onClick={() => scrollToSection('plan-visit')}>
-              All service times
-            </button>
+            {homeShown('plan-visit') && (
+              <button type="button" className="hp-week-link" onClick={() => scrollToSection('plan-visit')}>
+                All service times
+              </button>
+            )}
           </article>
 
           <article className={`hp-week-card ${liveStream ? 'is-live' : ''}`}>
@@ -2664,9 +2740,16 @@ ${eventsDigest}`;
                   {evtDate(nextEvent.event_date)?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                   {evtPlaceWord(nextEvent) ? `, ${evtPlaceWord(nextEvent)}` : ''}
                 </p>
-                <button type="button" className="hp-week-link" onClick={() => setDetailEvent(nextEvent)}>
-                  {evtRegOpen(nextEvent) ? 'Details and registration' : 'View details'}
-                </button>
+                <span className="hp-week-links">
+                  <button type="button" className="hp-week-link" onClick={() => setDetailEvent(nextEvent)}>
+                    {evtRegOpen(nextEvent) ? 'Details and registration' : 'View details'}
+                  </button>
+                  {homeShown('events') && newsEvents.length > 1 && (
+                    <button type="button" className="hp-week-link" onClick={() => scrollToSection('news')}>
+                      All upcoming events
+                    </button>
+                  )}
+                </span>
               </>
             ) : (
               <>
@@ -2680,90 +2763,15 @@ ${eventsDigest}`;
           </article>
         </div>
       </section>
+      )}
 
       {/* ---- A GUEST'S HOME: their giving, events and services. Guests have
           no dashboard; this is theirs (components/guest/GuestHome). ---- */}
-      {viewer && isGuestOnly(viewer) && <GuestHome viewer={viewer} live={!!liveStream} />}
-
-      {/* ---- UPCOMING EVENTS ---- */}
-      {/* Only while there is something to show. An empty grid with a "No
-          Upcoming Events" card was the first thing under the hero; "This Week"
-          above already says so in one line. */}
-      {newsEvents.length > 0 && (
-      <section id="news" className="hp-section">
-        <div className="hp-section-header hp-animate">
-          <div className="hp-divider"></div>
-          <h2>Upcoming Events</h2>
-          <p>Conferences, gatherings and celebrations you can register for online</p>
-        </div>
-
-        <div className="hp-invite-grid">
-          {newsEvents.map((evt, i) => (
-              <button
-                type="button"
-                className="hp-invite-card hp-animate"
-                key={evt.id || i}
-                style={{ transitionDelay: `${i * 0.08}s` }}
-                onClick={() => setDetailEvent(evt)}
-                aria-label={`View details for ${evt.title}`}
-              >
-                <div className="hp-invite-hero">
-                  {evt.image_url
-                    ? <img
-                        src={eventImageUrl(evt.image_url, 440)}
-                        srcSet={eventImageSrcSet(evt.image_url)}
-                        sizes={EVENT_IMAGE_SIZES}
-                        alt={evt.title}
-                        className="hp-invite-hero-img"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    : <span className="hp-invite-hero-ph"><i className="fas fa-calendar-day"></i></span>}
-
-                  <span className="hp-invite-pill">
-                    <span>Upcoming{evtPlaceWord(evt) ? <> <b>{evtPlaceWord(evt)}</b></> : null} Event</span>
-                  </span>
-
-                </div>
-
-                {/* At rest only the title shows over the artwork; the rest slides up
-                    on hover, so the poster is never covered until someone is actually
-                    looking at this card. Anchored to the card so it rides the card's
-                    bottom edge rather than the poster box's. */}
-                <span className="hp-invite-scrim"></span>
-                <span className="hp-invite-info">
-                  <span className="hp-invite-name">{evt.title}</span>
-                  {/* The one line that stays in frame at rest: when, and where in
-                      the broadest sense - the two things somebody scanning the grid
-                      is deciding on. The full venue waits for the hover. */}
-                  <span className="hp-invite-key">
-                    {evt.event_date && (
-                      <span className="hp-invite-line">
-                        {evtDate(evt.event_date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </span>
-                    )}
-                    {evtPlaceWord(evt) && (
-                      <span className="hp-invite-line">
-                        {evtPlaceWord(evt)}
-                      </span>
-                    )}
-                  </span>
-                  {(evt.location || evt.loc_city) && (
-                    <span className="hp-invite-line hp-invite-venue">
-                      {[evt.location, evt.loc_city].filter(Boolean).join(', ')}
-                    </span>
-                  )}
-                  <span className="hp-invite-cta">View Details</span>
-                </span>
-              </button>
-          ))}
-        </div>
-      </section>
-      )}
+      {viewer && isGuestOnly(viewer) && <GuestHome viewer={viewer} />}
 
       {/* ---- CHURCH NEWS: one story large (a featured one first), the next
           three beside it, and the way to all the news ---- */}
-      {latestNews.length > 0 && (
+      {homeShown('latest-news') && latestNews.length > 0 && (
         <section id="latest-news" className="hp-section hp-newsfeat" aria-label="Church News">
           <div className="hp-newsfeat-inner">
             <div className="hp-newsfeat-head">
@@ -2826,7 +2834,96 @@ ${eventsDigest}`;
         </section>
       )}
 
+      {/* ---- UPCOMING EVENTS: the next one large (its poster, or a gold date
+          card when it has none), the following three in a list beside it,
+          and the rest a click away. It sits after Church News: This Week,
+          under the hero, already names the next event and links down here.
+          Only while there is something to show; "This Week" says so when
+          there is nothing. Every event opens the same details window. ---- */}
+      {homeShown('events') && newsEvents.length > 0 && (() => {
+        const [lead, ...others] = newsEvents;
+        const shown = eventsAll ? others : others.slice(0, 3);
+        const when = evtCardWhen(lead);
+        const happening = evtStatus(lead.event_date, lead.end_date) === 'ongoing';
+        const canRegister = evtRegOpen(lead);
+        return (
+          <section id="news" className="hp-section hp-evx" aria-label="Upcoming events">
+            <div className="hp-section-header hp-animate">
+              <div className="hp-divider"></div>
+              <h2>Upcoming Events</h2>
+              <p>Conferences, gatherings and celebrations you can register for online</p>
+            </div>
+
+            <div className={`hp-evx-grid hp-animate ${others.length ? '' : 'solo'}`}>
+              <article className="hp-evx-lead">
+                <button type="button" className="hp-evx-art" onClick={() => setDetailEvent(lead)} aria-label={`View details for ${lead.title}`}>
+                  {lead.image_url ? (
+                    <img
+                      src={eventImageUrl(lead.image_url, 440)}
+                      srcSet={eventImageSrcSet(lead.image_url)}
+                      sizes="(max-width: 560px) 130px, 240px"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : evtDateCard(lead)}
+                </button>
+                <div className="hp-evx-body">
+                  <span className="hp-evx-eye">
+                    {happening ? 'Happening now' : `Next up${evtCountdown(lead.event_date, lead.end_date) ? ` · ${evtCountdown(lead.event_date, lead.end_date)}` : ''}`}
+                  </span>
+                  <h3>{lead.title}</h3>
+                  <p className="hp-evx-when"><b>{when.day}</b>{when.time ? ` · ${when.time}` : ''}</p>
+                  {(lead.location || lead.loc_city) && (
+                    <p className="hp-evx-where">{[lead.location, lead.loc_city].filter(Boolean).join(', ')}</p>
+                  )}
+                  <span className={`hp-evx-fee ${lead.has_fee ? 'paid' : ''}`}>{lead.has_fee ? eventFeeLabel(lead) : 'Free'}</span>
+                  <div className="hp-evx-acts">
+                    {canRegister && (
+                      <button type="button" className="hp-evx-btn" onClick={() => handlePublicRegister(lead)}>Register</button>
+                    )}
+                    <button type="button" className={`hp-evx-btn ${canRegister ? 'is-ghost' : ''}`} onClick={() => setDetailEvent(lead)}>
+                      {canRegister ? 'Details' : 'View details'}
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              {others.length > 0 && (
+                <div className="hp-evx-side">
+                  <h3>Also coming up</h3>
+                  <ul>
+                    {shown.map((evt, i) => {
+                      const w = evtCardWhen(evt);
+                      return (
+                        <li key={evt.id || i}>
+                          <button type="button" className="hp-evx-item" onClick={() => setDetailEvent(evt)}>
+                            {evtTile(evt)}
+                            <span className="hp-evx-item-text">
+                              <strong>{evt.title}</strong>
+                              <span>{w.day}{w.time ? ` · ${w.time}` : ''}</span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {others.length > 3 && (
+                    <button type="button" className="hp-evx-all" onClick={() => setEventsAll((v) => !v)} aria-expanded={eventsAll}>
+                      {eventsAll ? 'Show fewer' : `See all ${newsEvents.length} upcoming events`}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      })()}
+
+      </div>
+
       {/* ---- PLAN YOUR VISIT (service times + what to expect) ---- */}
+      {homeShown('plan-visit') && (
       <div className="hp-section-dark">
         <section id="plan-visit" className="hp-section">
           <span id="services" className="hp-anchor" aria-hidden="true"></span>
@@ -2887,8 +2984,10 @@ ${eventsDigest}`;
           </div>
         </section>
       </div>
+      )}
 
       {/* ---- WELCOME / ABOUT + OUR PASTORS ---- */}
+      {homeShown('about') && (
       <section id="about" className="hp-section">
         <div className="hp-section-header hp-animate">
           <div className="hp-divider"></div>
@@ -2955,8 +3054,15 @@ ${eventsDigest}`;
           )}
         </div>
       </section>
+      )}
+
+      {/* ---- COMMUNITY HUB: the invitation to the members' hub - what they do
+          there, a view of it, and the way in for whoever is looking. After the
+          church and its pastors, before finding a ministry. ---- */}
+      {homeShown('community-hub') && <HubInvite viewer={viewer} churchName={brand.church} messengerUrl={MESSENGER_URL} />}
 
       {/* ---- FIND YOUR PLACE: ministries + activities ---- */}
+      {homeShown('ministries') && (
       <div className="hp-section-dark">
         <section id="ministries" className="hp-section">
           <div className="hp-section-header hp-animate">
@@ -3015,10 +3121,12 @@ ${eventsDigest}`;
           </div>
         </section>
       </div>
+      )}
 
       {/* ---- ISOM ---- */}
       {/* The school's own content (subtitle, points, start date, photos) is
           edited by a Super Admin under ISOM Management; this only lays it out. */}
+      {homeShown('isom') && (
       <section id="isom" className="hp-isom">
         <div className="hp-isom-inner">
           <div className="hp-isom-copy hp-animate">
@@ -3075,6 +3183,7 @@ ${eventsDigest}`;
           </figure>
         </div>
       </section>
+      )}
 
       {/* ---- GIVE ---- */}
       {/* The newest donation drive: its jar of hearts, its details, its photos
@@ -3083,7 +3192,7 @@ ${eventsDigest}`;
           no account numbers here - a church page that prints bank details is
           the page scammers copy; the accounts are shown in the giving window,
           step by step, from Mode of Payment. */}
-      <GiveShowcase />
+      {homeShown('give') && <GiveShowcase />}
 
       {/* ---- MAGIC LINK: looking the event up ---- */}
       {/* A shared link opens the page, then has to find the event before the
@@ -4611,6 +4720,7 @@ ${eventsDigest}`;
       )}
 
       {/* ---- VISIT US / MAP ---- */}
+      {homeShown('location') && (
       <div className="hp-section-dark">
         <section id="location" className="hp-section">
           <div className="hp-section-header hp-animate">
@@ -4662,6 +4772,7 @@ ${eventsDigest}`;
           </div>
         </section>
       </div>
+      )}
 
       {/* ---- ABOUT SANCTUARYHUB ---- */}
       {/* What this site is, and what signing in with Google shares. Google reads
@@ -4706,7 +4817,7 @@ ${eventsDigest}`;
       </section>
 
       {/* ---- CTA BANNER ---- */}
-      {viewer ? (
+      {homeShown('cta') && (viewer ? (
         <section className="hp-cta">
           <h2>Welcome back, {viewer.firstname}!</h2>
           <p>
@@ -4730,7 +4841,7 @@ ${eventsDigest}`;
             <a href="/login" className="hp-btn-outline">Log In</a>
           </div>
         </section>
-      )}
+      ))}
 
       {/* ---- FOOTER ---- */}
       <footer className="hp-footer">
@@ -4759,11 +4870,11 @@ ${eventsDigest}`;
           <div className="hp-footer-col">
             <h4>Explore</h4>
             <ul>
-              <li><a href="#about">About Us</a></li>
-              <li><a href="#plan-visit">Plan a Visit</a></li>
-              <li><a href="#ministries">Ministries</a></li>
-              <li><a href="#this-week">Events</a></li>
-              <li><a href="#isom">ISOM</a></li>
+              {homeShown('about') && <li><a href="#about">About Us</a></li>}
+              {homeShown('plan-visit') && <li><a href="#plan-visit">Plan a Visit</a></li>}
+              {homeShown('ministries') && <li><a href="#ministries">Ministries</a></li>}
+              {homeShown('this-week') && <li><a href="#this-week">Events</a></li>}
+              {homeShown('isom') && <li><a href="#isom">ISOM</a></li>}
               <li><a href="/donation">Donate</a></li>
               <li><a href="/news">News</a></li>
             </ul>
@@ -4780,7 +4891,7 @@ ${eventsDigest}`;
               {viewer ? (
                 <>
                   <li><a href="/giving/my">My Giving</a></li>
-                  <li><a href={isGuestOnly(viewer) ? '#my-home' : '/dashboard'}>My Account</a></li>
+                  <li><a href="/dashboard">My Account</a></li>
                 </>
               ) : (
                 <>
@@ -4795,7 +4906,7 @@ ${eventsDigest}`;
           <div className="hp-footer-col">
             <h4>Get in Touch</h4>
             <ul>
-              <li><a href="#location">{CHURCH_CITY}</a></li>
+              {homeShown('location') && <li><a href="#location">{CHURCH_CITY}</a></li>}
               <li><a href={DIRECTIONS_URL} target="_blank" rel="noopener noreferrer">Get Directions</a></li>
               <li><a href={MESSENGER_URL} target="_blank" rel="noopener noreferrer">Message Us</a></li>
               <li><a href="/terms">Terms</a></li>
@@ -4810,6 +4921,7 @@ ${eventsDigest}`;
             {brand.isPlatform
               ? <> Serving {brand.church}.</>
               : <> Powered by <span>{brand.platform}</span>.</>}
+            {' · '}<MeetDevelopersButton />
           </p>
         </div>
       </footer>

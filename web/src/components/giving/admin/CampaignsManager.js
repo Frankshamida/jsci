@@ -14,7 +14,10 @@ import GivingCard from '@/components/giving/GivingCard';
 import { campaignEnds, campaignOpen, campaignPath, peso } from '@/lib/giving';
 
 const MAX_PHOTOS = 8;
-import { Confirm, Field, ManagerHead, Modal, Notice, Row, Stats, Switch, Toolbar } from '@/components/social/kit';
+import { Confirm, Field, ManageMenu, Modal, Notice, Switch } from '@/components/social/kit';
+import { DeskHead, JAR_IMAGE, Pill, Strip, Tabs, sized } from '@/components/giving/desk';
+
+const plural = (n, one, many = `${one}s`) => `${Number(n || 0).toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 const API = '/api/giving/manage/campaigns';
 const FORM_ID = 'gva';
@@ -32,20 +35,12 @@ const fromCampaign = (c) => ({
   is_featured: c.is_featured !== false,
 });
 
-// Where an appeal stands, said once.
+// Where a drive stands, said once.
 const standing = (c) => {
-  if (!c.is_published) return { tone: 'off', label: 'Hidden' };
-  if (!campaignOpen(c)) return { tone: 'off', label: 'Ended' };
-  return c.is_featured ? { tone: 'on', label: 'Featured' } : { tone: 'on', label: 'On the website' };
+  if (!c.is_published) return { tone: 'of', label: 'Hidden' };
+  if (!campaignOpen(c)) return { tone: 'of', label: 'Ended' };
+  return c.is_featured ? { tone: 'wa', label: 'Featured' } : { tone: 'ok', label: 'Taking gifts' };
 };
-
-function Thumb({ c }) {
-  return (
-    <span className="gvm-thumb">
-      {c.image_url ? <img src={c.image_url} alt="" /> : <img className="is-jar" src="/giving-assets/web/jar.webp" alt="" />}
-    </span>
-  );
-}
 
 // A phone photo is 3-10 MB; a serverless request takes 4.5 MB.
 async function shrink(file) {
@@ -56,7 +51,7 @@ async function shrink(file) {
   } catch { return file; }
 }
 
-export default function CampaignsManager({ actorId }) {
+export default function CampaignsManager({ actorId, onSeeGifts }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [setupNote, setSetupNote] = useState('');
@@ -95,6 +90,7 @@ export default function CampaignsManager({ actorId }) {
     hidden: list.filter((c) => !c.is_published).length,
     ended: list.filter((c) => c.is_published && !campaignOpen(c)).length,
     raised: list.reduce((t, c) => t + (Number(c.raised) || 0), 0),
+    gifts: list.reduce((t, c) => t + (Number(c.gifts) || 0), 0),
   }), [list]);
 
   const shown = list.filter((c) => {
@@ -229,92 +225,121 @@ export default function CampaignsManager({ actorId }) {
     gifts: list.find((c) => c.id === form.id)?.gifts || 0,
   } : null;
 
-  const createButton = <button type="button" className="sm-btn is-primary" onClick={() => openForm()} disabled={!!setupNote || loading}>Create a drive</button>;
+  const canCreate = !setupNote && !loading;
 
   return (
-    <div className="sm-card">
-      <ManagerHead
-        title="Donation drives"
-        text="Ask the church to donate to something - a relief drive, a building fund. Each drive has its own page with its photos and a jar that fills toward the goal. A featured one is also shown beside the News, in the Community Hub and on the home page until the day it ends."
-        pageHref="/donation"
-        pageLabel="View the page"
-        action={createButton}
-      />
+    <div className="gd gd-page">
+      <DeskHead title="Donation drives" sub="Each drive gets its own page and a jar that fills toward the goal.">
+        <a className="gd-btn" href="/donation" target="_blank" rel="noopener noreferrer">View the giving page</a>
+        <button type="button" className="gd-btn is-primary" onClick={() => openForm()} disabled={!canCreate}>Create a drive</button>
+      </DeskHead>
 
       {setupNote && <Notice notice={{ type: 'warn', text: setupNote }} />}
 
       {!setupNote && (
-        <Stats
-          items={[
-            { value: counts.running, label: 'Taking gifts' },
-            { value: counts.featured, label: 'Featured' },
-            { value: peso(counts.raised), label: 'Raised in all' },
+        <Strip
+          stats={[
+            { k: 'Taking gifts now', v: counts.running, s: `${counts.featured} featured on the website` },
+            {
+              k: 'Raised by all drives',
+              v: peso(counts.raised),
+              s: <>{plural(counts.gifts, 'gift')}{onSeeGifts && <button type="button" className="gd-link" onClick={() => onSeeGifts('drives')}>See gifts</button>}</>,
+            },
+            { k: 'Ended or hidden', v: counts.ended + counts.hidden, s: `${counts.ended} ended · ${counts.hidden} hidden` },
           ]}
         />
       )}
 
-      <Toolbar
-        filters={[
-          { key: 'all', label: 'All', count: list.length },
-          { key: 'running', label: 'Taking gifts', count: counts.running },
-          { key: 'ended', label: 'Ended', count: counts.ended },
-          { key: 'hidden', label: 'Hidden', count: counts.hidden },
-        ]}
-        filter={filter}
-        onFilter={setFilter}
-        query={query}
-        onQuery={setQuery}
-        placeholder="Search drives"
-      />
+      <div className="gd-tools-bar is-flat">
+        <Tabs
+          label="Show"
+          value={filter}
+          onChange={setFilter}
+          items={[
+            { key: 'all', label: 'All', count: list.length },
+            { key: 'running', label: 'Taking gifts', count: counts.running },
+            { key: 'ended', label: 'Ended', count: counts.ended },
+            { key: 'hidden', label: 'Hidden', count: counts.hidden },
+          ]}
+        />
+        <div className="gd-tools">
+          <input className="gd-input gd-search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search drives" aria-label="Search drives" />
+        </div>
+      </div>
 
       <Notice notice={notice} onClose={() => setNotice(null)} />
 
       {loading ? (
-        <div className="sm-empty">Loading…</div>
-      ) : shown.length === 0 ? (
-        <div className="sm-empty">
-          {list.length === 0 && !setupNote ? (
-            <>
-              <strong>No donation drives yet</strong>
-              <span>Create one, and it is on the Donate page at once, with its jar - and, featured, beside the News and in the Community Hub.</span>
-              {createButton}
-            </>
-          ) : !setupNote && <span>No drives match.</span>}
-        </div>
+        <div className="gd-card gd-empty">Loading…</div>
       ) : (
-        <ul className="sm-list">
-          {shown.map((c) => {
-            const ends = campaignEnds(c);
-            return (
-              <Row
-                key={c.id}
-                busy={busyId === c.id}
-                off={!c.is_published || !campaignOpen(c)}
-                thumb={<Thumb c={c} />}
-                status={standing(c)}
-                title={c.title}
-                meta={[
-                  c.goal_amount ? `${peso(c.raised)} raised of ${peso(c.goal_amount)}` : `${peso(c.raised)} raised`,
-                  `${c.gifts} ${c.gifts === 1 ? 'gift' : 'gifts'}`,
-                  campaignOpen(c) ? ends : c.ends_on ? 'Ended' : null,
-                ].filter(Boolean).join(' · ')}
-                onEdit={() => openForm(c)}
-                menu={[
-                  c.is_published && { label: 'View on the website', href: campaignPath(c.slug) },
-                  c.is_published && { label: 'Copy the link', onClick: () => copyLink(c) },
-                  { divider: true },
-                  c.is_published && campaignOpen(c) && (c.is_featured
-                    ? { label: 'Stop featuring it', onClick: () => act(c, 'unfeature') }
-                    : { label: 'Feature it beside the News', onClick: () => act(c, 'feature') }),
-                  c.is_published
-                    ? { label: 'Hide from the website', onClick: () => act(c, 'hide') }
-                    : { label: 'Show on the website', onClick: () => act(c, 'publish') },
-                  { label: 'Delete', danger: true, onClick: () => setConfirm(c) },
-                ]}
-              />
-            );
-          })}
-        </ul>
+        <>
+          <div className="gd-grid">
+            {canCreate && (filter === 'all' || filter === 'running') && !query.trim() && (
+              <button type="button" className="gd-new" onClick={() => openForm()}>
+                <span className="gd-new-plus" aria-hidden="true">+</span>
+                <strong>Create a drive</strong>
+                <span>Photos, a goal and an end date.</span>
+              </button>
+            )}
+            {shown.map((c) => {
+              const st = standing(c);
+              const goal = Number(c.goal_amount) || 0;
+              const raised = Number(c.raised) || 0;
+              const pct = goal ? Math.round((raised / goal) * 100) : null;
+              const img = c.image_url || c.images?.[0] || null;
+              const open = campaignOpen(c);
+              return (
+                <article key={c.id} className={`gd-card gd-drive ${!c.is_published || !open ? 'is-off' : ''}`} aria-busy={busyId === c.id}>
+                  <div className="gd-cover">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={img ? sized(img, 720, 316) : JAR_IMAGE} className={img ? '' : 'is-jar'} alt="" loading="lazy" decoding="async" />
+                    <Pill tone={st.tone}>{st.label}</Pill>
+                  </div>
+                  <div className="gd-drive-body">
+                    <h3>{c.title}</h3>
+                    {pct != null && (
+                      <span className="gd-meter" role="img" aria-label={`${pct}% of the goal`}><span style={{ width: `${Math.min(100, pct)}%` }}></span></span>
+                    )}
+                    <div className="gd-mrow">
+                      <span><b>{peso(raised)}</b>{goal ? ` of ${peso(goal)}` : ' raised'}</span>
+                      {pct != null && <b>{pct}%</b>}
+                    </div>
+                    <div className="gd-mrow">
+                      <span>{plural(Number(c.gifts) || 0, 'gift')}</span>
+                      <span>{open ? (campaignEnds(c) || 'No end date') : c.ends_on ? 'Ended' : ''}</span>
+                    </div>
+                    <div className="gd-drive-acts">
+                      {onSeeGifts && <button type="button" className="gd-btn is-small" onClick={() => onSeeGifts(c.id)}>Gifts</button>}
+                      <button type="button" className="gd-btn is-small" onClick={() => openForm(c)} disabled={busyId === c.id}>Edit</button>
+                      <ManageMenu
+                        label="More"
+                        disabled={busyId === c.id}
+                        items={[
+                          c.is_published && { label: 'View on the website', href: campaignPath(c.slug) },
+                          c.is_published && { label: 'Copy the link', onClick: () => copyLink(c) },
+                          { divider: true },
+                          c.is_published && open && (c.is_featured
+                            ? { label: 'Stop featuring it', onClick: () => act(c, 'unfeature') }
+                            : { label: 'Feature it beside the News', onClick: () => act(c, 'feature') }),
+                          c.is_published
+                            ? { label: 'Hide from the website', onClick: () => act(c, 'hide') }
+                            : { label: 'Show on the website', onClick: () => act(c, 'publish') },
+                          { label: 'Delete', danger: true, onClick: () => setConfirm(c) },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          {shown.length === 0 && list.length > 0 && (
+            <div className="gd-card gd-empty"><strong>No drives here</strong>Try another tab, or clear the search.</div>
+          )}
+          {list.length === 0 && !setupNote && filter !== 'all' && filter !== 'running' && (
+            <div className="gd-card gd-empty"><strong>No donation drives yet</strong>Create one, and it is on the Donate page at once, with its jar.</div>
+          )}
+        </>
       )}
 
       {form && (

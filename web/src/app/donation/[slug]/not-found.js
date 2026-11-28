@@ -3,7 +3,7 @@ import { GivingShell } from '@/components/giving/givingPage';
 export default function DriveNotFound() {
   return (
     <GivingShell path="/donation">
-      <header className="gv-head">
+      <header className="gv-head is-outreach">
         <div className="gv-wrap">
           <span className="gv-eyebrow">Donate</span>
           <h1>That drive is not here</h1>

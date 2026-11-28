@@ -26,8 +26,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBranding } from '@/components/BrandingProvider';
-import ProfileModal from '@/components/account/ProfileModal';
-import { initialsOf, isGuestOnly, signOutViewer, useViewer } from '@/lib/viewer';
+import MeetDevelopersButton from '@/components/developers/MeetDevelopersButton';
+import { useHomeSections } from '@/components/HomeSectionsProvider';
+import { initialsOf, signOutViewer, useViewer } from '@/lib/viewer';
 
 const FACEBOOK_URL = 'https://www.facebook.com/CebuCityJoyfulSound';
 const MESSENGER_URL = 'https://m.me/CebuCityJoyfulSound';
@@ -93,11 +94,9 @@ function Avatar({ viewer, large = false }) {
 // The signed-in account: a chip in the bar and its menu.
 function AccountMenu({ viewer, live, onOpen, dark, onToggleDark }) {
   const [open, setOpen] = useState(false);
-  const [profile, setProfile] = useState(false);
   const ref = useRef(null);
   const name = [viewer.firstname, viewer.lastname].filter(Boolean).join(' ');
   const role = viewer.role || 'Guest';
-  const isGuest = isGuestOnly(viewer);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -161,29 +160,15 @@ function AccountMenu({ viewer, live, onOpen, dark, onToggleDark }) {
           <i className="fas fa-hand-holding-heart" aria-hidden="true"></i>
           <span><strong>My giving</strong><small>Your gifts and their receipts</small></span>
         </a>
-        {isGuest ? (
-          <>
-            <a href="/#my-home" role="menuitem">
-              <i className="fas fa-house-user" aria-hidden="true"></i>
-              <span><strong>My home</strong><small>Your giving, events and services</small></span>
-            </a>
-            <button type="button" role="menuitem" onClick={() => { setOpen(false); setProfile(true); }}>
-              <i className="fas fa-user" aria-hidden="true"></i>
-              <span><strong>My profile</strong><small>Your details and password</small></span>
-            </button>
-          </>
-        ) : (
-          <>
-            <a href="/dashboard#my-profile" role="menuitem">
-              <i className="fas fa-user" aria-hidden="true"></i>
-              <span><strong>My profile</strong><small>Your details and password</small></span>
-            </a>
-            <a href="/dashboard" role="menuitem">
-              <i className="fas fa-gauge" aria-hidden="true"></i>
-              <span><strong>Dashboard</strong><small>Your church dashboard</small></span>
-            </a>
-          </>
-        )}
+        {/* Every role's home is the dashboard, a Guest's too. */}
+        <a href="/dashboard#my-profile" role="menuitem">
+          <i className="fas fa-user" aria-hidden="true"></i>
+          <span><strong>My profile</strong><small>Your details and password</small></span>
+        </a>
+        <a href="/dashboard" role="menuitem">
+          <i className="fas fa-gauge" aria-hidden="true"></i>
+          <span><strong>Dashboard</strong><small>Your church dashboard</small></span>
+        </a>
 
         <button type="button" role="menuitemcheckbox" aria-checked={dark} className="hp-acct-theme" onClick={onToggleDark}>
           <i className={`fas ${dark ? 'fa-sun' : 'fa-moon'}`} aria-hidden="true"></i>
@@ -196,7 +181,6 @@ function AccountMenu({ viewer, live, onOpen, dark, onToggleDark }) {
           <span><strong>Log out</strong></span>
         </button>
       </div>
-      {profile && <ProfileModal viewer={viewer} onClose={() => setProfile(false)} />}
     </div>
   );
 }
@@ -204,6 +188,11 @@ function AccountMenu({ viewer, live, onOpen, dark, onToggleDark }) {
 // `loginHref`: where "Log In" goes - with ?next= on a page worth coming back to.
 export function SiteNavbar({ current = null, onSection = null, live: liveProp, loginHref = '/login' }) {
   const brand = useBranding();
+  // A homepage section a Super Admin hid takes its menu link with it.
+  const { linkShown } = useHomeSections();
+  const nav = NAV
+    .map((n) => (n.items ? { ...n, items: n.items.filter((i) => linkShown(i.href)) } : n))
+    .filter((n) => (n.items ? n.items.length > 0 : linkShown(n.href)));
   const { viewer, ready } = useViewer();
   const [open, setOpen] = useState(false);
   const [group, setGroup] = useState(null); // the dropdown that is open
@@ -281,7 +270,7 @@ export function SiteNavbar({ current = null, onSection = null, live: liveProp, l
       </a>
 
       <div className={`hp-navbar-links ${open ? 'open' : ''}`}>
-        {NAV.map((n) => (n.items ? (
+        {nav.map((n) => (n.items ? (
           <div
             key={n.label}
             className={`hp-nav-group ${group === n.label ? 'open' : ''}`}
@@ -353,6 +342,7 @@ export function SiteNavbar({ current = null, onSection = null, live: liveProp, l
 
 export function SiteFooter() {
   const brand = useBranding();
+  const { linkShown } = useHomeSections();
   const { viewer } = useViewer();
   return (
     <footer className="hp-footer">
@@ -379,11 +369,11 @@ export function SiteFooter() {
         <div className="hp-footer-col">
           <h4>Explore</h4>
           <ul>
-            <li><a href="/#about">About Us</a></li>
-            <li><a href="/#plan-visit">Plan a Visit</a></li>
-            <li><a href="/#ministries">Ministries</a></li>
-            <li><a href="/#news">Events</a></li>
-            <li><a href="/#isom">ISOM</a></li>
+            {linkShown('/#about') && <li><a href="/#about">About Us</a></li>}
+            {linkShown('/#plan-visit') && <li><a href="/#plan-visit">Plan a Visit</a></li>}
+            {linkShown('/#ministries') && <li><a href="/#ministries">Ministries</a></li>}
+            {linkShown('/#news') && <li><a href="/#news">Events</a></li>}
+            {linkShown('/#isom') && <li><a href="/#isom">ISOM</a></li>}
             <li><a href="/donation">Donate</a></li>
             <li><a href="/news">News</a></li>
           </ul>
@@ -400,7 +390,7 @@ export function SiteFooter() {
             {viewer ? (
               <>
                 <li><a href="/giving/my">My Giving</a></li>
-                <li><a href={isGuestOnly(viewer) ? '/#my-home' : '/dashboard'}>My Account</a></li>
+                <li><a href="/dashboard">My Account</a></li>
               </>
             ) : (
               <>
@@ -414,7 +404,7 @@ export function SiteFooter() {
         <div className="hp-footer-col">
           <h4>Get in Touch</h4>
           <ul>
-            <li><a href="/#location">Cebu City, Philippines</a></li>
+            {linkShown('/#location') && <li><a href="/#location">Cebu City, Philippines</a></li>}
             <li><a href={DIRECTIONS_URL} target="_blank" rel="noopener noreferrer">Get Directions</a></li>
             <li><a href={MESSENGER_URL} target="_blank" rel="noopener noreferrer">Message Us</a></li>
             <li><a href="/terms">Terms</a></li>
@@ -429,6 +419,7 @@ export function SiteFooter() {
           {brand.isPlatform
             ? <> Serving {brand.church}.</>
             : <> Powered by <span>{brand.platform}</span>.</>}
+          {' · '}<MeetDevelopersButton />
         </p>
       </div>
     </footer>

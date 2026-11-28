@@ -28,15 +28,15 @@ import './giving.css';
 const STEPS = ['How much', 'Send it', 'Confirm'];
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-// The church's accounts, asked for once per page.
-let methodsPromise = null;
-const loadMethods = () => {
-  methodsPromise ||= fetch('/api/giving')
-    .then((r) => (r.ok ? r.json() : { methods: [] }))
-    .then((j) => (Array.isArray(j.methods) ? j.methods : []))
-    .catch(() => { methodsPromise = null; return []; });
-  return methodsPromise;
+// The church's accounts and open drives, asked for once per page.
+let infoPromise = null;
+export const loadGivingInfo = () => {
+  infoPromise ||= fetch('/api/giving')
+    .then((r) => (r.ok ? r.json() : { methods: [], campaigns: [] }))
+    .catch(() => { infoPromise = null; return { methods: [], campaigns: [] }; });
+  return infoPromise;
 };
+export const loadMethods = () => loadGivingInfo().then((j) => (Array.isArray(j.methods) ? j.methods : []));
 
 function CopyButton({ text }) {
   const [done, setDone] = useState(false);
@@ -209,15 +209,17 @@ function ThankYou({ gift, hasAccount, signedIn, giverName, onClose }) {
 }
 
 // ---- The three steps ----
-function GiveForm({ mode, campaign, onClose, onBusy, onGiven }) {
+// preset { fund, amount, methodId }: chosen already (the dashboard's Tithes &
+// Offerings page), so the window opens at "Send it".
+function GiveForm({ mode, campaign, preset = null, onClose, onBusy, onGiven }) {
   const { viewer } = useViewer();
   const isDonation = mode === 'donation';
   const [methods, setMethods] = useState(null);
-  const [step, setStep] = useState(0);
-  const [fund, setFund] = useState('Tithes');
-  const [amountText, setAmountText] = useState('');
-  const [custom, setCustom] = useState(false);
-  const [methodId, setMethodId] = useState('');
+  const [step, setStep] = useState(preset?.amount && preset?.methodId ? 1 : 0);
+  const [fund, setFund] = useState(preset?.fund || 'Tithes');
+  const [amountText, setAmountText] = useState(preset?.amount ? String(preset.amount) : '');
+  const [custom, setCustom] = useState(!!preset?.amount && !PRESET_AMOUNTS.includes(Number(preset.amount)));
+  const [methodId, setMethodId] = useState(preset?.methodId || '');
   const [reference, setReference] = useState('');
   const [proof, setProof] = useState(null);
   const [name, setName] = useState('');
@@ -447,7 +449,7 @@ function GiveForm({ mode, campaign, onClose, onBusy, onGiven }) {
 }
 
 // ---- The window ----
-export function GiveModal({ mode, campaign = null, onClose, onGiven }) {
+export function GiveModal({ mode, campaign = null, preset = null, onClose, onGiven }) {
   const box = useRef(null);
   const titleId = useId();
   const busy = useRef(false);
@@ -483,7 +485,7 @@ export function GiveModal({ mode, campaign = null, onClose, onGiven }) {
       <div ref={box} className="gv-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <span id={titleId} className="gv-visually-hidden">{mode === 'donation' ? `Donate to ${campaign?.title}` : 'Give your tithes and offerings'}</span>
         <button type="button" className="gv-x" onClick={() => { if (!busy.current) onClose(); }} aria-label="Close">×</button>
-        <GiveForm mode={mode} campaign={campaign} onClose={onClose} onBusy={(b) => { busy.current = b; }} onGiven={onGiven} />
+        <GiveForm mode={mode} campaign={campaign} preset={preset} onClose={onClose} onBusy={(b) => { busy.current = b; }} onGiven={onGiven} />
       </div>
     </div>,
     document.body,

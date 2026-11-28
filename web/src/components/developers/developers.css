@@ -1,0 +1,218 @@
+/* ============================================
+   MEET THE DEVELOPERS - the "Welcome to SanctuaryHub" window
+   (components/developers/DeveloperWelcome.jsx). Light by default;
+   body.dark-mode, or data-theme="dark" (the admin preview), swaps the
+   tokens. The window is its own container, so the cards follow ITS width:
+   one row when it is wide, 2 x 2 in between, a swipe row on a phone.
+   ============================================ */
+.dw, .dw-tokens {
+  --dw-bg: linear-gradient(180deg, #FFFDF6 0%, #FFF5D6 100%);
+  --dw-ink: #1A1A2E;
+  --dw-muted: #4a4a5c;
+  --dw-badge-bg: rgba(255, 195, 0, 0.14);
+  --dw-badge-line: rgba(201, 152, 11, 0.45);
+  --dw-badge-ink: #6f4e00;
+  --dw-close-bg: rgba(26, 26, 46, 0.07);
+  --dw-divider: rgba(26, 26, 46, 0.16);
+  --dw-photo-1: #F4EFE3;
+  --dw-photo-2: #E8E0CE;
+  --dw-figure: #D3C9B4;
+  --dw-glass: rgba(255, 255, 255, 0.62);
+  --dw-glass-line: rgba(255, 255, 255, 0.85);
+  --dw-glass-ink: #1A1A2E;
+  --dw-glass-muted: #4a4a5c;
+  --dw-scrim: rgba(255, 248, 230, 0.55);
+  --dw-f1: rgba(255, 195, 0, 0.24);
+  --dw-f2: rgba(255, 225, 105, 0.34);
+  --dw-f3: rgba(201, 152, 11, 0.14);
+  --dw-line: rgba(201, 152, 11, 0.34);
+  --dw-ring: rgba(201, 152, 11, 0.12);
+  --dw-shadow: 0 30px 80px -20px rgba(80, 60, 10, 0.35), 0 8px 24px rgba(26, 26, 46, 0.08);
+  --dw-card-shadow: 0 14px 30px -14px rgba(120, 90, 10, 0.4);
+  --dw-gold: linear-gradient(135deg, #C9980B, #FFC300);
+}
+.dw {
+  position: relative;
+  width: min(920px, 100%);
+  border-radius: 24px;
+  overflow: hidden;
+  background: var(--dw-bg);
+  color: var(--dw-ink);
+  box-shadow: var(--dw-shadow);
+  container-type: inline-size;
+  font-family: var(--font-outfit), Outfit, 'Segoe UI', sans-serif;
+  text-align: center;
+  isolation: isolate;
+}
+body.dark-mode :is(.dw, .dw-tokens):not([data-theme='light']), :is(.dw, .dw-tokens)[data-theme='dark'] {
+  --dw-bg: linear-gradient(180deg, #1A1A2E 0%, #11111F 100%);
+  --dw-ink: #ffffff;
+  --dw-muted: rgba(236, 236, 243, 0.8);
+  --dw-badge-bg: rgba(255, 195, 0, 0.1);
+  --dw-badge-line: rgba(255, 195, 0, 0.38);
+  --dw-badge-ink: #FFD235;
+  --dw-close-bg: rgba(255, 255, 255, 0.09);
+  --dw-divider: rgba(255, 255, 255, 0.2);
+  --dw-photo-1: #2C2C48;
+  --dw-photo-2: #1E1E34;
+  --dw-figure: #474768;
+  --dw-glass: rgba(26, 26, 46, 0.42);
+  --dw-glass-line: rgba(255, 255, 255, 0.22);
+  --dw-glass-ink: #ffffff;
+  --dw-glass-muted: rgba(255, 255, 255, 0.78);
+  --dw-scrim: rgba(10, 10, 24, 0.55);
+  --dw-f1: rgba(255, 195, 0, 0.16);
+  --dw-f2: rgba(58, 47, 122, 0.55);
+  --dw-f3: rgba(201, 152, 11, 0.14);
+  --dw-line: rgba(255, 195, 0, 0.24);
+  --dw-ring: rgba(255, 255, 255, 0.05);
+  --dw-shadow: 0 30px 90px -20px rgba(0, 0, 0, 0.7);
+  --dw-card-shadow: 0 16px 34px -16px rgba(0, 0, 0, 0.7);
+}
+.dw *, .dw *::before, .dw *::after { box-sizing: border-box; }
+
+.dw-bar { position: absolute; z-index: 3; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #C9980B, #FFC300 50%, #FFE169); }
+.dw-art { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.dw-rings circle { fill: none; stroke: var(--dw-ring); stroke-width: 1; }
+.dw-ribbons path { fill: none; stroke: var(--dw-line); stroke-width: 1; }
+
+.dw-close {
+  position: absolute; z-index: 3; top: 16px; right: 16px; width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center; border: 0; cursor: pointer; font-size: 15px;
+  background: var(--dw-close-bg); color: var(--dw-ink); transition: background 0.2s ease, transform 0.2s ease;
+}
+.dw-close:hover { background: rgba(255, 195, 0, 0.22); }
+.dw :is(button, input):focus-visible { outline: 3px solid #FFC300; outline-offset: 3px; }
+
+.dw-scroll { position: relative; z-index: 1; max-height: inherit; overflow-y: auto; overscroll-behavior: contain; padding: 32px 44px 26px; }
+
+.dw-logos { display: flex; align-items: center; justify-content: center; gap: 16px; height: 42px; }
+.dw-logo { display: block; height: 42px; width: auto; object-fit: contain; }
+.dw-logo-uc.is-dark { display: none; }
+body.dark-mode .dw:not([data-theme='light']) .dw-logo-uc.is-light, .dw[data-theme='dark'] .dw-logo-uc.is-light { display: none; }
+body.dark-mode .dw:not([data-theme='light']) .dw-logo-uc.is-dark, .dw[data-theme='dark'] .dw-logo-uc.is-dark { display: block; }
+.dw-divider { width: 1px; height: 28px; background: var(--dw-divider); }
+
+.dw-badge {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; padding: 6px 15px; border-radius: 999px;
+  background: var(--dw-badge-bg); border: 1px solid var(--dw-badge-line); color: var(--dw-badge-ink);
+  font-size: 13px; font-weight: 600; letter-spacing: 0.01em;
+}
+.dw-badge i { font-size: 12px; color: #C9980B; }
+.dw-title { margin: 12px 0 0; font-size: clamp(26px, 4.3cqw, 40px); font-weight: 800; line-height: 1.08; letter-spacing: -0.02em; color: var(--dw-ink); }
+.dw-gold { background: var(--dw-gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.dw-desc { margin: 10px auto 0; max-width: 600px; font-size: 15px; line-height: 1.55; color: var(--dw-muted); }
+
+/* ---- Cards ---- */
+.dw-cards {
+  list-style: none; margin: 24px auto 0; padding: 0; display: grid; gap: 16px; justify-content: center;
+  grid-template-columns: repeat(var(--dw-n, 4), minmax(0, 190px));
+}
+.dw-card { container-type: inline-size; min-width: 0; }
+.dw-card-frame {
+  position: relative; aspect-ratio: 7 / 10; border-radius: 18px; overflow: hidden;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(180deg, var(--dw-photo-1), var(--dw-photo-2)) padding-box,
+    linear-gradient(135deg, #FFE169, #C9980B 45%, #FFC300) border-box;
+  box-shadow: var(--dw-card-shadow);
+}
+.dw-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; user-select: none; }
+.dw-silhouette { position: absolute; inset: 0; width: 100%; height: 100%; fill: var(--dw-figure); }
+.dw-scrim { position: absolute; inset: auto 0 0 0; height: 48%; background: linear-gradient(180deg, transparent, var(--dw-scrim)); pointer-events: none; }
+.dw-glass {
+  position: absolute; left: clamp(8px, 4.9cqw, 12px); right: clamp(8px, 4.9cqw, 12px); bottom: clamp(8px, 4.9cqw, 12px);
+  min-height: 29.5%; padding: clamp(8px, 4.4cqw, 12px) 8px; border-radius: clamp(12px, 6.5cqw, 16px);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(2px, 1.4cqw, 4px);
+  background: var(--dw-glass); color: var(--dw-glass-ink);
+  -webkit-backdrop-filter: blur(14px) saturate(140%); backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid transparent; border-top-color: var(--dw-glass-line);
+  box-shadow: inset 0 1px 0 var(--dw-glass-line);
+}
+.dw-surname { font-size: clamp(13px, 8cqw, 18px); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.15; overflow-wrap: anywhere; }
+.dw-given { font-size: clamp(11px, 6cqw, 13.5px); font-weight: 500; color: var(--dw-glass-muted); line-height: 1.25; }
+.dw-role {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: clamp(3px, 2cqw, 6px); max-width: 100%;
+  padding: clamp(4px, 2.4cqw, 6px) clamp(10px, 5.7cqw, 14px); border-radius: 999px;
+  background: var(--dw-gold); color: #1A1A2E; font-size: clamp(10.5px, 5.4cqw, 12.5px); font-weight: 700; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dw-role i { font-size: 0.95em; }
+
+.dw-card.is-skeleton .dw-card-frame { animation: dwPulse 1.4s ease-in-out infinite; }
+@keyframes dwPulse { 50% { opacity: 0.6; } }
+
+.dw-state {
+  margin: 24px auto 0; max-width: 440px; padding: 24px 22px; border-radius: 20px;
+  border: 1px dashed var(--dw-badge-line); background: var(--dw-badge-bg); color: var(--dw-muted); font-size: 15.5px;
+}
+.dw-state > i { font-size: 26px; color: #C9980B; }
+.dw-state p { margin: 10px 0 0; color: var(--dw-ink); font-weight: 600; }
+.dw-state small { display: block; margin-top: 8px; font-size: 13px; }
+.dw-retry { margin-top: 14px; border: 1px solid var(--dw-badge-line); background: transparent; color: var(--dw-ink); border-radius: 10px; padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+
+/* ---- Button ---- */
+.dw-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 26px; }
+.dw-enter {
+  border: 0; cursor: pointer; padding: 13px 38px; border-radius: 13px; background: var(--dw-gold); color: #1A1A2E;
+  font: inherit; font-size: 16px; font-weight: 700; letter-spacing: 0.01em;
+  box-shadow: 0 14px 30px -10px rgba(201, 152, 11, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.dw-enter:hover { transform: translateY(-1px); box-shadow: 0 18px 36px -12px rgba(201, 152, 11, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.dw-optout { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--dw-muted); cursor: pointer; user-select: none; }
+.dw-optout input { width: 16px; height: 16px; accent-color: #C9980B; margin: 0; cursor: pointer; }
+
+/* ---- The overlay (DeveloperWelcomeHost) ---- */
+.dw-overlay {
+  position: fixed; inset: 0; z-index: 10050; display: grid; place-items: center; padding: 12px;
+  background: rgba(10, 10, 22, 0.62);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  animation: dwFade 0.22s ease-out both;
+}
+.dw-dialog { width: min(920px, 100%); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); display: flex; justify-content: center; outline: none; }
+.dw-dialog > .dw { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); animation: dwIn 0.28s cubic-bezier(0.2, 0.8, 0.25, 1) both; }
+@keyframes dwFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dwIn { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* ---- Footer link ---- */
+.dw-footer-link {
+  border: 0; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer;
+  text-decoration: underline; text-decoration-color: rgba(255, 195, 0, 0.55); text-underline-offset: 3px;
+}
+.dw-footer-link:hover { color: #FFC300; }
+.dw-footer-link:focus-visible { outline: 2px solid #FFC300; outline-offset: 3px; border-radius: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dw-overlay, .dw-dialog > .dw, .dw-card.is-skeleton .dw-card-frame { animation: none; }
+  .dw-enter:hover { transform: none; }
+}
+
+/* ---- The window's own width (the overlay leaves 12px each side) ---- */
+/* Too narrow for four cards in a row (a small tablet): two by two. */
+@container (max-width: 759px) {
+  .dw-cards { grid-template-columns: repeat(var(--dw-n2, 2), minmax(0, 200px)); gap: 16px; }
+  .dw-scroll { padding: 30px 26px 24px; }
+}
+/* Under 616px (a 640px screen and narrower): one swipe row, about 1.3 cards in view. */
+@container (max-width: 615px) {
+  .dw-scroll { padding: 30px 18px 22px; }
+  .dw-logos { gap: 12px; height: 36px; }
+  .dw-logo { height: 36px; }
+  .dw-divider { height: 24px; }
+  .dw-close { top: 12px; right: 12px; width: 36px; height: 36px; }
+  .dw-badge { margin-top: 18px; font-size: 13px; padding: 6px 14px; }
+  .dw-desc { font-size: 15px; }
+  .dw-cards {
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 72%;
+    justify-content: start; gap: 14px; margin: 24px -18px 0; padding: 4px 18px 10px;
+    overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 18px; scrollbar-width: none;
+  }
+  .dw-cards::-webkit-scrollbar { display: none; }
+  .dw-card { scroll-snap-align: center; }
+  .dw-actions { margin-top: 26px; }
+  .dw-enter { width: 100%; padding: 15px 20px; }
+}
+@media (max-width: 639px) {
+  .dw-dialog > .dw { border-radius: 22px; }
+}
